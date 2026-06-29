@@ -89,55 +89,48 @@ func namedTableStyle(name string) (tableStyle, bool) {
 //	border-header: none                 (removes header separator)
 //	border-color: <color>
 func applyTableCSSToStyle(ts tableStyle, decls map[string]string) tableStyle {
-	for prop, val := range decls {
-		switch prop {
-		case "border-style":
-			if ns, ok := namedTableStyle(val); ok {
-				ts = ns
-			}
-		case "border-top":
-			if val == "none" {
-				ts.top = nil
-			}
-		case "border-bottom":
-			if val == "none" {
-				ts.bottom = nil
-			}
-		case "border-left":
-			if val == "none" {
-				ts.left = ""
-				for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
-					if b != nil {
-						b.left = ""
-					}
-				}
-			}
-		case "border-right":
-			if val == "none" {
-				ts.right = ""
-				for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
-					if b != nil {
-						b.right = ""
-					}
-				}
-			}
-		case "border-columns":
-			if val == "none" {
-				ts.sep = ""
-			}
-		case "border-rows":
-			if val == "none" {
-				ts.rowSep = nil
-			} else if ts.rowSep == nil {
-				ts.rowSep = &hBorder{"├", "─", "┼", "┤"}
-			}
-		case "border-header":
-			if val == "none" {
-				ts.header = nil
-			}
-		case "border-color":
-			ts.color = val
+	if val := decls["border-style"]; val != "" {
+		if ns, ok := namedTableStyle(val); ok {
+			ts = ns
 		}
+	}
+	if decls["border-top"] == "none" {
+		ts.top = nil
+	}
+	if decls["border-bottom"] == "none" {
+		ts.bottom = nil
+	}
+	if decls["border-left"] == "none" {
+		ts.left = ""
+		for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
+			if b != nil {
+				b.left = ""
+			}
+		}
+	}
+	if decls["border-right"] == "none" {
+		ts.right = ""
+		for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
+			if b != nil {
+				b.right = ""
+			}
+		}
+	}
+	if decls["border-columns"] == "none" {
+		ts.sep = ""
+	}
+	if val := decls["border-rows"]; val != "" {
+		if val == "none" {
+			ts.rowSep = nil
+		} else if ts.rowSep == nil {
+			ts.rowSep = &hBorder{"├", "─", "┼", "┤"}
+		}
+	}
+	if decls["border-header"] == "none" {
+		ts.header = nil
+	}
+	if val := decls["border-color"]; val != "" {
+		ts.color = val
 	}
 	return ts
 }

@@ -193,6 +193,31 @@ func TestDisplay_None(t *testing.T) {
 			html: `<div>a</div><div style="display:none">b</div><div>c</div>`,
 			want: "a\nc\n",
 		},
+		{
+			name: "display:none hides top-level unordered list",
+			html: `<p>before</p><ul style="display:none"><li>hidden</li></ul><p>after</p>`,
+			want: "before\n\nafter\n\n",
+		},
+		{
+			name: "display:none hides nested unordered list",
+			html: `<blockquote>before<ul style="display:none"><li>hidden</li></ul>after</blockquote>`,
+			want: "│ beforeafter  \n",
+		},
+		{
+			name: "display:none hides table",
+			html: `<p>before</p><table style="display:none"><tr><td>x</td></tr></table><p>after</p>`,
+			want: "before\n\nafter\n\n",
+		},
+		{
+			name: "display:none hides hr",
+			html: `<p>before</p><hr style="display:none"><p>after</p>`,
+			want: "before\n\nafter\n\n",
+		},
+		{
+			name: "display:none hides br",
+			html: `<p>before<br style="display:none">after</p>`,
+			want: "beforeafter\n\n",
+		},
 	})
 }
 
@@ -922,6 +947,13 @@ func TestTable(t *testing.T) {
 			// After fixed: total=5, flex gets 19-5=14 → col1 width=14
 			want: "fixed flex          \n",
 		},
+		{
+			name:  "table border-left none overrides border-style deterministically",
+			css:   `table { border-style: normal; border-left: none; }`,
+			html:  `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`,
+			width: 40,
+			want:  "───┬───┐\nA  │B  │\n───┴───┘\n",
+		},
 	})
 }
 
@@ -971,6 +1003,16 @@ func TestTableMultiLine(t *testing.T) {
 			// data line1: "│Bob  │"
 			// bottom: "└─────┘"
 			want: "┌─────┐\n│Name │\n├─────┤\n│Al   │\n│Bob  │\n└─────┘\n",
+		},
+		{
+			name: "table cell preserves br line breaks",
+			html: `<table style="border-style:hidden"><tr><td width="4">a<br>b</td></tr></table>`,
+			want: "a   \nb   \n",
+		},
+		{
+			name: "table cell skips display none descendants",
+			html: `<table style="border-style:hidden"><tr><td width="4"><span style="display:none">x</span>y</td></tr></table>`,
+			want: "y   \n",
 		},
 	})
 }

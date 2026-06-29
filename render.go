@@ -382,17 +382,23 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 			}
 		case "head", "style", "script", "meta", "link", "noscript":
 			// non-content elements — skip
-		case "table":
-			sb.WriteString(r.renderTable(n))
-		case "ol":
-			sb.WriteString(r.renderList(n, true, r.width))
-		case "ul":
-			sb.WriteString(r.renderList(n, false, r.width))
-		case "br":
-			sb.WriteByte('\n')
-		case "hr":
-			sb.WriteString(strings.Repeat("─", r.width))
-			sb.WriteByte('\n')
+		case "table", "ol", "ul", "br", "hr":
+			if r.resolveDecls(n)["display"] == "none" {
+				return
+			}
+			switch n.Data {
+			case "table":
+				sb.WriteString(r.renderTable(n))
+			case "ol":
+				sb.WriteString(r.renderList(n, true, r.width))
+			case "ul":
+				sb.WriteString(r.renderList(n, false, r.width))
+			case "br":
+				sb.WriteByte('\n')
+			case "hr":
+				sb.WriteString(strings.Repeat("─", r.width))
+				sb.WriteByte('\n')
+			}
 		default:
 			r.renderDisplayNode(sb, n)
 		}
@@ -1160,6 +1166,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				}
 			}
 		case html.ElementNode:
+			childDecls := r.resolveDecls(c)
+			if childDecls["display"] == "none" {
+				continue
+			}
 			if c.Data == "br" {
 				sb.WriteByte('\n')
 				continue
@@ -1169,17 +1179,17 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			// like <blockquote>. Without this, <li><p>...</p></li> (goldmark
 			// loose-list style) would inject margin newlines for each item.
 			if c.Data == "ul" || c.Data == "ol" {
+				if r.resolveDecls(c)["display"] == "none" {
+					continue
+				}
 				if sb.Len() > 0 && sb.String()[sb.Len()-1] != '\n' {
 					sb.WriteByte('\n')
 				}
 				sb.WriteString(r.renderList(c, c.Data == "ol", availWidth))
 				continue
 			}
-			childDecls := r.resolveDecls(c)
 			display := childDecls["display"]
 			switch display {
-			case "none":
-				// skip
 			case "block":
 				// Block child inside inline flow: accumulated text style does not
 				// cross block boundaries — each block is self-contained.
@@ -1303,7 +1313,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						}
 					}
 					cells = append(cells, cell{
-						text:          applyTextTransform(textContent(td), effectiveTransform(tdDecls)),
+						text:          plainInlineText(stripANSI(r.renderInlineAcc(td, inlineStyle{}, r.width))),
 						visualStyle:   declsToStyle(tdDecls),
 						constraints:   r.cellConstraints(td),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
@@ -1496,12 +1506,6 @@ func namedTableStyle_default() tableStyle {
 	return ts
 }
 
-// textContent returns the collapsed, trimmed text of all descendant text nodes.
-// Used for table cell content where white-space: nowrap applies.
-func textContent(n *html.Node) string {
-	return strings.TrimSpace(normalizeWhiteSpace(rawContent(n), "normal"))
-}
-
 // rawContent returns the concatenated text of all descendant text nodes,
 // preserving whitespace (used for <pre> where newlines are significant).
 func rawContent(n *html.Node) string {
@@ -1517,4 +1521,45 @@ func rawContent(n *html.Node) string {
 	}
 	walk(n)
 	return sb.String()
+}
+
+// stripANSI removes CSI and OSC terminal escape sequences while preserving
+// visible content and newlines.
+func stripANSI(s string) string {
+	var b strings.Builder
+	inEsc := false
+	inOSC := false
+	prev := rune(0)
+	for _, ch := range s {
+		switch {
+		case inOSC:
+			if (prev == '\x1b' && ch == '\\') || ch == '\a' {
+				inOSC = false
+			}
+			prev = ch
+		case inEsc:
+			if ch == ']' {
+				inOSC = true
+				inEsc = false
+			} else if ch >= 0x40 && ch <= 0x7e {
+				inEsc = false
+			}
+			prev = ch
+		case ch == '\x1b':
+			inEsc = true
+			prev = ch
+		default:
+			b.WriteRune(ch)
+			prev = ch
+		}
+	}
+	return b.String()
+}
+
+func plainInlineText(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return strings.Join(lines, "\n")
 }
