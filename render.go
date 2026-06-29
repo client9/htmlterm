@@ -1163,14 +1163,18 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 // the table to the renderer's terminal width.
 func (r *Renderer) renderTable(n *html.Node) string {
 	type cell struct {
-		text         string
-		visualStyle  lipgloss.Style
-		constraints  colConstraints
-		textOverflow string // truncation suffix from text-overflow CSS
-		noWrap       bool   // true when white-space:nowrap → truncate instead of wrap
-		underline    bool
-		strike       bool
-		lines        []string // filled after column widths are known
+		text          string
+		visualStyle   lipgloss.Style
+		constraints   colConstraints
+		textOverflow  string // truncation suffix from text-overflow CSS
+		noWrap        bool   // true when white-space:nowrap → truncate instead of wrap
+		underline     bool
+		strike        bool
+		paddingLeft   int
+		paddingRight  int
+		paddingTop    int
+		paddingBottom int
+		lines         []string // filled after column widths are known
 	}
 
 	var headers []cell
@@ -1192,33 +1196,48 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					if td.Type != html.ElementNode {
 						continue
 					}
-					switch td.Data {
-					case "th":
-						isHeader = true
-						tdDecls := r.resolveDecls(td)
-						tdDeco := tdDecls["text-decoration"]
-						cells = append(cells, cell{
-							text:         applyTextTransform(textContent(td), tdDecls["text-transform"]),
-							visualStyle:  declsToStyle(tdDecls),
-							constraints:  r.cellConstraints(td),
-							textOverflow: textOverflowSuffix(tdDecls["text-overflow"]),
-							noWrap:       tdDecls["white-space"] == "nowrap",
-							underline:    strings.Contains(tdDeco, "underline"),
-							strike:       strings.Contains(tdDeco, "line-through"),
-						})
-					case "td":
-						tdDecls := r.resolveDecls(td)
-						tdDeco := tdDecls["text-decoration"]
-						cells = append(cells, cell{
-							text:         applyTextTransform(textContent(td), tdDecls["text-transform"]),
-							visualStyle:  declsToStyle(tdDecls),
-							constraints:  r.cellConstraints(td),
-							textOverflow: textOverflowSuffix(tdDecls["text-overflow"]),
-							noWrap:       tdDecls["white-space"] == "nowrap",
-							underline:    strings.Contains(tdDeco, "underline"),
-							strike:       strings.Contains(tdDeco, "line-through"),
-						})
+					if td.Data != "th" && td.Data != "td" {
+						continue
 					}
+					if td.Data == "th" {
+						isHeader = true
+					}
+					tdDecls := r.resolveDecls(td)
+					tdDeco := tdDecls["text-decoration"]
+					pl, pr, pt, pb := 0, 0, 0, 0
+					if v := tdDecls["padding-left"]; v != "" {
+						if abs, _, ok := parseSizeVal(v); ok {
+							pl = abs
+						}
+					}
+					if v := tdDecls["padding-right"]; v != "" {
+						if abs, _, ok := parseSizeVal(v); ok {
+							pr = abs
+						}
+					}
+					if v := tdDecls["padding-top"]; v != "" {
+						if abs, _, ok := parseSizeVal(v); ok {
+							pt = abs
+						}
+					}
+					if v := tdDecls["padding-bottom"]; v != "" {
+						if abs, _, ok := parseSizeVal(v); ok {
+							pb = abs
+						}
+					}
+					cells = append(cells, cell{
+						text:          applyTextTransform(textContent(td), tdDecls["text-transform"]),
+						visualStyle:   declsToStyle(tdDecls),
+						constraints:   r.cellConstraints(td),
+						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
+						noWrap:        tdDecls["white-space"] == "nowrap",
+						underline:     strings.Contains(tdDeco, "underline"),
+						strike:        strings.Contains(tdDeco, "line-through"),
+						paddingLeft:   pl,
+						paddingRight:  pr,
+						paddingTop:    pt,
+						paddingBottom: pb,
+					})
 				}
 				if len(cells) == 0 {
 					continue
@@ -1251,7 +1270,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 	for i := 0; i < numCols; i++ {
 		if i < len(headers) {
 			cols[i] = headers[i].constraints
-			cols[i].natural = runeLen(headers[i].text)
+			cols[i].natural = runeLen(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
 		}
 	}
 	for _, row := range rows {
@@ -1259,7 +1278,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 			if i >= numCols {
 				break
 			}
-			if w := runeLen(c.text); w > cols[i].natural {
+			if w := runeLen(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
 				cols[i].natural = w
 			}
 			// Fill in size constraints from data cells when header didn't set them.
@@ -1296,11 +1315,23 @@ func (r *Renderer) renderTable(n *html.Node) string {
 			if i >= numCols {
 				break
 			}
-			w := widths[i]
+			pl := cells[i].paddingLeft
+			pr := cells[i].paddingRight
+			contentW := widths[i] - pl - pr
+			if contentW < 1 {
+				contentW = 1
+			}
 			if cells[i].noWrap {
-				cells[i].lines = []string{truncateToWidth(cells[i].text, w, cells[i].textOverflow)}
+				cells[i].lines = []string{truncateToWidth(cells[i].text, contentW, cells[i].textOverflow)}
 			} else {
-				cells[i].lines = wrapToWidth(cells[i].text, w)
+				cells[i].lines = wrapToWidth(cells[i].text, contentW)
+			}
+			if pt := cells[i].paddingTop; pt > 0 {
+				blank := make([]string, pt)
+				cells[i].lines = append(blank, cells[i].lines...)
+			}
+			if pb := cells[i].paddingBottom; pb > 0 {
+				cells[i].lines = append(cells[i].lines, make([]string, pb)...)
 			}
 		}
 	}
@@ -1334,7 +1365,17 @@ func (r *Renderer) renderTable(n *html.Node) string {
 				if lineIdx < len(c.lines) {
 					line = c.lines[lineIdx]
 				}
-				rendered := c.visualStyle.Width(widths[i]).Render(line)
+				contentW := widths[i] - c.paddingLeft - c.paddingRight
+				if contentW < 1 {
+					contentW = 1
+				}
+				rendered := c.visualStyle.Width(contentW).Render(line)
+				if c.paddingLeft > 0 {
+					rendered = strings.Repeat(" ", c.paddingLeft) + rendered
+				}
+				if c.paddingRight > 0 {
+					rendered = rendered + strings.Repeat(" ", c.paddingRight)
+				}
 				if c.underline {
 					rendered = "\x1b[4m" + rendered + "\x1b[24m"
 				}

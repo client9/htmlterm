@@ -708,6 +708,121 @@ func TestTextOverflow(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Table cell padding
+// ---------------------------------------------------------------------------
+
+func TestTableCellPadding(t *testing.T) {
+	// All cases use border-style:hidden (no outer frame, space separator between
+	// columns) to keep expected strings focused on padding behaviour.
+	hidden := `style="border-style:hidden"`
+
+	runCases(t, []renderCase{
+		// --- horizontal padding ---
+		{
+			name: "padding-left indents cell content",
+			// width=6, pl=1 → contentW=5; Width(5).Render("ab")="ab   "; " "+"ab   "=" ab   "
+			html: `<table ` + hidden + `><tr><td style="padding-left:1" width="6">ab</td></tr></table>`,
+			want: " ab   \n",
+		},
+		{
+			name: "padding-right adds space after cell content",
+			// width=6, pr=1 → contentW=5; Width(5).Render("ab")="ab   "; "ab   "+" "="ab    "
+			html: `<table ` + hidden + `><tr><td style="padding-right:1" width="6">ab</td></tr></table>`,
+			want: "ab    \n",
+		},
+		{
+			name: "padding-left and padding-right both set",
+			// width=7, pl=1, pr=1 → contentW=5; Width(5).Render("ab")="ab   "; " ab    "
+			html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1" width="7">ab</td></tr></table>`,
+			want: " ab    \n",
+		},
+		{
+			name: "natural width includes padding when no explicit width set",
+			// natural = runeLen("ab") + pl(1) + pr(1) = 4; widths[0]=4; contentW=2
+			// Width(2).Render("ab")="ab"; " ab " (4 wide)
+			html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1">ab</td></tr></table>`,
+			want: " ab \n",
+		},
+		{
+			name: "padding-left truncates content to reduced content width",
+			// width=5, pl=1 → contentW=4; "Hello"(5) truncated to 4: "Hel…"; " Hel…"
+			html: `<table ` + hidden + `><tr><td style="padding-left:1" width="5">Hello</td></tr></table>`,
+			want: " Hel…\n",
+		},
+		// --- vertical padding ---
+		{
+			name: "padding-top adds blank line above content",
+			// width=5, pt=1 → lines=["","ab"]; height=2
+			// line0: Width(5).Render("")="     "; line1: Width(5).Render("ab")="ab   "
+			html: `<table ` + hidden + `><tr><td style="padding-top:1" width="5">ab</td></tr></table>`,
+			want: "     \nab   \n",
+		},
+		{
+			name: "padding-bottom adds blank line below content",
+			// width=5, pb=1 → lines=["ab",""]; height=2
+			html: `<table ` + hidden + `><tr><td style="padding-bottom:1" width="5">ab</td></tr></table>`,
+			want: "ab   \n     \n",
+		},
+		{
+			name: "padding-top 2 adds two blank lines above",
+			html: `<table ` + hidden + `><tr><td style="padding-top:2" width="4">X</td></tr></table>`,
+			want: "    \n    \nX   \n",
+		},
+		// --- combined padding ---
+		{
+			name: "padding-top with padding-left",
+			// width=6, pl=1, pt=1 → contentW=5; lines=["","ab"]
+			// line0: " "+"     "="      " (6); line1: " "+"ab   "=" ab   " (6)
+			html: `<table ` + hidden + `><tr><td style="padding-top:1; padding-left:1" width="6">ab</td></tr></table>`,
+			want: "      \n ab   \n",
+		},
+		{
+			name: "all four sides of padding",
+			// width=7, pl=1, pr=1, pt=1, pb=1 → contentW=5; lines=["","ab",""]
+			// line0: " "+"     "+" "="       " (7)
+			// line1: " "+"ab   "+" "=" ab    " (7)
+			// line2: " "+"     "+" "="       " (7)
+			html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1; padding-top:1; padding-bottom:1" width="7">ab</td></tr></table>`,
+			want: "       \n ab    \n       \n",
+		},
+		// --- padding in multi-column row ---
+		{
+			name: "padding-top in one cell raises row height for sibling",
+			// cell0: width=3, pt=1; lines=["","X"]; height=2
+			// cell1: width=3, no padding; lines=["Y"]; height stays 2 from cell0
+			// Cells are top-aligned: cell1 renders "Y" at line0, blank at line1.
+			// line0: "   "(cell0 blank)+" "+"Y  "(cell1) = "    Y  " (7)
+			// line1: "X  "(cell0)+" "+"   "(cell1 blank) = "X      " (7)
+			html: `<table ` + hidden + `><tr><td style="padding-top:1" width="3">X</td><td width="3">Y</td></tr></table>`,
+			want: "    Y  \nX      \n",
+		},
+		// --- padding on th header cells ---
+		{
+			name: "padding-left on th header",
+			// th: width=7, pl=1 → " Name  " (contentW=6); td: width=7, no pad → "val    "
+			html: `<table ` + hidden + `><tr><th style="padding-left:1" width="7">Name</th></tr><tr><td width="7">val</td></tr></table>`,
+			want: " Name  \nval    \n",
+		},
+		{
+			name: "padding-top on th header adds blank row before header text",
+			// th: width=4, pt=1 → lines=["","Hi"]; height=2
+			// header has 2 lines; data row has 1 line
+			// hdr line0: "    "; hdr line1: "Hi  "; data line0: "ok  "
+			html: `<table ` + hidden + `><tr><th style="padding-top:1" width="4">Hi</th></tr><tr><td width="4">ok</td></tr></table>`,
+			want: "    \nHi  \nok  \n",
+		},
+		// --- padding interacts with wrapping (white-space:normal) ---
+		{
+			name: "padding-left with wrapping cell",
+			// width=7, pl=1 → contentW=6; "Hello World" wraps to ["Hello","World"]
+			// line0: " "+"Hello "=" Hello " (7); line1: " "+"World "=" World " (7)
+			html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:normal" width="7">Hello World</td></tr></table>`,
+			want: " Hello \n World \n",
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Table layout
 // ---------------------------------------------------------------------------
 
