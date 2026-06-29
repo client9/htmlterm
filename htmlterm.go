@@ -155,6 +155,39 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 	return result
 }
 
+// pseudoElemDecls returns the merged CSS declarations from all rules whose
+// selector targets the pseudo-element named by which ("before" or "after")
+// on element n. Handles both :before/:after (CSS2) and ::before/::after (CSS3).
+func (r *Renderer) pseudoElemDecls(n *html.Node, which string) map[string]string {
+	type match struct {
+		spec  int
+		decls map[string]string
+	}
+	var matches []match
+	for _, rl := range r.rules {
+		parts := parseSelector(rl.selector)
+		if len(parts) == 0 {
+			continue
+		}
+		last := &parts[len(parts)-1]
+		if last.pseudoElem != which {
+			continue
+		}
+		last.pseudoElem = "" // clear so matchPart evaluates the element context normally
+		if matchSelector(n, parts) {
+			matches = append(matches, match{specificity(parts), rl.decls})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec < matches[j].spec })
+	result := make(map[string]string)
+	for _, m := range matches {
+		for k, v := range m.decls {
+			result[k] = v
+		}
+	}
+	return result
+}
+
 // --- selector types and matching ---
 
 // combinator describes how a selectorPart connects to the part to its left
@@ -185,12 +218,13 @@ type attrSel struct {
 // combo is the combinator that connects this part to the one to its left;
 // it is ignored on parts[0].
 type selectorPart struct {
-	element string
-	id      string
-	classes []string
-	pseudos []string // e.g. "first-child", "nth-child(odd)"
-	attrs   []attrSel
-	combo   combinator
+	element    string
+	id         string
+	classes    []string
+	pseudos    []string // e.g. "first-child", "nth-child(odd)"
+	attrs      []attrSel
+	combo      combinator
+	pseudoElem string // "before", "after", or "" — set for ::before/::after
 }
 
 // parseSelector parses a complex CSS selector string into selectorParts.
@@ -296,7 +330,12 @@ func parseSimpleSelector(tok string) selectorPart {
 				}
 			}
 			if ps := strings.ToLower(tok[i:j]); ps != "" {
-				p.pseudos = append(p.pseudos, ps)
+				switch ps {
+				case "before", "after":
+					p.pseudoElem = ps
+				default:
+					p.pseudos = append(p.pseudos, ps)
+				}
 			}
 			i = j
 		case '[':
@@ -372,6 +411,9 @@ func specificity(parts []selectorPart) int {
 func matchPart(n *html.Node, p selectorPart) bool {
 	if n.Type != html.ElementNode {
 		return false
+	}
+	if p.pseudoElem != "" {
+		return false // pseudo-element selectors never match real nodes
 	}
 	if p.element != "" && n.Data != p.element {
 		return false

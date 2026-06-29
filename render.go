@@ -739,6 +739,20 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	return content
 }
 
+// parseCSSContentString extracts the string value from a CSS content property.
+// Supports quoted strings ("text" or 'text'). Returns "" for none, normal, or
+// unsupported value types (attr(), counter(), etc.).
+func parseCSSContentString(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" || v == "none" || v == "normal" {
+		return ""
+	}
+	if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
+		return v[1 : len(v)-1]
+	}
+	return ""
+}
+
 // wrapHyperlink wraps text in an OSC 8 terminal hyperlink sequence.
 // If href is empty, text is returned unchanged.
 func wrapHyperlink(href, text string) string {
@@ -1110,6 +1124,18 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	}
 	tt := effectiveTransform(nDecls)
 	var sb strings.Builder
+
+	if bd := r.pseudoElemDecls(n, "before"); len(bd) > 0 {
+		if text := parseCSSContentString(bd["content"]); text != "" {
+			st := mergeInlineStyle(acc, bd)
+			if st.has() {
+				sb.WriteString(st.render(text))
+			} else {
+				sb.WriteString(text)
+			}
+		}
+	}
+
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
 		case html.TextNode:
@@ -1186,6 +1212,18 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			}
 		}
 	}
+
+	if ad := r.pseudoElemDecls(n, "after"); len(ad) > 0 {
+		if text := parseCSSContentString(ad["content"]); text != "" {
+			st := mergeInlineStyle(acc, ad)
+			if st.has() {
+				sb.WriteString(st.render(text))
+			} else {
+				sb.WriteString(text)
+			}
+		}
+	}
+
 	return sb.String()
 }
 

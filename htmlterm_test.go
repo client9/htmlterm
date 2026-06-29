@@ -1729,3 +1729,74 @@ func TestNewElements(t *testing.T) {
 		},
 	})
 }
+
+func TestPseudoElements(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "before content string",
+			css:  `p::before { content: "→ "; }`,
+			html: `<p>hello</p>`,
+			want: "→ hello\n\n", // p has margin-bottom:1
+		},
+		{
+			name: "after content string",
+			css:  `p::after { content: " ←"; }`,
+			html: `<p>hello</p>`,
+			want: "hello ←\n\n",
+		},
+		{
+			name: "before and after",
+			css:  `p::before { content: "["; } p::after { content: "]"; }`,
+			html: `<p>hi</p>`,
+			want: "[hi]\n\n",
+		},
+		{
+			name: "content none suppresses output",
+			css:  `p::before { content: none; }`,
+			html: `<p>hello</p>`,
+			want: "hello\n\n",
+		},
+		{
+			name: "single colon :before also works",
+			css:  `p:before { content: "• "; }`,
+			html: `<p>item</p>`,
+			want: "• item\n\n",
+		},
+		{
+			name: "element scoped — div::before does not fire on p",
+			css:  `div::before { content: "X"; }`,
+			html: `<p>para</p>`,
+			want: "para\n\n",
+		},
+		{
+			name: "element scoped — div::before fires on div",
+			css:  `div::before { content: "> "; }`,
+			html: `<div>content</div>`,
+			want: "> content\n",
+		},
+		{
+			name: "before with styling (color stripped in plain-text comparison)",
+			css:  `p::before { content: "! "; color: #ff0000; }`,
+			html: `<p>warning</p>`,
+			want: "! warning\n\n",
+		},
+		{
+			name: "before inherits parent inline context",
+			css:  `p { font-weight: bold; } p::before { content: "★ "; }`,
+			html: `<p>bold</p>`,
+			want: "★ bold\n\n",
+		},
+		{
+			name: "ancestor selector in pseudo-element rule",
+			css:  `div p::before { content: "• "; }`,
+			html: `<div><p>item</p></div>`,
+			want: "• item\n", // p margin-bottom trimmed by outer div's renderBlockContent
+		},
+		{
+			name: "ancestor selector does not fire outside context",
+			css:  `div p::before { content: "• "; }`,
+			html: `<p>item</p>`,
+			want: "item\n\n",
+		},
+	})
+}

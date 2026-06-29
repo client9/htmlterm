@@ -22,6 +22,7 @@ Anything not listed here is silently ignored.
 | Descendant (space) | `tr.unseen td { }` |
 | Child (`>`) | `div > p { }` |
 | Pseudo-class | `li:first-child { }`, `tr:nth-child(odd) { }` |
+| Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
 
 **Specificity** follows CSS rules: ID = 100, class / pseudo-class / attribute = 10,
@@ -30,13 +31,17 @@ element = 1. Higher specificity wins; equal specificity last-write wins.
 **Supported pseudo-classes:** `:first-child`, `:last-child`, `:nth-child(odd)`,
 `:nth-child(even)`. Full `An+B` expressions are not supported.
 
+**Supported pseudo-elements:** `::before` and `::after` (also accepted with a single
+colon: `:before`, `:after`). Inject inline text at the start or end of an element's
+content. Requires the `content` property; without it the rule has no effect.
+All combinator and element-matching forms work: `div p::before`, `.warn::after`, etc.
+
 **Supported attribute operators:** `[attr]` (presence) and `[attr=val]` (exact
 match). Compound operators (`~=`, `^=`, `$=`, `*=`) are not supported; selectors
 containing them never match.
 
 **Not supported:** `:not()`, `:hover`, `:focus`, and other pseudo-classes beyond
-the four listed above; adjacent (`+`) and general sibling (`~`) combinators;
-`::before` / `::after` pseudo-elements.
+the four listed above; adjacent (`+`) and general sibling (`~`) combinators.
 
 ---
 
@@ -175,6 +180,9 @@ Integer line count (e.g. `5`). Content-box height in lines. If the rendered cont
 
 #### `text-transform`
 `none` | `uppercase` | `lowercase` | `capitalize` | `superscript` | `subscript`. Case/script transformation applied to text content. Inherited. `capitalize` uppercases the first letter of each whitespace-separated word. `superscript` and `subscript` replace each character with its Unicode superscript or subscript equivalent where one exists; characters with no Unicode equivalent are passed through unchanged.
+
+#### `content`
+`"<string>"` | `'<string>'` | `none` | `normal`. Text injected by `::before` or `::after` pseudo-element rules. A quoted string literal is the injected text; `none` and `normal` suppress injection. Other CSS content values (`attr()`, `counter()`, etc.) are not supported. Not meaningful on regular elements. Not inherited.
 
 #### `border-style`
 `normal` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
