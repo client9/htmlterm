@@ -169,6 +169,7 @@ func wordWrapANSI(text string, width int) []string {
 func ansiVisibleLen(s string) int {
 	n := 0
 	inEsc := false
+	inCSI := false
 	inOSC := false
 	prev := rune(0)
 	for _, ch := range s {
@@ -178,13 +179,19 @@ func ansiVisibleLen(s string) int {
 				inOSC = false
 			}
 			prev = ch
-		case inEsc:
-			if ch == ']' {
-				inOSC = true
-				inEsc = false
-			} else if ch >= 0x40 && ch <= 0x7e {
-				inEsc = false
+		case inCSI:
+			if ch >= 0x40 && ch <= 0x7e {
+				inCSI = false
 			}
+			prev = ch
+		case inEsc:
+			switch ch {
+			case '[':
+				inCSI = true
+			case ']':
+				inOSC = true
+			}
+			inEsc = false
 			prev = ch
 		case ch == '\x1b':
 			inEsc = true
@@ -202,6 +209,7 @@ func splitANSITokens(text string) []string {
 	var tokens []string
 	var cur strings.Builder
 	inEsc := false
+	inCSI := false
 	inOSC := false
 	prev := rune(0)
 
@@ -220,14 +228,21 @@ func splitANSITokens(text string) []string {
 				inOSC = false
 			}
 			prev = ch
+		case inCSI:
+			cur.WriteRune(ch)
+			if ch >= 0x40 && ch <= 0x7e {
+				inCSI = false
+			}
+			prev = ch
 		case inEsc:
 			cur.WriteRune(ch)
-			if ch == ']' {
+			switch ch {
+			case '[':
+				inCSI = true
+			case ']':
 				inOSC = true
-				inEsc = false
-			} else if ch >= 0x40 && ch <= 0x7e {
-				inEsc = false
 			}
+			inEsc = false
 			prev = ch
 		case ch == '\x1b':
 			cur.WriteRune(ch)
@@ -283,6 +298,7 @@ func rawContent(n *html.Node) string {
 func stripANSI(s string) string {
 	var b strings.Builder
 	inEsc := false
+	inCSI := false
 	inOSC := false
 	prev := rune(0)
 	for _, ch := range s {
@@ -292,13 +308,19 @@ func stripANSI(s string) string {
 				inOSC = false
 			}
 			prev = ch
-		case inEsc:
-			if ch == ']' {
-				inOSC = true
-				inEsc = false
-			} else if ch >= 0x40 && ch <= 0x7e {
-				inEsc = false
+		case inCSI:
+			if ch >= 0x40 && ch <= 0x7e {
+				inCSI = false
 			}
+			prev = ch
+		case inEsc:
+			switch ch {
+			case '[':
+				inCSI = true
+			case ']':
+				inOSC = true
+			}
+			inEsc = false
 			prev = ch
 		case ch == '\x1b':
 			inEsc = true

@@ -43,6 +43,8 @@ func TestTable(t *testing.T) {
 		{name: "normal border style: single header and data row", html: `<table><tr><th width="3">H1</th><th width="4">H2</th></tr><tr><td>A</td><td>Long</td></tr></table>`, width: 40, want: "┌───┬────┐\n│H1 │H2  │\n├───┼────┤\n│A  │Long│\n└───┴────┘\n"},
 		{name: "table width:100% expands flexible column", css: `table { width: 100%; border-style: hidden; }`, html: `<table><tr><td width="5">fixed</td><td>flex</td></tr></table>`, width: 20, want: "fixed flex          \n"},
 		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},
+		{name: "table width percent overrides html width attribute", html: `<table style="border-style:hidden"><tr><td width="8" style="width:50%">abc</td><td>xy</td></tr></table>`, width: 20, want: "abc       xy\n"},
+		{name: "table min-width and max-width influence flexible columns", html: `<table style="border-style:hidden; width:100%"><tr><td style="min-width:6">a</td><td style="max-width:4">bb</td></tr></table>`, width: 16, want: "a           bb  \n"},
 	})
 }
 
@@ -67,5 +69,13 @@ func TestTableVerticalAlign(t *testing.T) {
 		{name: "vertical-align:bottom", html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:bottom">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`, want: "   A B\n   C D\nX  E  \n"},
 		{name: "vertical-align:middle", html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:middle">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`, want: "   A B\nX  C D\n   E  \n"},
 		{name: "vertical-align:bottom two-line tall cell", html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:bottom">X</td><td style="white-space:normal" width="3">A B C D</td></tr></table>`, want: "   A B\nX  C D\n"},
+	})
+}
+
+func TestTableBorderCSS(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "border-rows solid adds separators between data rows", css: `table { border-style: normal; border-rows: solid; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n├───┤\n│B  │\n└───┘\n"},
+		{name: "border-header none suppresses header divider", css: `table { border-style: normal; border-header: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\n│A  │\n└───┘\n"},
+		{name: "border-columns none removes cell separators in rows", css: `table { border-style: normal; border-columns: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, want: "┌──┬──┐\n│A B │\n└──┴──┘\n"},
 	})
 }

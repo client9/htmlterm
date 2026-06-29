@@ -236,26 +236,26 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 
 	switch {
 	case fullWidth && total < contentWidth:
-		// Expand flexible columns evenly, respecting effective max.
-		var flex []int
-		for i, c := range cols {
-			if !isConstrained(c) {
+		// Expand flexible columns while never exceeding their effective max.
+		for extra := contentWidth - total; extra > 0; {
+			progressed := false
+			for i, c := range cols {
+				if isConstrained(c) {
+					continue
+				}
 				_, maxW := effectiveMinMax(c, contentWidth)
-				if maxW == 0 || widths[i] < maxW {
-					flex = append(flex, i)
+				if maxW > 0 && widths[i] >= maxW {
+					continue
+				}
+				widths[i]++
+				extra--
+				progressed = true
+				if extra == 0 {
+					break
 				}
 			}
-		}
-		if len(flex) > 0 {
-			extra := contentWidth - total
-			base := extra / len(flex)
-			rem := extra % len(flex)
-			for k, i := range flex {
-				add := base
-				if k < rem {
-					add++
-				}
-				widths[i] += add
+			if !progressed {
+				break
 			}
 		}
 

@@ -34,6 +34,11 @@ func TestList(t *testing.T) {
 		{name: "ordered list 10+ items aligns single and double digit", width: 40, html: `<ol><li>a</li><li>b</li><li>c</li><li>d</li><li>e</li><li>f</li><li>g</li><li>h</li><li>i</li><li>j</li><li>k</li></ol>`, want: "     1. a\n     2. b\n     3. c\n     4. d\n     5. e\n     6. f\n     7. g\n     8. h\n     9. i\n    10. j\n    11. k\n"},
 		{name: "list-style-type none suppresses bullet", css: `ul { list-style-type: none; }`, html: `<ul><li>alpha</li><li>beta</li></ul>`, want: "    alpha\n    beta\n"},
 		{name: "list-style-type lower-alpha", css: `ol { list-style-type: lower-alpha; }`, html: `<ol><li>one</li><li>two</li><li>three</li></ol>`, want: "    a. one\n    b. two\n    c. three\n"},
+		{name: "list-style-type upper-alpha", css: `ol { list-style-type: upper-alpha; }`, html: `<ol><li>one</li><li>two</li><li>three</li></ol>`, want: "    A. one\n    B. two\n    C. three\n"},
+		{name: "list-style-type circle", css: `ul { list-style-type: circle; }`, html: `<ul><li>item</li></ul>`, want: "    ○ item\n"},
+		{name: "list-style-type square", css: `ul { list-style-type: square; }`, html: `<ul><li>item</li></ul>`, want: "    ■ item\n"},
+		{name: "list-style-type lower-roman renders roman numerals", css: `ol { list-style-type: lower-roman; }`, html: `<ol><li>a</li><li>b</li><li>c</li><li>d</li><li>e</li><li>f</li><li>g</li><li>h</li></ol>`, want: "    i. a\n    ii. b\n    iii. c\n    iv. d\n    v. e\n    vi. f\n    vii. g\n    viii. h\n"},
+		{name: "list-style-type upper-roman renders roman numerals", css: `ol { list-style-type: upper-roman; }`, html: `<ol><li>a</li><li>b</li><li>c</li><li>d</li></ol>`, want: "    I. a\n    II. b\n    III. c\n    IV. d\n"},
 		{name: "padding-left indents list", css: `ul { padding-left: 2; }`, html: `<ul><li>item</li></ul>`, want: "  • item\n"},
 		{name: "wrapped item inside blockquote keeps border on all lines", width: 20, html: `<blockquote><ul><li>one two three four five</li></ul></blockquote>`, want: "│     • one two  \n│       three four  \n│       five  \n"},
 	})

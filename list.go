@@ -97,6 +97,16 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 			return utf8.RuneCountInString("• ")
 		}
 	}
+	switch style {
+	case "lower-roman", "upper-roman":
+		width := 0
+		for i := 1; i <= count; i++ {
+			if w := utf8.RuneCountInString(listItemPrefix(style, true, i, 0)); w > width {
+				width = w
+			}
+		}
+		return width
+	}
 	digits := len(fmt.Sprintf("%d", count))
 	return digits + 2
 }

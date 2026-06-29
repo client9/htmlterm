@@ -103,13 +103,16 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 			}
 		case "text-decoration":
 			switch {
-			case strings.Contains(val, "underline"):
-				s.underline = true
-			case strings.Contains(val, "line-through"):
-				s.strike = true
 			case val == "none" || val == "normal":
 				s.underline = false
 				s.strike = false
+			default:
+				if strings.Contains(val, "underline") {
+					s.underline = true
+				}
+				if strings.Contains(val, "line-through") {
+					s.strike = true
+				}
 			}
 		}
 	}
