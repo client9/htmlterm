@@ -292,6 +292,18 @@ func toSubscript(s string) string {
 	}, s)
 }
 
+// effectiveTransform returns the text transform mode to use given text-transform
+// and font-variant declarations. font-variant: small-caps maps to uppercase.
+func effectiveTransform(decls map[string]string) string {
+	if tt := decls["text-transform"]; tt != "" && tt != "none" {
+		return tt
+	}
+	if decls["font-variant"] == "small-caps" {
+		return "uppercase"
+	}
+	return decls["text-transform"] // "none" or ""
+}
+
 // applyTextTransform applies a CSS text-transform value to s.
 func applyTextTransform(s, mode string) string {
 	switch mode {
@@ -1096,7 +1108,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	if v := nDecls["white-space"]; v != "" {
 		ws = v
 	}
-	tt := nDecls["text-transform"]
+	tt := effectiveTransform(nDecls)
 	var sb strings.Builder
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
@@ -1246,7 +1258,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						}
 					}
 					cells = append(cells, cell{
-						text:          applyTextTransform(textContent(td), tdDecls["text-transform"]),
+						text:          applyTextTransform(textContent(td), effectiveTransform(tdDecls)),
 						visualStyle:   declsToStyle(tdDecls),
 						constraints:   r.cellConstraints(td),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),

@@ -45,7 +45,7 @@ the four listed above; adjacent (`+`) and general sibling (`~`) combinators;
 The following properties inherit from parent to child when no direct rule
 applies to the child element:
 
-`color` · `font-weight` · `font-style` · `text-decoration` · `text-align` · `white-space` · `text-transform`
+`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform`
 
 Inheritance is resolved by walking up the ancestor chain and taking the value
 from the nearest ancestor that sets the property directly. For example,
@@ -169,6 +169,9 @@ Integer line count (e.g. `5`). Content-box height in lines. If the rendered cont
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.
+
+#### `font-variant`
+`small-caps` | `normal`. `small-caps` uppercases all text content (terminal rendering cannot distinguish small-cap glyphs from full capitals). `normal` cancels an inherited value. Inherited. When both `font-variant: small-caps` and `text-transform` are set, `text-transform` wins.
 
 #### `text-transform`
 `none` | `uppercase` | `lowercase` | `capitalize` | `superscript` | `subscript`. Case/script transformation applied to text content. Inherited. `capitalize` uppercases the first letter of each whitespace-separated word. `superscript` and `subscript` replace each character with its Unicode superscript or subscript equivalent where one exists; characters with no Unicode equivalent are passed through unchanged.

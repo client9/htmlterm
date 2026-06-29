@@ -36,7 +36,9 @@ func parseCSS(src string) ([]rule, error) {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
 		val := strings.TrimSpace(valBuf.String())
 		if prop != "" && val != "" && curDecls != nil {
-			curDecls[prop] = val
+			for k, v := range expandShorthand(prop, val) {
+				curDecls[k] = v
+			}
 		}
 		propBuf.Reset()
 		valBuf.Reset()
@@ -118,7 +120,9 @@ func parseInlineDecls(src string) map[string]string {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
 		val := strings.TrimSpace(valBuf.String())
 		if prop != "" && val != "" {
-			result[prop] = val
+			for k, v := range expandShorthand(prop, val) {
+				result[k] = v
+			}
 		}
 		propBuf.Reset()
 		valBuf.Reset()
@@ -161,4 +165,36 @@ func copyDecls(m map[string]string) map[string]string {
 		cp[k] = v
 	}
 	return cp
+}
+
+// expandShorthand expands a CSS shorthand property into its longhand equivalents.
+// Returns a map with one or more property→value pairs. For non-shorthand
+// properties, the map contains only the original prop→val pair.
+//
+// Supported shorthands: margin, padding (1–4 value syntax).
+func expandShorthand(prop, val string) map[string]string {
+	var sides [4]string // top, right, bottom, left
+	switch prop {
+	case "margin", "padding":
+		tokens := strings.Fields(val)
+		switch len(tokens) {
+		case 1:
+			sides = [4]string{tokens[0], tokens[0], tokens[0], tokens[0]}
+		case 2:
+			sides = [4]string{tokens[0], tokens[1], tokens[0], tokens[1]}
+		case 3:
+			sides = [4]string{tokens[0], tokens[1], tokens[2], tokens[1]}
+		case 4:
+			sides = [4]string{tokens[0], tokens[1], tokens[2], tokens[3]}
+		default:
+			return map[string]string{prop: val}
+		}
+		return map[string]string{
+			prop + "-top":    sides[0],
+			prop + "-right":  sides[1],
+			prop + "-bottom": sides[2],
+			prop + "-left":   sides[3],
+		}
+	}
+	return map[string]string{prop: val}
 }

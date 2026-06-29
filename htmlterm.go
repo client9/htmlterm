@@ -102,6 +102,7 @@ var inheritableProps = map[string]bool{
 	"text-align":      true,
 	"white-space":     true,
 	"text-transform":  true,
+	"font-variant":    true,
 }
 
 // resolveDecls returns the winning CSS declarations for node n, merging all

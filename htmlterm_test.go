@@ -1197,6 +1197,41 @@ func TestTextTransform(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// font-variant
+// ---------------------------------------------------------------------------
+
+func TestFontVariant(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "small-caps uppercases inline text",
+			html: `<p style="font-variant:small-caps">hello world</p>`,
+			want: "HELLO WORLD\n\n",
+		},
+		{
+			name: "normal is a no-op",
+			html: `<p style="font-variant:normal">hello world</p>`,
+			want: "hello world\n\n",
+		},
+		{
+			name: "small-caps via class",
+			css:  `.sc { font-variant: small-caps; }`,
+			html: `<p class="sc">hello world</p>`,
+			want: "HELLO WORLD\n\n",
+		},
+		{
+			name: "text-transform overrides small-caps",
+			html: `<p style="font-variant:small-caps;text-transform:lowercase">HELLO</p>`,
+			want: "hello\n\n",
+		},
+		{
+			name: "small-caps in table cell",
+			html: `<table style="border-style:hidden"><tr><td style="font-variant:small-caps" width="5">hello</td></tr></table>`,
+			want: "HELLO\n",
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
 // border-style preset on block elements
 // ---------------------------------------------------------------------------
 
