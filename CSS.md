@@ -284,6 +284,7 @@ The `width` HTML attribute on `<th>`/`<td>` is equivalent to CSS `width`
 | `max-width` | `max-width: 40` or `max-width: 30%` | Column will not expand beyond this value |
 | `white-space` | `nowrap` \| `normal` | Controls cell line-wrapping. Default `nowrap`: content is clipped to one line using `text-overflow`. Set to `normal` (or inherit it from a parent) to enable multi-line word-wrapping; `text-overflow` is then ignored. |
 | `text-overflow` | `clip` \| `ellipsis` \| `"‹str›"` | How overflowing text is indicated when `white-space: nowrap`. Default `ellipsis` (`…`). `clip` cuts with no marker; a quoted string (e.g. `text-overflow: "+"`) uses that as the marker. Not inherited. Ignored when `white-space: normal`. |
+| `vertical-align` | `top` \| `middle` \| `bottom` | Vertical placement of the cell's content within the row height. Default `top`. `bottom` pins content to the last line of the row; `middle` centres it. Not inherited. Only meaningful when rows contain multi-line cells of differing heights. |
 
 ### Multi-line cells
 

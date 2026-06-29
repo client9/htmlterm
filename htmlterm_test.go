@@ -976,6 +976,61 @@ func TestTableMultiLine(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// vertical-align on table cells
+// ---------------------------------------------------------------------------
+
+func TestTableVerticalAlign(t *testing.T) {
+	// Helper: 2-col hidden-border table. col0 has width=2 and the given valign.
+	// col1 has width=3 and white-space:normal, holding multi-line content.
+	hidden := `style="border-style:hidden"`
+	runCases(t, []renderCase{
+		{
+			// default (top): short cell content at top, empty lines below
+			name: "vertical-align default is top",
+			html: `<table ` + hidden + `><tr><td width="2">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`,
+			// col0 lines=["X"], col1 lines=["A B","C D","E"], height=3
+			// line0: "X " + " " + "A B"
+			// line1: "  " + " " + "C D"
+			// line2: "  " + " " + "E  "
+			want: "X  A B\n   C D\n   E  \n",
+		},
+		{
+			name: "vertical-align:top",
+			html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:top">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`,
+			want: "X  A B\n   C D\n   E  \n",
+		},
+		{
+			name: "vertical-align:bottom",
+			html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:bottom">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`,
+			// col0 offset=2 → content on last line
+			// line0: "  " + " " + "A B"
+			// line1: "  " + " " + "C D"
+			// line2: "X " + " " + "E  "
+			want: "   A B\n   C D\nX  E  \n",
+		},
+		{
+			name: "vertical-align:middle",
+			html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:middle">X</td><td style="white-space:normal" width="3">A B C D E</td></tr></table>`,
+			// col0 offset=(3-1)/2=1 → content on middle line
+			// line0: "  " + " " + "A B"
+			// line1: "X " + " " + "C D"
+			// line2: "  " + " " + "E  "
+			want: "   A B\nX  C D\n   E  \n",
+		},
+		{
+			// 2-line content: bottom with even offset
+			name: "vertical-align:bottom two-line tall cell",
+			html: `<table ` + hidden + `><tr><td width="2" style="vertical-align:bottom">X</td><td style="white-space:normal" width="3">A B C D</td></tr></table>`,
+			// col1 wraps "A B C D" at 3: ["A B","C D"], height=2
+			// col0 offset=2-1=1
+			// line0: "  " + " " + "A B"
+			// line1: "X " + " " + "C D"
+			want: "   A B\nX  C D\n",
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
 // <style> tag and inline style= attribute
 // ---------------------------------------------------------------------------
 

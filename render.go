@@ -1193,6 +1193,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 		paddingRight  int
 		paddingTop    int
 		paddingBottom int
+		verticalAlign string   // "top", "middle", "bottom", or "" (default top)
 		lines         []string // filled after column widths are known
 	}
 
@@ -1256,6 +1257,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						paddingRight:  pr,
 						paddingTop:    pt,
 						paddingBottom: pb,
+						verticalAlign: tdDecls["vertical-align"],
 					})
 				}
 				if len(cells) == 0 {
@@ -1380,9 +1382,16 @@ func (r *Renderer) renderTable(n *html.Node) string {
 				if i < len(cells) {
 					c = cells[i]
 				}
+				offset := 0
+				switch c.verticalAlign {
+				case "bottom":
+					offset = height - len(c.lines)
+				case "middle":
+					offset = (height - len(c.lines)) / 2
+				}
 				var line string
-				if lineIdx < len(c.lines) {
-					line = c.lines[lineIdx]
+				if ci := lineIdx - offset; ci >= 0 && ci < len(c.lines) {
+					line = c.lines[ci]
 				}
 				contentW := widths[i] - c.paddingLeft - c.paddingRight
 				if contentW < 1 {
