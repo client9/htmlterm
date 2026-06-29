@@ -1,12 +1,23 @@
 version: "2"
+
+run:
+  go: "1.26"
+  timeout: 5m
+
 linters:
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
   enable:
     - godoclint
     - gochecknoinits
+    - misspell
+    - unparam
+    - exhaustive
+    - prealloc
   exclusions:
     generated: lax
     presets:
-      - comments
       - common-false-positives
       - legacy
       - std-error-handling
@@ -14,13 +25,11 @@ linters:
       - linters:
           - errcheck
         path: _test\.go
-      - linters:
-          - staticcheck
-        text: "QF1003"
     paths:
       - third_party$
       - builtin$
       - examples$
+
 formatters:
   exclusions:
     generated: lax

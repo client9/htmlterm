@@ -99,17 +99,19 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 			s.lg = s.lg.Background(lipgloss.Color(val))
 			s.hasLG = true
 		case "font-weight":
-			if val == "bold" {
+			switch val {
+			case "bold":
 				s.lg = s.lg.Bold(true)
 				s.hasLG = true
-			} else if val == "normal" {
+			case "normal":
 				s.lg = s.lg.Bold(false)
 			}
 		case "font-style":
-			if val == "italic" {
+			switch val {
+			case "italic":
 				s.lg = s.lg.Italic(true)
 				s.hasLG = true
-			} else if val == "normal" {
+			case "normal":
 				s.lg = s.lg.Italic(false)
 			}
 		case "text-decoration":
@@ -394,6 +396,8 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 		default:
 			r.renderDisplayNode(sb, n)
 		}
+	default:
+		// ErrorNode, CommentNode, DoctypeNode, RawNode — nothing to render
 	}
 }
 
@@ -1070,15 +1074,16 @@ func normalizeWhiteSpace(s, mode string) string {
 		var b strings.Builder
 		lastWasSpace := false
 		for _, ch := range s {
-			if ch == '\n' {
+			switch ch {
+			case '\n':
 				b.WriteRune('\n')
 				lastWasSpace = false
-			} else if ch == ' ' || ch == '\t' || ch == '\r' {
+			case ' ', '\t', '\r':
 				if !lastWasSpace {
 					b.WriteRune(' ')
 					lastWasSpace = true
 				}
-			} else {
+			default:
 				b.WriteRune(ch)
 				lastWasSpace = false
 			}
@@ -1210,6 +1215,8 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				}
 				sb.WriteString(inner)
 			}
+		default:
+			// ErrorNode, CommentNode, DoctypeNode, RawNode — nothing to render
 		}
 	}
 
