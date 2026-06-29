@@ -34,15 +34,6 @@ func declsToStyle(decls map[string]string) lipgloss.Style {
 			case "normal":
 				s = s.Italic(false)
 			}
-		case "text-decoration":
-			switch {
-			case strings.Contains(val, "underline"):
-				s = s.Underline(true)
-			case strings.Contains(val, "line-through"):
-				s = s.Strikethrough(true)
-			case val == "none", val == "normal":
-				s = s.Underline(false).Strikethrough(false)
-			}
 		case "text-align":
 			switch val {
 			case "right":
@@ -1164,8 +1155,10 @@ func (r *Renderer) renderTable(n *html.Node) string {
 		text         string
 		visualStyle  lipgloss.Style
 		constraints  colConstraints
-		textOverflow string   // truncation suffix from text-overflow CSS
-		noWrap       bool     // true when white-space:nowrap → truncate instead of wrap
+		textOverflow string // truncation suffix from text-overflow CSS
+		noWrap       bool   // true when white-space:nowrap → truncate instead of wrap
+		underline    bool
+		strike       bool
 		lines        []string // filled after column widths are known
 	}
 
@@ -1192,21 +1185,27 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					case "th":
 						isHeader = true
 						tdDecls := r.resolveDecls(td)
+						tdDeco := tdDecls["text-decoration"]
 						cells = append(cells, cell{
 							text:         applyTextTransform(textContent(td), tdDecls["text-transform"]),
 							visualStyle:  declsToStyle(tdDecls),
 							constraints:  r.cellConstraints(td),
 							textOverflow: textOverflowSuffix(tdDecls["text-overflow"]),
 							noWrap:       tdDecls["white-space"] == "nowrap",
+							underline:    strings.Contains(tdDeco, "underline"),
+							strike:       strings.Contains(tdDeco, "line-through"),
 						})
 					case "td":
 						tdDecls := r.resolveDecls(td)
+						tdDeco := tdDecls["text-decoration"]
 						cells = append(cells, cell{
 							text:         applyTextTransform(textContent(td), tdDecls["text-transform"]),
 							visualStyle:  declsToStyle(tdDecls),
 							constraints:  r.cellConstraints(td),
 							textOverflow: textOverflowSuffix(tdDecls["text-overflow"]),
 							noWrap:       tdDecls["white-space"] == "nowrap",
+							underline:    strings.Contains(tdDeco, "underline"),
+							strike:       strings.Contains(tdDeco, "line-through"),
 						})
 					}
 				}
@@ -1324,7 +1323,14 @@ func (r *Renderer) renderTable(n *html.Node) string {
 				if lineIdx < len(c.lines) {
 					line = c.lines[lineIdx]
 				}
-				sb.WriteString(c.visualStyle.Width(widths[i]).Render(line))
+				rendered := c.visualStyle.Width(widths[i]).Render(line)
+				if c.underline {
+					rendered = "\x1b[4m" + rendered + "\x1b[24m"
+				}
+				if c.strike {
+					rendered = "\x1b[9m" + rendered + "\x1b[29m"
+				}
+				sb.WriteString(rendered)
 			}
 			sb.WriteString(paint(ts.right))
 			sb.WriteByte('\n')
