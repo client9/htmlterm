@@ -35,6 +35,11 @@ var inheritableProps = map[string]bool{
 	"white-space":     true,
 	"text-transform":  true,
 	"font-variant":    true,
+	"overflow-wrap":   true,
+	"word-break":      true,
+	"text-indent":     true,
+	"tab-size":        true,
+	"visibility":      true,
 }
 
 // resolveDecls returns the winning CSS declarations for node n, merging all

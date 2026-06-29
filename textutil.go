@@ -88,11 +88,39 @@ func applyTextTransform(s, mode string) string {
 	}
 }
 
+// expandTabs replaces tab characters with spaces using tabSize-column tab stops.
+func expandTabs(s string, tabSize int) string {
+	if tabSize <= 0 {
+		tabSize = 8
+	}
+	if !strings.ContainsRune(s, '\t') {
+		return s
+	}
+	var b strings.Builder
+	col := 0
+	for _, ch := range s {
+		switch ch {
+		case '\t':
+			spaces := tabSize - (col % tabSize)
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+		case '\n':
+			b.WriteRune(ch)
+			col = 0
+		default:
+			b.WriteRune(ch)
+			col++
+		}
+	}
+	return b.String()
+}
+
 // normalizeWhiteSpace applies CSS white-space rules to a raw text node string.
-func normalizeWhiteSpace(s, mode string) string {
+// tabSize controls tab expansion in pre/pre-wrap modes (0 defaults to 8).
+func normalizeWhiteSpace(s, mode string, tabSize int) string {
 	switch mode {
 	case "pre", "pre-wrap":
-		return s
+		return expandTabs(s, tabSize)
 	case "pre-line":
 		var b strings.Builder
 		lastWasSpace := false
@@ -130,10 +158,84 @@ func normalizeWhiteSpace(s, mode string) string {
 	}
 }
 
+// splitAtVisualWidth splits s into chunks of at most width visible runes,
+// attaching ANSI escape sequences to the preceding visible character.
+// Used for break-all and break-word hard-breaking.
+func splitAtVisualWidth(s string, width int) []string {
+	if width <= 0 || s == "" {
+		return []string{""}
+	}
+	var lines []string
+	var cur strings.Builder
+	col := 0
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		ch := runes[i]
+		if ch == '\x1b' {
+			// Consume ANSI escape sequence without counting visible width.
+			cur.WriteRune(ch)
+			i++
+			if i >= len(runes) {
+				break
+			}
+			next := runes[i]
+			cur.WriteRune(next)
+			i++
+			if next == '[' {
+				// CSI: consume until final byte (0x40–0x7e).
+				for i < len(runes) && (runes[i] < 0x40 || runes[i] > 0x7e) {
+					cur.WriteRune(runes[i])
+					i++
+				}
+				if i < len(runes) {
+					cur.WriteRune(runes[i])
+					i++
+				}
+			} else if next == ']' {
+				// OSC: consume until ST (ESC \) or BEL.
+				prev := next
+				for i < len(runes) {
+					c2 := runes[i]
+					cur.WriteRune(c2)
+					i++
+					if (prev == '\x1b' && c2 == '\\') || c2 == '\a' {
+						break
+					}
+					prev = c2
+				}
+			}
+			// else: two-char escape already consumed.
+		} else {
+			if col >= width {
+				lines = append(lines, cur.String())
+				cur.Reset()
+				col = 0
+			}
+			cur.WriteRune(ch)
+			col++
+			i++
+		}
+	}
+	if cur.Len() > 0 {
+		lines = append(lines, cur.String())
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
 // wordWrapANSI splits text into lines of at most width visible characters.
-func wordWrapANSI(text string, width int) []string {
+// breakMode controls mid-word breaking: "" or "normal" = word boundaries only;
+// "break-word" = also hard-break tokens that overflow the width;
+// "break-all" = break at any character boundary.
+func wordWrapANSI(text string, width int, breakMode string) []string {
 	if width <= 0 {
 		width = 10
+	}
+	if breakMode == "break-all" {
+		return splitAtVisualWidth(text, width)
 	}
 	if ansiVisibleLen(text) <= width {
 		return []string{text}
@@ -154,8 +256,26 @@ func wordWrapANSI(text string, width int) []string {
 			curLen = 0
 			space = ""
 		}
-		cur.WriteString(space + tok)
-		curLen += len(space) + vl
+		if breakMode == "break-word" && vl > width {
+			// Hard-break a token that is too wide to fit on any line.
+			if cur.Len() > 0 {
+				lines = append(lines, cur.String())
+				cur.Reset()
+				curLen = 0
+			}
+			chunks := splitAtVisualWidth(tok, width)
+			for k, chunk := range chunks {
+				if k < len(chunks)-1 {
+					lines = append(lines, chunk)
+				} else {
+					cur.WriteString(chunk)
+					curLen = ansiVisibleLen(chunk)
+				}
+			}
+		} else {
+			cur.WriteString(space + tok)
+			curLen += len(space) + vl
+		}
 	}
 	if cur.Len() > 0 {
 		lines = append(lines, cur.String())

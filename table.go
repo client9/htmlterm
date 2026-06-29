@@ -467,3 +467,17 @@ func sum(ints []int) int {
 	}
 	return n
 }
+
+// centerText centers s within a field of width w, padding with spaces.
+// If s is wider than w it is returned as-is.
+func centerText(s string, w int) string {
+	runes := []rune(s)
+	n := len(runes)
+	if n >= w {
+		return s
+	}
+	total := w - n
+	left := total / 2
+	right := total - left
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
+}

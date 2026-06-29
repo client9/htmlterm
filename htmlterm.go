@@ -20,6 +20,10 @@ type Renderer struct {
 const uaCSS = `
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside { display: block; }
 dl, dt, dd, figure, figcaption  { display: block; }
+address, details, summary, caption, noscript { display: block; }
+address  { font-style: italic; }
+summary  { font-weight: bold; }
+caption  { text-align: center; }
 p                       { margin-bottom: 1; }
 h1, h2, h3, h4, h5, h6 { font-weight: bold; }
 th                      { font-weight: bold; }
@@ -30,7 +34,7 @@ samp, var, cite, figcaption { font-style: italic; }
 a                       { text-decoration: underline; }
 u, ins                  { text-decoration: underline; }
 pre                     { white-space: pre; }
-ul, ol                  { padding-left: 4; }
+ul, ol, menu            { padding-left: 4; }
 dd                      { padding-left: 4; }
 dl                      { margin-bottom: 1; }
 td, th                  { white-space: nowrap; text-overflow: ellipsis; }

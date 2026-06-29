@@ -60,7 +60,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		lines := strings.Split(raw, "\n")
 		for li, line := range lines {
 			if li == 0 {
-				wrapped := wordWrapANSI(line, contentWidth)
+				wrapped := wordWrapANSI(line, contentWidth, "")
 				for wi, seg := range wrapped {
 					if wi == 0 {
 						sb.WriteString(indentStr + prefix + seg + "\n")
@@ -73,7 +73,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 					sb.WriteByte('\n')
 					continue
 				}
-				wrapped := wordWrapANSI(line, contentWidth)
+				wrapped := wordWrapANSI(line, contentWidth, "")
 				for _, seg := range wrapped {
 					sb.WriteString(hangStr + seg + "\n")
 				}

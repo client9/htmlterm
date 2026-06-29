@@ -214,3 +214,252 @@ func TestBlockBorders(t *testing.T) {
 		{name: "border-right with margin-right aligns on wrapped lines", html: `<p style="border-right:|; margin-right:2">one two three four five</p>`, width: 16, want: "one two three|  \nfour five    |  \n\n"},
 	})
 }
+
+func TestOverflowWrap(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "overflow-wrap normal does not break long words",
+			css:   `p { overflow-wrap: normal; }`,
+			html:  `<p>superlongwordthatiswaytoolong</p>`,
+			width: 10,
+			want:  "superlongwordthatiswaytoolong\n\n",
+		},
+		{
+			name:  "overflow-wrap break-word hard-breaks long token",
+			css:   `p { overflow-wrap: break-word; }`,
+			html:  `<p>superlongwordthatiswaytoolong</p>`,
+			width: 10,
+			want:  "superlongw\nordthatisw\naytoolong\n\n",
+		},
+		{
+			name:  "word-break break-all breaks at every character",
+			css:   `p { word-break: break-all; }`,
+			html:  `<p>hello world</p>`,
+			width: 7,
+			want:  "hello w\norld\n\n",
+		},
+		{
+			name:  "overflow-wrap break-word on multi-word text wraps short words normally",
+			css:   `p { overflow-wrap: break-word; }`,
+			html:  `<p>short words fit fine</p>`,
+			width: 10,
+			want:  "short\nwords fit\nfine\n\n",
+		},
+		{
+			name:  "word-break overridden by overflow-wrap when both set",
+			css:   `p { overflow-wrap: break-word; word-break: normal; }`,
+			html:  `<p>verylongtoken</p>`,
+			width: 6,
+			// "verylongtoken" (13 chars) split at 6: "verylo"+"ngtoke"+"n"
+			want: "verylo\nngtoke\nn\n\n",
+		},
+		{
+			name:  "overflow-wrap inherited by child span",
+			css:   `div { overflow-wrap: break-word; }`,
+			html:  `<div><p>averylongwordindeed</p></div>`,
+			width: 8,
+			// "averylongwordindeed" (19 chars) split at 8: "averylon"+"gwordind"+"eed"
+			// div strips trailing newlines from inner p; only div's own \n remains
+			want: "averylon\ngwordind\need\n",
+		},
+	})
+}
+
+func TestTextIndent(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "text-indent indents first line only",
+			css:   `p { text-indent: 4; }`,
+			html:  `<p>hello world</p>`,
+			width: 40,
+			want:  "    hello world\n\n",
+		},
+		{
+			name:  "text-indent does not indent subsequent lines",
+			css:   `p { text-indent: 2; }`,
+			html:  `<p>one two three four</p>`,
+			width: 10,
+			// indent is applied after wrapping; first line gets "  " prepended
+			want: "  one two\nthree four\n\n",
+		},
+		{
+			name:  "text-indent inherited by child block",
+			css:   `div { text-indent: 3; }`,
+			html:  `<div><p>hello</p></div>`,
+			width: 40,
+			// div's first content is a block child (p); indent applies to p's own first line
+			// div strips p's trailing newline, so result has only div's \n
+			want: "   hello\n",
+		},
+		{
+			name:  "text-indent percentage of available width",
+			css:   `p { text-indent: 10%; }`,
+			html:  `<p>hi</p>`,
+			width: 20,
+			want:  "  hi\n\n",
+		},
+	})
+}
+
+func TestTabSize(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "tab-size 4 expands tab to 4 spaces in pre",
+			html:  `<pre>a&#9;b</pre>`,
+			css:   `pre { tab-size: 4; }`,
+			width: 40,
+			want:  "a   b\n",
+		},
+		{
+			name:  "tab-size 8 (default) expands tab to 8 spaces",
+			html:  `<pre>a&#9;b</pre>`,
+			width: 40,
+			want:  "a       b\n",
+		},
+		{
+			name:  "tab-size 2 aligns to 2-column stops",
+			html:  "<pre>ab\tc</pre>",
+			css:   `pre { tab-size: 2; }`,
+			width: 40,
+			want:  "ab  c\n",
+		},
+		{
+			name:  "tab at column zero expands to full tab-size",
+			html:  `<pre>&#9;indented</pre>`,
+			css:   `pre { tab-size: 4; }`,
+			width: 40,
+			want:  "    indented\n",
+		},
+	})
+}
+
+func TestMinMaxHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "min-height pads short block",
+			css:   `div { min-height: 3; width: 6; }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi    \n      \n      \n",
+		},
+		{
+			name:  "min-height leaves taller block unchanged",
+			css:   `div { min-height: 1; }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi\n",
+		},
+		{
+			name:  "max-height clips block with overflow:hidden",
+			css:   `pre { max-height: 2; overflow: hidden; }`,
+			html:  "<pre>line1\nline2\nline3\nline4</pre>",
+			width: 20,
+			want:  "line1\nline2\n",
+		},
+		{
+			name:  "max-height without overflow:hidden does not clip",
+			css:   `pre { max-height: 2; }`,
+			html:  "<pre>line1\nline2\nline3</pre>",
+			width: 20,
+			want:  "line1\nline2\nline3\n",
+		},
+		{
+			name:  "fixed height overrides min-height",
+			css:   `div { height: 2; min-height: 5; width: 4; overflow: hidden; }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi  \n    \n",
+		},
+	})
+}
+
+func TestVisibilityHidden(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "visibility hidden block preserves vertical space",
+			css:   `p { visibility: hidden; }`,
+			html:  `<p>hello</p>`,
+			width: 20,
+			want:  "     \n\n",
+		},
+		{
+			name:  "visibility hidden block between visible blocks",
+			css:   `.hidden { visibility: hidden; }`,
+			html:  `<p>before</p><p class="hidden">secret</p><p>after</p>`,
+			width: 20,
+			want:  "before\n\n      \n\nafter\n\n",
+		},
+		{
+			name:  "visibility hidden table cell shows blank",
+			css:   `.secret { visibility: hidden; }`,
+			html:  `<table style="border-style:none"><tr><th>A</th><th class="secret">B</th></tr></table>`,
+			width: 20,
+			want:  "A  \n",
+		},
+		{
+			name:  "visibility inherited from parent",
+			css:   `div { visibility: hidden; }`,
+			html:  `<div><p>secret</p></div>`,
+			width: 20,
+			// div strips p's trailing newlines; only div's own \n remains
+			want: "      \n",
+		},
+	})
+}
+
+func TestCaptionSide(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "caption-side top is default (caption above table)",
+			html:  `<table style="border-style:none; caption-side:top"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			width: 20,
+			want:  "Title\nName \nAlice\n",
+		},
+		{
+			name:  "caption-side bottom places caption below table",
+			html:  `<table style="border-style:none; caption-side:bottom"><caption>Footer</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			width: 20,
+			want:  "Name \nAlice\nFooter\n",
+		},
+	})
+}
+
+func TestNewHTMLElements(t *testing.T) {
+	runCases(t, []renderCase{
+		// img
+		{name: "img with alt renders bracketed text", html: `<p>See <img src="x.png" alt="diagram"> here</p>`, want: "See [diagram] here\n\n"},
+		{name: "img without alt renders nothing", html: `<p>before<img src="x.png">after</p>`, want: "beforeafter\n\n"},
+
+		// noscript
+		{name: "noscript content renders (no JS in terminal)", html: `<noscript><p>no js</p></noscript>`, want: "no js\n\n"},
+
+		// wbr
+		{name: "wbr emits nothing", html: `<p>word<wbr>break</p>`, want: "wordbreak\n\n"},
+
+		// address
+		{name: "address is block with italic style", html: `<address>Author Name</address>`, want: "Author Name\n"},
+
+		// menu (alias for ul)
+		{name: "menu renders as unordered list", html: `<menu><li>one</li><li>two</li></menu>`, want: "    • one\n    • two\n"},
+
+		// details / summary — p's margin-bottom is absorbed by the outer details block
+		{name: "details renders expanded with summary as bold block", html: `<details><summary>Title</summary><p>body</p></details>`, want: "Title\nbody\n"},
+		{name: "details without summary renders children", html: `<details><p>text</p></details>`, want: "text\n"},
+
+		// caption — appears before the table; centered when table is wider than caption
+		{
+			name:  "table caption appears before table rows",
+			html:  `<table style="border-style:none"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			width: 20,
+			want:  "Title\nName \nAlice\n",
+		},
+		{
+			name:  "table caption centered when table is wider",
+			html:  `<table><caption>Hi</caption><tr><th style="width:10">Col</th></tr></table>`,
+			width: 40,
+			// width=10 col, border-style:normal: overhead=│+│=2, tableW=12
+			// "Hi"(2) centered in 12: 5 left + "Hi" + 5 right
+			want: "     Hi     \n┌──────────┐\n│Col       │\n├──────────┤\n└──────────┘\n",
+		},
+	})
+}

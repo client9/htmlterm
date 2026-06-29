@@ -169,6 +169,9 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 	default:
 		acc := extractInlineStyle(decls)
 		inner := r.renderInlineAcc(n, acc, r.width)
+		if decls["visibility"] == "hidden" {
+			inner = blankVisibleContent(inner)
+		}
 		inner = wrapInlineElement(n, inner)
 		sb.WriteString(wrapHyperlink(href, inner))
 	}
@@ -336,7 +339,11 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	wasWrapped := false
 	ws := decls["white-space"]
 	if ws != "pre" && ws != "nowrap" && !strings.Contains(rawContent, "\n") {
-		wrapped := wordWrapANSI(rawContent, innerW)
+		breakMode := decls["overflow-wrap"]
+		if breakMode == "" {
+			breakMode = decls["word-break"]
+		}
+		wrapped := wordWrapANSI(rawContent, innerW, breakMode)
 		rawContent = strings.Join(wrapped, "\n")
 		wasWrapped = len(wrapped) > 1
 	}
@@ -373,15 +380,59 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		content = padLinesToWidth(content, maxW)
 	}
 
-	if heightLines > 0 {
+	minH := 0
+	if v := decls["min-height"]; v != "" {
+		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
+			minH = abs
+		}
+	}
+	maxH := 0
+	if v := decls["max-height"]; v != "" {
+		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
+			maxH = abs
+		}
+	}
+	if heightLines > 0 || minH > 0 || maxH > 0 {
 		lines := strings.Split(content, "\n")
-		if len(lines) > heightLines && (ov == "hidden" || ov == "clip") {
-			lines = lines[:heightLines]
-			content = strings.Join(lines, "\n")
+		blank := strings.Repeat(" ", innerW)
+		if heightLines > 0 {
+			// Fixed height takes priority over min/max.
+			if len(lines) > heightLines && (ov == "hidden" || ov == "clip") {
+				lines = lines[:heightLines]
+			} else {
+				for len(lines) < heightLines {
+					lines = append(lines, blank)
+				}
+			}
 		} else {
-			blank := strings.Repeat(" ", innerW)
-			for len(lines) < heightLines {
-				lines = append(lines, blank)
+			// max-height clips (requires overflow: hidden/clip).
+			if maxH > 0 && len(lines) > maxH && (ov == "hidden" || ov == "clip") {
+				lines = lines[:maxH]
+			}
+			// min-height always pads.
+			if minH > 0 {
+				for len(lines) < minH {
+					lines = append(lines, blank)
+				}
+			}
+		}
+		content = strings.Join(lines, "\n")
+	}
+	// text-indent: apply only when this element's first rendered content is
+	// direct inline text (not a child block that will apply its own indent).
+	if v := decls["text-indent"]; v != "" && r.firstContentIsInline(n) {
+		indent := 0
+		if abs, pct, ok := parseSizeVal(v); ok {
+			if pct > 0 {
+				indent = int(pct * float64(innerW))
+			} else {
+				indent = abs
+			}
+		}
+		if indent > 0 {
+			lines := strings.SplitN(content, "\n", 2)
+			if len(lines) >= 1 {
+				lines[0] = strings.Repeat(" ", indent) + lines[0]
 			}
 			content = strings.Join(lines, "\n")
 		}
@@ -411,7 +462,45 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	if ml > 0 || mr > 0 {
 		content = applyLineEdges(content, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
 	}
+	if decls["visibility"] == "hidden" {
+		content = blankVisibleContent(content)
+	}
 	return content
+}
+
+// firstContentIsInline reports whether n's first non-whitespace content is
+// inline (a text node or inline element). Returns false when the first child
+// is a block-level element, meaning text-indent should not be applied here —
+// the block child will apply its own inherited value on its own first line.
+func (r *Renderer) firstContentIsInline(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.TextNode {
+			if strings.TrimSpace(c.Data) != "" {
+				return true
+			}
+			continue
+		}
+		if c.Type == html.ElementNode {
+			return r.resolveDecls(c)["display"] != "block"
+		}
+	}
+	return false
+}
+
+// blankVisibleContent removes all ANSI escapes and replaces every non-newline
+// character with a space, preserving line structure for layout purposes.
+func blankVisibleContent(s string) string {
+	plain := stripANSI(s)
+	var b strings.Builder
+	b.Grow(len(plain))
+	for _, ch := range plain {
+		if ch == '\n' {
+			b.WriteRune('\n')
+		} else {
+			b.WriteRune(' ')
+		}
+	}
+	return b.String()
 }
 
 // parseCSSContentString extracts the string value from a CSS content property.

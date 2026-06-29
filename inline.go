@@ -18,6 +18,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	if v := nDecls["white-space"]; v != "" {
 		ws = v
 	}
+	tabSize := 8
+	if abs, _, ok := parseSizeVal(nDecls["tab-size"]); ok && abs > 0 {
+		tabSize = abs
+	}
 	tt := effectiveTransform(nDecls)
 	var sb strings.Builder
 
@@ -35,10 +39,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
 		case html.TextNode:
-			normalized := applyTextTransform(normalizeWhiteSpace(c.Data, ws), tt)
+			normalized := applyTextTransform(normalizeWhiteSpace(c.Data, ws, tabSize), tt)
 			if normalized != "" {
 				atLineStart := sb.Len() == 0 || sb.String()[sb.Len()-1] == '\n'
-				if atLineStart {
+				if atLineStart && ws != "pre" && ws != "pre-wrap" {
 					normalized = strings.TrimLeft(normalized, " ")
 				}
 				if acc.has() {
@@ -56,7 +60,16 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				sb.WriteByte('\n')
 				continue
 			}
-			if c.Data == "ul" || c.Data == "ol" {
+			if c.Data == "img" {
+				if alt := nodeAttr(c, "alt"); alt != "" {
+					sb.WriteString("[" + alt + "]")
+				}
+				continue
+			}
+			if c.Data == "wbr" {
+				continue
+			}
+			if c.Data == "ul" || c.Data == "ol" || c.Data == "menu" {
 				if sb.Len() > 0 && sb.String()[sb.Len()-1] != '\n' {
 					sb.WriteByte('\n')
 				}

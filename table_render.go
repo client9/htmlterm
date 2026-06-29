@@ -104,6 +104,7 @@ func copyMap(m map[string]string) map[string]string {
 func (r *Renderer) renderTable(n *html.Node) string {
 	var headers []tableCell
 	var rows [][]tableCell
+	var captionText string
 
 	colDecls := r.collectColDecls(n)
 
@@ -114,6 +115,10 @@ func (r *Renderer) renderTable(n *html.Node) string {
 				continue
 			}
 			switch c.Data {
+			case "caption":
+				if captionText == "" {
+					captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, inlineStyle{}, r.width)))
+				}
 			case "thead", "tbody", "tfoot":
 				collect(c)
 			case "tr":
@@ -161,8 +166,12 @@ func (r *Renderer) renderTable(n *html.Node) string {
 							pb = abs
 						}
 					}
+					cellText := plainInlineText(stripANSI(r.renderInlineAcc(td, inlineStyle{}, r.width)))
+					if tdDecls["visibility"] == "hidden" {
+						cellText = ""
+					}
 					cells = append(cells, tableCell{
-						text:          plainInlineText(stripANSI(r.renderInlineAcc(td, inlineStyle{}, r.width))),
+						text:          cellText,
 						visualStyle:   declsToStyle(tdDecls),
 						constraints:   r.cellConstraints(td, tdDecls),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
@@ -210,7 +219,13 @@ func (r *Renderer) renderTable(n *html.Node) string {
 		fillTableCellLines(rows[i], widths, numCols)
 	}
 
+	captionSide := tableDecls["caption-side"]
 	var out strings.Builder
+	if captionText != "" && captionSide != "bottom" {
+		// Center caption over the table width (default: top).
+		tableW := sum(widths) + overhead
+		out.WriteString(centerText(captionText, tableW) + "\n")
+	}
 	out.WriteString(drawHBorder(widths, ts.top, ts.color))
 	if len(headers) > 0 {
 		out.WriteString(renderTableRow(headers, widths, numCols, ts))
@@ -223,6 +238,10 @@ func (r *Renderer) renderTable(n *html.Node) string {
 		out.WriteString(renderTableRow(row, widths, numCols, ts))
 	}
 	out.WriteString(drawHBorder(widths, ts.bottom, ts.color))
+	if captionText != "" && captionSide == "bottom" {
+		tableW := sum(widths) + overhead
+		out.WriteString(centerText(captionText, tableW) + "\n")
+	}
 	return out.String()
 }
 

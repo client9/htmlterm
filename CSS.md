@@ -50,7 +50,7 @@ the four listed above; adjacent (`+`) and general sibling (`~`) combinators.
 The following properties inherit from parent to child when no direct rule
 applies to the child element:
 
-`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform`
+`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility`
 
 Inheritance is resolved by walking up the ancestor chain and taking the value
 from the nearest ancestor that sets the property directly. For example,
@@ -99,7 +99,15 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `dd` | Definition description; rendered as an indented block (default: `display: block; padding-left: 4`) |
 | `figure` | Block container for self-contained content such as illustrations or code (default: `display: block`). Style with `margin-left`/`margin-right` to indent. |
 | `figcaption` | Caption for the nearest `<figure>` ancestor (default: `display: block; font-style: italic`) |
+| `img` | Inline image; rendered as `[alt text]` when an `alt` attribute is present, otherwise emits nothing. |
+| `address` | Contact/attribution block (default: `display: block; font-style: italic`). |
+| `details` | Disclosure container (default: `display: block`). Always rendered fully expanded — no interactivity. Content is preserved and displayed. |
+| `summary` | Disclosure summary; the visible heading of a `<details>` block (default: `display: block; font-weight: bold`). |
+| `noscript` | Content is always rendered (no JavaScript in terminal). The HTML5 parser may deliver noscript content as raw text; it is re-parsed and rendered as HTML automatically. |
+| `menu` | Semantic list of commands; treated identically to `<ul>` (default `list-style-type: disc`, `padding-left: 4`). |
+| `wbr` | Optional line-break hint. Emits nothing (no terminal equivalent). |
 | `table` | See table section below |
+| `caption` | Table caption (default: `display: block; text-align: center`). Rendered above the table, centered over the full table width. |
 | `colgroup` | Column group; direct child of `<table>`. A `span` attribute (default 1) applies the group's own `style=` across that many columns when no `<col>` children are present. Style via `style=` or CSS selectors. |
 | `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS. A `width` HTML attribute is treated as an absolute char count. Cell-level declarations take priority over `<col>` declarations. |
 | `thead`, `tbody`, `tfoot` | Transparent wrappers inside `<table>` |
@@ -166,7 +174,13 @@ Integer (e.g. `2`). Blank lines inserted above content, inside `border-top`. Eac
 Integer (e.g. `2`). Blank lines inserted below content, inside `border-bottom`. Same width semantics as `padding-top`. Not inherited.
 
 #### `height`
-Integer line count (e.g. `5`). Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Not inherited.
+Integer line count (e.g. `5`). Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.
+
+#### `min-height`
+Integer line count (e.g. `3`). Minimum content-box height in lines. The element is always padded to at least this many lines regardless of `overflow`. Has no effect when `height` is also set. Not inherited.
+
+#### `max-height`
+Integer line count (e.g. `10`). Maximum content-box height in lines. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited.
 
 #### `white-space`
 `normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. **`td` and `th` default to `nowrap`** (single-line truncation); set `white-space: normal` on a cell or ancestor to enable multi-line wrapping instead. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
@@ -182,6 +196,21 @@ Integer line count (e.g. `5`). Content-box height in lines. If the rendered cont
 
 #### `text-transform`
 `none` | `uppercase` | `lowercase` | `capitalize` | `superscript` | `subscript`. Case/script transformation applied to text content. Inherited. `capitalize` uppercases the first letter of each whitespace-separated word. `superscript` and `subscript` replace each character with its Unicode superscript or subscript equivalent where one exists; characters with no Unicode equivalent are passed through unchanged.
+
+#### `overflow-wrap`
+`normal` | `break-word`. Controls whether long words that overflow the container width may be broken mid-word. `normal` (default): words are never broken — a word longer than the column simply overflows the line. `break-word`: a word that cannot fit on any line is hard-broken at the column boundary. Inherited. See also `word-break`.
+
+#### `word-break`
+`normal` | `break-all`. Sets the character-level line-break strategy. `normal` (default): word-boundary breaking only (same as `overflow-wrap: normal`). `break-all`: break at any character boundary, ignoring word boundaries — suitable for CJK text or URLs with no natural break points. When both `overflow-wrap` and `word-break` are set, `overflow-wrap` takes priority. Inherited.
+
+#### `text-indent`
+`<integer>` or `<N%>`. Indents the first line of a block element's content by the specified number of columns (or percentage of available width). Only applied when the element's own first content is inline text; when the first child is a block-level element, that child applies its own inherited value. Inherited.
+
+#### `tab-size`
+`<integer>`. Tab-stop interval for expanding `\t` characters inside `white-space: pre` or `pre-wrap` content. Tab characters advance to the next multiple of `tab-size` columns. Default: `8`. Has no effect when `white-space` is `normal`, `nowrap`, or `pre-line` (tabs are collapsed to a single space like any other whitespace). Inherited.
+
+#### `visibility`
+`visible` | `hidden`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
 
 #### `content`
 `"<string>"` | `'<string>'` | `none` | `normal`. Text injected by `::before` or `::after` pseudo-element rules. A quoted string literal is the injected text; `none` and `normal` suppress injection. Other CSS content values (`attr()`, `counter()`, etc.) are not supported. Not meaningful on regular elements. Not inherited.
@@ -365,6 +394,10 @@ characters on horizontal separator lines.
 | Property | Example | Notes |
 |----------|---------|-------|
 | `border-color` | `border-color: #555566` | ANSI color applied to all border characters |
+
+### `caption-side`
+
+`top` (default) | `bottom`. Controls where the `<caption>` element is rendered relative to the table rows. `top` renders the caption above the top border; `bottom` renders it below the bottom border. Set on the `<table>` element (via CSS rule or `style=` attribute). Not inherited.
 
 ---
 
