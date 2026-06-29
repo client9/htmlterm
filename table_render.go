@@ -1,6 +1,7 @@
 package htmlterm
 
 import (
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -23,10 +24,88 @@ type tableCell struct {
 	lines         []string
 }
 
+// collectColDecls scans direct <colgroup> children of a <table> node and returns
+// a slice of declaration maps, one entry per column position (expanded by span).
+// A <colgroup> with <col> children uses per-col decls (col overrides colgroup base).
+// A <colgroup> with no <col> children applies its own decls across its span.
+func (r *Renderer) collectColDecls(table *html.Node) []map[string]string {
+	var result []map[string]string
+	for cg := table.FirstChild; cg != nil; cg = cg.NextSibling {
+		if cg.Type != html.ElementNode || cg.Data != "colgroup" {
+			continue
+		}
+		cgDecls := r.directDecls(cg)
+		hasColChildren := false
+		for col := cg.FirstChild; col != nil; col = col.NextSibling {
+			if col.Type == html.ElementNode && col.Data == "col" {
+				hasColChildren = true
+				break
+			}
+		}
+		if !hasColChildren {
+			// <colgroup span="N"> with no <col> children.
+			span := 1
+			if s, err := strconv.Atoi(nodeAttr(cg, "span")); err == nil && s > 1 {
+				span = s
+			}
+			for i := 0; i < span; i++ {
+				result = append(result, cgDecls)
+			}
+			continue
+		}
+		// <colgroup> with <col> children.
+		for col := cg.FirstChild; col != nil; col = col.NextSibling {
+			if col.Type != html.ElementNode || col.Data != "col" {
+				continue
+			}
+			span := 1
+			if s, err := strconv.Atoi(nodeAttr(col, "span")); err == nil && s > 1 {
+				span = s
+			}
+			colDecls := r.directDecls(col)
+			// Also handle width HTML attribute on <col>.
+			if colDecls == nil {
+				colDecls = map[string]string{}
+			}
+			if _, hasW := colDecls["width"]; !hasW {
+				if w := nodeAttr(col, "width"); w != "" {
+					colDecls = copyMap(colDecls)
+					colDecls["width"] = w
+				}
+			}
+			// Merge: colgroup is the base, col overrides.
+			merged := colDecls
+			if len(cgDecls) > 0 {
+				merged = make(map[string]string, len(cgDecls)+len(colDecls))
+				for k, v := range cgDecls {
+					merged[k] = v
+				}
+				for k, v := range colDecls {
+					merged[k] = v
+				}
+			}
+			for i := 0; i < span; i++ {
+				result = append(result, merged)
+			}
+		}
+	}
+	return result
+}
+
+func copyMap(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // renderTable renders a <table> node using the custom table engine.
 func (r *Renderer) renderTable(n *html.Node) string {
 	var headers []tableCell
 	var rows [][]tableCell
+
+	colDecls := r.collectColDecls(n)
 
 	var collect func(*html.Node)
 	collect = func(n *html.Node) {
@@ -48,6 +127,18 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						isHeader = true
 					}
 					tdDecls := r.resolveDecls(td)
+					// Merge col-level declarations as a lower-priority base.
+					ci := len(cells)
+					if ci < len(colDecls) && len(colDecls[ci]) > 0 {
+						merged := make(map[string]string, len(colDecls[ci])+len(tdDecls))
+						for k, v := range colDecls[ci] {
+							merged[k] = v
+						}
+						for k, v := range tdDecls {
+							merged[k] = v // cell overrides col
+						}
+						tdDecls = merged
+					}
 					tdDeco := tdDecls["text-decoration"]
 					pl, pr, pt, pb := 0, 0, 0, 0
 					if v := tdDecls["padding-left"]; v != "" {
@@ -73,7 +164,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					cells = append(cells, tableCell{
 						text:          plainInlineText(stripANSI(r.renderInlineAcc(td, inlineStyle{}, r.width))),
 						visualStyle:   declsToStyle(tdDecls),
-						constraints:   r.cellConstraints(td),
+						constraints:   r.cellConstraints(td, tdDecls),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
 						noWrap:        tdDecls["white-space"] == "nowrap",
 						underline:     strings.Contains(tdDeco, "underline"),

@@ -134,6 +134,48 @@ func TestVerticalBoxModel(t *testing.T) {
 	})
 }
 
+func TestColGroup(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "col width-attr sets fixed column width",
+			html:  `<table style="border-style:none"><colgroup><col width="6"><col width="4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
+			width: 40,
+			want:  "Name   Age \nAlice  30  \n",
+		},
+		{
+			name:  "col style width sets fixed column width",
+			html:  `<table style="border-style:none"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
+			width: 40,
+			want:  "Name   Age \nAlice  30  \n",
+		},
+		{
+			name:  "col span covers multiple columns",
+			html:  `<table style="border-style:none"><colgroup><col span="2" style="width:6"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
+			width: 40,
+			want:  "A      B     \nfoo    bar   \n",
+		},
+		{
+			name:  "colgroup span with no col children",
+			html:  `<table style="border-style:none"><colgroup span="2" style="width:5"></colgroup><tr><th>X</th><th>Y</th></tr><tr><td>a</td><td>b</td></tr></table>`,
+			width: 40,
+			want:  "X     Y    \na     b    \n",
+		},
+		{
+			name:  "cell style overrides col style",
+			html:  `<table style="border-style:none"><colgroup><col style="width:10"></colgroup><tr><th style="width:6">Name</th></tr><tr><td>Alice</td></tr></table>`,
+			width: 40,
+			want:  "Name  \nAlice \n",
+		},
+		{
+			name:  "col css selector sets column width",
+			css:   `col.narrow { width: 5; }`,
+			html:  `<table style="border-style:none"><colgroup><col class="narrow"><col class="narrow"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
+			width: 40,
+			want:  "A     B    \nfoo   bar  \n",
+		},
+	})
+}
+
 func TestBlockBorders(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "border-left adds char to each line", html: `<p style="border-left:│">hello</p>`, want: "│hello\n\n"},

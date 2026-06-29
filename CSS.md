@@ -100,6 +100,8 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `figure` | Block container for self-contained content such as illustrations or code (default: `display: block`). Style with `margin-left`/`margin-right` to indent. |
 | `figcaption` | Caption for the nearest `<figure>` ancestor (default: `display: block; font-style: italic`) |
 | `table` | See table section below |
+| `colgroup` | Column group; direct child of `<table>`. A `span` attribute (default 1) applies the group's own `style=` across that many columns when no `<col>` children are present. Style via `style=` or CSS selectors. |
+| `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS. A `width` HTML attribute is treated as an absolute char count. Cell-level declarations take priority over `<col>` declarations. |
 | `thead`, `tbody`, `tfoot` | Transparent wrappers inside `<table>` |
 | `tr` | Table row; first `<tr>` containing `<th>` is the header |
 | `th`, `td` | Table cells |

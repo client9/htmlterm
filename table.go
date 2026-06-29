@@ -164,9 +164,9 @@ func parseSizeVal(s string) (abs int, pct float64, ok bool) {
 	return
 }
 
-// cellConstraints extracts layout constraints from a <th> or <td> node.
-func (r *Renderer) cellConstraints(n *html.Node) colConstraints {
-	decls := r.resolveDecls(n)
+// cellConstraints extracts layout constraints from a <th> or <td> node using
+// already-resolved declarations. The node is still needed for the HTML width attribute.
+func (r *Renderer) cellConstraints(n *html.Node, decls map[string]string) colConstraints {
 	var c colConstraints
 	// HTML width attribute: always an absolute char count.
 	if w, err := strconv.Atoi(nodeAttr(n, "width")); err == nil && w > 0 {
