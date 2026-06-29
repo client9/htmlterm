@@ -82,44 +82,109 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 These apply to any matched element and control text rendering.
 `normal` / `none` values explicitly cancel an inherited value.
 
-| Property | Values | Notes |
-|----------|--------|-------|
-| `display` | `block` \| `inline` \| `inline-block` \| `none` | Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `none` hides the element and all its children. Not inherited. Defaults: `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`. |
-| `color` | `#rrggbb`, named color | Foreground color |
-| `background-color` | `#rrggbb`, named color | Background color (not inherited) |
-| `font-weight` | `bold` \| `normal` | `normal` cancels inherited bold |
-| `font-style` | `italic` \| `normal` | `normal` cancels inherited italic |
-| `text-decoration` | `underline` \| `line-through` \| `none` \| `normal` | `none`/`normal` cancels both underline and strikethrough |
-| `text-align` | `left` \| `center` \| `right` | Effective on cells when column has a width |
-| `margin-top` | `1` | Extra blank lines above a block element (integer = line count). Adjacent margins collapse: the larger wins. |
-| `margin-bottom` | `1` | Extra blank lines below a block element. Collapses with the next element's `margin-top`. |
-| `margin-left` | `4` \| `auto` | Spaces prepended to every line of a block element, outside any `border-left`. `auto` distributes leftover space between `margin-left` and `margin-right` (requires an explicit `width`; see below). Not inherited. |
-| `margin-right` | `4` \| `auto` | Spaces appended to every line of a block element, outside any `border-right`. `auto` distributes leftover space (requires an explicit `width`; see below). Not inherited. |
+#### `display`
+`block` | `inline` | `inline-block` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `none` hides the element and all its children. Not inherited. Defaults: `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`.
+
+#### `color`
+`#rrggbb`, named color. Foreground color. Inherited.
+
+#### `background-color`
+`#rrggbb`, named color. Background color. Not inherited.
+
+#### `font-weight`
+`bold` | `normal`. `normal` cancels inherited bold. Inherited.
+
+#### `font-style`
+`italic` | `normal`. `normal` cancels inherited italic. Inherited.
+
+#### `text-decoration`
+`underline` | `line-through` | `none` | `normal`. `none`/`normal` cancels both underline and strikethrough. Inherited.
+
+#### `text-align`
+`left` | `center` | `right`. Effective on cells when column has a width. Inherited.
+
+#### `margin-top`
+Integer line count (e.g. `1`). Extra blank lines above a block element. Adjacent margins collapse: the larger wins. Not inherited.
+
+#### `margin-bottom`
+Integer line count (e.g. `1`). Extra blank lines below a block element. Collapses with the next element's `margin-top`. Not inherited.
+
+#### `margin-left`
+Integer (e.g. `4`) or `auto`. Spaces prepended to every line of a block element, outside any `border-left`. Not inherited.
+
+#### `margin-right`
+Integer (e.g. `4`) or `auto`. Spaces appended to every line of a block element, outside any `border-right`. Not inherited.
+
 **`auto` margins:** When an element has an explicit `width` set, `margin-left: auto` and/or `margin-right: auto` distribute the remaining space. Both `auto` centers the element; only `margin-left: auto` right-aligns it; only `margin-right: auto` left-aligns it (fills trailing space). Without an explicit `width` the element already fills the available width and auto margins have no visible effect.
 
-| `width` | `40` or `50%` | Fixed or percentage width for block and `inline-block` elements. For block elements, `width: 100%` fills the renderer width; margins and border characters are subtracted so the total visual line equals the specified width. Not inherited. |
-| `padding-left` | `4` or `4ch` | Left padding in rune columns; applies to block elements |
-| `padding-right` | `4` or `4ch` | Right padding in rune columns; applies to block elements |
-| `padding-top` | `2` | Blank lines inserted above content, inside `border-top`. Each blank row is as wide as the content area so left/right borders and padding align correctly. Not inherited. |
-| `padding-bottom` | `2` | Blank lines inserted below content, inside `border-bottom`. Same width semantics as `padding-top`. Not inherited. |
-| `height` | `5` | Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Not inherited. |
-| `white-space` | `normal` \| `nowrap` \| `pre` \| `pre-wrap` \| `pre-line` | How text-node whitespace is handled (inherited). Default `normal` for block/inline elements. **Block elements** (`p`, `div`, `blockquote`, etc.) with `normal` (the default) **word-wrap long lines** at the available content width, breaking at word boundaries. `nowrap` disables word wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. **`td` and `th` default to `nowrap`** (single-line truncation); set `white-space: normal` on a cell or ancestor to enable multi-line wrapping instead. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped. |
-| `overflow` | `visible` \| `hidden` \| `clip` | Controls whether content that exceeds an explicit `width` is clipped. Default `visible`: text overflows the box. `hidden` and `clip` both truncate each line to the content width. **Requires an explicit `width`**; without one the element already fills the available width. `text-overflow` controls the truncation marker when set to `hidden` or `clip`. Not inherited. |
-| `text-overflow` | `clip` \| `ellipsis` \| `"‹str›"` | The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker, same as CSS). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit (column width acts as the clip boundary) and the default is `ellipsis` rather than `clip`. |
-| `text-transform` | `none` \| `uppercase` \| `lowercase` \| `capitalize` \| `superscript` \| `subscript` | Case/script transformation applied to text content (inherited). `capitalize` uppercases the first letter of each whitespace-separated word. `superscript` and `subscript` replace each character with its Unicode superscript or subscript equivalent where one exists; characters with no Unicode equivalent are passed through unchanged. |
-| `border-style` | `normal` \| `rounded` \| `thick` \| `double` \| `markdown` \| `hidden` \| `none` | Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. The `mid`/`junction` and `sep` fields from table presets have no block equivalent and are ignored. Not inherited. |
-| `border-left` | `<string>` \| `none` | Character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited. |
-| `border-right` | `<string>` \| `none` | Character(s) appended to every rendered line of a block element. Not inherited. |
-| `border-top` | `<string>` \| `none` | Fill character repeated across the full block width (minus margins) to draw a horizontal rule above the content. `none` or unset = no top border. Not inherited. |
-| `border-bottom` | `<string>` \| `none` | Fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. `none` or unset = no bottom border. Not inherited. |
-| `border-left-color` | `#rrggbb`, named color | ANSI color applied to the left border character. Not inherited. |
-| `border-right-color` | `#rrggbb`, named color | ANSI color applied to the right border character. Not inherited. |
-| `border-top-color` | `#rrggbb`, named color | ANSI color applied to the top border rule. Not inherited. |
-| `border-bottom-color` | `#rrggbb`, named color | ANSI color applied to the bottom border rule. Not inherited. |
-| `border-top-left-corner` | `<string>` | Character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited. |
-| `border-top-right-corner` | `<string>` | Character placed at the right end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited. |
-| `border-bottom-left-corner` | `<string>` | Character placed at the left end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited. |
-| `border-bottom-right-corner` | `<string>` | Character placed at the right end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited. |
+#### `width`
+`40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For block elements, `width: 100%` fills the renderer width; margins and border characters are subtracted so the total visual line equals the specified width. Not inherited.
+
+#### `padding-left`
+`4` or `4ch`. Left padding in rune columns; applies to block elements. Not inherited.
+
+#### `padding-right`
+`4` or `4ch`. Right padding in rune columns; applies to block elements. Not inherited.
+
+#### `padding-top`
+Integer (e.g. `2`). Blank lines inserted above content, inside `border-top`. Each blank row is as wide as the content area so left/right borders and padding align correctly. Not inherited.
+
+#### `padding-bottom`
+Integer (e.g. `2`). Blank lines inserted below content, inside `border-bottom`. Same width semantics as `padding-top`. Not inherited.
+
+#### `height`
+Integer line count (e.g. `5`). Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Not inherited.
+
+#### `white-space`
+`normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. **`td` and `th` default to `nowrap`** (single-line truncation); set `white-space: normal` on a cell or ancestor to enable multi-line wrapping instead. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
+
+#### `overflow`
+`visible` | `hidden` | `clip`. Controls whether content that exceeds an explicit `width` is clipped. Default `visible`: text overflows the box. `hidden` and `clip` both truncate each line to the content width. **Requires an explicit `width`**; without one the element already fills the available width. `text-overflow` controls the truncation marker. Not inherited.
+
+#### `text-overflow`
+`clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.
+
+#### `text-transform`
+`none` | `uppercase` | `lowercase` | `capitalize` | `superscript` | `subscript`. Case/script transformation applied to text content. Inherited. `capitalize` uppercases the first letter of each whitespace-separated word. `superscript` and `subscript` replace each character with its Unicode superscript or subscript equivalent where one exists; characters with no Unicode equivalent are passed through unchanged.
+
+#### `border-style`
+`normal` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
+
+#### `border-left`
+`<string>` | `none`. Character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
+
+#### `border-right`
+`<string>` | `none`. Character(s) appended to every rendered line of a block element. Not inherited.
+
+#### `border-top`
+`<string>` | `none`. Fill character repeated across the full block width (minus margins) to draw a horizontal rule above the content. Not inherited.
+
+#### `border-bottom`
+`<string>` | `none`. Fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. Not inherited.
+
+#### `border-left-color`
+`#rrggbb`, named color. ANSI color applied to the left border character. Not inherited.
+
+#### `border-right-color`
+`#rrggbb`, named color. ANSI color applied to the right border character. Not inherited.
+
+#### `border-top-color`
+`#rrggbb`, named color. ANSI color applied to the top border rule. Not inherited.
+
+#### `border-bottom-color`
+`#rrggbb`, named color. ANSI color applied to the bottom border rule. Not inherited.
+
+#### `border-top-left-corner`
+`<string>`. Character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
+
+#### `border-top-right-corner`
+`<string>`. Character placed at the right end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
+
+#### `border-bottom-left-corner`
+`<string>`. Character placed at the left end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
+
+#### `border-bottom-right-corner`
+`<string>`. Character placed at the right end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
 
 ---
 
