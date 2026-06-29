@@ -20,21 +20,26 @@ type Renderer struct {
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
 const uaCSS = `
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside { display: block; }
+dl, dt, dd, figure, figcaption  { display: block; }
 p                       { margin-bottom: 1; }
 h1, h2, h3, h4, h5, h6 { font-weight: bold; }
 th                      { font-weight: bold; }
+dt                      { font-weight: bold; }
 strong, b               { font-weight: bold; }
-em, i                   { font-style: italic; }
+em, i, dfn              { font-style: italic; }
+samp, var, cite, figcaption { font-style: italic; }
 a                       { text-decoration: underline; }
+u, ins                  { text-decoration: underline; }
 pre                     { white-space: pre; }
 ul, ol                  { padding-left: 4; }
+dd                      { padding-left: 4; }
+dl                      { margin-bottom: 1; }
 td, th                  { white-space: nowrap; text-overflow: ellipsis; }
 blockquote              { border-left: │; border-left-color: #555555; padding-left: 1; padding-right: 2; }
 s, del                  { text-decoration: line-through; }
-u                       { text-decoration: underline; }
 kbd                     { font-weight: bold; }
 mark                    { background-color: #cc9900; color: #000000; }
-samp, var, cite         { font-style: italic; }
+small                   { color: #888888; }
 sup                     { text-transform: superscript; }
 sub                     { text-transform: subscript; }
 `
@@ -151,42 +156,218 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 
 // --- selector types and matching ---
 
-type selectorPart struct {
-	element string // tag name; "" matches any
-	class   string // class attribute value; "" matches any
+// combinator describes how a selectorPart connects to the part to its left
+// (ancestor direction) in a complex selector.
+type combinator int
+
+const (
+	descendant combinator = iota // space: any ancestor
+	child                        // >: immediate parent only
+)
+
+// attrOp is the match operator in an attribute selector.
+type attrOp int
+
+const (
+	opExists attrOp = iota // [attr]     — attribute is present
+	opEquals               // [attr=val] — attribute has exact value
+)
+
+// attrSel is a single [attr] or [attr=val] condition.
+type attrSel struct {
+	key string
+	op  attrOp
+	val string // empty for opExists
 }
 
-// parseSelector splits a selector string into parts for descendant matching.
-// Supports: element, .class, element.class, and space-separated descendant chains.
+// selectorPart is one compound component of a CSS selector.
+// combo is the combinator that connects this part to the one to its left;
+// it is ignored on parts[0].
+type selectorPart struct {
+	element string
+	id      string
+	classes []string
+	pseudos []string // e.g. "first-child", "nth-child(odd)"
+	attrs   []attrSel
+	combo   combinator
+}
+
+// parseSelector parses a complex CSS selector string into selectorParts.
+// Combinators: space (descendant) and > (child).
+// Each compound part may contain: element, #id, .class(es), :pseudo-class(es),
+// and [attr] / [attr=val] attribute selectors.
 func parseSelector(sel string) []selectorPart {
-	tokens := strings.Fields(sel)
-	parts := make([]selectorPart, 0, len(tokens))
-	for _, tok := range tokens {
-		var p selectorPart
-		if i := strings.Index(tok, "."); i != -1 {
-			p.element = tok[:i]
-			p.class = tok[i+1:]
-		} else {
-			p.element = tok
+	var parts []selectorPart
+	combo := descendant
+	i, n := 0, len(sel)
+
+	for i < n {
+		// Skip leading whitespace; a plain space implies descendant combinator.
+		for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+			i++
 		}
-		parts = append(parts, p)
+		if i >= n {
+			break
+		}
+		// Explicit child combinator.
+		if sel[i] == '>' {
+			combo = child
+			i++
+			for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+				i++
+			}
+			continue
+		}
+		// Scan one compound-selector token. Stop at whitespace or '>', but
+		// skip the contents of [...] so a '>' inside an attribute value is
+		// not mistaken for a combinator.
+		start := i
+		for i < n && sel[i] != ' ' && sel[i] != '\t' && sel[i] != '>' {
+			if sel[i] == '[' {
+				for i < n && sel[i] != ']' {
+					i++
+				}
+				if i < n {
+					i++ // consume ']'
+				}
+			} else {
+				i++
+			}
+		}
+		if tok := sel[start:i]; tok != "" {
+			p := parseSimpleSelector(tok)
+			p.combo = combo
+			parts = append(parts, p)
+		}
+		combo = descendant // reset for the next token
 	}
 	return parts
 }
 
+// parseSimpleSelector parses a single compound-selector token such as
+// "div#main.foo.bar:first-child[href=val]" into a selectorPart.
+func parseSimpleSelector(tok string) selectorPart {
+	var p selectorPart
+	i, n := 0, len(tok)
+
+	// Optional element name: leading characters before the first #, ., :, or [.
+	j := i
+	for j < n && tok[j] != '#' && tok[j] != '.' && tok[j] != ':' && tok[j] != '[' {
+		j++
+	}
+	p.element = tok[i:j]
+	i = j
+
+	for i < n {
+		switch tok[i] {
+		case '#':
+			i++
+			j = i
+			for j < n && tok[j] != '#' && tok[j] != '.' && tok[j] != ':' && tok[j] != '[' {
+				j++
+			}
+			p.id = tok[i:j]
+			i = j
+		case '.':
+			i++
+			j = i
+			for j < n && tok[j] != '#' && tok[j] != '.' && tok[j] != ':' && tok[j] != '[' {
+				j++
+			}
+			if cls := tok[i:j]; cls != "" {
+				p.classes = append(p.classes, cls)
+			}
+			i = j
+		case ':':
+			i++
+			j = i
+			for j < n && tok[j] != '#' && tok[j] != '.' && tok[j] != ':' && tok[j] != '[' {
+				if tok[j] == '(' {
+					// consume the functional argument, e.g. nth-child(odd)
+					for j < n && tok[j] != ')' {
+						j++
+					}
+					if j < n {
+						j++ // consume ')'
+					}
+				} else {
+					j++
+				}
+			}
+			if ps := strings.ToLower(tok[i:j]); ps != "" {
+				p.pseudos = append(p.pseudos, ps)
+			}
+			i = j
+		case '[':
+			i++ // skip '['
+			j = i
+			for j < n && tok[j] != ']' {
+				j++
+			}
+			if a, ok := parseAttrSel(tok[i:j]); ok {
+				p.attrs = append(p.attrs, a)
+			}
+			if j < n {
+				i = j + 1 // skip ']'
+			} else {
+				i = j
+			}
+		default:
+			i++
+		}
+	}
+	return p
+}
+
+// parseAttrSel parses the content of [...] into an attrSel.
+// Supports [attr] (presence) and [attr=val] (exact match).
+// Compound operators (~=, ^=, $=, *=) are silently rejected (return false)
+// so the selector never matches, matching browser behaviour for unknown syntax.
+func parseAttrSel(s string) (attrSel, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return attrSel{}, false
+	}
+	// Reject compound operators.
+	for _, op := range []string{"~=", "^=", "$=", "*="} {
+		if strings.Contains(s, op) {
+			return attrSel{}, false
+		}
+	}
+	if eq := strings.IndexByte(s, '='); eq >= 0 {
+		key := strings.TrimSpace(s[:eq])
+		val := strings.TrimSpace(s[eq+1:])
+		// Strip optional surrounding quotes.
+		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+			val = val[1 : len(val)-1]
+		}
+		if key == "" {
+			return attrSel{}, false
+		}
+		return attrSel{key: key, op: opEquals, val: val}, true
+	}
+	return attrSel{key: s, op: opExists}, true
+}
+
+// specificity returns the CSS specificity of a parsed selector as a flat int.
+// Encoding: id×100 + (class+pseudo+attr)×10 + element×1.
 func specificity(parts []selectorPart) int {
 	s := 0
 	for _, p := range parts {
 		if p.element != "" {
 			s++
 		}
-		if p.class != "" {
-			s += 10
+		if p.id != "" {
+			s += 100
 		}
+		s += len(p.classes) * 10
+		s += len(p.pseudos) * 10
+		s += len(p.attrs) * 10
 	}
 	return s
 }
 
+// matchPart reports whether node n satisfies all simple-selector conditions in p.
 func matchPart(n *html.Node, p selectorPart) bool {
 	if n.Type != html.ElementNode {
 		return false
@@ -194,10 +375,13 @@ func matchPart(n *html.Node, p selectorPart) bool {
 	if p.element != "" && n.Data != p.element {
 		return false
 	}
-	if p.class != "" {
+	if p.id != "" && nodeAttr(n, "id") != p.id {
+		return false
+	}
+	for _, cls := range p.classes {
 		found := false
 		for _, c := range strings.Fields(nodeAttr(n, "class")) {
-			if c == p.class {
+			if c == cls {
 				found = true
 				break
 			}
@@ -206,11 +390,75 @@ func matchPart(n *html.Node, p selectorPart) bool {
 			return false
 		}
 	}
+	for _, ps := range p.pseudos {
+		if !matchPseudo(n, ps) {
+			return false
+		}
+	}
+	for _, a := range p.attrs {
+		if !matchAttr(n, a) {
+			return false
+		}
+	}
 	return true
 }
 
-// matchSelector matches n against parts (rightmost part = current node,
-// leftward parts must match ancestors in order).
+// matchPseudo reports whether n satisfies a single pseudo-class condition.
+// Supported: first-child, last-child, nth-child(odd), nth-child(even).
+// Unknown pseudo-classes always return false so the selector never matches.
+func matchPseudo(n *html.Node, pseudo string) bool {
+	if n.Parent == nil {
+		return false
+	}
+	switch pseudo {
+	case "first-child":
+		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode {
+				return s == n
+			}
+		}
+	case "last-child":
+		for s := n.Parent.LastChild; s != nil; s = s.PrevSibling {
+			if s.Type == html.ElementNode {
+				return s == n
+			}
+		}
+	case "nth-child(odd)", "nth-child(even)":
+		wantOdd := pseudo == "nth-child(odd)"
+		idx := 0
+		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode {
+				idx++
+				if s == n {
+					return (idx%2 == 1) == wantOdd
+				}
+			}
+		}
+	}
+	return false
+}
+
+// matchAttr reports whether n satisfies a single attribute selector condition.
+func matchAttr(n *html.Node, a attrSel) bool {
+	switch a.op {
+	case opExists:
+		// Check presence directly in n.Attr so an attribute with an empty
+		// value (e.g. <p hidden>) is correctly treated as present.
+		for _, attr := range n.Attr {
+			if attr.Key == a.key {
+				return true
+			}
+		}
+		return false
+	case opEquals:
+		return nodeAttr(n, a.key) == a.val
+	}
+	return false
+}
+
+// matchSelector matches n against a parsed selector. The rightmost part must
+// match n; each preceding part must match an ancestor according to its
+// combinator (descendant = any ancestor, child = immediate parent only).
 func matchSelector(n *html.Node, parts []selectorPart) bool {
 	if len(parts) == 0 || n.Type != html.ElementNode {
 		return false
@@ -218,13 +466,31 @@ func matchSelector(n *html.Node, parts []selectorPart) bool {
 	if !matchPart(n, parts[len(parts)-1]) {
 		return false
 	}
-	remaining := parts[:len(parts)-1]
-	for anc := n.Parent; anc != nil && len(remaining) > 0; anc = anc.Parent {
-		if matchPart(anc, remaining[len(remaining)-1]) {
-			remaining = remaining[:len(remaining)-1]
+	cur := n.Parent
+	for i := len(parts) - 2; i >= 0; i-- {
+		// parts[i+1].combo describes how parts[i+1] connects to parts[i].
+		switch parts[i+1].combo {
+		case child:
+			// parts[i] must be the immediate parent of where parts[i+1] matched.
+			if cur == nil || cur.Type != html.ElementNode || !matchPart(cur, parts[i]) {
+				return false
+			}
+			cur = cur.Parent
+		default: // descendant — walk up until a match or root
+			found := false
+			for ; cur != nil; cur = cur.Parent {
+				if cur.Type == html.ElementNode && matchPart(cur, parts[i]) {
+					found = true
+					cur = cur.Parent
+					break
+				}
+			}
+			if !found {
+				return false
+			}
 		}
 	}
-	return len(remaining) == 0
+	return true
 }
 
 func nodeAttr(n *html.Node, key string) string {

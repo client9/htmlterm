@@ -1401,3 +1401,241 @@ func TestBlockquoteBlocks(t *testing.T) {
 		},
 	})
 }
+
+// ---------------------------------------------------------------------------
+// CSS selector improvements: #id, multi-class, >, pseudo-classes, [attr]
+// ---------------------------------------------------------------------------
+
+func TestSelectors(t *testing.T) {
+	runCases(t, []renderCase{
+		// --- #id ---
+		{
+			name: "#id selector targets element with matching id",
+			css:  `#hero { text-transform: uppercase; }`,
+			html: `<p id="hero">featured</p><p>normal</p>`,
+			want: "FEATURED\n\nnormal\n\n",
+		},
+		{
+			name: "#id selector does not match a different id",
+			css:  `#other { text-transform: uppercase; }`,
+			html: `<p id="hero">text</p>`,
+			want: "text\n\n",
+		},
+		{
+			name: "#id in descendant selector chain",
+			css:  `#main p { text-transform: uppercase; }`,
+			html: `<div id="main"><p>inside</p></div><p>outside</p>`,
+			// div has no margin-bottom; p's trailing blank line is eaten by TrimRight inside div
+			want: "INSIDE\noutside\n\n",
+		},
+		{
+			name: "element#id combined selector",
+			css:  `p#hero { text-transform: uppercase; }`,
+			html: `<p id="hero">match</p><div id="hero">no-match</div>`,
+			// p#hero matches only the <p>, not the <div> (wrong element)
+			want: "MATCH\n\nno-match\n",
+		},
+		// --- multiple classes ---
+		{
+			name: "multi-class requires all classes to be present",
+			css:  `.warn.big { text-transform: uppercase; }`,
+			html: `<p class="warn big">both</p><p class="warn">warn-only</p><p class="big">big-only</p>`,
+			want: "BOTH\n\nwarn-only\n\nbig-only\n\n",
+		},
+		{
+			name: "element plus two classes",
+			css:  `p.a.b { text-transform: uppercase; }`,
+			html: `<p class="a b">para</p><div class="a b">div</div>`,
+			// div has the right classes but wrong element
+			want: "PARA\n\ndiv\n",
+		},
+		{
+			name: "extra classes on element do not prevent match",
+			css:  `.highlight { text-transform: uppercase; }`,
+			html: `<p class="highlight extra">text</p>`,
+			want: "TEXT\n\n",
+		},
+		// --- child combinator > ---
+		{
+			name: "child combinator matches direct children only",
+			css:  `div > p { text-transform: uppercase; }`,
+			// direct <p> matches; <p> inside <section> does not (section is its parent)
+			html: `<div><p>direct</p><section><p>nested</p></section></div>`,
+			want: "DIRECT\n\nnested\n",
+		},
+		{
+			name: "descendant combinator still matches all levels",
+			css:  `div p { text-transform: uppercase; }`,
+			html: `<div><p>direct</p><section><p>nested</p></section></div>`,
+			want: "DIRECT\n\nNESTED\n",
+		},
+		{
+			name: "child combinator in a deeper chain",
+			css:  `div > p > span { text-transform: uppercase; }`,
+			html: `<div><p><span>deep</span> rest</p></div>`,
+			// div has no margin-bottom; p's trailing blank line is eaten by TrimRight inside div
+			want: "DEEP rest\n",
+		},
+		{
+			name: "mixed child and descendant combinators",
+			// div > ul means ul is a direct child of div; li just needs to be a descendant of that ul
+			css:  `div > ul li { text-transform: uppercase; }`,
+			html: `<div><ul><li>match</li></ul></div><ul><li>no-match</li></ul>`,
+			// UA ul { padding-left: 4 } adds 4-space indent; inner ul matches, outer ul does not
+			want: "    • MATCH\n    • no-match\n",
+		},
+		// --- pseudo-classes ---
+		{
+			name: ":first-child matches first element sibling",
+			css:  `li:first-child { text-transform: uppercase; }`,
+			html: `<ul><li>one</li><li>two</li><li>three</li></ul>`,
+			// UA ul { padding-left: 4 } produces 4-space indent before each item
+			want: "    • ONE\n    • two\n    • three\n",
+		},
+		{
+			name: ":last-child matches last element sibling",
+			css:  `li:last-child { text-transform: uppercase; }`,
+			html: `<ul><li>one</li><li>two</li><li>three</li></ul>`,
+			want: "    • one\n    • two\n    • THREE\n",
+		},
+		{
+			name: ":first-child and :last-child both match a single item",
+			css:  `li:first-child { text-transform: uppercase; } li:last-child { text-transform: uppercase; }`,
+			html: `<ul><li>only</li></ul>`,
+			want: "    • ONLY\n",
+		},
+		{
+			name: ":nth-child(odd) matches 1st 3rd 5th element siblings",
+			css:  `p:nth-child(odd) { text-transform: uppercase; }`,
+			html: `<div><p>one</p><p>two</p><p>three</p></div>`,
+			want: "ONE\n\ntwo\n\nTHREE\n",
+		},
+		{
+			name: ":nth-child(even) matches 2nd 4th element siblings",
+			css:  `p:nth-child(even) { text-transform: uppercase; }`,
+			html: `<div><p>one</p><p>two</p><p>three</p></div>`,
+			want: "one\n\nTWO\n\nthree\n",
+		},
+		{
+			name: ":nth-child(odd) on table rows styles odd rows",
+			css:  `tr:nth-child(odd) td { text-transform: uppercase; }`,
+			html: `<table style="border-style:hidden"><tr><td>r1</td></tr><tr><td>r2</td></tr><tr><td>r3</td></tr></table>`,
+			want: "R1\nr2\nR3\n",
+		},
+		// --- attribute selectors ---
+		{
+			name: "[attr] presence selector hides elements with the attribute",
+			css:  `p[data-hide] { display: none; }`,
+			html: `<p>visible</p><p data-hide>hidden</p><p>after</p>`,
+			want: "visible\n\nafter\n\n",
+		},
+		{
+			name: "[attr] matches attribute with empty value",
+			css:  `span[data-mark] { text-transform: uppercase; }`,
+			html: `<p><span data-mark="">marked</span> plain</p>`,
+			want: "MARKED plain\n\n",
+		},
+		{
+			name: "[attr=val] exact-value selector",
+			css:  `p[data-style=big] { text-transform: uppercase; }`,
+			html: `<p data-style="big">large</p><p data-style="small">tiny</p>`,
+			want: "LARGE\n\ntiny\n\n",
+		},
+		{
+			name: "[attr=val] with quoted value in CSS",
+			css:  `p[lang="en"] { text-transform: uppercase; }`,
+			html: `<p lang="en">english</p><p lang="fr">french</p>`,
+			want: "ENGLISH\n\nfrench\n\n",
+		},
+		{
+			name: "[attr=val] does not match wrong value",
+			css:  `a[href=https://example.com] { text-transform: uppercase; }`,
+			html: `<p><a href="https://example.com">right</a> <a href="https://other.com">wrong</a></p>`,
+			want: "RIGHT wrong\n\n",
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// New elements: ins, dfn, small, q, abbr, dl/dt/dd, figure/figcaption
+// ---------------------------------------------------------------------------
+
+func TestNewElements(t *testing.T) {
+	runCases(t, []renderCase{
+		// ins — underline (ANSI stripped, so just verify content passes through)
+		{
+			name: "ins renders content",
+			html: `<p>before <ins>inserted</ins> after</p>`,
+			want: "before inserted after\n\n",
+		},
+		// dfn — italic (ANSI stripped)
+		{
+			name: "dfn renders content",
+			html: `<p><dfn>term</dfn> is defined here</p>`,
+			want: "term is defined here\n\n",
+		},
+		// small — dimmed color (ANSI stripped)
+		{
+			name: "small renders content",
+			html: `<p>main <small>fine print</small></p>`,
+			want: "main fine print\n\n",
+		},
+		// q — wraps in Unicode curly quotes
+		{
+			name: "q wraps content in curly quotes",
+			html: `<p>She said <q>hello</q>.</p>`,
+			want: "She said “hello”.\n\n",
+		},
+		{
+			name: "q standalone at body level",
+			html: `<q>quoted</q>`,
+			want: "“quoted”",
+		},
+		// abbr — appends title expansion
+		{
+			name:  "abbr with title appends expansion",
+			html:  `<p>The <abbr title="HyperText Markup Language">HTML</abbr> spec.</p>`,
+			width: 80,
+			want:  "The HTML (HyperText Markup Language) spec.\n\n",
+		},
+		{
+			name: "abbr without title renders as-is",
+			html: `<p><abbr>CSS</abbr></p>`,
+			want: "CSS\n\n",
+		},
+		{
+			name: "abbr standalone at body level",
+			html: `<abbr title="Cascading Style Sheets">CSS</abbr>`,
+			want: "CSS (Cascading Style Sheets)",
+		},
+		// dl / dt / dd — definition list
+		{
+			name: "dl with single dt and dd",
+			html: `<dl><dt>Term</dt><dd>Definition.</dd></dl>`,
+			// dt: block, bold (ANSI stripped) → "Term\n"
+			// dd: block, padding-left:4 → "    Definition.\n"
+			// dl: margin-bottom:1 → trailing blank line
+			want: "Term\n    Definition.\n\n",
+		},
+		{
+			name: "dl with multiple entries",
+			html: `<dl><dt>Alpha</dt><dd>First.</dd><dt>Beta</dt><dd>Second.</dd></dl>`,
+			want: "Alpha\n    First.\nBeta\n    Second.\n\n",
+		},
+		// figure / figcaption
+		{
+			name: "figcaption inside figure renders as italic block",
+			html: `<figure><figcaption>Caption text</figcaption></figure>`,
+			want: "Caption text\n",
+		},
+		{
+			name: "figure with nested content and figcaption",
+			html: `<figure><p>Content here.</p><figcaption>Fig 1</figcaption></figure>`,
+			// p: "Content here.\n\n" (block-in-inline with margin-bottom:1)
+			// figcaption: "Fig 1\n"
+			// figure TrimRight → "Content here.\n\nFig 1"
+			// renderDisplayNode adds "\n" → "Content here.\n\nFig 1\n"
+			want: "Content here.\n\nFig 1\n",
+		},
+	})
+}

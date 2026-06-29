@@ -425,7 +425,9 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 		sb.WriteString(wrapHyperlink(href, inner))
 	default: // "inline" and unset — no newline
 		acc := extractInlineStyle(decls)
-		sb.WriteString(wrapHyperlink(href, r.renderInlineAcc(n, acc, r.width)))
+		inner := r.renderInlineAcc(n, acc, r.width)
+		inner = wrapInlineElement(n, inner)
+		sb.WriteString(wrapHyperlink(href, inner))
 	}
 }
 
@@ -732,6 +734,22 @@ func wrapHyperlink(href, text string) string {
 		return text
 	}
 	return "\x1b]8;;" + href + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+}
+
+// wrapInlineElement applies element-specific content transforms that cannot be
+// expressed purely as CSS properties:
+//   - q: wraps content in Unicode curly quotes (" … ")
+//   - abbr: appends the title attribute expansion as " (title)" when set
+func wrapInlineElement(n *html.Node, text string) string {
+	switch n.Data {
+	case "q":
+		return "“" + text + "”"
+	case "abbr":
+		if title := nodeAttr(n, "title"); title != "" {
+			return text + " (" + title + ")"
+		}
+	}
+	return text
 }
 
 // renderList renders <ul> or <ol> with word-wrapped items and hanging indent.
@@ -1148,6 +1166,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 						}
 					}
 				}
+				inner = wrapInlineElement(c, inner)
 				if c.Data == "a" {
 					inner = wrapHyperlink(nodeAttr(c, "href"), inner)
 				}

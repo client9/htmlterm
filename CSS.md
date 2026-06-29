@@ -13,15 +13,30 @@ Anything not listed here is silently ignored.
 |------|---------|
 | Element | `th { }` |
 | Class | `.num { }` |
-| Element + class | `tr.unseen { }` |
-| Descendant | `tr.unseen td { }` |
+| Multiple classes | `.warn.big { }` |
+| Element + class(es) | `tr.unseen { }`, `p.a.b { }` |
+| ID | `#intro { }` |
+| Element + ID | `h1#title { }` |
+| Attribute presence | `a[href] { }` |
+| Attribute value | `td[data-role=header] { }` |
+| Descendant (space) | `tr.unseen td { }` |
+| Child (`>`) | `div > p { }` |
+| Pseudo-class | `li:first-child { }`, `tr:nth-child(odd) { }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
 
-**Specificity** follows CSS rules: class = 10, element = 1. Higher specificity
-wins; equal specificity last-write wins.
+**Specificity** follows CSS rules: ID = 100, class / pseudo-class / attribute = 10,
+element = 1. Higher specificity wins; equal specificity last-write wins.
 
-**Not supported:** pseudo-classes (`:hover`, `:nth-child`), attribute selectors,
-child (`>`), adjacent (`+`), or general sibling (`~`) combinators.
+**Supported pseudo-classes:** `:first-child`, `:last-child`, `:nth-child(odd)`,
+`:nth-child(even)`. Full `An+B` expressions are not supported.
+
+**Supported attribute operators:** `[attr]` (presence) and `[attr=val]` (exact
+match). Compound operators (`~=`, `^=`, `$=`, `*=`) are not supported; selectors
+containing them never match.
+
+**Not supported:** `:not()`, `:hover`, `:focus`, and other pseudo-classes beyond
+the four listed above; adjacent (`+`) and general sibling (`~`) combinators;
+`::before` / `::after` pseudo-elements.
 
 ---
 
@@ -52,7 +67,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `a` | Hyperlink; `href` attribute becomes an OSC 8 terminal hyperlink (default: `text-decoration: underline`) |
 | `span` | Inline styled text; at block level, followed by a newline |
 | `s`, `del` | Inline strikethrough text (default: `text-decoration: line-through`) |
-| `u` | Inline underlined text (default: `text-decoration: underline`) |
+| `u`, `ins` | Inline underlined text (default: `text-decoration: underline`). `ins` represents inserted/added content. |
 | `b` | Inline bold text (default: `font-weight: bold`; alias for `<strong>`) |
 | `kbd` | Keyboard input (default: `font-weight: bold`) |
 | `mark` | Highlighted text (default: `background-color: #cc9900; color: #000000`) |
@@ -63,6 +78,10 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `sub` | Subscript text (default: `text-transform: subscript`) |
 | `strong` | Inline bold |
 | `em`, `i` | Inline italic (default: `font-style: italic`) |
+| `dfn` | Definition term; inline italic (default: `font-style: italic`) |
+| `abbr` | Abbreviation. When a `title` attribute is present the expansion is appended inline as ` (expansion)` — e.g. `<abbr title="HyperText Markup Language">HTML</abbr>` renders as `HTML (HyperText Markup Language)`. |
+| `small` | Fine print / secondary text (default: `color: #888888`). No font-size reduction is possible in terminals. |
+| `q` | Inline quotation; content is wrapped in Unicode curly quotes `"…"`. |
 | `code` | Inline styled span |
 | `pre` | Raw text block; `white-space: pre` by default; child elements are styled |
 | `br` | Line break (inline or block) |
@@ -70,10 +89,17 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `ul` | Unordered list; `• ` prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
 | `ol` | Ordered list; decimal prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
 | `li` | List item; content word-wraps with a hanging indent aligned to the prefix |
+| `dl` | Definition list block (default: `display: block; margin-bottom: 1`) |
+| `dt` | Definition term; rendered as a bold block (default: `display: block; font-weight: bold`) |
+| `dd` | Definition description; rendered as an indented block (default: `display: block; padding-left: 4`) |
+| `figure` | Block container for self-contained content such as illustrations or code (default: `display: block`). Style with `margin-left`/`margin-right` to indent. |
+| `figcaption` | Caption for the nearest `<figure>` ancestor (default: `display: block; font-style: italic`) |
 | `table` | See table section below |
 | `thead`, `tbody`, `tfoot` | Transparent wrappers inside `<table>` |
 | `tr` | Table row; first `<tr>` containing `<th>` is the header |
 | `th`, `td` | Table cells |
+| `div` | Generic block container (default: `display: block`; no other UA styles) |
+| `section`, `article`, `aside`, `header`, `footer`, `main`, `nav` | HTML5 sectioning elements; all default to `display: block` with no other UA styles. Style freely with CSS. |
 
 ---
 
