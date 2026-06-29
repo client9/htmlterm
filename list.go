@@ -99,13 +99,7 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 	}
 	switch style {
 	case "lower-roman", "upper-roman":
-		width := 0
-		for i := 1; i <= count; i++ {
-			if w := utf8.RuneCountInString(listItemPrefix(style, true, i, 0)); w > width {
-				width = w
-			}
-		}
-		return width
+		return maxRomanPrefixWidth(count)
 	}
 	digits := len(fmt.Sprintf("%d", count))
 	return digits + 2
@@ -133,9 +127,17 @@ func listItemPrefix(style string, ordered bool, n, width int) string {
 	case "upper-alpha", "upper-latin":
 		return fmt.Sprintf("%c. ", 'A'+rune(n-1))
 	case "lower-roman":
-		return toRoman(n, false) + ". "
+		numeral := toRoman(n, false)
+		if width > 0 {
+			return fmt.Sprintf("%*s. ", width-2, numeral)
+		}
+		return numeral + ". "
 	case "upper-roman":
-		return toRoman(n, true) + ". "
+		numeral := toRoman(n, true)
+		if width > 0 {
+			return fmt.Sprintf("%*s. ", width-2, numeral)
+		}
+		return numeral + ". "
 	default:
 		digits := width - 2
 		return fmt.Sprintf("%*d. ", digits, n)

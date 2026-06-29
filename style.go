@@ -102,8 +102,8 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 				s.lg = s.lg.Italic(false)
 			}
 		case "text-decoration":
-			switch {
-			case val == "none" || val == "normal":
+			switch val {
+			case "none", "normal":
 				s.underline = false
 				s.strike = false
 			default:

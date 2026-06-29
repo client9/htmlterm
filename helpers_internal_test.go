@@ -2,7 +2,6 @@ package htmlterm
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -111,6 +110,37 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
+// TestANSIIntermediateByte verifies that two-byte escape sequences whose first
+// byte is an intermediate (0x20–0x3F, e.g. ESC '(' for ISO 2022 G0 charset)
+// are fully consumed and do not leak their final byte as visible content.
+func TestANSIIntermediateByte(t *testing.T) {
+	// ESC '(' 'B' — G0 charset designation to US-ASCII (ISO 2022).
+	seq := "\x1b(B"
+
+	// ansiVisibleLen must not count the final byte 'B' as visible.
+	if got := ansiVisibleLen(seq); got != 0 {
+		t.Errorf("ansiVisibleLen(ESC ( B) = %d, want 0", got)
+	}
+	// stripANSI must consume the whole 3-byte sequence, producing no output.
+	if got := stripANSI(seq); got != "" {
+		t.Errorf("stripANSI(ESC ( B) = %q, want %q", got, "")
+	}
+
+	// Mixed: visible text around the sequence.
+	mixed := "ab" + seq + "cd"
+	if got := ansiVisibleLen(mixed); got != 4 {
+		t.Errorf("ansiVisibleLen(mixed) = %d, want 4", got)
+	}
+	if got := stripANSI(mixed); got != "abcd" {
+		t.Errorf("stripANSI(mixed) = %q, want %q", got, "abcd")
+	}
+	// splitANSITokens must produce one token containing the word with the
+	// sequence attached — the sequence must not cause an extra word split.
+	if got := splitANSITokens("hi" + seq + " there"); !reflect.DeepEqual(got, []string{"hi" + seq, "there"}) {
+		t.Errorf("splitANSITokens with intermediate escape = %#v", got)
+	}
+}
+
 func TestToRoman(t *testing.T) {
 	if got := toRoman(49, false); got != "xlix" {
 		t.Fatalf("toRoman lower = %q, want %q", got, "xlix")
@@ -120,12 +150,38 @@ func TestToRoman(t *testing.T) {
 	}
 }
 
+func TestMaxRomanPrefixWidth(t *testing.T) {
+	tests := []struct{ count, want int }{
+		{1, 3},    // "i. "
+		{3, 5},    // "iii. "
+		{8, 6},    // "viii. "
+		{18, 7},   // "xviii. "
+		{28, 8},   // "xxviii. "
+		{38, 9},   // "xxxviii. "
+		{88, 10},  // "lxxxviii. "
+		{500, 13}, // "cccxcix. " is not widest; 388="ccclxxxviii"=11 → 388. "ccclxxxviii. "=13
+	}
+	for _, tc := range tests {
+		if got := maxRomanPrefixWidth(tc.count); got != tc.want {
+			t.Errorf("maxRomanPrefixWidth(%d) = %d, want %d", tc.count, got, tc.want)
+		}
+	}
+}
+
 func TestListItemPrefixWidthRoman(t *testing.T) {
 	if got := listItemPrefixWidth("lower-roman", true, 8); got != len("viii. ") {
 		t.Fatalf("lower-roman width = %d, want %d", got, len("viii. "))
 	}
+	// width=0: raw prefix, no padding (used during width measurement).
 	if got := listItemPrefix("lower-roman", true, 8, 0); got != "viii. " {
-		t.Fatalf("lower-roman prefix = %q, want %q", got, "viii. ")
+		t.Fatalf("lower-roman prefix(width=0) = %q, want %q", got, "viii. ")
+	}
+	// width=prefixWidth: right-aligned to match hangStr.
+	if got := listItemPrefix("lower-roman", true, 1, 6); got != "   i. " {
+		t.Fatalf("lower-roman prefix(width=6, n=1) = %q, want %q", got, "   i. ")
+	}
+	if got := listItemPrefix("upper-roman", true, 3, 5); got != "III. " {
+		t.Fatalf("upper-roman prefix(width=5, n=3) = %q, want %q", got, "III. ")
 	}
 }
 
@@ -170,7 +226,7 @@ func TestParseCSSCommaAndShorthand(t *testing.T) {
 		t.Fatalf("parseCSS() returned %d rules, want 2", len(rules))
 	}
 	for _, r := range rules {
-		if !strings.Contains("p div", r.selector) {
+		if r.selector != "p" && r.selector != "div" {
 			t.Fatalf("unexpected selector %q", r.selector)
 		}
 		if r.decls["margin-left"] != "2" || r.decls["padding-bottom"] != "3" {

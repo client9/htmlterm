@@ -3,6 +3,7 @@ package htmlterm
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
@@ -183,15 +184,20 @@ func ansiVisibleLen(s string) int {
 			if ch >= 0x40 && ch <= 0x7e {
 				inCSI = false
 			}
-			prev = ch
 		case inEsc:
-			switch ch {
-			case '[':
+			switch {
+			case ch == '[':
 				inCSI = true
-			case ']':
+				inEsc = false
+			case ch == ']':
 				inOSC = true
+				inEsc = false
+			case ch >= 0x40 && ch <= 0x7e:
+				// Two-character escape sequence (Fs); consume final byte.
+				inEsc = false
 			}
-			inEsc = false
+			// Intermediate bytes (0x20–0x3F) keep inEsc=true to consume the
+			// following final byte as part of the same sequence.
 			prev = ch
 		case ch == '\x1b':
 			inEsc = true
@@ -233,16 +239,18 @@ func splitANSITokens(text string) []string {
 			if ch >= 0x40 && ch <= 0x7e {
 				inCSI = false
 			}
-			prev = ch
 		case inEsc:
 			cur.WriteRune(ch)
-			switch ch {
-			case '[':
+			switch {
+			case ch == '[':
 				inCSI = true
-			case ']':
+				inEsc = false
+			case ch == ']':
 				inOSC = true
+				inEsc = false
+			case ch >= 0x40 && ch <= 0x7e:
+				inEsc = false
 			}
-			inEsc = false
 			prev = ch
 		case ch == '\x1b':
 			cur.WriteRune(ch)
@@ -276,6 +284,25 @@ func toRoman(n int, upper bool) string {
 		}
 	}
 	return b.String()
+}
+
+// maxRomanPrefixWidth returns the maximum roman numeral prefix width
+// (numeral + ". ") across all items 1..count. Instead of scanning every item,
+// it checks the ~15 threshold numbers where the maximum roman numeral length
+// grows (3, 8, 18, 28, …, 3888).
+func maxRomanPrefixWidth(count int) int {
+	// Each entry is the first N for which that numeral becomes the widest in 1..N.
+	thresholds := []int{1, 2, 3, 8, 18, 28, 38, 88, 188, 288, 388, 888, 1888, 2888, 3888}
+	widest := 0
+	for _, n := range thresholds {
+		if n > count {
+			break
+		}
+		if w := utf8.RuneCountInString(toRoman(n, false)); w > widest {
+			widest = w
+		}
+	}
+	return widest + 2 // +2 for ". "
 }
 
 // rawContent returns the concatenated text of all descendant text nodes.
@@ -312,15 +339,17 @@ func stripANSI(s string) string {
 			if ch >= 0x40 && ch <= 0x7e {
 				inCSI = false
 			}
-			prev = ch
 		case inEsc:
-			switch ch {
-			case '[':
+			switch {
+			case ch == '[':
 				inCSI = true
-			case ']':
+				inEsc = false
+			case ch == ']':
 				inOSC = true
+				inEsc = false
+			case ch >= 0x40 && ch <= 0x7e:
+				inEsc = false
 			}
-			inEsc = false
 			prev = ch
 		case ch == '\x1b':
 			inEsc = true
