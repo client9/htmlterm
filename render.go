@@ -154,6 +154,40 @@ func applyLineEdges(content, prefix, suffix string) string {
 	return result
 }
 
+// alignLines pads each line of content with spaces to exactly width visible
+// columns according to dir: "right" pads on the left, "center" splits
+// padding evenly, anything else (including "") pads on the right (left-align).
+// Lines already at or beyond width are left unchanged. A trailing newline is
+// preserved.
+func alignLines(content, dir string, width int) string {
+	trailing := strings.HasSuffix(content, "\n")
+	if trailing {
+		content = content[:len(content)-1]
+	}
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		vl := ansiVisibleLen(line)
+		if vl >= width {
+			continue
+		}
+		pad := width - vl
+		switch dir {
+		case "right":
+			lines[i] = strings.Repeat(" ", pad) + line
+		case "center":
+			left := pad / 2
+			lines[i] = strings.Repeat(" ", left) + line + strings.Repeat(" ", pad-left)
+		default:
+			lines[i] = line + strings.Repeat(" ", pad)
+		}
+	}
+	result := strings.Join(lines, "\n")
+	if trailing {
+		result += "\n"
+	}
+	return result
+}
+
 // padLinesToWidth right-pads each line of content with spaces so every line
 // is exactly width visible columns wide. Lines already at or beyond width are
 // left unchanged. A trailing newline is preserved.
@@ -384,7 +418,7 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 					w = int(pct * float64(r.width))
 				}
 				if w > 0 {
-					inner = lipgloss.NewStyle().Width(w).Render(inner)
+					inner = padLinesToWidth(inner, w)
 				}
 			}
 		}
@@ -529,22 +563,7 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	// per-character escape codes when it re-scans existing ANSI sequences.
 	acc := extractInlineStyle(decls)
 
-	// layoutSt holds only the structural properties that require lipgloss
-	// Render(): currently just text-align and fixed width. It is applied to
-	// plain (already-text-styled) content so Render() never sees OSC 8 sequences.
-	layoutSt := lipgloss.NewStyle()
-	hasLayout := false
-	switch decls["text-align"] {
-	case "right":
-		layoutSt = layoutSt.Align(lipgloss.Right)
-		hasLayout = true
-	case "center":
-		layoutSt = layoutSt.Align(lipgloss.Center)
-		hasLayout = true
-	case "left":
-		layoutSt = layoutSt.Align(lipgloss.Left)
-		hasLayout = true
-	}
+	textAlign := decls["text-align"] // "right", "center", "left", or ""
 
 	heightLines := 0
 	if v := decls["height"]; v != "" {
@@ -563,15 +582,6 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 			// Subtract margins, border chars, AND padding from the content width.
 			inner := totalW - ml - runeLen(bl.char) - pl - pr - runeLen(br.char) - mr
 			if inner > 0 {
-				// With white-space:nowrap, applying Width() to lipgloss would cause
-				// it to word-wrap the content, defeating nowrap. Skip Width() so
-				// text overflows naturally; overflow:hidden clipping handles the
-				// bounded case. With wrapping modes, Width() is needed so lipgloss
-				// can align and pad multi-line output correctly.
-				if decls["white-space"] != "nowrap" {
-					layoutSt = layoutSt.Width(inner)
-					hasLayout = true
-				}
 				hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
 				hasExplicitWidth = true
 			}
@@ -639,11 +649,15 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		rawContent = strings.Join(lines, "\n")
 	}
 
-	// Apply layout (text-align, width) only when needed; content is plain/ANSI
-	// text-only at this point so lipgloss width-counting is safe.
+	// Apply text-align and/or explicit-width padding via plain string ops.
+	// With explicit width, pad lines to innerW so the right edge stays
+	// vertically aligned. With text-align, distribute the padding according
+	// to direction. With nowrap, skip padding — text overflows naturally and
+	// overflow:hidden clipping handles the bounded case.
 	var content string
-	if hasLayout {
-		content = layoutSt.Render(rawContent)
+	needsAlign := textAlign != "" || (hasExplicitWidth && ws != "nowrap")
+	if needsAlign {
+		content = alignLines(rawContent, textAlign, innerW)
 	} else {
 		content = rawContent
 	}
@@ -652,8 +666,8 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	// word-wrapping produced multiple lines of varying length, pad all lines to
 	// the longest so the right edge stays vertically aligned. Single-line
 	// content, pre-formatted content (lists, block-in-inline), and cases where
-	// lipgloss already applied a fixed Width() are exempt.
-	if !hasLayout && wasWrapped && (pr > 0 || br.char != "") {
+	// explicit width already padded lines are exempt.
+	if !needsAlign && wasWrapped && (pr > 0 || br.char != "") {
 		maxW := 0
 		for _, ln := range strings.Split(content, "\n") {
 			if vl := ansiVisibleLen(ln); vl > maxW {
@@ -1129,10 +1143,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 								w = int(pct * float64(r.width))
 							}
 							if w > 0 {
-								// Width is a layout property; apply via a style-only
-								// lipgloss call on already-styled content. Width() only
-								// adds spaces, so no SGR re-emission occurs.
-								inner = lipgloss.NewStyle().Width(w).Render(inner)
+								inner = padLinesToWidth(inner, w)
 							}
 						}
 					}
