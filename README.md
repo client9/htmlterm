@@ -1,5 +1,8 @@
 # htmlterm
 
+[![Go](https://github.com/nickg/htmlterm/actions/workflows/go.yml/badge.svg)](https://github.com/nickg/htmlterm/actions/workflows/go.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/nickg/htmlterm.svg)](https://pkg.go.dev/github.com/nickg/htmlterm)
+
 `htmlterm` is a Go module that renders a restricted subset of HTML and CSS to terminal strings using [lipgloss](https://github.com/charmbracelet/lipgloss).
 
 It is designed for terminal UIs, CLIs, and text-first applications that want richer formatting than plain text without embedding a browser engine.
@@ -18,9 +21,9 @@ It is designed for terminal UIs, CLIs, and text-first applications that want ric
 
 See [CSS.md](./CSS.md) for the full supported surface:
 
-- Selectors: element, class, multiple classes, ID, attributes, descendant, child (`>`), adjacent sibling (`+`), `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, `::before`, `::after`
-- Layout and styling: `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`
-- Tables: column sizing, wrapping, alignment, border styles, `<colgroup>` / `<col>`
+- **Selectors:** element, class, multiple classes, ID, attributes, descendant, child (`>`), adjacent sibling (`+`), `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, `::before`, `::after`
+- **Layout and styling:** `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`
+- **Tables:** column sizing, wrapping, alignment, border styles, `<colgroup>` / `<col>`
 
 ## Install
 
@@ -28,7 +31,7 @@ See [CSS.md](./CSS.md) for the full supported surface:
 go get github.com/nickg/htmlterm
 ```
 
-## Library Usage
+## Usage
 
 ```go
 package main
@@ -67,10 +70,10 @@ func main() {
 
 The public API is intentionally small:
 
-- `htmlterm.New(css string, width int) (*Renderer, error)`
-- `(*Renderer).Render(html string) (string, error)`
+- `htmlterm.New(css string, width int) (*Renderer, error)` — create a renderer with optional base CSS and a terminal width in columns
+- `(*Renderer).Render(html string) (string, error)` — render an HTML fragment or document to an ANSI-styled string
 
-`width` is the available terminal width in columns. It affects wrapping, percentage widths, borders, and table layout.
+`width` affects wrapping, percentage widths, borders, and table layout.
 
 ## CSS Precedence
 
@@ -81,14 +84,14 @@ Styles are applied in this order, lowest to highest priority:
 3. `<style>` tags in the HTML
 4. Inline `style=""` attributes
 
-Higher specificity still wins within a given layer, and later rules win on ties.
+Higher specificity wins within a given layer; later rules win on ties.
 
 ## CLI
 
 The repository also includes a small CLI in [`cmd/`](./cmd):
 
 ```bash
-go build -o htmlterm ./cmd
+go build -o htmlterm ./cmd/
 ./htmlterm -css styles.css input.html
 ```
 
@@ -97,9 +100,12 @@ If no input file is given, the CLI reads HTML from stdin. If `-width` is omitted
 ## Development
 
 ```bash
-go build ./...
-go vet ./...
-go test ./...
+make build    # go build ./...
+make test     # go test ./...
+make lint     # gofmt check + golangci-lint
+make fmt      # gofmt -w + go mod tidy
+make cover    # coverage report (cover.out)
+make bench    # benchmarks
 ```
 
 ## Notes
