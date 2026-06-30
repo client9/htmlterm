@@ -73,7 +73,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 |---------|-------|
 | `h1`–`h6` | Rendered as a single styled line |
 | `p` | Inline content followed by a newline |
-| `blockquote` | Inline content followed by a newline; default `border-left: │; border-left-color: #555555; padding-left: 1; padding-right: 2` |
+| `blockquote` | Inline content followed by a newline; default `border-left: "│"; border-left-color: #555555; padding-left: 1; padding-right: 2` |
 | `a` | Hyperlink; `href` attribute becomes an OSC 8 terminal hyperlink (default: `text-decoration: underline`) |
 | `span` | Inline styled text; at block level, followed by a newline |
 | `s`, `del` | Inline strikethrough text (default: `text-decoration: line-through`) |
@@ -227,16 +227,16 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `normal` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
 
 #### `border-left`
-`<string>` | `none`. Character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
+`"<string>"` | `'<string>'` | `none`. Quoted character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
 
 #### `border-right`
-`<string>` | `none`. Character(s) appended to every rendered line of a block element. Not inherited.
+`"<string>"` | `'<string>'` | `none`. Quoted character(s) appended to every rendered line of a block element. Not inherited.
 
 #### `border-top`
-`<string>` | `none`. Fill character repeated across the full block width (minus margins) to draw a horizontal rule above the content. Not inherited.
+`"<string>"` | `'<string>'` | `none`. Quoted fill character repeated across the full block width (minus margins) to draw a horizontal rule above the content. Not inherited.
 
 #### `border-bottom`
-`<string>` | `none`. Fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. Not inherited.
+`"<string>"` | `'<string>'` | `none`. Quoted fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. Not inherited.
 
 #### `border-left-color`
 Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the left border character. Not inherited.
@@ -251,16 +251,16 @@ Any CSS color value (see [Color Values](#color-values)). ANSI color applied to t
 Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the bottom border rule. Not inherited.
 
 #### `border-top-left-corner`
-`<string>`. Character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
+`"<string>"` | `'<string>'`. Quoted character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
 
 #### `border-top-right-corner`
-`<string>`. Character placed at the right end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
+`"<string>"` | `'<string>'`. Quoted character placed at the right end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
 
 #### `border-bottom-left-corner`
-`<string>`. Character placed at the left end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
+`"<string>"` | `'<string>'`. Quoted character placed at the left end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
 
 #### `border-bottom-right-corner`
-`<string>`. Character placed at the right end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
+`"<string>"` | `'<string>'`. Quoted character placed at the right end of the bottom border rule. Falls back to the `border-bottom` fill character when unset. Not inherited.
 
 ---
 
@@ -491,7 +491,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `@font-face`, `@keyframes`, or any other at-rules
 - Pseudo-classes and pseudo-elements
 - Multi-value `border-top`/`border-bottom` shorthand (e.g. `border-top: 1px solid red`) —
-  use a single fill character (e.g. `border-top: ─`) and `border-top-color` for color
+  use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
 - `display: flex`, `display: grid`, `display: table`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, and `none`
 - `margin`, `padding` shorthand (use `margin-top`, `margin-bottom`, `padding-top`, `padding-bottom`, `padding-left`, `padding-right`)
 - `flex`, `grid`, or positioned layout

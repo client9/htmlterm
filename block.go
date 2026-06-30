@@ -180,26 +180,14 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 
 // renderBlockContent renders the styled, bordered, and margined content of a block element.
 func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, availWidth int) string {
-	bl := blockBorder{char: decls["border-left"], color: decls["border-left-color"]}
-	br := blockBorder{char: decls["border-right"], color: decls["border-right-color"]}
-	bt := blockBorder{char: decls["border-top"], color: decls["border-top-color"]}
-	bb := blockBorder{char: decls["border-bottom"], color: decls["border-bottom-color"]}
-	if bl.char == "none" {
-		bl.char = ""
-	}
-	if br.char == "none" {
-		br.char = ""
-	}
-	if bt.char == "none" {
-		bt.char = ""
-	}
-	if bb.char == "none" {
-		bb.char = ""
-	}
-	tlCorner := decls["border-top-left-corner"]
-	trCorner := decls["border-top-right-corner"]
-	blCorner := decls["border-bottom-left-corner"]
-	brCorner := decls["border-bottom-right-corner"]
+	bl := blockBorder{char: parseCSSString(decls["border-left"]), color: decls["border-left-color"]}
+	br := blockBorder{char: parseCSSString(decls["border-right"]), color: decls["border-right-color"]}
+	bt := blockBorder{char: parseCSSString(decls["border-top"]), color: decls["border-top-color"]}
+	bb := blockBorder{char: parseCSSString(decls["border-bottom"]), color: decls["border-bottom-color"]}
+	tlCorner := parseCSSString(decls["border-top-left-corner"])
+	trCorner := parseCSSString(decls["border-top-right-corner"])
+	blCorner := parseCSSString(decls["border-bottom-left-corner"])
+	brCorner := parseCSSString(decls["border-bottom-right-corner"])
 	if styleVal := decls["border-style"]; styleVal != "" {
 		if ts, ok := namedTableStyle(styleVal); ok {
 			if bl.char == "" {
@@ -504,16 +492,24 @@ func blankVisibleContent(s string) string {
 	return b.String()
 }
 
-// parseCSSContentString extracts the string value from a CSS content property.
-func parseCSSContentString(v string) string {
+// parseCSSString unquotes a CSS quoted string token (e.g. `"│"` → `│`).
+// Returns "" for unquoted values, keywords, or empty input.
+func parseCSSString(v string) string {
 	v = strings.TrimSpace(v)
-	if v == "" || v == "none" || v == "normal" {
-		return ""
-	}
 	if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
 		return v[1 : len(v)-1]
 	}
 	return ""
+}
+
+// parseCSSContentString extracts the string from a CSS content property value.
+// Returns "" for none, normal, unquoted tokens, or empty input.
+func parseCSSContentString(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "none" || v == "normal" {
+		return ""
+	}
+	return parseCSSString(v)
 }
 
 // wrapHyperlink wraps text in an OSC 8 terminal hyperlink sequence.

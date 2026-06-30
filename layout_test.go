@@ -11,8 +11,8 @@ func TestBorderStyleOnBlocks(t *testing.T) {
 		{name: "border-style:markdown draws only left/right bars", html: `<div style="border-style:markdown">hi</div>`, want: "|hi|\n"},
 		{name: "border-style:hidden draws no borders", html: `<div style="border-style:hidden">hi</div>`, want: "hi\n"},
 		{name: "border-style:none draws no borders", html: `<div style="border-style:none">hi</div>`, want: "hi\n"},
-		{name: "individual border-top overrides preset fill but keeps corners", html: `<div style="border-style:normal; border-top:═; width:100%">hi</div>`, width: 8, want: "┌══════┐\n│hi    │\n└──────┘\n"},
-		{name: "individual border-left overrides preset char", html: `<div style="border-style:normal; border-left:▌; width:100%">hi</div>`, width: 8, want: "┌──────┐\n▌hi    │\n└──────┘\n"},
+		{name: "individual border-top overrides preset fill but keeps corners", html: `<div style="border-style:normal; border-top:'═'; width:100%">hi</div>`, width: 8, want: "┌══════┐\n│hi    │\n└──────┘\n"},
+		{name: "individual border-left overrides preset char", html: `<div style="border-style:normal; border-left:'▌'; width:100%">hi</div>`, width: 8, want: "┌──────┐\n▌hi    │\n└──────┘\n"},
 		{name: "border-style via CSS class", css: `.box { border-style: rounded; width: 100%; }`, html: `<div class="box">ok</div>`, width: 8, want: "╭──────╮\n│ok    │\n╰──────╯\n"},
 	})
 }
