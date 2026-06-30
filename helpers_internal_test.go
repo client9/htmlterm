@@ -234,3 +234,77 @@ func TestParseCSSCommaAndShorthand(t *testing.T) {
 		}
 	}
 }
+
+func TestEffectiveMinMaxPercent(t *testing.T) {
+	// minPercent > 0 path
+	minW, maxW := effectiveMinMax(colConstraints{minPercent: 0.5}, 20)
+	if minW != 10 {
+		t.Errorf("minPercent=0.5, contentWidth=20: minW = %d, want 10", minW)
+	}
+	if maxW != 0 {
+		t.Errorf("minPercent=0.5: maxW = %d, want 0", maxW)
+	}
+
+	// minPercent loses to a higher minWidth
+	minW, _ = effectiveMinMax(colConstraints{minPercent: 0.25, minWidth: 8}, 20)
+	if minW != 8 {
+		t.Errorf("minWidth beats minPercent: minW = %d, want 8", minW)
+	}
+
+	// maxPercent > 0 path, no maxWidth set (maxW == 0 branch)
+	_, maxW = effectiveMinMax(colConstraints{maxPercent: 0.25}, 20)
+	if maxW != 5 {
+		t.Errorf("maxPercent=0.25, contentWidth=20: maxW = %d, want 5", maxW)
+	}
+
+	// maxPercent stricter than maxWidth (mp < maxW branch)
+	_, maxW = effectiveMinMax(colConstraints{maxPercent: 0.25, maxWidth: 8}, 20)
+	if maxW != 5 {
+		t.Errorf("maxPercent stricter: maxW = %d, want 5", maxW)
+	}
+
+	// maxWidth stricter than maxPercent (mp >= maxW, no update)
+	_, maxW = effectiveMinMax(colConstraints{maxPercent: 0.5, maxWidth: 3}, 20)
+	if maxW != 3 {
+		t.Errorf("maxWidth stricter: maxW = %d, want 3", maxW)
+	}
+}
+
+func TestSplitAtVisualWidthEdgeCases(t *testing.T) {
+	// Empty string early return
+	got := splitAtVisualWidth("", 5)
+	if !reflect.DeepEqual(got, []string{""}) {
+		t.Errorf("splitAtVisualWidth(%q, 5) = %#v, want [%q]", "", got, "")
+	}
+
+	// OSC hyperlink sequences don't count toward visible width and are preserved
+	osc := "\x1b]8;;https://example.com\x07"
+	// "abc" (3 visible) + OSC + "def" (3 visible), split at width 3
+	text := "abc" + osc + "def"
+	lines := splitAtVisualWidth(text, 3)
+	if len(lines) != 2 {
+		t.Fatalf("OSC split: want 2 lines, got %d: %#v", len(lines), lines)
+	}
+	if v := ansiVisibleLen(lines[0]); v != 3 {
+		t.Errorf("OSC split lines[0] visible len = %d, want 3", v)
+	}
+	if v := stripANSI(lines[0]); v != "abc" {
+		t.Errorf("OSC split lines[0] text = %q, want %q", v, "abc")
+	}
+	if lines[1] != "def" {
+		t.Errorf("OSC split lines[1] = %q, want %q", lines[1], "def")
+	}
+}
+
+func TestCopyMapNonEmpty(t *testing.T) {
+	src := map[string]string{"color": "red", "font-weight": "bold"}
+	dst := copyMap(src)
+	if !reflect.DeepEqual(dst, src) {
+		t.Errorf("copyMap(%v) = %v, want same", src, dst)
+	}
+	// Mutation isolation
+	dst["color"] = "blue"
+	if src["color"] != "red" {
+		t.Errorf("copyMap result shares storage with source")
+	}
+}

@@ -13,6 +13,7 @@ type combinator int
 const (
 	descendant combinator = iota // space: any ancestor
 	child                        // >: immediate parent only
+	adjacent                     // +: immediate preceding sibling
 )
 
 // attrOp is the match operator in an attribute selector.
@@ -64,8 +65,16 @@ func parseSelector(sel string) []selectorPart {
 			}
 			continue
 		}
+		if sel[i] == '+' {
+			combo = adjacent
+			i++
+			for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+				i++
+			}
+			continue
+		}
 		start := i
-		for i < n && sel[i] != ' ' && sel[i] != '\t' && sel[i] != '>' {
+		for i < n && sel[i] != ' ' && sel[i] != '\t' && sel[i] != '>' && sel[i] != '+' {
 			if sel[i] == '[' {
 				for i < n && sel[i] != ']' {
 					i++
@@ -201,8 +210,16 @@ func specificity(parts []selectorPart) int {
 			s += 100
 		}
 		s += len(p.classes) * 10
-		s += len(p.pseudos) * 10
 		s += len(p.attrs) * 10
+		for _, ps := range p.pseudos {
+			if strings.HasPrefix(ps, "not(") && strings.HasSuffix(ps, ")") {
+				inner := ps[4 : len(ps)-1]
+				inner = strings.TrimSpace(inner)
+				s += specificity([]selectorPart{parseSimpleSelector(inner)})
+			} else {
+				s += 10
+			}
+		}
 	}
 	return s
 }
@@ -248,6 +265,14 @@ func matchPart(n *html.Node, p selectorPart) bool {
 
 // matchPseudo reports whether n satisfies a single pseudo-class condition.
 func matchPseudo(n *html.Node, pseudo string) bool {
+	// :not(<selector>) — negation pseudo-class (simple selector argument only).
+	if strings.HasPrefix(pseudo, "not(") && strings.HasSuffix(pseudo, ")") {
+		inner := pseudo[4 : len(pseudo)-1]
+		inner = strings.TrimSpace(inner)
+		p := parseSimpleSelector(inner)
+		return !matchPart(n, p)
+	}
+
 	if n.Parent == nil {
 		return false
 	}
@@ -304,18 +329,36 @@ func matchSelector(n *html.Node, parts []selectorPart) bool {
 		return false
 	}
 	cur := n.Parent
+	// curNode tracks the current element for adjacent-sibling matching.
+	curNode := n
 	for i := len(parts) - 2; i >= 0; i-- {
 		switch parts[i+1].combo {
 		case child:
 			if cur == nil || cur.Type != html.ElementNode || !matchPart(cur, parts[i]) {
 				return false
 			}
+			curNode = cur
 			cur = cur.Parent
+		case adjacent:
+			// Find the immediately preceding element sibling of curNode.
+			var prev *html.Node
+			for s := curNode.PrevSibling; s != nil; s = s.PrevSibling {
+				if s.Type == html.ElementNode {
+					prev = s
+					break
+				}
+			}
+			if prev == nil || !matchPart(prev, parts[i]) {
+				return false
+			}
+			curNode = prev
+			cur = prev.Parent
 		default:
 			found := false
 			for ; cur != nil; cur = cur.Parent {
 				if cur.Type == html.ElementNode && matchPart(cur, parts[i]) {
 					found = true
+					curNode = cur
 					cur = cur.Parent
 					break
 				}

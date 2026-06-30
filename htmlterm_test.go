@@ -424,6 +424,47 @@ func TestCaptionSide(t *testing.T) {
 	})
 }
 
+func TestRenderDisplayNodeBodyLevel(t *testing.T) {
+	// Elements at body level (not inside a block) go through renderDisplayNode.
+	// This exercises branches that are not reached when elements are inside <p> etc.
+	runCases(t, []renderCase{
+		// <a href> at body level: tests the href= nodeAttr call in renderDisplayNode
+		{name: "anchor with href at body level renders link text", html: `<a href="https://example.com">link</a>`, want: "link"},
+
+		// display:inline-block with percent width at body level
+		{name: "inline-block percent width pads content", html: `<span style="display:inline-block; width:50%">hi</span>end`, width: 20, want: "hi        end"},
+
+		// visibility:hidden on inline element at body level
+		{name: "visibility hidden inline blanks visible chars", html: `<span style="visibility:hidden">hello</span>`, want: "     "},
+	})
+}
+
+func TestBlockBorderNoneVariants(t *testing.T) {
+	runCases(t, []renderCase{
+		// border-right: none disables right border
+		{name: "border-right none disables", html: `<p style="border-right:none">hello</p>`, want: "hello\n\n"},
+		// border-bottom: none disables bottom border
+		{name: "border-bottom none disables", html: `<p style="border-bottom:none">hello</p>`, want: "hello\n\n"},
+		// border-style with border-color propagates color to all four sides (ANSI stripped; box chars visible)
+		{name: "border-style normal with border-color", html: `<p style="width:100%; border-style:normal; border-color:#888888">hi</p>`, width: 12, want: "┌──────────┐\n│hi        │\n└──────────┘\n\n"},
+	})
+}
+
+func TestListStyleVariants(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "list-style-type disc is default for ul", html: `<ul><li>a</li></ul>`, want: "    • a\n"},
+		{name: "list-style-type circle", html: `<ul style="list-style-type:circle"><li>a</li></ul>`, want: "    ○ a\n"},
+		{name: "list-style-type square", html: `<ul style="list-style-type:square"><li>a</li></ul>`, want: "    ■ a\n"},
+		{name: "list-style-type none on ul", html: `<ul style="list-style-type:none"><li>a</li><li>b</li></ul>`, want: "    a\n    b\n"},
+		{name: "list-style-type lower-alpha", html: `<ol style="list-style-type:lower-alpha"><li>x</li><li>y</li></ol>`, want: "    a. x\n    b. y\n"},
+		{name: "list-style-type upper-alpha", html: `<ol style="list-style-type:upper-alpha"><li>x</li><li>y</li></ol>`, want: "    A. x\n    B. y\n"},
+		{name: "list-style-type none on ol", html: `<ol style="list-style-type:none"><li>x</li></ol>`, want: "    x\n"},
+		{name: "list-style-position inside", html: `<ol style="list-style-position:inside; padding-left:0"><li>a</li><li>b</li></ol>`, want: "1. a\n2. b\n"},
+		{name: "list-style-position inside with long item wraps to indent", html: `<ol style="list-style-position:inside; padding-left:0"><li>one two three four five six seven</li></ol>`, width: 20, want: "1. one two three\nfour five six\nseven\n"},
+		{name: "list with margin-left adds extra indent", html: `<ul style="margin-left:2"><li>a</li></ul>`, want: "      • a\n"},
+	})
+}
+
 func TestNewHTMLElements(t *testing.T) {
 	runCases(t, []renderCase{
 		// img

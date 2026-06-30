@@ -77,5 +77,42 @@ func TestTableBorderCSS(t *testing.T) {
 		{name: "border-rows solid adds separators between data rows", css: `table { border-style: normal; border-rows: solid; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n├───┤\n│B  │\n└───┘\n"},
 		{name: "border-header none suppresses header divider", css: `table { border-style: normal; border-header: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\n│A  │\n└───┘\n"},
 		{name: "border-columns none removes cell separators in rows", css: `table { border-style: normal; border-columns: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, want: "┌──┬──┐\n│A B │\n└──┴──┘\n"},
+		{name: "border-rows none on a table that had row separators enabled", css: `table { border-style: normal; border-rows: solid; border-rows: none; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n│B  │\n└───┘\n"},
+		{name: "border-left none removes left outer edge and corners", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "───┐\nH  │\n───┤\nA  │\n───┘\n"},
+		{name: "border-right none removes right outer edge and corners", css: `table { border-style: normal; border-right: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───\n│H  \n├───\n│A  \n└───\n"},
+	})
+}
+
+func TestTableBorderStyles(t *testing.T) {
+	oneCol := func(style string) string {
+		return `<table style="border-style:` + style + `"><tr><th width="3">H</th></tr><tr><td>A</td></tr></table>`
+	}
+	runCases(t, []renderCase{
+		{name: "thick border style", html: oneCol("thick"), want: "┏━━━┓\n┃H  ┃\n┣━━━┫\n┃A  ┃\n┗━━━┛\n"},
+		{name: "double border style", html: oneCol("double"), want: "╔═══╗\n║H  ║\n╠═══╣\n║A  ║\n╚═══╝\n"},
+		{name: "markdown border style", html: oneCol("markdown"), want: "|H  |\n|---|\n|A  |\n"},
+		{name: "standard border style", html: oneCol("standard"), want: "H  \n───\nA  \n"},
+	})
+}
+
+func TestTableCellTextAlign(t *testing.T) {
+	hidden := `style="border-style:hidden"`
+	runCases(t, []renderCase{
+		{name: "text-align right in cell", html: `<table ` + hidden + `><tr><td style="text-align:right" width="6">hi</td></tr></table>`, want: "    hi\n"},
+		{name: "text-align center in cell", html: `<table ` + hidden + `><tr><td style="text-align:center" width="6">hi</td></tr></table>`, want: "  hi  \n"},
+		{name: "text-align left is explicit default", html: `<table ` + hidden + `><tr><td style="text-align:left" width="6">hi</td></tr></table>`, want: "hi    \n"},
+	})
+}
+
+func TestColWithCSSAndWidthAttr(t *testing.T) {
+	// col element has a CSS property (color via class) and a width HTML attribute
+	// but no CSS width — exercises the copyMap(non-empty) path in collectColDecls
+	runCases(t, []renderCase{
+		{
+			name: "col with CSS class and width attribute",
+			css:  `.narrow { color: #888888; }`,
+			html: `<table style="border-style:hidden"><colgroup><col class="narrow" width="5"></colgroup><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			want: "Name \nAlice\n",
+		},
 	})
 }

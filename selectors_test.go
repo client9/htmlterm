@@ -26,5 +26,18 @@ func TestSelectors(t *testing.T) {
 		{name: "[attr=val] exact-value selector", css: `p[data-style=big] { text-transform: uppercase; }`, html: `<p data-style="big">large</p><p data-style="small">tiny</p>`, want: "LARGE\n\ntiny\n\n"},
 		{name: "[attr=val] with quoted value in CSS", css: `p[lang="en"] { text-transform: uppercase; }`, html: `<p lang="en">english</p><p lang="fr">french</p>`, want: "ENGLISH\n\nfrench\n\n"},
 		{name: "[attr=val] does not match wrong value", css: `a[href=https://example.com] { text-transform: uppercase; }`, html: `<p><a href="https://example.com">right</a> <a href="https://other.com">wrong</a></p>`, want: "RIGHT wrong\n\n"},
+
+		// Adjacent sibling combinator (+)
+		{name: "adjacent sibling matches immediately following sibling", css: `h2 + p { text-transform: uppercase; }`, html: `<h2>Title</h2><p>first</p><p>second</p>`, want: "Title\nFIRST\n\nsecond\n\n"},
+		{name: "adjacent sibling does not match non-adjacent sibling", css: `h2 + p { text-transform: uppercase; }`, html: `<p>before</p><h2>Title</h2><p>after</p>`, want: "before\n\nTitle\nAFTER\n\n"},
+		{name: "adjacent sibling does not match when element is between them", css: `h2 + p { text-transform: uppercase; }`, html: `<h2>Title</h2><div>divider</div><p>para</p>`, want: "Title\ndivider\npara\n\n"},
+		{name: "adjacent sibling with class on subject", css: `h2 + p.lead { text-transform: uppercase; }`, html: `<h2>Head</h2><p class="lead">match</p><p class="lead">no</p>`, want: "Head\nMATCH\n\nno\n\n"},
+		{name: "adjacent sibling in a chain with descendant", css: `div h2 + p { text-transform: uppercase; }`, html: `<div><h2>A</h2><p>yes</p></div><h2>B</h2><p>no</p>`, want: "A\nYES\nB\nno\n\n"},
+
+		// :not() pseudo-class
+		{name: ":not(element) excludes matching element", css: `p:not(h2) { text-transform: uppercase; }`, html: `<p>para</p><h2>head</h2>`, want: "PARA\n\nhead\n"},
+		{name: ":not(.class) excludes elements with the class", css: `td:not(.highlight) { text-transform: uppercase; }`, html: `<table style="border-style:hidden"><tr><td>plain</td><td class="highlight">hi</td></tr></table>`, want: "PLAIN hi\n"},
+		{name: ":not(element) with type matches everything else", css: `li:not(.skip) { text-transform: uppercase; }`, html: `<ul><li>one</li><li class="skip">two</li><li>three</li></ul>`, want: "    • ONE\n    • two\n    • THREE\n"},
+		{name: ":not() combined with element selector", css: `p:not(.muted) { text-transform: uppercase; }`, html: `<p>normal</p><p class="muted">quiet</p><p>also</p>`, want: "NORMAL\n\nquiet\n\nALSO\n\n"},
 	})
 }

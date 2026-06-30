@@ -23,13 +23,16 @@ Anything not listed here is silently ignored.
 | Child (`>`) | `div > p { }` |
 | Pseudo-class | `li:first-child { }`, `tr:nth-child(odd) { }` |
 | Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }` |
+| Adjacent sibling (`+`) | `h2 + p { }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
 
 **Specificity** follows CSS rules: ID = 100, class / pseudo-class / attribute = 10,
 element = 1. Higher specificity wins; equal specificity last-write wins.
 
 **Supported pseudo-classes:** `:first-child`, `:last-child`, `:nth-child(odd)`,
-`:nth-child(even)`. Full `An+B` expressions are not supported.
+`:nth-child(even)`, `:not(<simple-selector>)`. Full `An+B` expressions are not supported.
+`:not()` accepts a single compound selector (element, class, id, attribute, or
+combinations thereof) as its argument; nested combinators inside `:not()` are not supported.
 
 **Supported pseudo-elements:** `::before` and `::after` (also accepted with a single
 colon: `:before`, `:after`). Inject inline text at the start or end of an element's
@@ -40,8 +43,8 @@ All combinator and element-matching forms work: `div p::before`, `.warn::after`,
 match). Compound operators (`~=`, `^=`, `$=`, `*=`) are not supported; selectors
 containing them never match.
 
-**Not supported:** `:not()`, `:hover`, `:focus`, and other pseudo-classes beyond
-the four listed above; adjacent (`+`) and general sibling (`~`) combinators.
+**Not supported:** `:hover`, `:focus`, and other pseudo-classes beyond those listed
+above; general sibling (`~`) combinator.
 
 ---
 
