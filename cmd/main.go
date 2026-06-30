@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/nickg/htmlterm"
+	"github.com/client9/htmlterm"
 )
 
 func main() {

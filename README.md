@@ -1,7 +1,7 @@
 # htmlterm
 
-[![Go](https://github.com/nickg/htmlterm/actions/workflows/go.yml/badge.svg)](https://github.com/nickg/htmlterm/actions/workflows/go.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/nickg/htmlterm.svg)](https://pkg.go.dev/github.com/nickg/htmlterm)
+[![Go](https://github.com/client9/htmlterm/actions/workflows/go.yml/badge.svg)](https://github.com/client9/htmlterm/actions/workflows/go.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/client9/htmlterm.svg)](https://pkg.go.dev/github.com/client9/htmlterm)
 
 `htmlterm` is a Go module that renders a restricted subset of HTML and CSS to ANSI-styled terminal strings.
 
@@ -28,7 +28,7 @@ See [CSS.md](./CSS.md) for the full supported surface:
 ## Install
 
 ```bash
-go get github.com/nickg/htmlterm
+go get github.com/client9/htmlterm
 ```
 
 ## Usage
@@ -40,7 +40,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/nickg/htmlterm"
+	"github.com/client9/htmlterm"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/nickg/htmlterm"
+	"github.com/client9/htmlterm"
 )
 
 // ansiRe strips ANSI CSI escape sequences (colors, bold, etc.) and OSC

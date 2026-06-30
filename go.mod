@@ -1,4 +1,4 @@
-module github.com/nickg/htmlterm
+module github.com/client9/htmlterm
 
 go 1.25.0
 
