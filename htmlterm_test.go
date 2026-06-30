@@ -462,6 +462,13 @@ func TestListStyleVariants(t *testing.T) {
 		{name: "list-style-position inside", html: `<ol style="list-style-position:inside; padding-left:0"><li>a</li><li>b</li></ol>`, want: "1. a\n2. b\n"},
 		{name: "list-style-position inside with long item wraps to indent", html: `<ol style="list-style-position:inside; padding-left:0"><li>one two three four five six seven</li></ol>`, width: 20, want: "1. one two three\nfour five six\nseven\n"},
 		{name: "list with margin-left adds extra indent", html: `<ul style="margin-left:2"><li>a</li></ul>`, want: "      • a\n"},
+		{name: "list-style-type custom string double-quoted", html: `<ul style="list-style-type:&quot;→ &quot;"><li>a</li><li>b</li></ul>`, want: "    → a\n    → b\n"},
+		{name: "list-style-type custom string single-quoted", html: `<ul style="list-style-type:'* '"><li>a</li><li>b</li></ul>`, want: "    * a\n    * b\n"},
+		{name: "list-style-type custom string on ol", html: `<ol style="list-style-type:'# '"><li>x</li><li>y</li></ol>`, want: "    # x\n    # y\n"},
+		// li::marker — text layout must be unchanged after ANSI strip
+		{name: "li::marker color keeps layout", css: `li::marker { color: #888888; }`, html: `<ul><li>a</li><li>b</li></ul>`, want: "    • a\n    • b\n"},
+		{name: "li::marker on ol keeps layout", css: `li::marker { color: #ff0000; }`, html: `<ol><li>x</li><li>y</li></ol>`, want: "    1. x\n    2. y\n"},
+		{name: "li::marker with double-colon keeps layout", css: `li::marker { color: #444444; }`, html: `<ul><li>hi</li></ul>`, want: "    • hi\n"},
 	})
 }
 

@@ -33,10 +33,13 @@ element = 1. Higher specificity wins; equal specificity last-write wins.
 `:not()` accepts a single compound selector (element, class, id, attribute, or
 combinations thereof) as its argument; nested combinators inside `:not()` are not supported.
 
-**Supported pseudo-elements:** `::before` and `::after` (also accepted with a single
-colon: `:before`, `:after`). Inject inline text at the start or end of an element's
-content. Requires the `content` property; without it the rule has no effect.
-All combinator and element-matching forms work: `div p::before`, `.warn::after`, etc.
+**Supported pseudo-elements:** `::before`, `::after`, and `::marker` (all also accepted
+with a single colon). `::before`/`::after` inject inline text at the start or end of an
+element's content; they require the `content` property. `::marker` styles the list
+prefix (bullet or number) of an `<li>` element; supported properties are `color`,
+`background-color`, `font-weight`, `font-style`, and `text-decoration`.
+All combinator and element-matching forms work: `div p::before`, `.warn::after`,
+`li::marker`, `ul.fancy li::marker`, etc.
 
 **Supported attribute operators:** `[attr]` (presence) and `[attr=val]` (exact
 match). Compound operators (`~=`, `^=`, `$=`, `*=`) are not supported; selectors
@@ -95,7 +98,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `hr` | Full-width `─` line |
 | `ul` | Unordered list; `• ` prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
 | `ol` | Ordered list; decimal prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
-| `li` | List item; content word-wraps with a hanging indent aligned to the prefix |
+| `li` | List item; content word-wraps with a hanging indent aligned to the prefix. Style the bullet/number with `li::marker { color: …; font-weight: bold; … }`. |
 | `dl` | Definition list block (default: `display: block; margin-bottom: 1`) |
 | `dt` | Definition term; rendered as a bold block (default: `display: block; font-weight: bold`) |
 | `dd` | Definition description; rendered as an indented block (default: `display: block; padding-left: 4`) |
@@ -268,7 +271,7 @@ Item content word-wraps at the available content width.
 
 | Property | Values | Notes |
 |----------|--------|-------|
-| `list-style-type` | See table below | Prefix character for each `<li>`. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
+| `list-style-type` | See table below | Prefix string for each `<li>`. A quoted string literal (e.g. `"→ "`) is used verbatim as the bullet. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
 | `list-style-position` | `outside` (default), `inside` | `outside`: prefix hangs to the left; continuation lines align under the first text character. `inside`: prefix flows inline with text; continuation lines align with `padding-left`. Inherited. |
 | `padding-left` | `4` | Indents the entire list from the left; combined with `margin-left` for total indentation. Default: `4`. |
 | `margin-left` | `4` | Left margin for the list block; added to `padding-left`. Default: `0`. |
@@ -286,6 +289,9 @@ Item content word-wraps at the available content width.
 | `upper-alpha` / `upper-latin` | `A.` `B.` … | `<ol>` |
 | `lower-roman` | `i.` `ii.` … | `<ol>` |
 | `upper-roman` | `I.` `II.` … | `<ol>` |
+| `"<string>"` / `'<string>'` | custom | `<ul>`, `<ol>` |
+
+A quoted string literal sets a custom bullet used verbatim for every item, e.g. `list-style-type: "→ "`. The string is used as-is with no additional spacing — include a trailing space in the string if desired. Works on both `<ul>` and `<ol>`.
 
 Numeric prefixes (`decimal`, `*-roman`, `*-alpha`) are right-aligned within a
 fixed-width column sized to the widest prefix in the list (e.g. `" 1."` aligns

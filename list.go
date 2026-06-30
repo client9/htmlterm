@@ -88,6 +88,9 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 		itemIdx++
 		prefix := listItemPrefix(listStyleType, ordered, itemIdx, prefixWidth)
+		if md := r.pseudoElemDecls(c, "marker"); len(md) > 0 {
+			prefix = extractInlineStyle(md).render(prefix, r.profile)
+		}
 		raw := strings.TrimRight(r.renderInline(c, contentWidth), "\n ")
 		lines := strings.Split(raw, "\n")
 		for li, line := range lines {
@@ -115,8 +118,21 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 	return sb.String()
 }
 
+// listStyleCustomString returns the unquoted string if style is a CSS quoted
+// string literal (e.g. `"→ "` or `'* '`), otherwise returns "".
+func listStyleCustomString(style string) (string, bool) {
+	s := strings.TrimSpace(style)
+	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
+		return s[1 : len(s)-1], true
+	}
+	return "", false
+}
+
 // listItemPrefixWidth returns the column width of the widest prefix for the list.
 func listItemPrefixWidth(style string, ordered bool, count int) int {
+	if custom, ok := listStyleCustomString(style); ok {
+		return utf8.RuneCountInString(custom)
+	}
 	if !ordered || style == "none" {
 		switch style {
 		case "none":
@@ -139,6 +155,9 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 
 // listItemPrefix returns the formatted prefix for item number n (1-based).
 func listItemPrefix(style string, ordered bool, n, width int) string {
+	if custom, ok := listStyleCustomString(style); ok {
+		return custom
+	}
 	if !ordered {
 		switch style {
 		case "none":

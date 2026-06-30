@@ -146,7 +146,7 @@ func parseSimpleSelector(tok string) selectorPart {
 			}
 			if ps := strings.ToLower(tok[i:j]); ps != "" {
 				switch ps {
-				case "before", "after":
+				case "before", "after", "marker":
 					p.pseudoElem = ps
 				default:
 					p.pseudos = append(p.pseudos, ps)
