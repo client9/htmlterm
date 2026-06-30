@@ -14,9 +14,11 @@ import (
 
 // Renderer renders HTML+CSS to terminal strings.
 type Renderer struct {
-	rules   []rule
-	width   int
-	profile colorprofile.Profile
+	rules      []rule
+	width      int
+	profile    colorprofile.Profile
+	counterMap map[*html.Node]counterSnapshot // built fresh per Render call
+	quoteDepth int                            // tracks open-quote nesting depth
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -48,6 +50,8 @@ mark                    { background-color: #cc9900; color: #000000; }
 small                   { color: #888888; }
 sup                     { text-transform: superscript; }
 sub                     { text-transform: subscript; }
+q::before               { content: open-quote; }
+q::after                { content: close-quote; }
 `
 
 // New parses css and returns a Renderer. width is the terminal column count.
@@ -72,6 +76,8 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 		copy(combined[len(r.rules):], extra)
 		rr = &Renderer{rules: combined, width: r.width, profile: r.profile}
 	}
+	rr.counterMap = rr.buildCounterMap(doc)
+	rr.quoteDepth = 0
 	var sb strings.Builder
 	rr.renderNode(&sb, doc)
 	return sb.String(), nil

@@ -55,7 +55,7 @@ above; general sibling (`~`) combinator.
 The following properties inherit from parent to child when no direct rule
 applies to the child element:
 
-`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility` · `opacity`
+`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility` · `opacity` · `quotes`
 
 Inheritance is resolved by walking up the ancestor chain and taking the value
 from the nearest ancestor that sets the property directly. For example,
@@ -91,7 +91,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `dfn` | Definition term; inline italic (default: `font-style: italic`) |
 | `abbr` | Abbreviation. When a `title` attribute is present the expansion is appended inline as ` (expansion)` — e.g. `<abbr title="HyperText Markup Language">HTML</abbr>` renders as `HTML (HyperText Markup Language)`. |
 | `small` | Fine print / secondary text (default: `color: #888888`). No font-size reduction is possible in terminals. |
-| `q` | Inline quotation; content is wrapped in Unicode curly quotes `"…"`. |
+| `q` | Inline quotation; the UA stylesheet injects `open-quote` before and `close-quote` after the content. The characters used depend on the inherited `quotes` property (default `"…"` / `'…'` for nested). |
 | `code` | Inline styled span |
 | `pre` | Raw text block; `white-space: pre` by default; child elements are styled |
 | `br` | Line break (inline or block) |
@@ -221,7 +221,87 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `visible` | `hidden`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
 
 #### `content`
-`"<string>"` | `'<string>'` | `none` | `normal`. Text injected by `::before` or `::after` pseudo-element rules. A quoted string literal is the injected text; `none` and `normal` suppress injection. Other CSS content values (`attr()`, `counter()`, etc.) are not supported. Not meaningful on regular elements. Not inherited.
+
+Text injected by `::before` or `::after` pseudo-element rules. The value is one or more space-separated **tokens** that are concatenated left-to-right. `none` and `normal` by themselves suppress injection entirely. Not meaningful on regular elements. Not inherited.
+
+| Token | Example | Description |
+|-------|---------|-------------|
+| Quoted string | `"→ "` | Literal text; CSS escape sequences (`\A` = newline, `\22` = `"`, etc.) are decoded |
+| `attr(name)` | `attr(href)` | Value of the named HTML attribute on the element; empty string if absent |
+| `counter(name)` | `counter(sec)` | Current value of a CSS counter (see **Counters** below) |
+| `counter(name, style)` | `counter(ch, upper-roman)` | Counter value formatted with the given `list-style-type` style |
+| `counters(name, sep)` | `counters(item, ".")` | All nested counter values joined by sep (e.g. `1.2.3`) |
+| `counters(name, sep, style)` | `counters(item, ".", lower-alpha)` | Nested counter values with a style applied to each |
+| `open-quote` | — | Opening quote from the `quotes` property at the current nesting depth; increments depth |
+| `close-quote` | — | Closing quote from the `quotes` property; decrements depth |
+| `no-open-quote` | — | Increments quote depth without emitting a character |
+| `no-close-quote` | — | Decrements quote depth without emitting a character |
+| `none` / `normal` | — | Suppress content injection entirely (only valid as the sole token) |
+
+**Concatenation example:**
+```css
+a::before { content: "["; }
+a::after  { content: "](" attr(href) ")"; }
+/* renders <a href="/page">link</a> as: [link](/page) */
+```
+
+---
+
+### Counters
+
+CSS counters let you auto-number elements. Two companion properties control them:
+
+#### `counter-reset`
+`<name> [<integer>] …`. Creates a new counter scope named `<name>`, initialized to `<integer>` (default `0`). Multiple name/value pairs may appear in one declaration. Not inherited.
+
+```css
+ol { counter-reset: item; }          /* reset to 0 */
+ol { counter-reset: item 9; }        /* reset to 9; first increment → 10 */
+```
+
+#### `counter-increment`
+`<name> [<integer>] …`. Increments the innermost counter named `<name>` by `<integer>` (default `1`). Multiple name/step pairs may appear. Not inherited.
+
+```css
+li { counter-increment: item; }      /* +1 each <li> */
+li { counter-increment: item 2; }    /* +2 each <li> */
+```
+
+**Complete example — auto-numbered sections:**
+```css
+body  { counter-reset: section; }
+h2    { counter-increment: section; }
+h2::before { content: counter(section) ". "; }
+```
+
+**Nested numbering with `counters()`:**
+```css
+ol          { counter-reset: item; list-style-type: none; }
+li          { counter-increment: item; }
+li::before  { content: counters(item, ".") " "; }
+/* produces: 1 · 1.1 · 1.2 · 2 · 2.1 … */
+```
+
+Counter styles available in `counter()` / `counters()` match `list-style-type`: `decimal` (default), `lower-alpha`, `upper-alpha`, `lower-roman`, `upper-roman`, `none`.
+
+---
+
+### Quotes
+
+#### `quotes`
+`"<open>" "<close>" …`. Pairs of strings used by `open-quote` and `close-quote`. The first pair is used at nesting depth 0, the second at depth 1, and so on; the last pair repeats for any deeper nesting. Inherited. Default: `"“" "”" "‘" "’"` (`"` `"` `'` `'`).
+
+```css
+/* English smart quotes (default) */
+q { }   /* uses UA-stylesheet q::before/q::after rules */
+
+/* Custom quotes */
+blockquote { quotes: "«" "»" "‹" "›"; }
+blockquote::before { content: open-quote; }
+blockquote::after  { content: close-quote; }
+```
+
+The UA stylesheet defines `q::before { content: open-quote; }` and `q::after { content: close-quote; }`, so `<q>` elements are quoted automatically using the inherited `quotes` value.
 
 #### `border-style`
 `normal` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.

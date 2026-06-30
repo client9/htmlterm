@@ -548,14 +548,116 @@ func isSpaceRune(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f'
 }
 
-// parseCSSContentString extracts the string from a CSS content property value.
-// Returns "" for none, normal, unquoted tokens, or empty input.
-func parseCSSContentString(v string) string {
+// parseCSSContentString extracts the text from a CSS content property value.
+// Supports: quoted strings, attr(), counter(), counters(), open-quote,
+// close-quote, no-open-quote, no-close-quote. Returns "" for none/normal.
+func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 	v = strings.TrimSpace(v)
-	if v == "none" || v == "normal" {
+	if v == "none" || v == "normal" || v == "" {
 		return ""
 	}
-	return parseCSSString(v)
+	cs := r.counterMap[n]
+	var b strings.Builder
+	for v != "" {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			break
+		}
+		switch {
+		case strings.HasPrefix(v, "attr("):
+			end := strings.Index(v, ")")
+			if end < 0 {
+				return b.String()
+			}
+			attrName := strings.TrimSpace(v[5:end])
+			v = v[end+1:]
+			if n != nil {
+				b.WriteString(nodeAttr(n, attrName))
+			}
+
+		case strings.HasPrefix(v, "counters("):
+			end := strings.Index(v, ")")
+			if end < 0 {
+				return b.String()
+			}
+			name, sep, style := parseCounterFnArgs(v[9:end])
+			v = v[end+1:]
+			vals := cs.values(name)
+			parts := make([]string, len(vals))
+			for i, val := range vals {
+				parts[i] = formatCounterValue(val, style)
+			}
+			b.WriteString(strings.Join(parts, sep))
+
+		case strings.HasPrefix(v, "counter("):
+			end := strings.Index(v, ")")
+			if end < 0 {
+				return b.String()
+			}
+			name, _, style := parseCounterFnArgs(v[8:end])
+			v = v[end+1:]
+			b.WriteString(formatCounterValue(cs.value(name), style))
+
+		case strings.HasPrefix(v, "no-open-quote"):
+			v = v[len("no-open-quote"):]
+			r.quoteDepth++
+
+		case strings.HasPrefix(v, "no-close-quote"):
+			v = v[len("no-close-quote"):]
+			if r.quoteDepth > 0 {
+				r.quoteDepth--
+			}
+
+		case strings.HasPrefix(v, "open-quote"):
+			v = v[len("open-quote"):]
+			pairs := parseQuotes(r.resolveDecls(n)["quotes"])
+			depth := r.quoteDepth
+			if depth >= len(pairs) {
+				depth = len(pairs) - 1
+			}
+			b.WriteString(pairs[depth][0])
+			r.quoteDepth++
+
+		case strings.HasPrefix(v, "close-quote"):
+			v = v[len("close-quote"):]
+			if r.quoteDepth > 0 {
+				r.quoteDepth--
+			}
+			pairs := parseQuotes(r.resolveDecls(n)["quotes"])
+			depth := r.quoteDepth
+			if depth >= len(pairs) {
+				depth = len(pairs) - 1
+			}
+			b.WriteString(pairs[depth][1])
+
+		case v[0] == '"' || v[0] == '\'':
+			// quoted string — find the closing quote
+			q := v[0]
+			i := 1
+			for i < len(v) {
+				if v[i] == '\\' {
+					i += 2
+					continue
+				}
+				if v[i] == q {
+					i++
+					break
+				}
+				i++
+			}
+			b.WriteString(parseCSSString(v[:i]))
+			v = v[i:]
+
+		default:
+			// unrecognised token — skip one word
+			i := strings.IndexAny(v, " \t\n\r")
+			if i < 0 {
+				return b.String()
+			}
+			v = v[i:]
+		}
+	}
+	return b.String()
 }
 
 // wrapHyperlink wraps text in an OSC 8 terminal hyperlink sequence.
@@ -568,10 +670,7 @@ func wrapHyperlink(href, text string) string {
 
 // wrapInlineElement applies element-specific content transforms.
 func wrapInlineElement(n *html.Node, text string) string {
-	switch n.Data {
-	case "q":
-		return "“" + text + "”"
-	case "abbr":
+	if n.Data == "abbr" {
 		if title := nodeAttr(n, "title"); title != "" {
 			return text + " (" + title + ")"
 		}

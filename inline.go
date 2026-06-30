@@ -26,7 +26,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	var sb strings.Builder
 
 	if bd := r.pseudoElemDecls(n, "before"); len(bd) > 0 {
-		if text := parseCSSContentString(bd["content"]); text != "" {
+		if text := r.parseCSSContentString(bd["content"], n); text != "" {
 			pseudoTT := effectiveTransform(bd)
 			if pseudoTT == "" {
 				pseudoTT = tt
@@ -120,7 +120,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	}
 
 	if ad := r.pseudoElemDecls(n, "after"); len(ad) > 0 {
-		if text := parseCSSContentString(ad["content"]); text != "" {
+		if text := r.parseCSSContentString(ad["content"], n); text != "" {
 			pseudoTT := effectiveTransform(ad)
 			if pseudoTT == "" {
 				pseudoTT = tt
