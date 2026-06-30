@@ -10,11 +10,13 @@ import (
 type inlineStyle struct {
 	lg        lipgloss.Style
 	hasLG     bool
+	bold      bool
+	italic    bool
 	underline bool
 	strike    bool
 }
 
-func (s inlineStyle) has() bool { return s.hasLG || s.underline || s.strike }
+func (s inlineStyle) has() bool { return s.hasLG || s.bold || s.italic || s.underline || s.strike }
 
 func (s inlineStyle) render(text string) string {
 	if !s.has() {
@@ -22,6 +24,12 @@ func (s inlineStyle) render(text string) string {
 	}
 	if s.hasLG {
 		text = s.lg.Render(text)
+	}
+	if s.bold {
+		text = "\x1b[1m" + text + "\x1b[22m"
+	}
+	if s.italic {
+		text = "\x1b[3m" + text + "\x1b[23m"
 	}
 	if s.underline {
 		text = "\x1b[4m" + text + "\x1b[24m"
@@ -51,18 +59,16 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 		case "font-weight":
 			switch val {
 			case "bold":
-				s.lg = s.lg.Bold(true)
-				s.hasLG = true
+				s.bold = true
 			case "normal":
-				s.lg = s.lg.Bold(false)
+				s.bold = false
 			}
 		case "font-style":
 			switch val {
 			case "italic":
-				s.lg = s.lg.Italic(true)
-				s.hasLG = true
+				s.italic = true
 			case "normal":
-				s.lg = s.lg.Italic(false)
+				s.italic = false
 			}
 		case "text-decoration":
 			switch val {
