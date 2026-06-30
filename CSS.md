@@ -289,8 +289,12 @@ with `"10."` in a ten-item list).
 Nested lists are supported: a `<ul>` or `<ol>` anywhere inside an `<li>` is
 rendered recursively, indented within the parent item's content width.
 
-**Not supported:** `<ol start="N">` (counter always begins at 1);
-`list-style-image`; `list-style-position`; `list-style` shorthand; the
+**`<ol start="N">`:** The `start` attribute sets the initial counter value.
+For example, `<ol start="5">` numbers items 5, 6, 7 … The prefix column width
+is sized to the widest number that will appear (e.g. `start="9"` with two items
+produces a two-digit-wide column for items 9 and 10).
+
+**Not supported:** `list-style-image`; `list-style-position`; `list-style` shorthand; the
 `type` HTML attribute on `<ol>` (use `list-style-type` CSS instead).
 
 ---

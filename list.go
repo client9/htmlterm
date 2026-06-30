@@ -33,6 +33,17 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 	}
 
+	// start is the counter value for the first <li>; default 1, overridden by start= attr.
+	start := 1
+	if ordered {
+		if v := nodeAttr(n, "start"); v != "" {
+			var s int
+			if _, err := fmt.Sscanf(v, "%d", &s); err == nil {
+				start = s
+			}
+		}
+	}
+
 	itemCount := 0
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.ElementNode && c.Data == "li" {
@@ -40,7 +51,12 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 	}
 
-	prefixWidth := listItemPrefixWidth(listStyleType, ordered, itemCount)
+	// maxVal is the largest counter value printed; used to size the prefix column.
+	maxVal := start + itemCount - 1
+	if maxVal < 1 {
+		maxVal = 1
+	}
+	prefixWidth := listItemPrefixWidth(listStyleType, ordered, maxVal)
 	contentWidth := availWidth - indent - prefixWidth
 	if contentWidth < 10 {
 		contentWidth = 10
@@ -49,7 +65,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 	hangStr := strings.Repeat(" ", indent+prefixWidth)
 
 	var sb strings.Builder
-	itemIdx := 0
+	itemIdx := start - 1
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode || c.Data != "li" {
 			continue

@@ -442,6 +442,12 @@ func TestNewHTMLElements(t *testing.T) {
 		// menu (alias for ul)
 		{name: "menu renders as unordered list", html: `<menu><li>one</li><li>two</li></menu>`, want: "    • one\n    • two\n"},
 
+		// ol start attribute
+		{name: "ol start=5 begins counter at 5", html: `<ol start="5"><li>a</li><li>b</li></ol>`, want: "    5. a\n    6. b\n"},
+		{name: "ol start=1 is same as default", html: `<ol start="1"><li>x</li><li>y</li></ol>`, want: "    1. x\n    2. y\n"},
+		{name: "ol start=9 crossing into two digits sizes prefix correctly", html: `<ol start="9"><li>a</li><li>b</li></ol>`, want: "     9. a\n    10. b\n"},
+		{name: "ol without start defaults to 1", html: `<ol><li>x</li></ol>`, want: "    1. x\n"},
+
 		// details / summary — p's margin-bottom is absorbed by the outer details block
 		{name: "details renders expanded with summary as bold block", html: `<details><summary>Title</summary><p>body</p></details>`, want: "Title\nbody\n"},
 		{name: "details without summary renders children", html: `<details><p>text</p></details>`, want: "text\n"},
