@@ -472,6 +472,63 @@ func TestListStyleVariants(t *testing.T) {
 	})
 }
 
+func TestListBoxModel(t *testing.T) {
+	runCases(t, []renderCase{
+		// margin-bottom / margin-top
+		{name: "ul margin-bottom separates list from following paragraph",
+			css:  `ul { margin-bottom: 1; }`,
+			html: `<ul><li>a</li></ul><p>after</p>`,
+			want: "    • a\n\nafter\n\n"},
+		{name: "ol margin-bottom separates list from following paragraph",
+			css:  `ol { margin-bottom: 1; }`,
+			html: `<ol><li>a</li></ol><p>after</p>`,
+			want: "    1. a\n\nafter\n\n"},
+		{name: "ul margin-top adds space before list",
+			html: `<p>before</p><ul style="margin-top:2"><li>a</li></ul>`,
+			want: "before\n\n\n    • a\n"},
+		{name: "ol margin-top adds space before list",
+			html: `<p>before</p><ol style="margin-top:2"><li>a</li></ol>`,
+			want: "before\n\n\n    1. a\n"},
+
+		// padding-top / padding-bottom
+		{name: "ul padding-top adds blank line before items",
+			html: `<ul style="padding-top:1"><li>a</li></ul>`,
+			want: "\n    • a\n"},
+		{name: "ul padding-bottom adds blank line after items",
+			html: `<ul style="padding-bottom:1"><li>a</li></ul>`,
+			want: "    • a\n\n"},
+		{name: "ol padding-top adds blank line before items",
+			html: `<ol style="padding-top:1"><li>a</li></ol>`,
+			want: "\n    1. a\n"},
+		{name: "ol padding-bottom adds blank line after items",
+			html: `<ol style="padding-bottom:1"><li>a</li></ol>`,
+			want: "    1. a\n\n"},
+
+		// margin-right / padding-right reduce wrap width
+		// width=20, UA padding-left=4, bullet "• "=2 → contentWidth = 20-4-2 = 14
+		// with right-side indent of 4 → availWidth = 16, contentWidth = 10
+		// "one two three four" wraps as: "one two" (7) + "three four" (10)
+		{name: "ul margin-right reduces content wrap width",
+			html:  `<ul style="margin-right:4"><li>one two three four</li></ul>`,
+			width: 20,
+			want:  "    • one two\n      three four\n"},
+		{name: "ul padding-right reduces content wrap width",
+			html:  `<ul style="padding-right:4"><li>one two three four</li></ul>`,
+			width: 20,
+			want:  "    • one two\n      three four\n"},
+		// ol prefix "1. " is 3 chars → contentWidth = 20-4(padding-left)-4(right)-3(prefix) = 9
+		// "one two three four" wraps as: "one two" (7) + "three" (5) + "four" (4)
+		{name: "ol margin-right reduces content wrap width",
+			html:  `<ol style="margin-right:4"><li>one two three four</li></ol>`,
+			width: 20,
+			want:  "    1. one two\n       three\n       four\n"},
+		{name: "ol padding-right reduces content wrap width",
+			html:  `<ol style="padding-right:4"><li>one two three four</li></ol>`,
+			width: 20,
+			want:  "    1. one two\n       three\n       four\n"},
+	})
+}
+
 func TestNewHTMLElements(t *testing.T) {
 	runCases(t, []renderCase{
 		// img

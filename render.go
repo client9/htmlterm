@@ -58,16 +58,22 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 				sb.WriteString(inner)
 			}
 		case "table", "ol", "ul", "menu", "br", "hr":
-			if r.resolveDecls(n)["display"] == "none" {
+			decls := r.resolveDecls(n)
+			if decls["display"] == "none" {
 				return
 			}
 			switch n.Data {
 			case "table":
 				sb.WriteString(r.renderTable(n))
-			case "ol":
-				sb.WriteString(r.renderList(n, true, r.width))
-			case "ul", "menu":
-				sb.WriteString(r.renderList(n, false, r.width))
+			case "ol", "ul", "menu":
+				ordered := n.Data == "ol"
+				if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
+					writeMarginNewlines(sb, mt+1)
+				}
+				sb.WriteString(r.renderList(n, ordered, r.width))
+				if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
+					writeMarginNewlines(sb, mb+1)
+				}
 			case "br":
 				sb.WriteByte('\n')
 			case "hr":

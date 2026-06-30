@@ -24,6 +24,19 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 	}
 
+	rightIndent := 0
+	if v := decls["padding-right"]; v != "" {
+		if abs, _, ok := parseSizeVal(v); ok {
+			rightIndent = abs
+		}
+	}
+	if v := decls["margin-right"]; v != "" {
+		if abs, _, ok := parseSizeVal(v); ok {
+			rightIndent += abs
+		}
+	}
+	availWidth -= rightIndent
+
 	listStyleType := decls["list-style-type"]
 	if listStyleType == "" {
 		if ordered {
@@ -81,6 +94,11 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 	}
 
 	var sb strings.Builder
+
+	if pt := parseMargin(decls["padding-top"]); pt > 0 {
+		sb.WriteString(strings.Repeat("\n", pt))
+	}
+
 	itemIdx := start - 1
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode || c.Data != "li" {
@@ -115,6 +133,10 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 			}
 		}
 	}
+	if pb := parseMargin(decls["padding-bottom"]); pb > 0 {
+		sb.WriteString(strings.Repeat("\n", pb))
+	}
+
 	return sb.String()
 }
 
