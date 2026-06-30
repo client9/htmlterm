@@ -529,6 +529,37 @@ func TestListBoxModel(t *testing.T) {
 	})
 }
 
+func TestNestedList(t *testing.T) {
+	runCases(t, []renderCase{
+		// direct-child nesting (nested list is sibling of <li>, not inside one)
+		{name: "direct-child ol in ol matches proper nesting",
+			html: `<ol><li>outer 1</li><ol><li>inner 1</li><li>inner 2</li></ol><li>outer 2</li><li>outer 3</li></ol>`,
+			want: "    1. outer 1\n           1. inner 1\n           2. inner 2\n    2. outer 2\n    3. outer 3\n"},
+		{name: "direct-child ul in ul",
+			html: `<ul><li>a</li><ul><li>b</li><li>c</li></ul><li>d</li></ul>`,
+			want: "    • a\n          • b\n          • c\n    • d\n"},
+		{name: "direct-child ol in ul",
+			html: `<ul><li>a</li><ol><li>b</li><li>c</li></ol><li>d</li></ul>`,
+			want: "    • a\n          1. b\n          2. c\n    • d\n"},
+		// proper nesting (nested list inside <li>) produces same indentation
+		{name: "proper ol in li",
+			html: `<ol><li>outer 1<ol><li>inner 1</li><li>inner 2</li></ol></li><li>outer 2</li><li>outer 3</li></ol>`,
+			want: "    1. outer 1\n           1. inner 1\n           2. inner 2\n    2. outer 2\n    3. outer 3\n"},
+		// edge: nested list before any <li>
+		{name: "direct-child nested list before first li",
+			html: `<ol><ol><li>inner</li></ol><li>outer</li></ol>`,
+			want: "           1. inner\n    1. outer\n"},
+		// edge: nested list after all <li>
+		{name: "direct-child nested list after last li",
+			html: `<ol><li>outer</li><ol><li>inner</li></ol></ol>`,
+			want: "    1. outer\n           1. inner\n"},
+		// three levels deep
+		{name: "three levels of direct-child nesting",
+			html: `<ol><li>a</li><ol><li>b</li><ol><li>c</li></ol></ol><li>d</li></ol>`,
+			want: "    1. a\n           1. b\n                  1. c\n    2. d\n"},
+	})
+}
+
 func TestNewHTMLElements(t *testing.T) {
 	runCases(t, []renderCase{
 		// img

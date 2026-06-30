@@ -101,7 +101,17 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 
 	itemIdx := start - 1
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type != html.ElementNode || c.Data != "li" {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		if c.Data == "ol" || c.Data == "ul" || c.Data == "menu" {
+			nested := r.renderList(c, c.Data == "ol", contentWidth)
+			for _, line := range strings.Split(strings.TrimRight(nested, "\n"), "\n") {
+				sb.WriteString(hangStr + line + "\n")
+			}
+			continue
+		}
+		if c.Data != "li" {
 			continue
 		}
 		itemIdx++
