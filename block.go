@@ -496,10 +496,56 @@ func blankVisibleContent(s string) string {
 // Returns "" for unquoted values, keywords, or empty input.
 func parseCSSString(v string) string {
 	v = strings.TrimSpace(v)
-	if len(v) >= 2 && ((v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')) {
-		return v[1 : len(v)-1]
+	if len(v) < 2 {
+		return ""
 	}
-	return ""
+	if (v[0] != '"' || v[len(v)-1] != '"') && (v[0] != '\'' || v[len(v)-1] != '\'') {
+		return ""
+	}
+	inner := v[1 : len(v)-1]
+	if !strings.ContainsRune(inner, '\\') {
+		return inner
+	}
+	// Decode CSS string escape sequences.
+	var b strings.Builder
+	runes := []rune(inner)
+	for i := 0; i < len(runes); i++ {
+		if runes[i] != '\\' || i+1 >= len(runes) {
+			b.WriteRune(runes[i])
+			continue
+		}
+		i++
+		next := runes[i]
+		// \<newline> — line continuation, consume and skip the newline
+		if next == '\n' {
+			continue
+		}
+		// \<hex>{1,6}<optional-space> — Unicode code point
+		if isHexRune(next) {
+			hexStart := i
+			for i+1 < len(runes) && isHexRune(runes[i+1]) && i-hexStart < 5 {
+				i++
+			}
+			cp, _ := strconv.ParseInt(string(runes[hexStart:i+1]), 16, 32)
+			b.WriteRune(rune(cp))
+			// consume optional single whitespace after hex escape
+			if i+1 < len(runes) && isSpaceRune(runes[i+1]) {
+				i++
+			}
+			continue
+		}
+		// \<other> — the character itself
+		b.WriteRune(next)
+	}
+	return b.String()
+}
+
+func isHexRune(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+}
+
+func isSpaceRune(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f'
 }
 
 // parseCSSContentString extracts the string from a CSS content property value.

@@ -574,3 +574,35 @@ func TestNewHTMLElements(t *testing.T) {
 		},
 	})
 }
+
+func TestPseudoElementContent(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "::before content prepended to p", css: `p::before { content: "→ "; }`, html: `<p>hello</p>`, want: "→ hello\n\n"},
+		{name: "::after content appended to p", css: `p::after { content: " ←"; }`, html: `<p>hello</p>`, want: "hello ←\n\n"},
+		{name: "::before and ::after together", css: `p::before { content: "["; } p::after { content: "]"; }`, html: `<p>hi</p>`, want: "[hi]\n\n"},
+		{name: "::before content none suppresses injection", css: `p::before { content: none; }`, html: `<p>hello</p>`, want: "hello\n\n"},
+		{name: "::before text-transform uppercase on pseudo", css: `p::before { content: "note: "; text-transform: uppercase; }`, html: `<p>hello</p>`, want: "NOTE: hello\n\n"},
+		{name: "::before inherits parent text-transform", css: `p { text-transform: uppercase; } p::before { content: "note: "; }`, html: `<p>hello</p>`, want: "NOTE: HELLO\n\n"},
+		{name: "::before own text-transform overrides parent", css: `p { text-transform: uppercase; } p::before { content: "Note: "; text-transform: lowercase; }`, html: `<p>hello</p>`, want: "note: HELLO\n\n"},
+		{name: "::before on pre prepends to code", css: `pre::before { content: "$ "; }`, html: `<pre>code</pre>`, want: "$ code\n"},
+		{name: "::after on pre appends to code", css: `pre::after { content: " #"; }`, html: `<pre>code</pre>`, want: "code #\n"},
+		{name: "::before on multiline pre is on first line only", css: `pre::before { content: "> "; }`, html: "<pre>line1\nline2</pre>", want: "> line1\nline2\n"},
+		// CSS string escape sequences
+		{name: `content \A escape inserts newline`, css: "pre::before { content: \"```\\A\"; }", html: "<pre>code</pre>", want: "```\ncode\n"},
+		{name: `content \\ escape inserts backslash`, css: `p::before { content: "a\\b"; }`, html: `<p>x</p>`, want: "a\\bx\n\n"},
+		{name: `content \" escape inserts quote`, css: `p::before { content: "say \"hi\""; }`, html: `<p>.</p>`, want: "say \"hi\".\n\n"},
+		{name: `content hex \000A escape inserts newline`, css: "pre::before { content: \"```\\000A\"; }", html: "<pre>code</pre>", want: "```\ncode\n"},
+	})
+}
+
+func TestPreVerticalSpacing(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "pre padding-top adds blank line", html: `<pre style="padding-top:1; width:10">code</pre>`, want: "          \ncode      \n"},
+		{name: "pre padding-bottom adds blank line", html: `<pre style="padding-bottom:1; width:10">code</pre>`, want: "code      \n          \n"},
+		{name: "pre padding-top and bottom", html: `<pre style="padding-top:1; padding-bottom:1; width:10">code</pre>`, want: "          \ncode      \n          \n"},
+		{name: "pre margin-top adds newline before", html: `<div>x</div><pre style="margin-top:1">code</pre>`, want: "x\n\ncode\n"},
+		{name: "pre margin-bottom adds newline after", html: `<pre style="margin-bottom:1">code</pre><div>x</div>`, want: "code\n\nx\n"},
+		{name: "pre ::before with padding-top", css: `pre::before { content: "$ "; }`, html: `<pre style="padding-top:1; width:10">code</pre>`, want: "          \n$ code    \n"},
+		{name: "pre ::after with padding-bottom", css: `pre::after { content: " #"; }`, html: `<pre style="padding-bottom:1; width:10">code</pre>`, want: "code #    \n          \n"},
+	})
+}

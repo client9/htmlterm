@@ -27,6 +27,11 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 
 	if bd := r.pseudoElemDecls(n, "before"); len(bd) > 0 {
 		if text := parseCSSContentString(bd["content"]); text != "" {
+			pseudoTT := effectiveTransform(bd)
+			if pseudoTT == "" {
+				pseudoTT = tt
+			}
+			text = applyTextTransform(text, pseudoTT)
 			st := mergeInlineStyle(acc, bd)
 			if st.has() {
 				sb.WriteString(st.render(text, r.profile))
@@ -116,6 +121,11 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 
 	if ad := r.pseudoElemDecls(n, "after"); len(ad) > 0 {
 		if text := parseCSSContentString(ad["content"]); text != "" {
+			pseudoTT := effectiveTransform(ad)
+			if pseudoTT == "" {
+				pseudoTT = tt
+			}
+			text = applyTextTransform(text, pseudoTT)
 			st := mergeInlineStyle(acc, ad)
 			if st.has() {
 				sb.WriteString(st.render(text, r.profile))
