@@ -1,9 +1,8 @@
-# termrender CSS Reference
+# htmlterm CSS Reference
 
-termrender renders a restricted subset of HTML+CSS to terminal strings via
-[lipgloss](https://github.com/charmbracelet/lipgloss). This document lists
-every selector form, HTML element, and CSS property that is recognized.
-Anything not listed here is silently ignored.
+htmlterm renders a restricted subset of HTML+CSS to terminal strings.
+This document lists every selector form, HTML element, and CSS property
+that is recognized. Anything not listed here is silently ignored.
 
 ---
 
@@ -53,7 +52,7 @@ above; general sibling (`~`) combinator.
 The following properties inherit from parent to child when no direct rule
 applies to the child element:
 
-`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility`
+`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility` · `opacity`
 
 Inheritance is resolved by walking up the ancestor chain and taking the value
 from the nearest ancestor that sets the property directly. For example,
@@ -130,10 +129,13 @@ These apply to any matched element and control text rendering.
 `block` | `inline` | `inline-block` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `none` hides the element and all its children. Not inherited. Defaults: `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`.
 
 #### `color`
-`#rrggbb`, named color. Foreground color. Inherited.
+Any CSS color value (see [Color Values](#color-values)). Foreground color. Inherited.
 
 #### `background-color`
-`#rrggbb`, named color. Background color. Not inherited.
+Any CSS color value (see [Color Values](#color-values)). Background color. Not inherited.
+
+#### `opacity`
+`0.0`–`1.0`. Scales the foreground and background color channels. `1` is fully opaque (the default); `0` renders as black. Inherited.
 
 #### `font-weight`
 `bold` | `normal`. `normal` cancels inherited bold. Inherited.
@@ -234,16 +236,16 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `<string>` | `none`. Fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. Not inherited.
 
 #### `border-left-color`
-`#rrggbb`, named color. ANSI color applied to the left border character. Not inherited.
+Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the left border character. Not inherited.
 
 #### `border-right-color`
-`#rrggbb`, named color. ANSI color applied to the right border character. Not inherited.
+Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the right border character. Not inherited.
 
 #### `border-top-color`
-`#rrggbb`, named color. ANSI color applied to the top border rule. Not inherited.
+Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the top border rule. Not inherited.
 
 #### `border-bottom-color`
-`#rrggbb`, named color. ANSI color applied to the bottom border rule. Not inherited.
+Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the bottom border rule. Not inherited.
 
 #### `border-top-left-corner`
 `<string>`. Character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
@@ -448,8 +450,29 @@ share remaining space evenly, respecting `max-width` caps.
 
 ## Color Values
 
-Any value accepted by lipgloss is accepted here: `#rrggbb` hex, ANSI color
-names (`red`, `green`, …), and ANSI 256-color numbers (`"214"`).
+Color strings are parsed using CSS Color Level 4 syntax. The following formats are supported:
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| 6-digit hex | `#ff6600` | Standard `#rrggbb` |
+| 3-digit hex | `#f60` | Expands to `#ff6600` |
+| 8-digit hex | `#ff660080` | `#rrggbbaa` with alpha channel |
+| 4-digit hex | `#f608` | `#rgba` with alpha channel |
+| Named color | `red`, `cornflowerblue` | Full W3C named color list |
+| `rgb()` | `rgb(255, 102, 0)` | Space or comma separated |
+| `rgba()` | `rgba(255, 102, 0, 0.5)` | Fourth value is alpha 0–1 |
+| `hsl()` | `hsl(24, 100%, 50%)` | Hue, saturation, lightness |
+| `hsla()` | `hsla(24, 100%, 50%, 0.5)` | With alpha |
+| `hwb()` | `hwb(24 0% 0%)` | CSS Color Level 4 |
+| `transparent` | `transparent` | Fully transparent (renders as black) |
+
+Color values are downsampled to the terminal's color capability at render time:
+- **TrueColor terminals** (`COLORTERM=truecolor`): full 24-bit RGB
+- **256-color terminals**: quantized to the nearest xterm-256 palette entry
+- **16-color terminals**: quantized to the nearest ANSI basic color
+- **No color** (`NO_COLOR=1` or non-TTY): color is stripped
+
+Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a named color instead.
 
 ---
 
