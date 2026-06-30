@@ -33,6 +33,8 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 	}
 
+	inside := decls["list-style-position"] == "inside"
+
 	// start is the counter value for the first <li>; default 1, overridden by start= attr.
 	start := 1
 	if ordered {
@@ -57,12 +59,26 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		maxVal = 1
 	}
 	prefixWidth := listItemPrefixWidth(listStyleType, ordered, maxVal)
-	contentWidth := availWidth - indent - prefixWidth
+	indentStr := strings.Repeat(" ", indent)
+
+	var contentWidth, firstLineWidth int
+	var hangStr string
+	if inside {
+		// Prefix flows inline: continuation lines align with indent, not after prefix.
+		contentWidth = availWidth - indent
+		firstLineWidth = contentWidth - prefixWidth
+		if firstLineWidth < 1 {
+			firstLineWidth = 1
+		}
+		hangStr = indentStr
+	} else {
+		contentWidth = availWidth - indent - prefixWidth
+		firstLineWidth = contentWidth
+		hangStr = strings.Repeat(" ", indent+prefixWidth)
+	}
 	if contentWidth < 10 {
 		contentWidth = 10
 	}
-	indentStr := strings.Repeat(" ", indent)
-	hangStr := strings.Repeat(" ", indent+prefixWidth)
 
 	var sb strings.Builder
 	itemIdx := start - 1
@@ -76,7 +92,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		lines := strings.Split(raw, "\n")
 		for li, line := range lines {
 			if li == 0 {
-				wrapped := wordWrapANSI(line, contentWidth, "")
+				wrapped := wordWrapANSI(line, firstLineWidth, "")
 				for wi, seg := range wrapped {
 					if wi == 0 {
 						sb.WriteString(indentStr + prefix + seg + "\n")

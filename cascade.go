@@ -27,19 +27,20 @@ func extractStyleRules(doc *html.Node) []rule {
 // inheritableProps is the set of CSS properties that propagate from parent to
 // child when no direct declaration for that property applies to the child.
 var inheritableProps = map[string]bool{
-	"color":           true,
-	"font-weight":     true,
-	"font-style":      true,
-	"text-decoration": true,
-	"text-align":      true,
-	"white-space":     true,
-	"text-transform":  true,
-	"font-variant":    true,
-	"overflow-wrap":   true,
-	"word-break":      true,
-	"text-indent":     true,
-	"tab-size":        true,
-	"visibility":      true,
+	"color":               true,
+	"font-weight":         true,
+	"font-style":          true,
+	"text-decoration":     true,
+	"text-align":          true,
+	"white-space":         true,
+	"text-transform":      true,
+	"font-variant":        true,
+	"overflow-wrap":       true,
+	"word-break":          true,
+	"text-indent":         true,
+	"tab-size":            true,
+	"visibility":          true,
+	"list-style-position": true,
 }
 
 // resolveDecls returns the winning CSS declarations for node n, merging all

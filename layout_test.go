@@ -42,6 +42,10 @@ func TestList(t *testing.T) {
 		{name: "lower-roman wrapped item aligns continuation lines", width: 20, css: `ol { list-style-type: lower-roman; }`, html: `<ol><li>one two three</li><li>b</li><li>c</li><li>d</li><li>e</li><li>f</li><li>g</li><li>h</li></ol>`, want: "       i. one two\n          three\n      ii. b\n     iii. c\n      iv. d\n       v. e\n      vi. f\n     vii. g\n    viii. h\n"},
 		{name: "padding-left indents list", css: `ul { padding-left: 2; }`, html: `<ul><li>item</li></ul>`, want: "  • item\n"},
 		{name: "wrapped item inside blockquote keeps border on all lines", width: 20, html: `<blockquote><ul><li>one two three four five</li></ul></blockquote>`, want: "│     • one two  \n│       three four  \n│       five  \n"},
+		{name: "list-style-position inside unordered", css: `ul { list-style-position: inside; }`, html: `<ul><li>alpha</li><li>beta</li></ul>`, want: "    • alpha\n    • beta\n"},
+		{name: "list-style-position inside ordered", css: `ol { list-style-position: inside; }`, html: `<ol><li>one</li><li>two</li></ol>`, want: "    1. one\n    2. two\n"},
+		{name: "list-style-position inside wraps without hanging indent", width: 20, css: `ul { list-style-position: inside; }`, html: `<ul><li>one two three four five</li></ul>`, want: "    • one two three\n    four five\n"},
+		{name: "list-style-position outside wraps with hanging indent", width: 20, html: `<ul><li>one two three four five six</li></ul>`, want: "    • one two three\n      four five six\n"},
 	})
 }
 

@@ -259,12 +259,12 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 ## CSS Properties — Lists (`ul`, `ol`)
 
 These properties apply to `<ul>` and `<ol>` elements and control list rendering.
-Item content word-wraps at the available content width, with continuation lines
-hanging-indented to align under the first line of text (not the prefix).
+Item content word-wraps at the available content width.
 
 | Property | Values | Notes |
 |----------|--------|-------|
 | `list-style-type` | See table below | Prefix character for each `<li>`. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
+| `list-style-position` | `outside` (default), `inside` | `outside`: prefix hangs to the left; continuation lines align under the first text character. `inside`: prefix flows inline with text; continuation lines align with `padding-left`. Inherited. |
 | `padding-left` | `4` | Indents the entire list from the left; combined with `margin-left` for total indentation. Default: `4`. |
 | `margin-left` | `4` | Left margin for the list block; added to `padding-left`. Default: `0`. |
 
@@ -294,7 +294,7 @@ For example, `<ol start="5">` numbers items 5, 6, 7 … The prefix column width
 is sized to the widest number that will appear (e.g. `start="9"` with two items
 produces a two-digit-wide column for items 9 and 10).
 
-**Not supported:** `list-style-image`; `list-style-position`; `list-style` shorthand; the
+**Not supported:** `list-style-image`; `list-style` shorthand; the
 `type` HTML attribute on `<ol>` (use `list-style-type` CSS instead).
 
 ---
