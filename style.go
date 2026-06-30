@@ -1,29 +1,58 @@
 package htmlterm
 
 import (
+	"image/color"
+	"strconv"
 	"strings"
 
-	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // inlineStyle is the accumulated text style passed down through inline rendering.
 type inlineStyle struct {
-	lg        lipgloss.Style
-	hasLG     bool
+	fg        color.Color // nil = unset
+	bg        color.Color // nil = unset
+	opacity   float64     // 0 = unset, treat as 1.0
 	bold      bool
 	italic    bool
 	underline bool
 	strike    bool
 }
 
-func (s inlineStyle) has() bool { return s.hasLG || s.bold || s.italic || s.underline || s.strike }
+func (s inlineStyle) has() bool {
+	return s.fg != nil || s.bg != nil || s.bold || s.italic || s.underline || s.strike
+}
 
-func (s inlineStyle) render(text string) string {
+func (s inlineStyle) render(text string, p colorprofile.Profile) string {
 	if !s.has() {
 		return text
 	}
-	if s.hasLG {
-		text = s.lg.Render(text)
+	opacity := s.opacity
+	if opacity == 0 {
+		opacity = 1.0
+	}
+	var st ansi.Style
+	if s.fg != nil {
+		c := s.fg
+		if opacity < 1 {
+			c = applyOpacity(c, opacity)
+		}
+		if cc := p.Convert(c); cc != nil {
+			st = st.ForegroundColor(cc)
+		}
+	}
+	if s.bg != nil {
+		c := s.bg
+		if opacity < 1 {
+			c = applyOpacity(c, opacity)
+		}
+		if cc := p.Convert(c); cc != nil {
+			st = st.BackgroundColor(cc)
+		}
+	}
+	if len(st) > 0 {
+		text = st.Styled(text)
 	}
 	if s.bold {
 		text = "\x1b[1m" + text + "\x1b[22m"
@@ -51,11 +80,17 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 	for prop, val := range decls {
 		switch prop {
 		case "color":
-			s.lg = s.lg.Foreground(lipgloss.Color(val))
-			s.hasLG = true
+			if c := parseCSSColor(val); c != nil {
+				s.fg = c
+			}
 		case "background-color":
-			s.lg = s.lg.Background(lipgloss.Color(val))
-			s.hasLG = true
+			if c := parseCSSColor(val); c != nil {
+				s.bg = c
+			}
+		case "opacity":
+			if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+				s.opacity = max(0.0, min(1.0, f))
+			}
 		case "font-weight":
 			switch val {
 			case "bold":

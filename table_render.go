@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
 )
 
@@ -222,18 +223,18 @@ func (r *Renderer) renderTable(n *html.Node) string {
 		tableW := sum(widths) + overhead
 		out.WriteString(centerText(captionText, tableW) + "\n")
 	}
-	out.WriteString(drawHBorder(widths, ts.top, ts.color))
+	out.WriteString(drawHBorder(widths, ts.top, ts.color, r.profile))
 	if len(headers) > 0 {
-		out.WriteString(renderTableRow(headers, widths, numCols, ts))
-		out.WriteString(drawHBorder(widths, ts.header, ts.color))
+		out.WriteString(renderTableRow(headers, widths, numCols, ts, r.profile))
+		out.WriteString(drawHBorder(widths, ts.header, ts.color, r.profile))
 	}
 	for i, row := range rows {
 		if i > 0 {
-			out.WriteString(drawHBorder(widths, ts.rowSep, ts.color))
+			out.WriteString(drawHBorder(widths, ts.rowSep, ts.color, r.profile))
 		}
-		out.WriteString(renderTableRow(row, widths, numCols, ts))
+		out.WriteString(renderTableRow(row, widths, numCols, ts, r.profile))
 	}
-	out.WriteString(drawHBorder(widths, ts.bottom, ts.color))
+	out.WriteString(drawHBorder(widths, ts.bottom, ts.color, r.profile))
 	if captionText != "" && captionSide == "bottom" {
 		tableW := sum(widths) + overhead
 		out.WriteString(centerText(captionText, tableW) + "\n")
@@ -312,14 +313,14 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 	}
 }
 
-func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle) string {
+func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle, p colorprofile.Profile) string {
 	height := 1
 	for i := 0; i < numCols && i < len(cells); i++ {
 		if h := len(cells[i].lines); h > height {
 			height = h
 		}
 	}
-	paint := makePainter(ts.color)
+	paint := makePainter(ts.color, p)
 	var sb strings.Builder
 	for lineIdx := 0; lineIdx < height; lineIdx++ {
 		sb.WriteString(paint(ts.left))
@@ -346,7 +347,7 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle)
 			if contentW < 1 {
 				contentW = 1
 			}
-			rendered := c.cellStyle.render(alignLines(line, c.textAlign, contentW))
+			rendered := c.cellStyle.render(alignLines(line, c.textAlign, contentW), p)
 			if c.paddingLeft > 0 {
 				rendered = strings.Repeat(" ", c.paddingLeft) + rendered
 			}

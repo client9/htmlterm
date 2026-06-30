@@ -5,7 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/net/html"
 )
 
@@ -331,11 +332,11 @@ func effectiveMinMax(c colConstraints, contentWidth int) (minW, maxW int) {
 // drawHRule builds a horizontal line: left + (fill×segments[0]) + junction +
 // (fill×segments[1]) + ... + right, all colored with color. Returns "" when
 // fill is empty or "none". No trailing newline is added.
-func drawHRule(segments []int, fill, color, left, junction, right string) string {
+func drawHRule(segments []int, fill, color, left, junction, right string, p colorprofile.Profile) string {
 	if fill == "" || fill == "none" || len(segments) == 0 {
 		return ""
 	}
-	paint := makePainter(color)
+	paint := makePainter(color, p)
 	var sb strings.Builder
 	sb.WriteString(paint(left))
 	for i, w := range segments {
@@ -350,24 +351,29 @@ func drawHRule(segments []int, fill, color, left, junction, right string) string
 
 // drawHBorder renders one horizontal separator row given the computed column
 // widths. Returns "" if b is nil (border omitted).
-func drawHBorder(widths []int, b *hBorder, color string) string {
+func drawHBorder(widths []int, b *hBorder, color string, p colorprofile.Profile) string {
 	if b == nil {
 		return ""
 	}
-	return drawHRule(widths, b.fill, color, b.left, b.mid, b.right) + "\n"
+	return drawHRule(widths, b.fill, color, b.left, b.mid, b.right, p) + "\n"
 }
 
 // makePainter returns a function that applies a border color if set.
-func makePainter(color string) func(string) string {
-	if color == "" {
+func makePainter(cssColor string, p colorprofile.Profile) func(string) string {
+	c := parseCSSColor(cssColor)
+	if c == nil {
 		return func(s string) string { return s }
 	}
-	st := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+	converted := p.Convert(c)
+	if converted == nil {
+		return func(s string) string { return s }
+	}
+	st := ansi.Style{}.ForegroundColor(converted)
 	return func(s string) string {
 		if s == "" {
 			return ""
 		}
-		return st.Render(s)
+		return st.Styled(s)
 	}
 }
 

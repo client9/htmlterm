@@ -29,7 +29,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 		if text := parseCSSContentString(bd["content"]); text != "" {
 			st := mergeInlineStyle(acc, bd)
 			if st.has() {
-				sb.WriteString(st.render(text))
+				sb.WriteString(st.render(text, r.profile))
 			} else {
 				sb.WriteString(text)
 			}
@@ -46,7 +46,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 					normalized = strings.TrimLeft(normalized, " ")
 				}
 				if acc.has() {
-					sb.WriteString(acc.render(normalized))
+					sb.WriteString(acc.render(normalized, r.profile))
 				} else {
 					sb.WriteString(normalized)
 				}
@@ -118,7 +118,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 		if text := parseCSSContentString(ad["content"]); text != "" {
 			st := mergeInlineStyle(acc, ad)
 			if st.has() {
-				sb.WriteString(st.render(text))
+				sb.WriteString(st.render(text, r.profile))
 			} else {
 				sb.WriteString(text)
 			}

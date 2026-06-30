@@ -41,6 +41,7 @@ var inheritableProps = map[string]bool{
 	"tab-size":            true,
 	"visibility":          true,
 	"list-style-position": true,
+	"opacity":             true,
 }
 
 // resolveDecls returns the winning CSS declarations for node n, merging all

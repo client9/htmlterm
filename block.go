@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
 )
 
@@ -79,7 +80,7 @@ func padLinesToWidth(content string, width int) string {
 	return result
 }
 
-func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int) string {
+func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int, p colorprofile.Profile) string {
 	if fill == "" || fill == "none" || width <= 0 {
 		return ""
 	}
@@ -91,12 +92,12 @@ func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int) st
 	if rc == "" {
 		rc = fill
 	}
-	return drawHRule([]int{max(0, width-runeLen(lc)-runeLen(rc))}, fill, color, lc, "", rc)
+	return drawHRule([]int{max(0, width-runeLen(lc)-runeLen(rc))}, fill, color, lc, "", rc, p)
 }
 
-func applyBlockBorders(content string, left, right blockBorder) string {
-	paintL := makePainter(left.color)
-	paintR := makePainter(right.color)
+func applyBlockBorders(content string, left, right blockBorder, p colorprofile.Profile) string {
+	paintL := makePainter(left.color, p)
+	paintR := makePainter(right.color, p)
 	trailing := strings.HasSuffix(content, "\n")
 	if trailing {
 		content = content[:len(content)-1]
@@ -451,12 +452,12 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		content = applyLineEdges(content, strings.Repeat(" ", pl), strings.Repeat(" ", pr))
 	}
 	if bl.char != "" || br.char != "" {
-		content = applyBlockBorders(content, bl, br)
+		content = applyBlockBorders(content, bl, br, r.profile)
 	}
-	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth); top != "" {
+	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
 		content = top + "\n" + content
 	}
-	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth); bot != "" {
+	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
 		content = content + "\n" + bot
 	}
 	if ml > 0 || mr > 0 {

@@ -1,19 +1,22 @@
-// Package htmlterm renders a restricted HTML+CSS subset to terminal strings
-// via lipgloss. Supported selectors: element, .class, element.class, and
-// space-separated descendant chains. See CSS.md for supported properties.
+// Package htmlterm renders a restricted HTML+CSS subset to terminal strings.
+// Supported selectors: element, .class, element.class, and space-separated
+// descendant chains. See CSS.md for supported properties.
 package htmlterm
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
 )
 
 // Renderer renders HTML+CSS to terminal strings.
 type Renderer struct {
-	rules []rule
-	width int
+	rules   []rule
+	width   int
+	profile colorprofile.Profile
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -53,7 +56,7 @@ func New(css string, width int) (*Renderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	return &Renderer{rules: rules, width: width}, nil
+	return &Renderer{rules: rules, width: width, profile: colorprofile.Detect(os.Stdout, os.Environ())}, nil
 }
 
 // Render parses htmlStr and returns a styled terminal string.
@@ -67,7 +70,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 		combined := make([]rule, len(r.rules)+len(extra))
 		copy(combined, r.rules)
 		copy(combined[len(r.rules):], extra)
-		rr = &Renderer{rules: combined, width: r.width}
+		rr = &Renderer{rules: combined, width: r.width, profile: r.profile}
 	}
 	var sb strings.Builder
 	rr.renderNode(&sb, doc)

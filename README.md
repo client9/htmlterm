@@ -3,7 +3,7 @@
 [![Go](https://github.com/nickg/htmlterm/actions/workflows/go.yml/badge.svg)](https://github.com/nickg/htmlterm/actions/workflows/go.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/nickg/htmlterm.svg)](https://pkg.go.dev/github.com/nickg/htmlterm)
 
-`htmlterm` is a Go module that renders a restricted subset of HTML and CSS to terminal strings using [lipgloss](https://github.com/charmbracelet/lipgloss).
+`htmlterm` is a Go module that renders a restricted subset of HTML and CSS to ANSI-styled terminal strings.
 
 It is designed for terminal UIs, CLIs, and text-first applications that want richer formatting than plain text without embedding a browser engine.
 
