@@ -6,43 +6,6 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// declsToStyle converts a resolved CSS declaration map to a lipgloss.Style.
-func declsToStyle(decls map[string]string) lipgloss.Style {
-	s := lipgloss.NewStyle()
-	for prop, val := range decls {
-		switch prop {
-		case "color":
-			s = s.Foreground(lipgloss.Color(val))
-		case "background-color":
-			s = s.Background(lipgloss.Color(val))
-		case "font-weight":
-			switch val {
-			case "bold":
-				s = s.Bold(true)
-			case "normal":
-				s = s.Bold(false)
-			}
-		case "font-style":
-			switch val {
-			case "italic":
-				s = s.Italic(true)
-			case "normal":
-				s = s.Italic(false)
-			}
-		case "text-align":
-			switch val {
-			case "right":
-				s = s.Align(lipgloss.Right)
-			case "center":
-				s = s.Align(lipgloss.Center)
-			case "left":
-				s = s.Align(lipgloss.Left)
-			}
-		}
-	}
-	return s
-}
-
 // inlineStyle is the accumulated text style passed down through inline rendering.
 type inlineStyle struct {
 	lg        lipgloss.Style

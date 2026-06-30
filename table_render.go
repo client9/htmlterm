@@ -4,18 +4,16 @@ import (
 	"strconv"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"golang.org/x/net/html"
 )
 
 type tableCell struct {
 	text          string
-	visualStyle   lipgloss.Style
+	textAlign     string
+	cellStyle     inlineStyle
 	constraints   colConstraints
 	textOverflow  string
 	noWrap        bool
-	underline     bool
-	strike        bool
 	paddingLeft   int
 	paddingRight  int
 	paddingTop    int
@@ -144,7 +142,6 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						}
 						tdDecls = merged
 					}
-					tdDeco := tdDecls["text-decoration"]
 					pl, pr, pt, pb := 0, 0, 0, 0
 					if v := tdDecls["padding-left"]; v != "" {
 						if abs, _, ok := parseSizeVal(v); ok {
@@ -172,12 +169,11 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					}
 					cells = append(cells, tableCell{
 						text:          cellText,
-						visualStyle:   declsToStyle(tdDecls),
+						textAlign:     tdDecls["text-align"],
+						cellStyle:     extractInlineStyle(tdDecls),
 						constraints:   r.cellConstraints(td, tdDecls),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
 						noWrap:        tdDecls["white-space"] == "nowrap",
-						underline:     strings.Contains(tdDeco, "underline"),
-						strike:        strings.Contains(tdDeco, "line-through"),
 						paddingLeft:   pl,
 						paddingRight:  pr,
 						paddingTop:    pt,
@@ -350,18 +346,12 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle)
 			if contentW < 1 {
 				contentW = 1
 			}
-			rendered := c.visualStyle.Width(contentW).Render(line)
+			rendered := c.cellStyle.render(alignLines(line, c.textAlign, contentW))
 			if c.paddingLeft > 0 {
 				rendered = strings.Repeat(" ", c.paddingLeft) + rendered
 			}
 			if c.paddingRight > 0 {
 				rendered += strings.Repeat(" ", c.paddingRight)
-			}
-			if c.underline {
-				rendered = "\x1b[4m" + rendered + "\x1b[24m"
-			}
-			if c.strike {
-				rendered = "\x1b[9m" + rendered + "\x1b[29m"
 			}
 			sb.WriteString(rendered)
 		}
