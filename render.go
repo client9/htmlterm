@@ -66,11 +66,11 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 			case "ol", "ul", "menu":
 				ordered := n.Data == "ol"
 				if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
-					writeMarginNewlines(sb, mt+1)
+					writeMarginNewlines(sb, mt+1, r.maxBlankLines)
 				}
 				sb.WriteString(r.renderList(n, ordered, r.width))
 				if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
-					writeMarginNewlines(sb, mb+1)
+					writeMarginNewlines(sb, mb+1, r.maxBlankLines)
 				}
 			case "br":
 				sb.WriteByte('\n')

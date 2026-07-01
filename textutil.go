@@ -158,6 +158,17 @@ func normalizeWhiteSpace(s, mode string, tabSize int) string {
 	}
 }
 
+// splitTrailingSpaces returns s split at the first trailing space: the non-space
+// prefix and the trailing-spaces suffix. Used to keep trailing spaces outside ANSI
+// wrapping so that prevIsSpace and HasSuffix checks see them as plain bytes.
+func splitTrailingSpaces(s string) (core, trail string) {
+	i := len(s)
+	for i > 0 && s[i-1] == ' ' {
+		i--
+	}
+	return s[:i], s[i:]
+}
+
 // splitAtVisualWidth splits s into chunks of at most width visible runes,
 // attaching ANSI escape sequences to the preceding visible character.
 // Used for break-all and break-word hard-breaking.

@@ -754,3 +754,47 @@ func TestPreVerticalSpacing(t *testing.T) {
 		{name: "pre ::after with padding-bottom", css: `pre::after { content: " #"; }`, html: `<pre style="padding-bottom:1; width:10">code</pre>`, want: "code #    \n          \n"},
 	})
 }
+
+func TestMaxBlankLines(t *testing.T) {
+	render := func(maxBlankLines int, css, htmlStr string) string {
+		r, err := htmlterm.New(htmlterm.Options{Width: 40, MaxBlankLines: maxBlankLines, CSS: css})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		got, err := r.Render(htmlStr)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return stripANSI(got)
+	}
+
+	// Large margins collapse to MaxBlankLines blank lines (MaxBlankLines+1 newlines).
+	got := render(1, `div { margin-bottom: 5; }`, `<div>A</div><div>B</div>`)
+	if got != "A\n\nB\n\n" {
+		t.Errorf("large margin collapse: got %q want %q", got, "A\n\nB\n\n")
+	}
+
+	// ::before content with \A newlines is capped.
+	got = render(1, `div::before { content: ">\A\A\A"; }`, `<div>text</div>`)
+	if got != ">\n\ntext\n" {
+		t.Errorf("::before newline cap: got %q want %q", got, ">\n\ntext\n")
+	}
+
+	// ::after content with \A newlines is capped.
+	got = render(1, `div::after { content: "\A\A\A<"; }`, `<div>text</div>`)
+	if got != "text\n\n<\n" {
+		t.Errorf("::after newline cap: got %q want %q", got, "text\n\n<\n")
+	}
+
+	// <pre> internal blank lines are NOT capped.
+	got = render(1, "", "<pre>line1\n\n\n\nline2</pre>")
+	if got != "line1\n\n\n\nline2\n" {
+		t.Errorf("pre content unaffected: got %q want %q", got, "line1\n\n\n\nline2\n")
+	}
+
+	// MaxBlankLines: 0 disables capping (default behavior).
+	got = render(0, `div { margin-bottom: 5; }`, `<div>A</div><div>B</div>`)
+	if got != "A\n\n\n\n\n\nB\n\n\n\n\n\n" {
+		t.Errorf("MaxBlankLines=0 disabled: got %q", got)
+	}
+}

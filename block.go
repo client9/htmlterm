@@ -122,8 +122,12 @@ func parseMargin(s string) int {
 	return n
 }
 
-// writeMarginNewlines ensures the builder has at least n trailing newlines.
-func writeMarginNewlines(sb *strings.Builder, n int) {
+// writeMarginNewlines ensures the builder has at least n trailing newlines,
+// capped to max+1 when max > 0.
+func writeMarginNewlines(sb *strings.Builder, n, max int) {
+	if max > 0 && n > max+1 {
+		n = max + 1
+	}
 	s := sb.String()
 	have := 0
 	for i := len(s) - 1; i >= 0 && s[i] == '\n'; i-- {
@@ -132,6 +136,19 @@ func writeMarginNewlines(sb *strings.Builder, n int) {
 	for i := have; i < n; i++ {
 		sb.WriteByte('\n')
 	}
+}
+
+// capNewlines collapses runs of more than max+1 consecutive newlines in s.
+func capNewlines(s string, max int) string {
+	if max <= 0 || !strings.Contains(s, "\n") {
+		return s
+	}
+	limit := strings.Repeat("\n", max+1)
+	run := strings.Repeat("\n", max+2)
+	for strings.Contains(s, run) {
+		s = strings.ReplaceAll(s, run, limit)
+	}
+	return s
 }
 
 // renderDisplayNode renders n according to its CSS display property.
@@ -145,12 +162,12 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 	case "none":
 	case "block":
 		if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
-			writeMarginNewlines(sb, mt+1)
+			writeMarginNewlines(sb, mt+1, r.maxBlankLines)
 		}
 		sb.WriteString(r.wrapHyperlink(href, r.renderBlockContent(n, decls, r.width)))
 		sb.WriteByte('\n')
 		if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
-			writeMarginNewlines(sb, mb+1)
+			writeMarginNewlines(sb, mb+1, r.maxBlankLines)
 		}
 	case "inline-block":
 		acc := extractInlineStyle(decls)

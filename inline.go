@@ -32,9 +32,14 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				pseudoTT = tt
 			}
 			text = applyTextTransform(text, pseudoTT)
+			text = capNewlines(text, r.maxBlankLines)
 			st := mergeInlineStyle(acc, bd)
 			if st.has() {
-				sb.WriteString(st.render(text, r.profile))
+				core, trail := splitTrailingSpaces(text)
+				if core != "" {
+					sb.WriteString(st.render(core, r.profile))
+				}
+				sb.WriteString(trail)
 			} else {
 				sb.WriteString(text)
 			}
@@ -52,7 +57,11 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 					normalized = strings.TrimLeft(normalized, " ")
 				}
 				if acc.has() {
-					sb.WriteString(acc.render(normalized, r.profile))
+					core, trail := splitTrailingSpaces(normalized)
+					if core != "" {
+						sb.WriteString(acc.render(core, r.profile))
+					}
+					sb.WriteString(trail)
 				} else {
 					sb.WriteString(normalized)
 				}
@@ -84,12 +93,12 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			switch display {
 			case "block":
 				if sb.Len() > 0 {
-					writeMarginNewlines(&sb, parseMargin(childDecls["margin-top"])+1)
+					writeMarginNewlines(&sb, parseMargin(childDecls["margin-top"])+1, r.maxBlankLines)
 				}
 				sb.WriteString(r.renderBlockContent(c, childDecls, availWidth))
 				sb.WriteByte('\n')
 				if mb := parseMargin(childDecls["margin-bottom"]); mb > 0 {
-					writeMarginNewlines(&sb, mb+1)
+					writeMarginNewlines(&sb, mb+1, r.maxBlankLines)
 				}
 			default:
 				childAcc := mergeInlineStyle(acc, childDecls)
@@ -124,9 +133,14 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				pseudoTT = tt
 			}
 			text = applyTextTransform(text, pseudoTT)
+			text = capNewlines(text, r.maxBlankLines)
 			st := mergeInlineStyle(acc, ad)
 			if st.has() {
-				sb.WriteString(st.render(text, r.profile))
+				core, trail := splitTrailingSpaces(text)
+				if core != "" {
+					sb.WriteString(st.render(core, r.profile))
+				}
+				sb.WriteString(trail)
 			} else {
 				sb.WriteString(text)
 			}
