@@ -16,6 +16,9 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 		}
 	case html.TextNode:
 		if text := normalizeWhiteSpace(n.Data, "normal", 8); strings.TrimSpace(text) != "" {
+			if sb.Len() == 0 || sb.String()[sb.Len()-1] == '\n' || sb.String()[sb.Len()-1] == ' ' {
+				text = strings.TrimLeft(text, " ")
+			}
 			sb.WriteString(text)
 		}
 	case html.ElementNode:

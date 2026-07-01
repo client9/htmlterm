@@ -326,6 +326,9 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	rawContent := strings.TrimRight(r.renderInlineAcc(n, acc, innerW), "\n")
 	wasWrapped := false
 	ws := decls["white-space"]
+	if ws != "pre" && ws != "pre-wrap" && strings.HasSuffix(rawContent, " ") && !strings.HasSuffix(rawContent, "  ") {
+		rawContent = rawContent[:len(rawContent)-1]
+	}
 	if ws != "pre" && ws != "nowrap" && !strings.Contains(rawContent, "\n") {
 		breakMode := decls["overflow-wrap"]
 		if breakMode == "" {

@@ -47,7 +47,8 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			normalized := applyTextTransform(normalizeWhiteSpace(c.Data, ws, tabSize), tt)
 			if normalized != "" {
 				atLineStart := sb.Len() == 0 || sb.String()[sb.Len()-1] == '\n'
-				if atLineStart && ws != "pre" && ws != "pre-wrap" {
+				prevIsSpace := sb.Len() > 0 && sb.String()[sb.Len()-1] == ' '
+				if (atLineStart || prevIsSpace) && ws != "pre" && ws != "pre-wrap" {
 					normalized = strings.TrimLeft(normalized, " ")
 				}
 				if acc.has() {

@@ -79,6 +79,41 @@ func TestBareText(t *testing.T) {
 	})
 }
 
+func TestWhitespaceNormalization(t *testing.T) {
+	runCases(t, []renderCase{
+		// Block-level edge whitespace: source newlines around heading content
+		// collapse to a single space which must be stripped, not rendered.
+		{name: "heading with surrounding newlines strips edge whitespace",
+			html: "<h1>\nHeading\n</h1>",
+			want: "Heading\n"},
+		{name: "heading with indented content strips edge whitespace",
+			html: "<h2>\n  Heading 2\n</h2>",
+			want: "Heading 2\n"},
+		// Internal newline inside a heading text node collapses to a single space.
+		{name: "internal newline in heading collapses to single space",
+			html: "<h1>My\nHeading</h1>",
+			want: "My Heading\n"},
+		// ::before content ending with a space followed by a text node whose
+		// leading space was produced by a source newline: must collapse to one space.
+		{name: "pseudo-element trailing space collapses with normalized leading space",
+			css:  `h2::before { content: "## "; }`,
+			html: "<h2>\nHeading 2\n</h2>",
+			want: "## Heading 2\n"},
+		// Adjacent spaces across inline element boundaries collapse.
+		{name: "trailing space in inline element collapses with following normalized space",
+			html: "<p><em>word </em> next</p>",
+			want: "word next\n\n"},
+		// Bare text node directly after a block element must not inherit a
+		// leading space from the collapsed source newline between them.
+		{name: "bare text after block element has no leading space",
+			html: "<h2>Title</h2>\nBare text",
+			want: "Title\nBare text"},
+		{name: "bare text after block with surrounding newlines has no leading space",
+			html: "<h2>\nTitle\n</h2>\n\nBare text",
+			want: "Title\nBare text"},
+	})
+}
+
 func TestDisplay_Block(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "p is block with trailing newline", html: `<p>hello</p>`, want: "hello\n\n"},
@@ -107,7 +142,7 @@ func TestDisplay_None(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "display:none via inline style hides element", html: `<p>visible</p><p style="display:none">hidden</p><p>after</p>`, want: "visible\n\nafter\n\n"},
 		{name: "display:none via CSS class", css: `.gone { display: none; }`, html: `<p>a</p><p class="gone">b</p><p>c</p>`, want: "a\n\nc\n\n"},
-		{name: "display:none hides inline element", html: `<p>before <span style="display:none">hidden</span> after</p>`, want: "before  after\n\n"},
+		{name: "display:none hides inline element", html: `<p>before <span style="display:none">hidden</span> after</p>`, want: "before after\n\n"},
 		{name: "display:none on block in sequence", html: `<div>a</div><div style="display:none">b</div><div>c</div>`, want: "a\nc\n"},
 		{name: "display:none hides top-level unordered list", html: `<p>before</p><ul style="display:none"><li>hidden</li></ul><p>after</p>`, want: "before\n\nafter\n\n"},
 		{name: "display:none hides nested unordered list", html: `<blockquote>before<ul style="display:none"><li>hidden</li></ul>after</blockquote>`, want: "│ beforeafter  \n"},
