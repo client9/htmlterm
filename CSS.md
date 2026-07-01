@@ -95,7 +95,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `code` | Inline styled span |
 | `pre` | Raw text block; `white-space: pre` by default; child elements are styled |
 | `br` | Line break (inline or block) |
-| `hr` | Full-width `─` line |
+| `hr` | Horizontal rule. The UA stylesheet provides `hr { display: block; border-top: "─"; }`, drawing a full-width line. Override `border-top` to change the character and `border-top-color` to change the color. |
 | `ul` | Unordered list; `• ` prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
 | `ol` | Ordered list; decimal prefix by default; see [list CSS section](#css-properties--lists-ul-ol) |
 | `li` | List item; content word-wraps with a hanging indent aligned to the prefix. Style the bullet/number with `li::marker { color: …; font-weight: bold; … }`. |
