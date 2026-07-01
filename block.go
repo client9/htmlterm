@@ -173,7 +173,6 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 		if decls["visibility"] == "hidden" {
 			inner = blankVisibleContent(inner)
 		}
-		inner = wrapInlineElement(n, inner)
 		sb.WriteString(wrapHyperlink(href, inner))
 	}
 }
@@ -443,10 +442,18 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		content = applyBlockBorders(content, bl, br, r.profile)
 	}
 	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
-		content = top + "\n" + content
+		if content != "" {
+			content = top + "\n" + content
+		} else {
+			content = top
+		}
 	}
 	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
-		content = content + "\n" + bot
+		if content != "" {
+			content = content + "\n" + bot
+		} else {
+			content = bot
+		}
 	}
 	if ml > 0 || mr > 0 {
 		content = applyLineEdges(content, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
@@ -666,14 +673,4 @@ func wrapHyperlink(href, text string) string {
 		return text
 	}
 	return "\x1b]8;;" + href + "\x1b\\" + text + "\x1b]8;;\x1b\\"
-}
-
-// wrapInlineElement applies element-specific content transforms.
-func wrapInlineElement(n *html.Node, text string) string {
-	if n.Data == "abbr" {
-		if title := nodeAttr(n, "title"); title != "" {
-			return text + " (" + title + ")"
-		}
-	}
-	return text
 }

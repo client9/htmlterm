@@ -53,6 +53,8 @@ sub                     { text-transform: subscript; }
 q::before               { content: open-quote; }
 q::after                { content: close-quote; }
 img::before             { content: attr(alt); }
+abbr[title]::after      { content: " (" attr(title) ")"; }
+hr                      { display: block; border-top: "─"; }
 `
 
 // New parses css and returns a Renderer. width is the terminal column count.

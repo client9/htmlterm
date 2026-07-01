@@ -102,7 +102,6 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 						}
 					}
 				}
-				inner = wrapInlineElement(c, inner)
 				if c.Data == "a" {
 					inner = wrapHyperlink(nodeAttr(c, "href"), inner)
 				}

@@ -52,7 +52,7 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 				inner, _ := r.Render(raw.String())
 				sb.WriteString(inner)
 			}
-		case "table", "ol", "ul", "menu", "br", "hr":
+		case "table", "ol", "ul", "menu", "br":
 			decls := r.resolveDecls(n)
 			if decls["display"] == "none" {
 				return
@@ -70,9 +70,6 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 					writeMarginNewlines(sb, mb+1)
 				}
 			case "br":
-				sb.WriteByte('\n')
-			case "hr":
-				sb.WriteString(strings.Repeat("─", r.width))
 				sb.WriteByte('\n')
 			}
 		default:

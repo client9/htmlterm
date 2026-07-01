@@ -566,6 +566,17 @@ func TestNewHTMLElements(t *testing.T) {
 		{name: "img with alt renders alt text", html: `<p>See <img src="x.png" alt="diagram"> here</p>`, want: "See diagram here\n\n"},
 		{name: "img without alt renders nothing", html: `<p>before<img src="x.png">after</p>`, want: "beforeafter\n\n"},
 
+		// abbr
+		{name: "abbr with title appends title in parens", html: `<p><abbr title="HyperText Markup Language">HTML</abbr></p>`, want: "HTML (HyperText Markup Language)\n\n"},
+		{name: "abbr without title renders text only", html: `<p><abbr>CSS</abbr></p>`, want: "CSS\n\n"},
+		{name: "abbr title override via CSS", css: `abbr[title]::after { content: " [" attr(title) "]"; }`, html: `<p><abbr title="W3C">W3C</abbr></p>`, want: "W3C [W3C]\n\n"},
+
+		// hr
+		{name: "hr renders full-width rule", html: `<hr>`, width: 10, want: "──────────\n"},
+		{name: "hr between paragraphs", html: `<p>above</p><hr><p>below</p>`, width: 5, want: "above\n\n─────\nbelow\n\n"},
+		{name: "hr character override via CSS", css: `hr { border-top: "="; }`, html: `<hr>`, width: 5, want: "=====\n"},
+		{name: "hr color override via CSS", css: `hr { border-top-color: #ff0000; }`, html: `<hr>`, width: 5, want: "─────\n"},
+
 		// noscript
 		{name: "noscript content renders (no JS in terminal)", html: `<noscript><p>no js</p></noscript>`, want: "no js\n\n"},
 

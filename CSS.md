@@ -89,7 +89,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `strong` | Inline bold |
 | `em`, `i` | Inline italic (default: `font-style: italic`) |
 | `dfn` | Definition term; inline italic (default: `font-style: italic`) |
-| `abbr` | Abbreviation. When a `title` attribute is present the expansion is appended inline as ` (expansion)` — e.g. `<abbr title="HyperText Markup Language">HTML</abbr>` renders as `HTML (HyperText Markup Language)`. |
+| `abbr` | Abbreviation. The UA stylesheet provides `abbr[title]::after { content: " (" attr(title) ")"; }`, so the expansion is appended inline when `title` is present — e.g. `<abbr title="HyperText Markup Language">HTML</abbr>` renders as `HTML (HyperText Markup Language)`. Override with user CSS to change the format. |
 | `small` | Fine print / secondary text (default: `color: #888888`). No font-size reduction is possible in terminals. |
 | `q` | Inline quotation; the UA stylesheet injects `open-quote` before and `close-quote` after the content. The characters used depend on the inherited `quotes` property (default `"…"` / `'…'` for nested). |
 | `code` | Inline styled span |
