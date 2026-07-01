@@ -31,11 +31,6 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 					r.renderNode(sb, c)
 				}
 			}
-		case "img":
-			alt := nodeAttr(n, "alt")
-			if alt != "" {
-				sb.WriteString("[" + alt + "]")
-			}
 		case "wbr":
 			// word-break opportunity — no terminal equivalent; emit nothing
 		case "noscript":

@@ -623,6 +623,10 @@ func TestPseudoElementContent(t *testing.T) {
 		{name: `content \\ escape inserts backslash`, css: `p::before { content: "a\\b"; }`, html: `<p>x</p>`, want: "a\\bx\n\n"},
 		{name: `content \" escape inserts quote`, css: `p::before { content: "say \"hi\""; }`, html: `<p>.</p>`, want: "say \"hi\".\n\n"},
 		{name: `content hex \000A escape inserts newline`, css: "pre::before { content: \"```\\000A\"; }", html: "<pre>code</pre>", want: "```\ncode\n"},
+		// img CSS override: Markdown output
+		{name: "img markdown via CSS attr(alt) and attr(src)", css: `img::before { content: "![" attr(alt) "](" attr(src) ")"; }`, html: `<img src="photo.jpg" alt="sunset">`, want: "![sunset](photo.jpg)"},
+		{name: "img markdown with no alt via CSS", css: `img::before { content: "![" attr(alt) "](" attr(src) ")"; }`, html: `<img src="photo.jpg">`, want: "![](photo.jpg)"},
+		{name: "img CSS override suppresses alt brackets", css: `img[alt]::before { content: attr(alt); }`, html: `<p>See <img src="x.png" alt="graph"> here</p>`, want: "See graph here\n\n"},
 		// attr() in content
 		{name: "attr(href) in ::after renders link as markdown", css: `a::before { content: "["; } a::after { content: "](" attr(href) ")"; }`, html: `<a href="https://example.com">Example</a>`, want: "[Example](https://example.com)"},
 		{name: "attr() with missing attribute yields empty string", css: `a::after { content: attr(data-missing); }`, html: `<a href="#">click</a>`, want: "click"},

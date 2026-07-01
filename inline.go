@@ -65,12 +65,6 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				sb.WriteByte('\n')
 				continue
 			}
-			if c.Data == "img" {
-				if alt := nodeAttr(c, "alt"); alt != "" {
-					sb.WriteString("[" + alt + "]")
-				}
-				continue
-			}
 			if c.Data == "wbr" {
 				continue
 			}
