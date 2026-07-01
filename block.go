@@ -147,7 +147,7 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 		if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
 			writeMarginNewlines(sb, mt+1)
 		}
-		sb.WriteString(wrapHyperlink(href, r.renderBlockContent(n, decls, r.width)))
+		sb.WriteString(r.wrapHyperlink(href, r.renderBlockContent(n, decls, r.width)))
 		sb.WriteByte('\n')
 		if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
 			writeMarginNewlines(sb, mb+1)
@@ -166,14 +166,14 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 				}
 			}
 		}
-		sb.WriteString(wrapHyperlink(href, inner))
+		sb.WriteString(r.wrapHyperlink(href, inner))
 	default:
 		acc := extractInlineStyle(decls)
 		inner := r.renderInlineAcc(n, acc, r.width)
 		if decls["visibility"] == "hidden" {
 			inner = blankVisibleContent(inner)
 		}
-		sb.WriteString(wrapHyperlink(href, inner))
+		sb.WriteString(r.wrapHyperlink(href, inner))
 	}
 }
 
@@ -668,8 +668,8 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 }
 
 // wrapHyperlink wraps text in an OSC 8 terminal hyperlink sequence.
-func wrapHyperlink(href, text string) string {
-	if href == "" {
+func (r *Renderer) wrapHyperlink(href, text string) string {
+	if href == "" || r.noOSC8Links || r.profile <= colorprofile.Ascii {
 		return text
 	}
 	return "\x1b]8;;" + href + "\x1b\\" + text + "\x1b]8;;\x1b\\"

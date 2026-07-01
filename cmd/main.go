@@ -11,6 +11,7 @@
 //	-css <file>          load a CSS stylesheet before rendering
 //	-width <n>           override terminal width (default: auto-detect, fallback 80)
 //	-ignore-document-css     ignore <style> elements and style= attributes in the HTML
+//	-no-osc8-links       disable OSC 8 hyperlink sequences for <a> elements
 package main
 
 import (
@@ -28,6 +29,7 @@ func main() {
 	cssPath := flag.String("css", "", "path to CSS file")
 	width := flag.Int("width", 0, "terminal width (0 = auto-detect)")
 	noDocCSS := flag.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
+	noOSC8 := flag.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
 	flag.Parse()
 
 	css := ""
@@ -52,6 +54,7 @@ func main() {
 		CSS:               css,
 		Width:             *width,
 		IgnoreDocumentCSS: *noDocCSS,
+		NoOSC8Links:       *noOSC8,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)

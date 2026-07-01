@@ -10,11 +10,10 @@ import (
 // renderTrueColor creates a Renderer with forced TrueColor and calls Render.
 func renderTrueColor(t *testing.T, css, htmlStr string) string {
 	t.Helper()
-	rules, err := parseCSS(uaCSS + css)
+	r, err := New(Options{CSS: css, Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {
-		t.Fatalf("parseCSS: %v", err)
+		t.Fatalf("New: %v", err)
 	}
-	r := &Renderer{rules: rules, width: 40, profile: colorprofile.TrueColor}
 	out, err := r.Render(htmlStr)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
