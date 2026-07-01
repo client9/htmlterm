@@ -104,7 +104,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `dd` | Definition description; rendered as an indented block (default: `display: block; padding-left: 4`) |
 | `figure` | Block container for self-contained content such as illustrations or code (default: `display: block`). Style with `margin-left`/`margin-right` to indent. |
 | `figcaption` | Caption for the nearest `<figure>` ancestor (default: `display: block; font-style: italic`) |
-| `img` | Inline image; rendered as `[alt text]` when an `alt` attribute is present, otherwise emits nothing. |
+| `img` | Inline image. The UA stylesheet provides `img::before { content: attr(alt); }`, so alt text is shown by default and nothing is emitted when `alt` is absent. Override with user CSS to change the format — for example, to produce Markdown-style output: `img::before { content: "![" attr(alt) "](" attr(src) ")"; }` |
 | `address` | Contact/attribution block (default: `display: block; font-style: italic`). |
 | `details` | Disclosure container (default: `display: block`). Always rendered fully expanded — no interactivity. Content is preserved and displayed. |
 | `summary` | Disclosure summary; the visible heading of a `<details>` block (default: `display: block; font-weight: bold`). |

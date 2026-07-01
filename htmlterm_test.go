@@ -563,7 +563,7 @@ func TestNestedList(t *testing.T) {
 func TestNewHTMLElements(t *testing.T) {
 	runCases(t, []renderCase{
 		// img
-		{name: "img with alt renders bracketed text", html: `<p>See <img src="x.png" alt="diagram"> here</p>`, want: "See [diagram] here\n\n"},
+		{name: "img with alt renders alt text", html: `<p>See <img src="x.png" alt="diagram"> here</p>`, want: "See diagram here\n\n"},
 		{name: "img without alt renders nothing", html: `<p>before<img src="x.png">after</p>`, want: "beforeafter\n\n"},
 
 		// noscript

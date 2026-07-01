@@ -52,7 +52,7 @@ sup                     { text-transform: superscript; }
 sub                     { text-transform: subscript; }
 q::before               { content: open-quote; }
 q::after                { content: close-quote; }
-img[alt]::before        { content: "[" attr(alt) "]"; }
+img::before             { content: attr(alt); }
 `
 
 // New parses css and returns a Renderer. width is the terminal column count.
