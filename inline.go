@@ -57,6 +57,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				}
 			}
 		case html.ElementNode:
+			switch c.Data {
+			case "style", "script", "meta", "link", "head":
+				continue
+			}
 			childDecls := r.resolveDecls(c)
 			if childDecls["display"] == "none" {
 				continue

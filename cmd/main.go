@@ -8,8 +8,9 @@
 //
 // Flags:
 //
-//	-css <file>    load a CSS stylesheet before rendering
-//	-width <n>     override terminal width (default: auto-detect, fallback 80)
+//	-css <file>          load a CSS stylesheet before rendering
+//	-width <n>           override terminal width (default: auto-detect, fallback 80)
+//	-ignore-document-css     ignore <style> elements and style= attributes in the HTML
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 func main() {
 	cssPath := flag.String("css", "", "path to CSS file")
 	width := flag.Int("width", 0, "terminal width (0 = auto-detect)")
+	noDocCSS := flag.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
 	flag.Parse()
 
 	css := ""
@@ -46,7 +48,11 @@ func main() {
 		*width = w
 	}
 
-	r, err := htmlterm.New(css, *width)
+	r, err := htmlterm.New(htmlterm.Options{
+		CSS:               css,
+		Width:             *width,
+		IgnoreDocumentCSS: *noDocCSS,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
 		os.Exit(1)
