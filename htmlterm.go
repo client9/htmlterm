@@ -12,13 +12,21 @@ import (
 	"golang.org/x/net/html"
 )
 
+// Options configures a Renderer.
+type Options struct {
+	CSS               string // additional stylesheet layered above built-in UA defaults
+	Width             int    // terminal column count; affects wrapping, tables, percentage widths
+	IgnoreDocumentCSS bool   // if true, <style> elements and style= attributes in HTML are ignored
+}
+
 // Renderer renders HTML+CSS to terminal strings.
 type Renderer struct {
-	rules      []rule
-	width      int
-	profile    colorprofile.Profile
-	counterMap map[*html.Node]counterSnapshot // built fresh per Render call
-	quoteDepth int                            // tracks open-quote nesting depth
+	rules             []rule
+	width             int
+	profile           colorprofile.Profile
+	ignoreDocumentCSS bool
+	counterMap        map[*html.Node]counterSnapshot // built fresh per Render call
+	quoteDepth        int                            // tracks open-quote nesting depth
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -57,13 +65,18 @@ abbr[title]::after      { content: " (" attr(title) ")"; }
 hr                      { display: block; border-top: "─"; }
 `
 
-// New parses css and returns a Renderer. width is the terminal column count.
-func New(css string, width int) (*Renderer, error) {
-	rules, err := parseCSS(uaCSS + css)
+// New parses opts.CSS and returns a Renderer.
+func New(opts Options) (*Renderer, error) {
+	rules, err := parseCSS(uaCSS + opts.CSS)
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	return &Renderer{rules: rules, width: width, profile: colorprofile.Detect(os.Stdout, os.Environ())}, nil
+	return &Renderer{
+		rules:             rules,
+		width:             opts.Width,
+		profile:           colorprofile.Detect(os.Stdout, os.Environ()),
+		ignoreDocumentCSS: opts.IgnoreDocumentCSS,
+	}, nil
 }
 
 // Render parses htmlStr and returns a styled terminal string.
@@ -73,11 +86,18 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 		return "", fmt.Errorf("htmlterm: %w", err)
 	}
 	rr := r
-	if extra := extractStyleRules(doc); len(extra) > 0 {
-		combined := make([]rule, len(r.rules)+len(extra))
-		copy(combined, r.rules)
-		copy(combined[len(r.rules):], extra)
-		rr = &Renderer{rules: combined, width: r.width, profile: r.profile}
+	if !r.ignoreDocumentCSS {
+		if extra := extractStyleRules(doc); len(extra) > 0 {
+			combined := make([]rule, len(r.rules)+len(extra))
+			copy(combined, r.rules)
+			copy(combined[len(r.rules):], extra)
+			rr = &Renderer{
+				rules:             combined,
+				width:             r.width,
+				profile:           r.profile,
+				ignoreDocumentCSS: r.ignoreDocumentCSS,
+			}
+		}
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.quoteDepth = 0

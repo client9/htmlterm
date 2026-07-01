@@ -31,7 +31,7 @@ func runCases(t *testing.T, cases []renderCase) {
 			if width == 0 {
 				width = 40
 			}
-			r, err := htmlterm.New(tc.css, width)
+			r, err := htmlterm.New(htmlterm.Options{CSS: tc.css, Width: width})
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -44,6 +44,29 @@ func runCases(t *testing.T, cases []renderCase) {
 				t.Errorf("html: %s\ngot:  %q\nwant: %q", tc.html, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestIgnoreDocumentCSS(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, IgnoreDocumentCSS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// <style> block sets display:none — ignored.
+	got, err := r.Render(`<style>p { display: none; }</style><p>hello</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stripANSI(got) != "hello\n\n" {
+		t.Errorf("<style> block not ignored: got %q", got)
+	}
+	// inline style= sets display:none — ignored.
+	got, err = r.Render(`<p style="display:none">hello</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stripANSI(got) != "hello\n\n" {
+		t.Errorf("inline style= not ignored: got %q", got)
 	}
 }
 

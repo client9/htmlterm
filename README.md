@@ -54,7 +54,7 @@ func main() {
 	strong { color: #ffcc66; }
 	`
 
-	r, err := htmlterm.New(css, 40)
+	r, err := htmlterm.New(htmlterm.Options{CSS: css, Width: 40})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,19 +70,27 @@ func main() {
 
 The public API is intentionally small:
 
-- `htmlterm.New(css string, width int) (*Renderer, error)` — create a renderer with optional base CSS and a terminal width in columns
+- `htmlterm.New(opts Options) (*Renderer, error)` — create a renderer from an `Options` struct
 - `(*Renderer).Render(html string) (string, error)` — render an HTML fragment or document to an ANSI-styled string
 
-`width` affects wrapping, percentage widths, borders, and table layout.
+```go
+type Options struct {
+    CSS               string // additional stylesheet layered above built-in UA defaults
+    Width             int    // terminal column count; affects wrapping, tables, percentage widths
+    IgnoreDocumentCSS bool   // if true, <style> elements and style= attributes in HTML are ignored
+}
+```
 
 ## CSS Precedence
 
 Styles are applied in this order, lowest to highest priority:
 
 1. Built-in user-agent stylesheet
-2. CSS passed to `htmlterm.New`
-3. `<style>` tags in the HTML
+2. `Options.CSS`
+3. `<style>` elements in the HTML
 4. Inline `style=""` attributes
+
+Steps 3 and 4 are both suppressed by `Options.IgnoreDocumentCSS`.
 
 Higher specificity wins within a given layer; later rules win on ties.
 

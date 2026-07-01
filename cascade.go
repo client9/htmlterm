@@ -87,9 +87,11 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 		}
 	}
 	// Inline style= attribute wins over all stylesheet rules.
-	if s := nodeAttr(n, "style"); s != "" {
-		for k, v := range parseInlineDecls(s) {
-			result[k] = v
+	if !r.ignoreDocumentCSS {
+		if s := nodeAttr(n, "style"); s != "" {
+			for k, v := range parseInlineDecls(s) {
+				result[k] = v
+			}
 		}
 	}
 	return result
