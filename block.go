@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/net/html"
 )
 
@@ -670,5 +671,5 @@ func (r *Renderer) wrapHyperlink(href, text string) string {
 	if href == "" || r.noOSC8Links || r.profile <= colorprofile.Ascii {
 		return text
 	}
-	return "\x1b]8;;" + href + "\x1b\\" + text + "\x1b]8;;\x1b\\"
+	return ansi.SetHyperlink(href) + text + ansi.ResetHyperlink()
 }

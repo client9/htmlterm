@@ -65,7 +65,7 @@ func TestTablePreservesInlineChildStyling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "\x1b[1mB\x1b[22m") {
+	if !strings.Contains(got, "\x1b[1mB\x1b[m") {
 		t.Fatalf("bold child styling not preserved in table cell: %q", got)
 	}
 	if stripANSI(got) != "B C\n" {

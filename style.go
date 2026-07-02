@@ -51,20 +51,20 @@ func (s inlineStyle) render(text string, p colorprofile.Profile) string {
 			st = st.BackgroundColor(cc)
 		}
 	}
-	if len(st) > 0 {
-		text = st.Styled(text)
-	}
 	if s.bold {
-		text = "\x1b[1m" + text + "\x1b[22m"
+		st = st.Bold()
 	}
 	if s.italic {
-		text = "\x1b[3m" + text + "\x1b[23m"
+		st = st.Italic(true)
 	}
 	if s.underline {
-		text = "\x1b[4m" + text + "\x1b[24m"
+		st = st.Underline(true)
 	}
 	if s.strike {
-		text = "\x1b[9m" + text + "\x1b[29m"
+		st = st.Strikethrough(true)
+	}
+	if len(st) > 0 {
+		text = st.Styled(text)
 	}
 	return text
 }
