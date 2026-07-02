@@ -493,6 +493,91 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
+// sanitizeTerminalText removes terminal escape sequences and control
+// characters from untrusted HTML/CSS text before it reaches terminal output.
+func sanitizeTerminalText(s string, allowNewline bool) string {
+	s = stripANSI(s)
+	var b strings.Builder
+	for _, ch := range s {
+		switch {
+		case ch == '\n' && allowNewline:
+			b.WriteRune(ch)
+		case ch == '\t' && allowNewline:
+			b.WriteRune(ch)
+		case ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f):
+			// Drop remaining C0/C1 controls, including BEL and ESC.
+		default:
+			b.WriteRune(ch)
+		}
+	}
+	return b.String()
+}
+
+func visiblePrefixWithTrailingEscapes(s string, width int) string {
+	runes := []rune(s)
+	var b strings.Builder
+	visible := 0
+	i := 0
+	for i < len(runes) && visible < width {
+		if runes[i] == '\x1b' {
+			next := consumeANSI(runes, i)
+			b.WriteString(string(runes[i:next]))
+			i = next
+			continue
+		}
+		b.WriteRune(runes[i])
+		visible++
+		i++
+	}
+	for i < len(runes) {
+		if runes[i] != '\x1b' {
+			i++
+			continue
+		}
+		next := consumeANSI(runes, i)
+		b.WriteString(string(runes[i:next]))
+		i = next
+	}
+	return b.String()
+}
+
+func consumeANSI(runes []rune, i int) int {
+	if i >= len(runes) || runes[i] != '\x1b' {
+		return i + 1
+	}
+	i++
+	if i >= len(runes) {
+		return i
+	}
+	next := runes[i]
+	i++
+	switch next {
+	case '[':
+		for i < len(runes) && (runes[i] < 0x40 || runes[i] > 0x7e) {
+			i++
+		}
+		if i < len(runes) {
+			i++
+		}
+	case ']':
+		prev := next
+		for i < len(runes) {
+			ch := runes[i]
+			i++
+			if (prev == '\x1b' && ch == '\\') || ch == '\a' {
+				break
+			}
+			prev = ch
+		}
+	default:
+		for i < len(runes) && next < 0x40 {
+			next = runes[i]
+			i++
+		}
+	}
+	return i
+}
+
 func plainInlineText(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {

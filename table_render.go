@@ -121,6 +121,10 @@ func (r *Renderer) renderTable(n *html.Node) string {
 			case "thead", "tbody", "tfoot":
 				collect(c)
 			case "tr":
+				trDecls := r.resolveDecls(c)
+				if trDecls["display"] == "none" {
+					continue
+				}
 				var cells []tableCell
 				isHeader := false
 				for td := c.FirstChild; td != nil; td = td.NextSibling {
@@ -131,6 +135,9 @@ func (r *Renderer) renderTable(n *html.Node) string {
 						isHeader = true
 					}
 					tdDecls := r.resolveDecls(td)
+					if tdDecls["display"] == "none" {
+						continue
+					}
 					// Merge col-level declarations as a lower-priority base.
 					ci := len(cells)
 					if ci < len(colDecls) && len(colDecls[ci]) > 0 {
@@ -164,7 +171,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 							pb = abs
 						}
 					}
-					cellText := plainInlineText(stripANSI(r.renderInlineAcc(td, inlineStyle{}, r.width)))
+					cellText := plainInlineText(r.renderInlineAcc(td, inlineStyle{}, r.width))
 					if tdDecls["visibility"] == "hidden" {
 						cellText = ""
 					}
@@ -198,6 +205,11 @@ func (r *Renderer) renderTable(n *html.Node) string {
 	numCols := len(headers)
 	if numCols == 0 && len(rows) > 0 {
 		numCols = len(rows[0])
+	}
+	for _, row := range rows {
+		if len(row) > numCols {
+			numCols = len(row)
+		}
 	}
 	if numCols == 0 {
 		return ""
@@ -252,7 +264,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 	for i := 0; i < numCols; i++ {
 		if i < len(headers) {
 			cols[i] = headers[i].constraints
-			cols[i].natural = runeLen(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
+			cols[i].natural = ansiVisibleLen(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
 		}
 	}
 	for _, row := range rows {
@@ -260,7 +272,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 			if i >= numCols {
 				break
 			}
-			if w := runeLen(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
+			if w := ansiVisibleLen(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
 				cols[i].natural = w
 			}
 			dc := c.constraints
@@ -301,7 +313,7 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 		if cells[i].noWrap {
 			cells[i].lines = []string{truncateToWidth(cells[i].text, contentW, cells[i].textOverflow)}
 		} else {
-			cells[i].lines = wrapToWidth(cells[i].text, contentW)
+			cells[i].lines = wordWrapANSI(cells[i].text, contentW, "break-word")
 		}
 		if pt := cells[i].paddingTop; pt > 0 {
 			blank := make([]string, pt, pt+len(cells[i].lines))

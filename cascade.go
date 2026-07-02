@@ -69,7 +69,7 @@ func (r *Renderer) resolveDecls(n *html.Node) map[string]string {
 // directly match n (no ancestor inheritance). Used by resolveDecls.
 func (r *Renderer) directDecls(n *html.Node) map[string]string {
 	type match struct {
-		spec  int
+		spec  specificityScore
 		decls map[string]string
 	}
 	var matches []match
@@ -79,7 +79,7 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 			matches = append(matches, match{specificity(parts), rl.decls})
 		}
 	}
-	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec < matches[j].spec })
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec.less(matches[j].spec) })
 	result := make(map[string]string)
 	for _, m := range matches {
 		for k, v := range m.decls {
@@ -102,7 +102,7 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 // on element n. Handles both :before/:after (CSS2) and ::before/::after (CSS3).
 func (r *Renderer) pseudoElemDecls(n *html.Node, which string) map[string]string {
 	type match struct {
-		spec  int
+		spec  specificityScore
 		decls map[string]string
 	}
 	var matches []match
@@ -120,7 +120,7 @@ func (r *Renderer) pseudoElemDecls(n *html.Node, which string) map[string]string
 			matches = append(matches, match{specificity(parts), rl.decls})
 		}
 	}
-	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec < matches[j].spec })
+	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec.less(matches[j].spec) })
 	result := make(map[string]string)
 	for _, m := range matches {
 		for k, v := range m.decls {

@@ -199,25 +199,47 @@ func parseAttrSel(s string) (attrSel, bool) {
 	return attrSel{key: s, op: opExists}, true
 }
 
-// specificity returns the CSS specificity of a parsed selector as a flat int.
-func specificity(parts []selectorPart) int {
-	s := 0
+type specificityScore struct {
+	ids      int
+	classes  int
+	elements int
+}
+
+func (s specificityScore) less(other specificityScore) bool {
+	if s.ids != other.ids {
+		return s.ids < other.ids
+	}
+	if s.classes != other.classes {
+		return s.classes < other.classes
+	}
+	return s.elements < other.elements
+}
+
+// specificity returns the CSS specificity of a parsed selector.
+func specificity(parts []selectorPart) specificityScore {
+	var s specificityScore
 	for _, p := range parts {
 		if p.element != "" {
-			s++
+			s.elements++
 		}
 		if p.id != "" {
-			s += 100
+			s.ids++
 		}
-		s += len(p.classes) * 10
-		s += len(p.attrs) * 10
+		if p.pseudoElem != "" {
+			s.elements++
+		}
+		s.classes += len(p.classes)
+		s.classes += len(p.attrs)
 		for _, ps := range p.pseudos {
 			if strings.HasPrefix(ps, "not(") && strings.HasSuffix(ps, ")") {
 				inner := ps[4 : len(ps)-1]
 				inner = strings.TrimSpace(inner)
-				s += specificity([]selectorPart{parseSimpleSelector(inner)})
+				innerSpec := specificity([]selectorPart{parseSimpleSelector(inner)})
+				s.ids += innerSpec.ids
+				s.classes += innerSpec.classes
+				s.elements += innerSpec.elements
 			} else {
-				s += 10
+				s.classes++
 			}
 		}
 	}

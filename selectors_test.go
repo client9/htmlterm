@@ -39,5 +39,6 @@ func TestSelectors(t *testing.T) {
 		{name: ":not(.class) excludes elements with the class", css: `td:not(.highlight) { text-transform: uppercase; }`, html: `<table style="border-style:hidden"><tr><td>plain</td><td class="highlight">hi</td></tr></table>`, want: "PLAIN hi\n"},
 		{name: ":not(element) with type matches everything else", css: `li:not(.skip) { text-transform: uppercase; }`, html: `<ul><li>one</li><li class="skip">two</li><li>three</li></ul>`, want: "    • ONE\n    • two\n    • THREE\n"},
 		{name: ":not() combined with element selector", css: `p:not(.muted) { text-transform: uppercase; }`, html: `<p>normal</p><p class="muted">quiet</p><p>also</p>`, want: "NORMAL\n\nquiet\n\nALSO\n\n"},
+		{name: "id specificity beats many classes", css: `#x { text-transform: lowercase; } .a.b.c.d.e.f.g.h.i.j.k { text-transform: uppercase; }`, html: `<p id="x" class="a b c d e f g h i j k">MiX</p>`, want: "mix\n\n"},
 	})
 }

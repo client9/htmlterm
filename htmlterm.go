@@ -96,20 +96,20 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("htmlterm: %w", err)
 	}
-	rr := r
+	rr := &Renderer{
+		rules:             r.rules,
+		width:             r.width,
+		profile:           r.profile,
+		ignoreDocumentCSS: r.ignoreDocumentCSS,
+		noOSC8Links:       r.noOSC8Links,
+		maxBlankLines:     r.maxBlankLines,
+	}
 	if !r.ignoreDocumentCSS {
 		if extra := extractStyleRules(doc); len(extra) > 0 {
 			combined := make([]rule, len(r.rules)+len(extra))
 			copy(combined, r.rules)
 			copy(combined[len(r.rules):], extra)
-			rr = &Renderer{
-				rules:             combined,
-				width:             r.width,
-				profile:           r.profile,
-				ignoreDocumentCSS: r.ignoreDocumentCSS,
-				noOSC8Links:       r.noOSC8Links,
-				maxBlankLines:     r.maxBlankLines,
-			}
+			rr.rules = combined
 		}
 	}
 	rr.counterMap = rr.buildCounterMap(doc)

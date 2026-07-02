@@ -382,75 +382,20 @@ func runeLen(s string) int {
 	return utf8.RuneCountInString(s)
 }
 
-// wrapToWidth wraps s into lines of at most width runes, breaking on word
-// boundaries (spaces). A single word longer than width is hard-broken.
-// Always returns at least one entry.
-func wrapToWidth(s string, width int) []string {
-	if width <= 0 || s == "" {
-		return []string{""}
-	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-	var lines []string
-	var cur []rune
-	for _, word := range words {
-		wr := []rune(word)
-		if len(cur) == 0 {
-			// Start of a new line: place word, hard-breaking if it's too long.
-			for len(wr) > 0 {
-				take := min(len(wr), width)
-				cur = append(cur, wr[:take]...)
-				wr = wr[take:]
-				if len(wr) > 0 {
-					lines = append(lines, string(cur))
-					cur = cur[:0]
-				}
-			}
-		} else if len(cur)+1+len(wr) <= width {
-			cur = append(cur, ' ')
-			cur = append(cur, wr...)
-		} else {
-			// Word doesn't fit: flush current line, then start fresh.
-			lines = append(lines, string(cur))
-			cur = cur[:0]
-			for len(wr) > 0 {
-				take := min(len(wr), width)
-				cur = append(cur, wr[:take]...)
-				wr = wr[take:]
-				if len(wr) > 0 {
-					lines = append(lines, string(cur))
-					cur = cur[:0]
-				}
-			}
-		}
-	}
-	if len(cur) > 0 {
-		lines = append(lines, string(cur))
-	}
-	if len(lines) == 0 {
-		return []string{""}
-	}
-	return lines
-}
-
 // truncateToWidth truncates s to at most width runes. suffix is appended when
 // content is clipped (use "" for clip/no indicator, "…" for ellipsis, etc.).
 func truncateToWidth(s string, width int, suffix string) string {
 	if width <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	if len(runes) <= width {
+	if ansiVisibleLen(s) <= width {
 		return s
 	}
-	suffixRunes := []rune(suffix)
-	cut := width - len(suffixRunes)
+	cut := width - ansiVisibleLen(suffix)
 	if cut <= 0 {
-		return string(runes[:width])
+		return visiblePrefixWithTrailingEscapes(s, width)
 	}
-	return string(runes[:cut]) + suffix
+	return visiblePrefixWithTrailingEscapes(s, cut) + suffix
 }
 
 // textOverflowSuffix maps a CSS text-overflow value to the truncation suffix.
@@ -462,7 +407,7 @@ func textOverflowSuffix(val string) string {
 		return "…"
 	default:
 		// Custom string value — strip surrounding quotes.
-		return strings.Trim(val, `"'`)
+		return sanitizeTerminalText(strings.Trim(val, `"'`), false)
 	}
 }
 

@@ -155,7 +155,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 func listStyleCustomString(style string) (string, bool) {
 	s := strings.TrimSpace(style)
 	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return s[1 : len(s)-1], true
+		return sanitizeTerminalText(s[1:len(s)-1], false), true
 	}
 	return "", false
 }
@@ -206,9 +206,9 @@ func listItemPrefix(style string, ordered bool, n, width int) string {
 	case "none":
 		return ""
 	case "lower-alpha", "lower-latin":
-		return fmt.Sprintf("%c. ", 'a'+rune(n-1))
+		return alphaSequence(n, false) + ". "
 	case "upper-alpha", "upper-latin":
-		return fmt.Sprintf("%c. ", 'A'+rune(n-1))
+		return alphaSequence(n, true) + ". "
 	case "lower-roman":
 		numeral := toRoman(n, false)
 		if width > 0 {
@@ -225,4 +225,24 @@ func listItemPrefix(style string, ordered bool, n, width int) string {
 		digits := width - 2
 		return fmt.Sprintf("%*d. ", digits, n)
 	}
+}
+
+func alphaSequence(n int, upper bool) string {
+	if n < 1 {
+		return fmt.Sprintf("%d", n)
+	}
+	base := rune('a')
+	if upper {
+		base = 'A'
+	}
+	var chars []rune
+	for n > 0 {
+		n--
+		chars = append(chars, base+rune(n%26))
+		n /= 26
+	}
+	for i, j := 0, len(chars)-1; i < j; i, j = i+1, j-1 {
+		chars[i], chars[j] = chars[j], chars[i]
+	}
+	return string(chars)
 }

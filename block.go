@@ -508,7 +508,7 @@ func parseCSSString(v string) string {
 	}
 	inner := v[1 : len(v)-1]
 	if !strings.ContainsRune(inner, '\\') {
-		return inner
+		return sanitizeTerminalText(inner, true)
 	}
 	// Decode CSS string escape sequences.
 	var b strings.Builder
@@ -541,7 +541,7 @@ func parseCSSString(v string) string {
 		// \<other> — the character itself
 		b.WriteRune(next)
 	}
-	return b.String()
+	return sanitizeTerminalText(b.String(), true)
 }
 
 func isHexRune(r rune) bool {
@@ -576,7 +576,7 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 			attrName := strings.TrimSpace(v[5:end])
 			v = v[end+1:]
 			if n != nil {
-				b.WriteString(nodeAttr(n, attrName))
+				b.WriteString(sanitizeTerminalText(nodeAttr(n, attrName), true))
 			}
 
 		case strings.HasPrefix(v, "counters("):
@@ -666,6 +666,7 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 
 // wrapHyperlink wraps text in an OSC 8 terminal hyperlink sequence.
 func (r *Renderer) wrapHyperlink(href, text string) string {
+	href = sanitizeTerminalText(href, false)
 	if href == "" || r.noOSC8Links || r.profile <= colorprofile.Ascii {
 		return text
 	}

@@ -51,7 +51,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
 		case html.TextNode:
-			normalized := applyTextTransform(normalizeWhiteSpace(c.Data, ws, tabSize), tt)
+			normalized := applyTextTransform(normalizeWhiteSpace(sanitizeTerminalText(c.Data, true), ws, tabSize), tt)
 			if normalized != "" {
 				b, ok := w.LastByte()
 				atLineStart := !ok || b == '\n'

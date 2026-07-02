@@ -73,3 +73,12 @@ func TestListMarkerColor(t *testing.T) {
 		}
 	})
 }
+
+func TestAlphaSequenceBeyondZ(t *testing.T) {
+	if got := alphaSequence(27, false); got != "aa" {
+		t.Fatalf("alphaSequence(27, false) = %q, want aa", got)
+	}
+	if got := alphaSequence(28, true); got != "AB" {
+		t.Fatalf("alphaSequence(28, true) = %q, want AB", got)
+	}
+}

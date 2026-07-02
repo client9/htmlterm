@@ -1,6 +1,11 @@
 package htmlterm_test
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/client9/htmlterm"
+)
 
 func TestTextOverflow(t *testing.T) {
 	cell := func(attrs, content string) string {
@@ -45,7 +50,27 @@ func TestTable(t *testing.T) {
 		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},
 		{name: "table width percent overrides html width attribute", html: `<table style="border-style:hidden"><tr><td width="8" style="width:50%">abc</td><td>xy</td></tr></table>`, width: 20, want: "abc       xy\n"},
 		{name: "table min-width and max-width influence flexible columns", html: `<table style="border-style:hidden; width:100%"><tr><td style="min-width:6">a</td><td style="max-width:4">bb</td></tr></table>`, width: 16, want: "a           bb  \n"},
+		{name: "later row can define additional columns", html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`, want: "A  \nB C\n"},
+		{name: "display none table cell is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td><td class="gone">B</td><td>C</td></tr></table>`, want: "A C\n"},
+		{name: "display none table row is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr class="gone"><td>B</td></tr><tr><td>C</td></tr></table>`, want: "A\nC\n"},
 	})
+}
+
+func TestTablePreservesInlineChildStyling(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<table style="border-style:hidden"><tr><td><b>B</b> C</td></tr></table>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[1mB\x1b[22m") {
+		t.Fatalf("bold child styling not preserved in table cell: %q", got)
+	}
+	if stripANSI(got) != "B C\n" {
+		t.Fatalf("plain table text got %q", stripANSI(got))
+	}
 }
 
 func TestTableMultiLine(t *testing.T) {

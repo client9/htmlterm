@@ -2,8 +2,10 @@ package htmlterm_test
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/client9/htmlterm"
 )
 
@@ -68,6 +70,59 @@ func TestIgnoreDocumentCSS(t *testing.T) {
 	if stripANSI(got) != "hello\n\n" {
 		t.Errorf("inline style= not ignored: got %q", got)
 	}
+}
+
+func TestTerminalControlSanitization(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render("<p>\x1b[31mred\x1b[0m</p>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile(`\x1b\[[0-9;]*m`).MatchString(got) {
+		t.Fatalf("raw text control sequence reached output: %q", got)
+	}
+	if stripANSI(got) != "red\n\n" {
+		t.Fatalf("sanitized text got %q", stripANSI(got))
+	}
+
+	got, err = r.Render(`<style>p::before { content: "\1b[31m"; }</style><p>red</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile(`\x1b\[[0-9;]*m`).MatchString(got) {
+		t.Fatalf("CSS content control sequence reached output: %q", got)
+	}
+	if stripANSI(got) != "red\n\n" {
+		t.Fatalf("sanitized CSS content got %q", stripANSI(got))
+	}
+}
+
+func TestOSCHyperlinkSanitizesHref(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render("<a href=\"https://example.com\x1b]8;;evil\x1b\\\">link</a>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(got, "\x1b]8;;"); count != 2 {
+		t.Fatalf("href injected OSC sequences: count=%d output=%q", count, got)
+	}
+}
+
+func TestNoscriptDoesNotCorruptOuterCounters(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "noscript recursive render preserves outer counter map",
+			css:  `body { counter-reset: sec; } p { counter-increment: sec; } p::before { content: counter(sec) ". "; }`,
+			html: `<p>a</p><noscript><b>fallback</b></noscript><p>b</p>`,
+			want: "1. a\n\nfallback2. b\n\n",
+		},
+	})
 }
 
 func TestBareText(t *testing.T) {

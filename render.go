@@ -15,7 +15,7 @@ func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
 			r.renderNode(w, c)
 		}
 	case html.TextNode:
-		if text := normalizeWhiteSpace(n.Data, "normal", 8); strings.TrimSpace(text) != "" {
+		if text := normalizeWhiteSpace(sanitizeTerminalText(n.Data, true), "normal", 8); strings.TrimSpace(text) != "" {
 			b, ok := w.LastByte()
 			if !ok || b == '\n' || b == ' ' {
 				text = strings.TrimLeft(text, " ")
