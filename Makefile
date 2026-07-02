@@ -11,6 +11,9 @@ build: ## build module
 test: ## run all unit tests
 	go test ./...
 
+race: ## run unit tests with the race detector
+	go test -race ./...
+
 version: ## print OS, Go, and golangci versions
 	@echo $$0
 	@uname -a
@@ -22,8 +25,11 @@ bench: ## run local benchmarks
 
 cover: ## generate code coverage report
 	rm -f cover.out
-	go test -run='^Test' -coverprofile=cover.out -coverpkg=.
+	go test ./... -coverprofile=cover.out -coverpkg=./...
 	go tool cover -func=cover.out
+
+vuln: ## run Go vulnerability analysis
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 ## NOTE: this downloads it's schema over the network
 lintverify:
@@ -31,15 +37,13 @@ lintverify:
 
 fmt: ## reformat source code
 	go mod tidy
-	gofmt -w -s *.go
+	gofmt -w -s $$(find . -name '*.go' -not -path './.git/*')
 
 lint: ## lint and verify repo is already formatted
 	go mod tidy
 	git diff --exit-code -- go.mod go.sum
-	test -z "$$(gofmt -l *.go)"
+	test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './.git/*'))"
 	golangci-lint run .
 
 clean: ## remove any generated files
 	rm -f *.out
-
-

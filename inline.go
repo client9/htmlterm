@@ -124,6 +124,9 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 						}
 					}
 				}
+				if childDecls["visibility"] == "hidden" {
+					inner = blankVisibleContent(inner)
+				}
 				if c.Data == "a" {
 					inner = r.wrapHyperlink(nodeAttr(c, "href"), inner)
 				}

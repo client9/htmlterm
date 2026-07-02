@@ -1,6 +1,3 @@
-// Package htmlterm renders a restricted HTML+CSS subset to terminal strings.
-// Supported selectors: element, .class, element.class, and space-separated
-// descendant chains. See CSS.md for supported properties.
 package htmlterm
 
 import (
@@ -23,6 +20,9 @@ type Options struct {
 }
 
 // Renderer renders HTML+CSS to terminal strings.
+//
+// A Renderer can be reused for multiple Render calls, including concurrent
+// calls. Per-document state is built fresh for each render.
 type Renderer struct {
 	rules             []rule
 	width             int

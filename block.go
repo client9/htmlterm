@@ -161,6 +161,9 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 				}
 			}
 		}
+		if decls["visibility"] == "hidden" {
+			inner = blankVisibleContent(inner)
+		}
 		w.WriteString(r.wrapHyperlink(href, inner))
 	default:
 		acc := extractInlineStyle(decls)
@@ -545,6 +548,39 @@ func parseCSSString(v string) string {
 	return sanitizeTerminalText(b.String(), true)
 }
 
+// scanFnArgs returns the index of the ')' that closes the CSS function call
+// whose arguments start at s[0], skipping over quoted strings. Returns -1 if
+// no unquoted ')' is found.
+func scanFnArgs(s string) int {
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == ')' {
+			return i
+		}
+		if c == '"' || c == '\'' {
+			q := c
+			i++
+			for i < len(s) {
+				if s[i] == '\\' {
+					i++
+					if i < len(s) {
+						i++
+					}
+					continue
+				}
+				if s[i] == q {
+					i++
+					break
+				}
+				i++
+			}
+			continue
+		}
+		i++
+	}
+	return -1
+}
+
 func isHexRune(r rune) bool {
 	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }
@@ -570,23 +606,23 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 		}
 		switch {
 		case strings.HasPrefix(v, "attr("):
-			end := strings.Index(v, ")")
+			end := scanFnArgs(v[5:])
 			if end < 0 {
 				return b.String()
 			}
-			attrName := strings.TrimSpace(v[5:end])
-			v = v[end+1:]
+			attrName := strings.TrimSpace(v[5 : 5+end])
+			v = v[5+end+1:]
 			if n != nil {
 				b.WriteString(sanitizeTerminalText(nodeAttr(n, attrName), true))
 			}
 
 		case strings.HasPrefix(v, "counters("):
-			end := strings.Index(v, ")")
+			end := scanFnArgs(v[9:])
 			if end < 0 {
 				return b.String()
 			}
-			name, sep, style := parseCounterFnArgs(v[9:end])
-			v = v[end+1:]
+			name, sep, style := parseCounterFnArgs(v[9 : 9+end])
+			v = v[9+end+1:]
 			vals := cs.values(name)
 			parts := make([]string, len(vals))
 			for i, val := range vals {
@@ -595,12 +631,12 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 			b.WriteString(strings.Join(parts, sep))
 
 		case strings.HasPrefix(v, "counter("):
-			end := strings.Index(v, ")")
+			end := scanFnArgs(v[8:])
 			if end < 0 {
 				return b.String()
 			}
-			name, _, style := parseCounterFnArgs(v[8:end])
-			v = v[end+1:]
+			name, _, style := parseCounterFnArgs(v[8 : 8+end])
+			v = v[8+end+1:]
 			b.WriteString(formatCounterValue(cs.value(name), style))
 
 		case strings.HasPrefix(v, "no-open-quote"):
@@ -641,7 +677,10 @@ func (r *Renderer) parseCSSContentString(v string, n *html.Node) string {
 			i := 1
 			for i < len(v) {
 				if v[i] == '\\' {
-					i += 2
+					i++
+					if i < len(v) {
+						i++
+					}
 					continue
 				}
 				if v[i] == q {

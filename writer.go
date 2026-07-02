@@ -16,10 +16,10 @@ import (
 // which handles space-only content uniformly regardless of how it arrived.
 type cappedWriter struct {
 	sb        strings.Builder
-	maxBlanks int    // 0 = disabled
-	preDepth  int    // nesting depth of pre-formatted regions
-	nlBuf     int    // buffered pending newlines (structural + blank content lines)
-	fragment  string // partial line awaiting its terminating '\n'
+	maxBlanks int             // 0 = disabled
+	preDepth  int             // nesting depth of pre-formatted regions
+	nlBuf     int             // buffered pending newlines (structural + blank content lines)
+	fragBuf   strings.Builder // partial line awaiting its terminating '\n'
 }
 
 // flushNLBuf writes buffered newlines to sb, capped to maxBlanks+1 when
@@ -43,14 +43,15 @@ func (w *cappedWriter) writeNewline() {
 		w.sb.WriteByte('\n')
 		return
 	}
-	if w.maxBlanks > 0 && isBlankLine(w.fragment+"\n") {
+	frag := w.fragBuf.String()
+	if w.maxBlanks > 0 && isBlankLine(frag+"\n") {
 		w.nlBuf++
 	} else {
 		w.flushNLBuf()
-		w.sb.WriteString(w.fragment)
+		w.sb.WriteString(frag)
 		w.nlBuf++
 	}
-	w.fragment = ""
+	w.fragBuf.Reset()
 }
 
 // WriteString writes s. In pre regions it goes directly to the builder.
@@ -64,7 +65,7 @@ func (w *cappedWriter) WriteString(s string) {
 			if w.preDepth > 0 {
 				w.sb.WriteString(s)
 			} else {
-				w.fragment += s
+				w.fragBuf.WriteString(s)
 			}
 			return
 		}
@@ -75,15 +76,16 @@ func (w *cappedWriter) WriteString(s string) {
 			w.sb.WriteByte('\n')
 			continue
 		}
-		w.fragment += before
-		if w.maxBlanks > 0 && isBlankLine(w.fragment+"\n") {
+		w.fragBuf.WriteString(before)
+		frag := w.fragBuf.String()
+		if w.maxBlanks > 0 && isBlankLine(frag+"\n") {
 			w.nlBuf++
 		} else {
 			w.flushNLBuf()
-			w.sb.WriteString(w.fragment)
+			w.sb.WriteString(frag)
 			w.nlBuf++
 		}
-		w.fragment = ""
+		w.fragBuf.Reset()
 	}
 }
 
@@ -98,10 +100,11 @@ func (w *cappedWriter) WriteAtLeastNewlines(n int) {
 		return
 	}
 	// Flush non-blank fragment content; discard blank-only fragments (padding).
-	if w.fragment != "" && (w.maxBlanks == 0 || !isBlankLine(w.fragment+"\n")) {
-		w.sb.WriteString(w.fragment)
+	frag := w.fragBuf.String()
+	if frag != "" && (w.maxBlanks == 0 || !isBlankLine(frag+"\n")) {
+		w.sb.WriteString(frag)
 	}
-	w.fragment = ""
+	w.fragBuf.Reset()
 	if w.nlBuf < n {
 		w.nlBuf = n
 	}
@@ -111,12 +114,12 @@ func (w *cappedWriter) WriteAtLeastNewlines(n int) {
 // fragment to the underlying builder, then resets both. It is a no-op when
 // both are empty.
 func (w *cappedWriter) Flush() {
-	if w.nlBuf == 0 && w.fragment == "" {
+	if w.nlBuf == 0 && w.fragBuf.Len() == 0 {
 		return
 	}
 	w.flushNLBuf()
-	w.sb.WriteString(w.fragment)
-	w.fragment = ""
+	w.sb.WriteString(w.fragBuf.String())
+	w.fragBuf.Reset()
 }
 
 // EnterPre signals that subsequent writes are pre-formatted. Flushes the
@@ -136,15 +139,16 @@ func (w *cappedWriter) ExitPre() {
 // Len returns the total number of bytes that will appear in the output,
 // including buffered newlines and any pending fragment.
 func (w *cappedWriter) Len() int {
-	return w.sb.Len() + w.nlBuf + len(w.fragment)
+	return w.sb.Len() + w.nlBuf + w.fragBuf.Len()
 }
 
 // LastByte returns the effective last byte of the accumulated output.
 // Non-blank fragment content takes precedence; then buffered newlines (nlBuf);
 // then the last byte of sb. Returns (0, false) if nothing has been written.
 func (w *cappedWriter) LastByte() (byte, bool) {
-	if w.fragment != "" && (w.maxBlanks == 0 || !isBlankLine(w.fragment+"\n")) {
-		return w.fragment[len(w.fragment)-1], true
+	frag := w.fragBuf.String()
+	if frag != "" && (w.maxBlanks == 0 || !isBlankLine(frag+"\n")) {
+		return frag[len(frag)-1], true
 	}
 	if w.nlBuf > 0 {
 		return '\n', true
@@ -153,8 +157,8 @@ func (w *cappedWriter) LastByte() (byte, bool) {
 	if len(s) > 0 {
 		return s[len(s)-1], true
 	}
-	if w.fragment != "" {
-		return w.fragment[len(w.fragment)-1], true
+	if frag != "" {
+		return frag[len(frag)-1], true
 	}
 	return 0, false
 }

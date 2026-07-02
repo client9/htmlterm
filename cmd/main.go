@@ -27,19 +27,27 @@ import (
 )
 
 func main() {
-	cssPath := flag.String("css", "", "path to CSS file")
-	width := flag.Int("width", 0, "terminal width (0 = auto-detect)")
-	noDocCSS := flag.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
-	noOSC8 := flag.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
-	maxBlankLines := flag.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
-	flag.Parse()
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("htmlterm", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cssPath := fs.String("css", "", "path to CSS file")
+	width := fs.Int("width", 0, "terminal width (0 = auto-detect)")
+	noDocCSS := fs.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
+	noOSC8 := fs.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
+	maxBlankLines := fs.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 
 	css := ""
 	if *cssPath != "" {
 		data, err := os.ReadFile(*cssPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+			return 1
 		}
 		css = string(data)
 	}
@@ -60,16 +68,16 @@ func main() {
 		MaxBlankLines:     *maxBlankLines,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+		return 1
 	}
 
-	var src io.Reader = os.Stdin
-	if flag.NArg() > 0 {
-		f, err := os.Open(flag.Arg(0))
+	var src io.Reader = stdin
+	if fs.NArg() > 0 {
+		f, err := os.Open(fs.Arg(0))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
-			os.Exit(1)
+			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+			return 1
 		}
 		defer f.Close()
 		src = f
@@ -77,15 +85,16 @@ func main() {
 
 	data, err := io.ReadAll(src)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+		return 1
 	}
 
 	out, err := r.Render(string(data))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+		return 1
 	}
 
-	fmt.Print(out)
+	fmt.Fprint(stdout, out)
+	return 0
 }

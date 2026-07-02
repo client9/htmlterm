@@ -50,8 +50,11 @@ func parseSelector(sel string) []selectorPart {
 	combo := descendant
 	i, n := 0, len(sel)
 
+	isCSSSpace := func(b byte) bool {
+		return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
+	}
 	for i < n {
-		for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+		for i < n && isCSSSpace(sel[i]) {
 			i++
 		}
 		if i >= n {
@@ -60,7 +63,7 @@ func parseSelector(sel string) []selectorPart {
 		if sel[i] == '>' {
 			combo = child
 			i++
-			for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+			for i < n && isCSSSpace(sel[i]) {
 				i++
 			}
 			continue
@@ -68,13 +71,13 @@ func parseSelector(sel string) []selectorPart {
 		if sel[i] == '+' {
 			combo = adjacent
 			i++
-			for i < n && (sel[i] == ' ' || sel[i] == '\t') {
+			for i < n && isCSSSpace(sel[i]) {
 				i++
 			}
 			continue
 		}
 		start := i
-		for i < n && sel[i] != ' ' && sel[i] != '\t' && sel[i] != '>' && sel[i] != '+' {
+		for i < n && !isCSSSpace(sel[i]) && sel[i] != '>' && sel[i] != '+' {
 			if sel[i] == '[' {
 				for i < n && sel[i] != ']' {
 					i++

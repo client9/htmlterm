@@ -39,6 +39,7 @@ func TestTableCellPadding(t *testing.T) {
 		{name: "padding-left on th header", html: `<table ` + hidden + `><tr><th style="padding-left:1" width="7">Name</th></tr><tr><td width="7">val</td></tr></table>`, want: " Name  \nval    \n"},
 		{name: "padding-top on th header adds blank row before header text", html: `<table ` + hidden + `><tr><th style="padding-top:1" width="4">Hi</th></tr><tr><td width="4">ok</td></tr></table>`, want: "    \nHi  \nok  \n"},
 		{name: "padding-left with wrapping cell", html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:normal" width="7">Hello World</td></tr></table>`, want: " Hello \n World \n"},
+		{name: "padding exceeds column width clamps to keep 1-char content", html: `<table ` + hidden + `><tr><td style="padding-left:2; padding-right:2" width="3">X</td></tr></table>`, want: "  X\n"},
 	})
 }
 
@@ -53,6 +54,8 @@ func TestTable(t *testing.T) {
 		{name: "later row can define additional columns", html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`, want: "A  \nB C\n"},
 		{name: "display none table cell is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td><td class="gone">B</td><td>C</td></tr></table>`, want: "A C\n"},
 		{name: "display none table row is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr class="gone"><td>B</td></tr><tr><td>C</td></tr></table>`, want: "A\nC\n"},
+		{name: "thead row is header, tbody th row is not", html: `<table><thead><tr><th width="3">H</th></tr></thead><tbody><tr><th width="3">R</th></tr></tbody></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│R  │\n└───┘\n"},
+		{name: "no thead: first all-th row is implicit header", html: `<table><tr><th width="3">H</th></tr><tr><td width="3">D</td></tr></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│D  │\n└───┘\n"},
 	})
 }
 

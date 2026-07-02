@@ -44,3 +44,12 @@ jobs:
 
     - name: Test
       run: make test
+
+    - name: Race
+      run: make race
+
+    - name: Coverage
+      run: go test -cover ./...
+
+    - name: Vulnerability Check
+      run: make vuln

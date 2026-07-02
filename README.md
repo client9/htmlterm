@@ -18,6 +18,7 @@ It is designed for terminal UIs, CLIs, and text-first applications that want ric
 ## Scope
 
 `htmlterm` is intentionally not a browser. It supports a documented subset of HTML and CSS and silently ignores unsupported features.
+When rendering untrusted HTML or CSS, see [SECURITY.md](./SECURITY.md) for the terminal-output security model and recommended defense-in-depth settings.
 
 See [CSS.md](./CSS.md) for the full supported surface:
 
@@ -75,11 +76,17 @@ The public API is intentionally small:
 
 ```go
 type Options struct {
-    CSS               string // additional stylesheet layered above built-in UA defaults
-    Width             int    // terminal column count; affects wrapping, tables, percentage widths
-    IgnoreDocumentCSS bool   // if true, <style> elements and style= attributes in HTML are ignored
+    CSS               string               // additional stylesheet layered above built-in UA defaults
+    Width             int                  // terminal column count; affects wrapping, tables, percentage widths
+    IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
+    Profile           colorprofile.Profile // color profile; zero value auto-detects from environment
+    NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
+    MaxBlankLines     int                  // if > 0, collapses runs of blank lines to at most this many
 }
 ```
+
+For untrusted documents, consider `IgnoreDocumentCSS: true` when document CSS is
+not required and `NoOSC8Links: true` when terminal hyperlinks are not required.
 
 ## CSS Precedence
 
@@ -110,10 +117,12 @@ If no input file is given, the CLI reads HTML from stdin. If `-width` is omitted
 ```bash
 make build    # go build ./...
 make test     # go test ./...
+make race     # go test -race ./...
 make lint     # gofmt check + golangci-lint
 make fmt      # gofmt -w + go mod tidy
 make cover    # coverage report (cover.out)
 make bench    # benchmarks
+make vuln     # govulncheck ./...
 ```
 
 ## Notes

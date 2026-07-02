@@ -308,3 +308,16 @@ func TestCopyMapNonEmpty(t *testing.T) {
 		t.Errorf("copyMap result shares storage with source")
 	}
 }
+
+func TestParseCSSContentStringNoOOBPanic(t *testing.T) {
+	r := &Renderer{}
+	// Quoted string whose last byte is a backslash (malformed CSS): must not panic.
+	got := r.parseCSSContentString(`"abc\`, nil)
+	_ = got
+	// Single-quoted variant.
+	got = r.parseCSSContentString(`'x\`, nil)
+	_ = got
+	// Backslash is second-to-last followed by a closing quote (valid escape).
+	got = r.parseCSSContentString(`"a\"`, nil)
+	_ = got
+}

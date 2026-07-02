@@ -79,6 +79,9 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 	if inside {
 		// Prefix flows inline: continuation lines align with indent, not after prefix.
 		contentWidth = availWidth - indent
+		if contentWidth < 1 {
+			contentWidth = 1
+		}
 		firstLineWidth = contentWidth - prefixWidth
 		if firstLineWidth < 1 {
 			firstLineWidth = 1
@@ -86,11 +89,11 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		hangStr = indentStr
 	} else {
 		contentWidth = availWidth - indent - prefixWidth
+		if contentWidth < 1 {
+			contentWidth = 1
+		}
 		firstLineWidth = contentWidth
 		hangStr = strings.Repeat(" ", indent+prefixWidth)
-	}
-	if contentWidth < 10 {
-		contentWidth = 10
 	}
 
 	var sb strings.Builder
@@ -155,7 +158,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 func listStyleCustomString(style string) (string, bool) {
 	s := strings.TrimSpace(style)
 	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return sanitizeTerminalText(s[1:len(s)-1], false), true
+		return parseCSSString(s), true
 	}
 	return "", false
 }

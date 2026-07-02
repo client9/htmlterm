@@ -517,6 +517,12 @@ func TestVisibilityHidden(t *testing.T) {
 			// div strips p's trailing newlines; only div's own \n remains
 			want: "      \n",
 		},
+		{
+			name:  "visibility hidden inline-block blanks content",
+			html:  `<p><span style="display:inline-block; visibility:hidden">secret</span>end</p>`,
+			width: 20,
+			want:  "      end\n\n",
+		},
 	})
 }
 
@@ -578,6 +584,7 @@ func TestListStyleVariants(t *testing.T) {
 		{name: "list-style-type custom string double-quoted", html: `<ul style="list-style-type:&quot;→ &quot;"><li>a</li><li>b</li></ul>`, want: "    → a\n    → b\n"},
 		{name: "list-style-type custom string single-quoted", html: `<ul style="list-style-type:'* '"><li>a</li><li>b</li></ul>`, want: "    * a\n    * b\n"},
 		{name: "list-style-type custom string on ol", html: `<ol style="list-style-type:'# '"><li>x</li><li>y</li></ol>`, want: "    # x\n    # y\n"},
+		{name: "list-style-type custom string decodes CSS escape sequences", html: `<ul style="list-style-type:'\2192  '"><li>a</li></ul>`, want: "    → a\n"},
 		// li::marker — text layout must be unchanged after ANSI strip
 		{name: "li::marker color keeps layout", css: `li::marker { color: #888888; }`, html: `<ul><li>a</li><li>b</li></ul>`, want: "    • a\n    • b\n"},
 		{name: "li::marker on ol keeps layout", css: `li::marker { color: #ff0000; }`, html: `<ol><li>x</li><li>y</li></ol>`, want: "    1. x\n    2. y\n"},
@@ -780,6 +787,18 @@ func TestPseudoElementContent(t *testing.T) {
 			css:  `ol { counter-reset: item; list-style-type: none; } li { counter-increment: item; } li::before { content: counters(item, ".") " "; }`,
 			html: `<ol><li>A<ol><li>B</li><li>C</li></ol></li><li>D</li></ol>`,
 			want: "    1 A\n        1.1 B\n        1.2 C\n    2 D\n"},
+		{name: "counters() separator containing ) is not truncated",
+			css:  `ol { counter-reset: item; list-style-type: none; } li { counter-increment: item; } li::before { content: counters(item, ")") " "; }`,
+			html: `<ol><li>A<ol><li>B</li></ol></li></ol>`,
+			want: "    1 A\n        1)1 B\n"},
+		{name: "counter() with lower-alpha style",
+			css:  `p { counter-increment: c; } p::before { content: counter(c, lower-alpha) ". "; }`,
+			html: `<p>a</p><p>b</p><p>c</p>`,
+			want: "a. a\n\nb. b\n\nc. c\n\n"},
+		{name: "counter() lower-alpha n>26 produces multi-char sequence",
+			css:  `ol { counter-reset: c 24; list-style-type: none; } li { counter-increment: c; } li::before { content: counter(c, lower-alpha) ". "; }`,
+			html: `<ol><li>a</li><li>b</li><li>c</li><li>d</li></ol>`,
+			want: "    y. a\n    z. b\n    aa. c\n    ab. d\n"},
 		// open-quote / close-quote
 		{name: "open-quote and close-quote on q element use smart quotes",
 			html: `<q>hello</q>`,

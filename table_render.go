@@ -23,6 +23,23 @@ type tableCell struct {
 	lines         []string
 }
 
+// clampCellPadding returns effective (pl, pr, contentW) for a cell of given width,
+// clamping padding so content gets at least 1 character.
+func clampCellPadding(width, pl, pr int) (int, int, int) {
+	contentW := width - pl - pr
+	if contentW < 1 {
+		excess := 1 - contentW
+		if pr >= excess {
+			pr -= excess
+		} else {
+			pl = max(0, pl-(excess-pr))
+			pr = 0
+		}
+		contentW = 1
+	}
+	return pl, pr, contentW
+}
+
 // collectColDecls scans direct <colgroup> children of a <table> node and returns
 // a slice of declaration maps, one entry per column position (expanded by span).
 // A <colgroup> with <col> children uses per-col decls (col overrides colgroup base).
@@ -107,8 +124,8 @@ func (r *Renderer) renderTable(n *html.Node) string {
 
 	colDecls := r.collectColDecls(n)
 
-	var collect func(*html.Node)
-	collect = func(n *html.Node) {
+	var collect func(*html.Node, bool)
+	collect = func(n *html.Node, inTHead bool) {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			if c.Type != html.ElementNode {
 				continue
@@ -118,21 +135,37 @@ func (r *Renderer) renderTable(n *html.Node) string {
 				if captionText == "" {
 					captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, inlineStyle{}, r.width)))
 				}
-			case "thead", "tbody", "tfoot":
-				collect(c)
+			case "thead":
+				collect(c, true)
+			case "tbody", "tfoot":
+				collect(c, false)
 			case "tr":
 				trDecls := r.resolveDecls(c)
 				if trDecls["display"] == "none" {
 					continue
 				}
 				var cells []tableCell
-				isHeader := false
+				// A row is a header row only when it lives inside <thead> or,
+				// when there is no <thead>, when it is the first all-<th> row
+				// directly under the table element (implicit header heuristic).
+				isHeader := inTHead
+				if !inTHead && n == c.Parent {
+					allTH := true
+					for td := c.FirstChild; td != nil; td = td.NextSibling {
+						if td.Type == html.ElementNode && (td.Data == "th" || td.Data == "td") {
+							if td.Data != "th" {
+								allTH = false
+								break
+							}
+						}
+					}
+					if allTH && len(headers) == 0 {
+						isHeader = true
+					}
+				}
 				for td := c.FirstChild; td != nil; td = td.NextSibling {
 					if td.Type != html.ElementNode || (td.Data != "th" && td.Data != "td") {
 						continue
-					}
-					if td.Data == "th" {
-						isHeader = true
 					}
 					tdDecls := r.resolveDecls(td)
 					if tdDecls["display"] == "none" {
@@ -200,7 +233,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 			}
 		}
 	}
-	collect(n)
+	collect(n, false)
 
 	numCols := len(headers)
 	if numCols == 0 && len(rows) > 0 {
@@ -304,12 +337,7 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 		if i >= numCols {
 			break
 		}
-		pl := cells[i].paddingLeft
-		pr := cells[i].paddingRight
-		contentW := widths[i] - pl - pr
-		if contentW < 1 {
-			contentW = 1
-		}
+		_, _, contentW := clampCellPadding(widths[i], cells[i].paddingLeft, cells[i].paddingRight)
 		if cells[i].noWrap {
 			cells[i].lines = []string{truncateToWidth(cells[i].text, contentW, cells[i].textOverflow)}
 		} else {
@@ -355,16 +383,13 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 			if ci := lineIdx - offset; ci >= 0 && ci < len(c.lines) {
 				line = c.lines[ci]
 			}
-			contentW := widths[i] - c.paddingLeft - c.paddingRight
-			if contentW < 1 {
-				contentW = 1
-			}
+			pl, pr, contentW := clampCellPadding(widths[i], c.paddingLeft, c.paddingRight)
 			rendered := c.cellStyle.render(alignLines(line, c.textAlign, contentW), p)
-			if c.paddingLeft > 0 {
-				rendered = strings.Repeat(" ", c.paddingLeft) + rendered
+			if pl > 0 {
+				rendered = strings.Repeat(" ", pl) + rendered
 			}
-			if c.paddingRight > 0 {
-				rendered += strings.Repeat(" ", c.paddingRight)
+			if pr > 0 {
+				rendered += strings.Repeat(" ", pr)
 			}
 			sb.WriteString(rendered)
 		}

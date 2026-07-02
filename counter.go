@@ -123,15 +123,9 @@ func formatCounterValue(n int, style string) string {
 	case "", "decimal":
 		return strconv.Itoa(n)
 	case "lower-alpha", "lower-latin":
-		if n >= 1 && n <= 26 {
-			return string(rune('a' + n - 1))
-		}
-		return strconv.Itoa(n)
+		return alphaSequence(n, false)
 	case "upper-alpha", "upper-latin":
-		if n >= 1 && n <= 26 {
-			return string(rune('A' + n - 1))
-		}
-		return strconv.Itoa(n)
+		return alphaSequence(n, true)
 	case "lower-roman":
 		return toRoman(n, false)
 	case "upper-roman":
