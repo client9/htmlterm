@@ -12,6 +12,7 @@
 //	-width <n>           override terminal width (default: auto-detect, fallback 80)
 //	-ignore-document-css     ignore <style> elements and style= attributes in the HTML
 //	-no-osc8-links       disable OSC 8 hyperlink sequences for <a> elements
+//	-max-blank-lines <n> collapse runs of blank lines to at most n (0 = disabled)
 package main
 
 import (
@@ -30,6 +31,7 @@ func main() {
 	width := flag.Int("width", 0, "terminal width (0 = auto-detect)")
 	noDocCSS := flag.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
 	noOSC8 := flag.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
+	maxBlankLines := flag.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
 	flag.Parse()
 
 	css := ""
@@ -55,6 +57,7 @@ func main() {
 		Width:             *width,
 		IgnoreDocumentCSS: *noDocCSS,
 		NoOSC8Links:       *noOSC8,
+		MaxBlankLines:     *maxBlankLines,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm: %v\n", err)

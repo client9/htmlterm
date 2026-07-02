@@ -8,30 +8,31 @@ import (
 
 // renderNode dispatches on node type. html.Parse wraps content in
 // <html><head></head><body>...</body></html>, so those are transparent.
-func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
+func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
 	switch n.Type {
 	case html.DocumentNode:
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			r.renderNode(sb, c)
+			r.renderNode(w, c)
 		}
 	case html.TextNode:
 		if text := normalizeWhiteSpace(n.Data, "normal", 8); strings.TrimSpace(text) != "" {
-			if sb.Len() == 0 || sb.String()[sb.Len()-1] == '\n' || sb.String()[sb.Len()-1] == ' ' {
+			b, ok := w.LastByte()
+			if !ok || b == '\n' || b == ' ' {
 				text = strings.TrimLeft(text, " ")
 			}
-			sb.WriteString(text)
+			w.WriteString(text)
 		}
 	case html.ElementNode:
 		switch n.Data {
 		case "html", "body":
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				r.renderNode(sb, c)
+				r.renderNode(w, c)
 			}
 		case "style", "script", "meta", "link":
 		case "head":
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "noscript" {
-					r.renderNode(sb, c)
+					r.renderNode(w, c)
 				}
 			}
 		case "wbr":
@@ -46,14 +47,14 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 				case html.TextNode:
 					raw.WriteString(c.Data)
 				case html.ElementNode:
-					r.renderNode(sb, c)
+					r.renderNode(w, c)
 				case html.ErrorNode, html.DocumentNode, html.CommentNode, html.DoctypeNode, html.RawNode:
 					// nothing to render
 				}
 			}
 			if raw.Len() > 0 {
 				inner, _ := r.Render(raw.String())
-				sb.WriteString(inner)
+				w.WriteString(inner)
 			}
 		case "table", "ol", "ul", "menu", "br":
 			decls := r.resolveDecls(n)
@@ -62,21 +63,19 @@ func (r *Renderer) renderNode(sb *strings.Builder, n *html.Node) {
 			}
 			switch n.Data {
 			case "table":
-				sb.WriteString(r.renderTable(n))
+				w.WriteString(r.renderTable(n))
 			case "ol", "ul", "menu":
 				ordered := n.Data == "ol"
-				if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
-					writeMarginNewlines(sb, mt+1, r.maxBlankLines)
+				if mt := parseMargin(decls["margin-top"]); mt > 0 && w.Len() > 0 {
+					w.WriteAtLeastNewlines(mt + 1)
 				}
-				sb.WriteString(r.renderList(n, ordered, r.width))
-				if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
-					writeMarginNewlines(sb, mb+1, r.maxBlankLines)
-				}
+				w.WriteString(r.renderList(n, ordered, r.width))
+				w.WriteAtLeastNewlines(parseMargin(decls["margin-bottom"]) + 1)
 			case "br":
-				sb.WriteByte('\n')
+				w.writeNewline()
 			}
 		default:
-			r.renderDisplayNode(sb, n)
+			r.renderDisplayNode(w, n)
 		}
 	case html.ErrorNode, html.CommentNode, html.DoctypeNode, html.RawNode:
 		// nothing to render

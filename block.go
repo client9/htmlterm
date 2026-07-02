@@ -122,37 +122,8 @@ func parseMargin(s string) int {
 	return n
 }
 
-// writeMarginNewlines ensures the builder has at least n trailing newlines,
-// capped to max+1 when max > 0.
-func writeMarginNewlines(sb *strings.Builder, n, max int) {
-	if max > 0 && n > max+1 {
-		n = max + 1
-	}
-	s := sb.String()
-	have := 0
-	for i := len(s) - 1; i >= 0 && s[i] == '\n'; i-- {
-		have++
-	}
-	for i := have; i < n; i++ {
-		sb.WriteByte('\n')
-	}
-}
-
-// capNewlines collapses runs of more than max+1 consecutive newlines in s.
-func capNewlines(s string, max int) string {
-	if max <= 0 || !strings.Contains(s, "\n") {
-		return s
-	}
-	limit := strings.Repeat("\n", max+1)
-	run := strings.Repeat("\n", max+2)
-	for strings.Contains(s, run) {
-		s = strings.ReplaceAll(s, run, limit)
-	}
-	return s
-}
-
 // renderDisplayNode renders n according to its CSS display property.
-func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
+func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 	decls := r.resolveDecls(n)
 	href := ""
 	if n.Data == "a" {
@@ -161,36 +132,42 @@ func (r *Renderer) renderDisplayNode(sb *strings.Builder, n *html.Node) {
 	switch decls["display"] {
 	case "none":
 	case "block":
-		if mt := parseMargin(decls["margin-top"]); mt > 0 && sb.Len() > 0 {
-			writeMarginNewlines(sb, mt+1, r.maxBlankLines)
+		if mt := parseMargin(decls["margin-top"]); mt > 0 && w.Len() > 0 {
+			w.WriteAtLeastNewlines(mt + 1)
 		}
-		sb.WriteString(r.wrapHyperlink(href, r.renderBlockContent(n, decls, r.width)))
-		sb.WriteByte('\n')
-		if mb := parseMargin(decls["margin-bottom"]); mb > 0 {
-			writeMarginNewlines(sb, mb+1, r.maxBlankLines)
+		content := r.wrapHyperlink(href, r.renderBlockContent(n, decls, r.width))
+		ws := decls["white-space"]
+		if ws == "pre" || ws == "pre-wrap" {
+			w.EnterPre()
 		}
+		w.WriteString(content)
+		if ws == "pre" || ws == "pre-wrap" {
+			w.ExitPre()
+		}
+		w.writeNewline()
+		w.WriteAtLeastNewlines(parseMargin(decls["margin-bottom"]) + 1)
 	case "inline-block":
 		acc := extractInlineStyle(decls)
 		inner := r.renderInlineAcc(n, acc, r.width)
 		if wv, ok := decls["width"]; ok {
 			if abs, pct, ok2 := parseSizeVal(wv); ok2 {
-				w := abs
+				colWidth := abs
 				if pct > 0 {
-					w = int(pct * float64(r.width))
+					colWidth = int(pct * float64(r.width))
 				}
-				if w > 0 {
-					inner = padLinesToWidth(inner, w)
+				if colWidth > 0 {
+					inner = padLinesToWidth(inner, colWidth)
 				}
 			}
 		}
-		sb.WriteString(r.wrapHyperlink(href, inner))
+		w.WriteString(r.wrapHyperlink(href, inner))
 	default:
 		acc := extractInlineStyle(decls)
 		inner := r.renderInlineAcc(n, acc, r.width)
 		if decls["visibility"] == "hidden" {
 			inner = blankVisibleContent(inner)
 		}
-		sb.WriteString(r.wrapHyperlink(href, inner))
+		w.WriteString(r.wrapHyperlink(href, inner))
 	}
 }
 

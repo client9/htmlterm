@@ -19,7 +19,7 @@ type Options struct {
 	IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
 	Profile           colorprofile.Profile // color profile; zero value (NoTTY) auto-detects from environment
 	NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
-	MaxBlankLines     int                  // if > 0, collapses runs of blank lines exceeding this count; does not affect <pre> content
+	MaxBlankLines     int                  // if > 0, collapses runs of blank lines to at most this many; <pre> content is not affected
 }
 
 // Renderer renders HTML+CSS to terminal strings.
@@ -114,7 +114,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.quoteDepth = 0
-	var sb strings.Builder
-	rr.renderNode(&sb, doc)
-	return sb.String(), nil
+	w := cappedWriter{maxBlanks: rr.maxBlankLines}
+	rr.renderNode(&w, doc)
+	return w.String(), nil
 }

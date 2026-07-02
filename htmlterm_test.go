@@ -797,4 +797,12 @@ func TestMaxBlankLines(t *testing.T) {
 	if got != "A\n\n\n\n\n\nB\n\n\n\n\n\n" {
 		t.Errorf("MaxBlankLines=0 disabled: got %q", got)
 	}
+
+	// Bare \n writes between margin calls must not accumulate past the cap.
+	// Five consecutive empty paragraphs (margin-bottom:1 each) must not
+	// produce more than MaxBlankLines+1 consecutive newlines anywhere.
+	got = render(2, "", `<p></p><p></p><p></p><p></p><p></p>`)
+	if regexp.MustCompile(`\n{4,}`).MatchString(got) {
+		t.Errorf("bare newline accumulation: got %q (contains 4+ consecutive newlines with MaxBlankLines=2)", got)
+	}
 }
