@@ -23,6 +23,13 @@ func TestBlockInInline(t *testing.T) {
 	})
 }
 
+func TestLogicalSpacingAliases(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "logical inline aliases apply block left and right spacing", html: `<div style="width:6; margin-inline-start:2; margin-inline-end:1">x</div>`, want: "  x   \n"},
+		{name: "logical block aliases apply block top and bottom padding", html: `<div style="width:3; padding-block-start:1; padding-block-end:1">x</div>`, want: "   \nx  \n   \n"},
+	})
+}
+
 func TestList(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "unordered list renders bullets", html: `<ul><li>alpha</li><li>beta</li></ul>`, want: "    • alpha\n    • beta\n"},

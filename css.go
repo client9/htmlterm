@@ -167,11 +167,13 @@ func copyDecls(m map[string]string) map[string]string {
 	return cp
 }
 
-// expandShorthand expands a CSS shorthand property into its longhand equivalents.
-// Returns a map with one or more property→value pairs. For non-shorthand
-// properties, the map contains only the original prop→val pair.
+// expandShorthand expands a CSS shorthand property or logical spacing alias
+// into its physical longhand equivalents. Returns a map with one or more
+// property→value pairs. For other properties, the map contains only the
+// original prop→val pair.
 //
-// Supported shorthands: margin, padding (1–4 value syntax).
+// Supported shorthands: margin, padding (1–4 value syntax). Supported logical
+// aliases are the block/inline start/end forms for margin and padding.
 func expandShorthand(prop, val string) map[string]string {
 	var sides [4]string // top, right, bottom, left
 	switch prop {
@@ -195,6 +197,22 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-bottom": sides[2],
 			prop + "-left":   sides[3],
 		}
+	case "margin-block-start":
+		return map[string]string{"margin-top": val}
+	case "margin-block-end":
+		return map[string]string{"margin-bottom": val}
+	case "margin-inline-start":
+		return map[string]string{"margin-left": val}
+	case "margin-inline-end":
+		return map[string]string{"margin-right": val}
+	case "padding-block-start":
+		return map[string]string{"padding-top": val}
+	case "padding-block-end":
+		return map[string]string{"padding-bottom": val}
+	case "padding-inline-start":
+		return map[string]string{"padding-left": val}
+	case "padding-inline-end":
+		return map[string]string{"padding-right": val}
 	}
 	return map[string]string{prop: val}
 }

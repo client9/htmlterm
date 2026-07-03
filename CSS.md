@@ -180,6 +180,20 @@ Integer (e.g. `4`) or `auto`. Spaces prepended to every line of a block element,
 #### `margin-right`
 Integer (e.g. `4`) or `auto`. Spaces appended to every line of a block element, outside any `border-right`. Not inherited.
 
+#### `margin-block-start`, `margin-block-end`, `margin-inline-start`, `margin-inline-end`
+Logical aliases for the physical margin properties. htmlterm does not model
+writing modes or RTL layout, so these always map as follows:
+
+| Property | Alias for |
+|----------|-----------|
+| `margin-block-start` | `margin-top` |
+| `margin-block-end` | `margin-bottom` |
+| `margin-inline-start` | `margin-left` |
+| `margin-inline-end` | `margin-right` |
+
+Values use the same formats as the corresponding physical longhand properties.
+Not inherited.
+
 **`auto` margins:** When an element has an explicit `width` set, `margin-left: auto` and/or `margin-right: auto` distribute the remaining space. Both `auto` centers the element; only `margin-left: auto` right-aligns it; only `margin-right: auto` left-aligns it (fills trailing space). Without an explicit `width` the element already fills the available width and auto margins have no visible effect.
 
 #### `width`
@@ -210,6 +224,20 @@ Integer (e.g. `2`). Blank lines inserted above content, inside `border-top`. Eac
 
 #### `padding-bottom`
 Integer (e.g. `2`). Blank lines inserted below content, inside `border-bottom`. Same width semantics as `padding-top`. Not inherited.
+
+#### `padding-block-start`, `padding-block-end`, `padding-inline-start`, `padding-inline-end`
+Logical aliases for the physical padding properties. htmlterm does not model
+writing modes or RTL layout, so these always map as follows:
+
+| Property | Alias for |
+|----------|-----------|
+| `padding-block-start` | `padding-top` |
+| `padding-block-end` | `padding-bottom` |
+| `padding-inline-start` | `padding-left` |
+| `padding-inline-end` | `padding-right` |
+
+Values use the same formats as the corresponding physical longhand properties.
+Not inherited.
 
 #### `height`
 Integer line count (e.g. `5`). Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.

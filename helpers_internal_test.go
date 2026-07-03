@@ -62,6 +62,54 @@ func TestExpandShorthand(t *testing.T) {
 			val:  "1 2 3 4 5",
 			want: map[string]string{"margin": "1 2 3 4 5"},
 		},
+		{
+			name: "margin block start alias",
+			prop: "margin-block-start",
+			val:  "1",
+			want: map[string]string{"margin-top": "1"},
+		},
+		{
+			name: "margin block end alias",
+			prop: "margin-block-end",
+			val:  "2",
+			want: map[string]string{"margin-bottom": "2"},
+		},
+		{
+			name: "margin inline start alias",
+			prop: "margin-inline-start",
+			val:  "3",
+			want: map[string]string{"margin-left": "3"},
+		},
+		{
+			name: "margin inline end alias",
+			prop: "margin-inline-end",
+			val:  "4",
+			want: map[string]string{"margin-right": "4"},
+		},
+		{
+			name: "padding block start alias",
+			prop: "padding-block-start",
+			val:  "5",
+			want: map[string]string{"padding-top": "5"},
+		},
+		{
+			name: "padding block end alias",
+			prop: "padding-block-end",
+			val:  "6",
+			want: map[string]string{"padding-bottom": "6"},
+		},
+		{
+			name: "padding inline start alias",
+			prop: "padding-inline-start",
+			val:  "7",
+			want: map[string]string{"padding-left": "7"},
+		},
+		{
+			name: "padding inline end alias",
+			prop: "padding-inline-end",
+			val:  "8",
+			want: map[string]string{"padding-right": "8"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -231,6 +279,49 @@ func TestParseCSSCommaAndShorthand(t *testing.T) {
 		}
 		if r.decls["margin-left"] != "2" || r.decls["padding-bottom"] != "3" {
 			t.Fatalf("unexpected decls for %q: %#v", r.selector, r.decls)
+		}
+	}
+}
+
+func TestParseCSSLogicalSpacingAliases(t *testing.T) {
+	rules, err := parseCSS(`p {
+		margin-block-start: 1;
+		margin-inline-end: auto;
+		padding-block-end: 2;
+		padding-inline-start: 3ch;
+	}`)
+	if err != nil {
+		t.Fatalf("parseCSS() error = %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("parseCSS() returned %d rules, want 1", len(rules))
+	}
+	decls := rules[0].decls
+	want := map[string]string{
+		"margin-top":     "1",
+		"margin-right":   "auto",
+		"padding-bottom": "2",
+		"padding-left":   "3ch",
+	}
+	for k, v := range want {
+		if decls[k] != v {
+			t.Fatalf("decls[%q] = %q, want %q; decls: %#v", k, decls[k], v, decls)
+		}
+	}
+}
+
+func TestParseInlineDeclsLogicalSpacingAliases(t *testing.T) {
+	decls := parseInlineDecls("margin-inline-start: 2; margin-left: 4; padding: 1; padding-block-end: 3")
+	want := map[string]string{
+		"margin-left":    "4",
+		"padding-top":    "1",
+		"padding-right":  "1",
+		"padding-bottom": "3",
+		"padding-left":   "1",
+	}
+	for k, v := range want {
+		if decls[k] != v {
+			t.Fatalf("decls[%q] = %q, want %q; decls: %#v", k, decls[k], v, decls)
 		}
 	}
 }
