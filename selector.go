@@ -20,8 +20,13 @@ const (
 type attrOp int
 
 const (
-	opExists attrOp = iota // [attr]     — attribute is present
-	opEquals               // [attr=val] — attribute has exact value
+	opExists    attrOp = iota // [attr]      — attribute is present
+	opEquals                  // [attr=val]  — attribute has exact value
+	opIncludes                // [attr~=val] — whitespace-separated list contains value
+	opDashMatch               // [attr|=val] — exact value or value followed by "-"
+	opPrefix                  // [attr^=val] — value starts with prefix
+	opSuffix                  // [attr$=val] — value ends with suffix
+	opSubstring               // [attr*=val] — value contains substring
 )
 
 // attrSel is a single [attr] or [attr=val] condition.
@@ -183,23 +188,57 @@ func parseAttrSel(s string) (attrSel, bool) {
 	if s == "" {
 		return attrSel{}, false
 	}
-	for _, op := range []string{"~=", "^=", "$=", "*="} {
-		if strings.Contains(s, op) {
-			return attrSel{}, false
-		}
-	}
-	if eq := strings.IndexByte(s, '='); eq >= 0 {
-		key := strings.TrimSpace(s[:eq])
-		val := strings.TrimSpace(s[eq+1:])
-		if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-			val = val[1 : len(val)-1]
-		}
+
+	if idx, tokenLen, op, ok := findAttrSelectorOp(s); ok {
+		key := strings.TrimSpace(s[:idx])
+		val := unquoteAttrSelectorValue(strings.TrimSpace(s[idx+tokenLen:]))
 		if key == "" {
 			return attrSel{}, false
 		}
-		return attrSel{key: key, op: opEquals, val: val}, true
+		return attrSel{key: key, op: op, val: val}, true
 	}
 	return attrSel{key: s, op: opExists}, true
+}
+
+func findAttrSelectorOp(s string) (idx, tokenLen int, op attrOp, ok bool) {
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		if quote != 0 {
+			if s[i] == quote {
+				quote = 0
+			}
+			continue
+		}
+		if s[i] == '"' || s[i] == '\'' {
+			quote = s[i]
+			continue
+		}
+		if i+1 < len(s) && s[i+1] == '=' {
+			switch s[i] {
+			case '~':
+				return i, 2, opIncludes, true
+			case '|':
+				return i, 2, opDashMatch, true
+			case '^':
+				return i, 2, opPrefix, true
+			case '$':
+				return i, 2, opSuffix, true
+			case '*':
+				return i, 2, opSubstring, true
+			}
+		}
+		if s[i] == '=' {
+			return i, 1, opEquals, true
+		}
+	}
+	return 0, 0, opExists, false
+}
+
+func unquoteAttrSelectorValue(val string) string {
+	if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
+		return val[1 : len(val)-1]
+	}
+	return val
 }
 
 type specificityScore struct {
@@ -343,6 +382,28 @@ func matchAttr(n *html.Node, a attrSel) bool {
 		return false
 	case opEquals:
 		return nodeAttr(n, a.key) == a.val
+	case opIncludes:
+		if a.val == "" {
+			return false
+		}
+		for _, field := range strings.Fields(nodeAttr(n, a.key)) {
+			if field == a.val {
+				return true
+			}
+		}
+		return false
+	case opDashMatch:
+		if a.val == "" {
+			return false
+		}
+		val := nodeAttr(n, a.key)
+		return val == a.val || strings.HasPrefix(val, a.val+"-")
+	case opPrefix:
+		return a.val != "" && strings.HasPrefix(nodeAttr(n, a.key), a.val)
+	case opSuffix:
+		return a.val != "" && strings.HasSuffix(nodeAttr(n, a.key), a.val)
+	case opSubstring:
+		return a.val != "" && strings.Contains(nodeAttr(n, a.key), a.val)
 	}
 	return false
 }

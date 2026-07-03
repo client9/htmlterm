@@ -19,6 +19,11 @@ that is recognized. Anything not listed here is silently ignored.
 | Element + ID | `h1#title { }` |
 | Attribute presence | `a[href] { }` |
 | Attribute value | `td[data-role=header] { }` |
+| Attribute word contains | `p[data-tags~=beta] { }` |
+| Attribute dash-prefix | `p[lang|=en] { }` |
+| Attribute prefix | `a[href^=https://] { }` |
+| Attribute suffix | `a[href$=.pdf] { }` |
+| Attribute substring | `a[href*=example] { }` |
 | Descendant (space) | `tr.unseen td { }` |
 | Child (`>`) | `div > p { }` |
 | Pseudo-class | `:root { }`, `li:first-child { }`, `tr:nth-child(odd) { }` |
@@ -45,9 +50,10 @@ prefix (bullet or number) of an `<li>` element; supported properties are `color`
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
 `li::marker`, `ul.fancy li::marker`, etc.
 
-**Supported attribute operators:** `[attr]` (presence) and `[attr=val]` (exact
-match). Compound operators (`~=`, `^=`, `$=`, `*=`) are not supported; selectors
-containing them never match.
+**Supported attribute operators:** `[attr]` (presence), `[attr=val]` (exact
+match), `[attr~=val]` (whitespace-separated word), `[attr|=val]` (exact value
+or value followed by `-`), `[attr^=val]` (prefix), `[attr$=val]` (suffix), and
+`[attr*=val]` (substring).
 
 **Not supported:** `:hover`, `:focus`, and other pseudo-classes beyond those listed
 above; general sibling (`~`) combinator.

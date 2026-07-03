@@ -32,6 +32,11 @@ func TestSelectors(t *testing.T) {
 		{name: "[attr=val] exact-value selector", css: `p[data-style=big] { text-transform: uppercase; }`, html: `<p data-style="big">large</p><p data-style="small">tiny</p>`, want: "LARGE\n\ntiny\n\n"},
 		{name: "[attr=val] with quoted value in CSS", css: `p[lang="en"] { text-transform: uppercase; }`, html: `<p lang="en">english</p><p lang="fr">french</p>`, want: "ENGLISH\n\nfrench\n\n"},
 		{name: "[attr=val] does not match wrong value", css: `a[href=https://example.com] { text-transform: uppercase; }`, html: `<p><a href="https://example.com">right</a> <a href="https://other.com">wrong</a></p>`, want: "RIGHT wrong\n\n"},
+		{name: "[attr~=val] matches whitespace-separated word", css: `p[data-tags~=beta] { text-transform: uppercase; }`, html: `<p data-tags="alpha beta gamma">word</p><p data-tags="alphabet gamma">partial</p>`, want: "WORD\n\npartial\n\n"},
+		{name: "[attr|=val] matches language subcode", css: `p[lang|=en] { text-transform: uppercase; }`, html: `<p lang="en">base</p><p lang="en-US">regional</p><p lang="english">word</p>`, want: "BASE\n\nREGIONAL\n\nword\n\n"},
+		{name: "[attr^=val] matches prefix", css: `a[href^="https://"] { text-transform: uppercase; }`, html: `<p><a href="https://example.com">secure</a> <a href="http://example.com">plain</a></p>`, want: "SECURE plain\n\n"},
+		{name: "[attr$=val] matches suffix", css: `a[href$=".pdf"] { text-transform: uppercase; }`, html: `<p><a href="/files/report.pdf">pdf</a> <a href="/files/report.pdfx">pdfx</a></p>`, want: "PDF pdfx\n\n"},
+		{name: "[attr*=val] matches substring", css: `a[href*=example] { text-transform: uppercase; }`, html: `<p><a href="https://example.com">example</a> <a href="https://other.test">other</a></p>`, want: "EXAMPLE other\n\n"},
 
 		// Adjacent sibling combinator (+)
 		{name: "adjacent sibling matches immediately following sibling", css: `h2 + p { text-transform: uppercase; }`, html: `<h2>Title</h2><p>first</p><p>second</p>`, want: "Title\nFIRST\n\nsecond\n\n"},

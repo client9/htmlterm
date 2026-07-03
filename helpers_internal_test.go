@@ -326,6 +326,31 @@ func TestParseInlineDeclsLogicalSpacingAliases(t *testing.T) {
 	}
 }
 
+func TestParseAttrSelOperators(t *testing.T) {
+	tests := []struct {
+		in   string
+		want attrSel
+	}{
+		{in: "data-x", want: attrSel{key: "data-x", op: opExists}},
+		{in: "data-x=value", want: attrSel{key: "data-x", op: opEquals, val: "value"}},
+		{in: `data-x="a~=b"`, want: attrSel{key: "data-x", op: opEquals, val: "a~=b"}},
+		{in: `data-x~="value"`, want: attrSel{key: "data-x", op: opIncludes, val: "value"}},
+		{in: `lang|='en'`, want: attrSel{key: "lang", op: opDashMatch, val: "en"}},
+		{in: "href^=https://", want: attrSel{key: "href", op: opPrefix, val: "https://"}},
+		{in: "href$=.pdf", want: attrSel{key: "href", op: opSuffix, val: ".pdf"}},
+		{in: "href*=example", want: attrSel{key: "href", op: opSubstring, val: "example"}},
+	}
+	for _, tc := range tests {
+		got, ok := parseAttrSel(tc.in)
+		if !ok {
+			t.Fatalf("parseAttrSel(%q) returned !ok", tc.in)
+		}
+		if got != tc.want {
+			t.Fatalf("parseAttrSel(%q) = %#v, want %#v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
 	tests := []struct {
 		sel  string
