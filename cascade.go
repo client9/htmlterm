@@ -6,11 +6,14 @@ import (
 	"golang.org/x/net/html"
 )
 
-// extractStyleRules walks doc and parses CSS text from every <style> element.
+// extractStyleRules walks doc and parses CSS text from every active <style> element.
 func extractStyleRules(doc *html.Node) []rule {
 	var rules []rule
 	var walk func(*html.Node)
 	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "template" {
+			return
+		}
 		if n.Type == html.ElementNode && n.Data == "style" {
 			if parsed, err := parseCSS(rawContent(n)); err == nil {
 				rules = append(rules, parsed...)

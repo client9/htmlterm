@@ -70,6 +70,9 @@ func (r *Renderer) buildCounterMap(doc *html.Node) map[*html.Node]counterSnapsho
 			}
 			return
 		}
+		if isSkippedContentElement(n.Data) {
+			return
+		}
 		// counter-reset and counter-increment do not inherit; use directDecls.
 		decls := r.directDecls(n)
 		var resetNames []string

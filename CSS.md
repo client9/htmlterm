@@ -109,6 +109,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `details` | Disclosure container (default: `display: block`). Always rendered fully expanded — no interactivity. Content is preserved and displayed. |
 | `summary` | Disclosure summary; the visible heading of a `<details>` block (default: `display: block; font-weight: bold`). |
 | `noscript` | Content is always rendered (no JavaScript in terminal). The HTML5 parser may deliver noscript content as raw text; it is re-parsed and rendered as HTML automatically. |
+| `template` | Inert template content. The element and all descendants are skipped; styles and counters inside it do not affect the document. |
 | `menu` | Semantic list of commands; treated identically to `<ul>` (default `list-style-type: disc`, `padding-left: 4`). |
 | `wbr` | Optional line-break hint. Emits nothing (no terminal equivalent). |
 | `table` | See table section below |

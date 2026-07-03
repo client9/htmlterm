@@ -737,6 +737,13 @@ func TestNewHTMLElements(t *testing.T) {
 		// wbr
 		{name: "wbr emits nothing", html: `<p>word<wbr>break</p>`, want: "wordbreak\n\n"},
 
+		// template
+		{name: "template emits nothing at top level", html: `before<template><p>hidden</p></template>after`, want: "beforeafter"},
+		{name: "template emits nothing in inline content", html: `<p>before<template><span>hidden</span></template>after</p>`, want: "beforeafter\n\n"},
+		{name: "template emits nothing in table cells", html: `<table style="border-style:hidden"><tr><td width="10">before<template>hidden</template>after</td></tr></table>`, want: "beforeaft…\n"},
+		{name: "template style is inert", html: `<template><style>p { display: none; }</style></template><p>visible</p>`, want: "visible\n\n"},
+		{name: "template counters are inert", css: `body { counter-reset: n; } p { counter-increment: n; } p::before { content: counter(n) ". "; }`, html: `<p>a</p><template><p>hidden</p></template><p>b</p>`, want: "1. a\n\n2. b\n\n"},
+
 		// address
 		{name: "address is block with italic style", html: `<address>Author Name</address>`, want: "Author Name\n"},
 

@@ -71,7 +71,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			}
 		case html.ElementNode:
 			switch c.Data {
-			case "style", "script", "meta", "link", "head":
+			case "head":
+				continue
+			}
+			if isSkippedContentElement(c.Data) {
 				continue
 			}
 			childDecls := r.resolveDecls(c)

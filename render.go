@@ -6,6 +6,15 @@ import (
 	"golang.org/x/net/html"
 )
 
+func isSkippedContentElement(name string) bool {
+	switch name {
+	case "style", "script", "meta", "link", "template":
+		return true
+	default:
+		return false
+	}
+}
+
 // renderNode dispatches on node type. html.Parse wraps content in
 // <html><head></head><body>...</body></html>, so those are transparent.
 func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
@@ -28,7 +37,7 @@ func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				r.renderNode(w, c)
 			}
-		case "style", "script", "meta", "link":
+		case "style", "script", "meta", "link", "template":
 		case "head":
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
 				if c.Type == html.ElementNode && c.Data == "noscript" {
