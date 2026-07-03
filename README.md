@@ -112,6 +112,12 @@ go build -o htmlterm ./cmd/
 
 If no input file is given, the CLI reads HTML from stdin. If `-width` is omitted, it auto-detects terminal width and falls back to `80`.
 
+Use `-dump-html` to parse input HTML and write the normalized tree instead of terminal-rendered output:
+
+```bash
+./htmlterm -dump-html input.html
+```
+
 ## Development
 
 ```bash
