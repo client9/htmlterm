@@ -11,6 +11,7 @@
 //	-css <file>          load a CSS stylesheet before rendering
 //	-width <n>           override terminal width (default: auto-detect, fallback 80)
 //	-ignore-document-css     ignore <style> elements and style= attributes in the HTML
+//	-strip-hidden-inline collapse elements hidden via their own inline style= (display:none, visibility:hidden, opacity:0, zero height/max-height with overflow:hidden)
 //	-no-osc8-links       disable OSC 8 hyperlink sequences for <a> elements
 //	-max-blank-lines <n> collapse runs of blank lines to at most n (0 = disabled)
 //	-dump-html           parse input HTML and dump the normalized tree
@@ -39,6 +40,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	cssPath := fs.String("css", "", "path to CSS file")
 	width := fs.Int("width", 0, "terminal width (0 = auto-detect)")
 	noDocCSS := fs.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
+	stripHiddenInline := fs.Bool("strip-hidden-inline", false, "remove elements hidden via their own inline style= attribute")
 	noOSC8 := fs.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
 	maxBlankLines := fs.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
 	dumpHTML := fs.Bool("dump-html", false, "parse input HTML and dump the normalized tree")
@@ -98,6 +100,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		CSS:               css,
 		Width:             *width,
 		IgnoreDocumentCSS: *noDocCSS,
+		StripHiddenInline: *stripHiddenInline,
 		NoOSC8Links:       *noOSC8,
 		MaxBlankLines:     *maxBlankLines,
 	})

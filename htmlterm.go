@@ -17,6 +17,7 @@ type Options struct {
 	Profile           colorprofile.Profile // color profile; zero value (NoTTY) auto-detects from environment
 	NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
 	MaxBlankLines     int                  // if > 0, collapses runs of blank lines to at most this many; <pre> content is not affected
+	StripHiddenInline bool                 // if true, elements hidden via their own inline style= (display:none, visibility:hidden, opacity:0, zero height/max-height with overflow:hidden) are removed before rendering; independent of IgnoreDocumentCSS
 }
 
 // Renderer renders HTML+CSS to terminal strings.
@@ -30,6 +31,7 @@ type Renderer struct {
 	ignoreDocumentCSS bool
 	noOSC8Links       bool
 	maxBlankLines     int
+	stripHiddenInline bool
 	counterMap        map[*html.Node]counterSnapshot // built fresh per Render call
 	quoteDepth        int                            // tracks open-quote nesting depth
 }
@@ -88,6 +90,7 @@ func New(opts Options) (*Renderer, error) {
 		ignoreDocumentCSS: opts.IgnoreDocumentCSS,
 		noOSC8Links:       opts.NoOSC8Links,
 		maxBlankLines:     opts.MaxBlankLines,
+		stripHiddenInline: opts.StripHiddenInline,
 	}, nil
 }
 
@@ -97,6 +100,9 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("htmlterm: %w", err)
 	}
+	if r.stripHiddenInline {
+		stripHiddenInline(doc)
+	}
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
@@ -104,6 +110,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 		ignoreDocumentCSS: r.ignoreDocumentCSS,
 		noOSC8Links:       r.noOSC8Links,
 		maxBlankLines:     r.maxBlankLines,
+		stripHiddenInline: r.stripHiddenInline,
 	}
 	if !r.ignoreDocumentCSS {
 		if extra := extractStyleRules(doc); len(extra) > 0 {

@@ -72,6 +72,89 @@ func TestIgnoreDocumentCSS(t *testing.T) {
 	}
 }
 
+func TestStripHiddenInline(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{
+		Width:             40,
+		IgnoreDocumentCSS: true,
+		StripHiddenInline: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		html string
+		want string
+	}{
+		{
+			name: "display none",
+			html: `<p style="display:none">hidden</p><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "visibility hidden",
+			html: `<p style="visibility:hidden">hidden</p><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "opacity zero",
+			html: `<p style="opacity:0">hidden</p><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "zero height with overflow hidden",
+			html: `<div style="height:0;overflow:hidden">hidden</div><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "zero max-height with overflow clip",
+			html: `<div style="max-height:0px;overflow:clip">hidden</div><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "hidden ancestor removes styled children too",
+			html: `<div style="display:none"><p style="color:red">hidden child</p></div><p>visible</p>`,
+			want: "visible\n\n",
+		},
+		{
+			name: "class-based hiding via style block is out of scope",
+			html: `<style>.gone { display: none; }</style><p class="gone">still shown</p>`,
+			want: "still shown\n\n",
+		},
+		{
+			name: "zero height without overflow hidden is not stripped",
+			html: `<div style="height:0">shown</div>`,
+			want: "shown\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := r.Render(tc.html)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stripANSI(got) != tc.want {
+				t.Errorf("html: %s\ngot:  %q\nwant: %q", tc.html, stripANSI(got), tc.want)
+			}
+		})
+	}
+}
+
+func TestStripHiddenInlineDisabledByDefault(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, IgnoreDocumentCSS: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p style="display:none">hidden</p><p>visible</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stripANSI(got) != "hidden\n\nvisible\n\n" {
+		t.Errorf("expected hidden element to remain when StripHiddenInline is unset, got %q", stripANSI(got))
+	}
+}
+
 func TestTerminalControlSanitization(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {

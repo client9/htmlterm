@@ -56,6 +56,38 @@ func TestRunIgnoreDocumentCSS(t *testing.T) {
 	}
 }
 
+func TestRunStripHiddenInline(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(
+		[]string{"-width", "40", "-ignore-document-css", "-strip-hidden-inline"},
+		strings.NewReader(`<p style="display:none">hidden</p><p>visible</p>`),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("run exit = %d, stderr=%q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "visible\n\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRunStripHiddenInlineDisabledByDefault(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(
+		[]string{"-width", "40", "-ignore-document-css"},
+		strings.NewReader(`<p style="display:none">hidden</p><p>visible</p>`),
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
+		t.Fatalf("run exit = %d, stderr=%q", code, stderr.String())
+	}
+	if got, want := stdout.String(), "hidden\n\nvisible\n\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
 func TestRunNoOSC8Links(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"-width", "40", "-no-osc8-links"}, strings.NewReader(`<a href="https://example.com">link</a>`), &stdout, &stderr)

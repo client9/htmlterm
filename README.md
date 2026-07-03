@@ -82,11 +82,32 @@ type Options struct {
     Profile           colorprofile.Profile // color profile; zero value auto-detects from environment
     NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
     MaxBlankLines     int                  // if > 0, collapses runs of blank lines to at most this many
+    StripHiddenInline bool                 // if true, elements hidden via their own inline style= are removed before rendering
 }
 ```
 
 For untrusted documents, consider `IgnoreDocumentCSS: true` when document CSS is
 not required and `NoOSC8Links: true` when terminal hyperlinks are not required.
+
+### Stripping hidden elements
+
+HTML email frequently hides preheader text and tracking pixels with inline
+`style=""` attributes, e.g. `<span style="display:none;max-height:0;overflow:hidden;">`.
+These are invisible in a real mail client but, since `IgnoreDocumentCSS` discards
+`style=""` along with `<style>` blocks, would otherwise render as visible text.
+
+Setting `StripHiddenInline: true` removes any element (and its children) whose
+own inline `style=""` attribute matches one of these high-confidence patterns:
+
+- `display: none`
+- `visibility: hidden` or `visibility: collapse`
+- `opacity: 0`
+- `height: 0` or `max-height: 0` combined with `overflow: hidden`/`clip`
+
+This only inspects each node's own `style=""` attribute — it does not run
+selector matching, so elements hidden by a CSS class via a `<style>` rule are
+not affected. It is independent of `IgnoreDocumentCSS` and safe to combine
+with either setting.
 
 ## CSS Precedence
 
@@ -111,6 +132,12 @@ go build -o htmlterm ./cmd/
 ```
 
 If no input file is given, the CLI reads HTML from stdin. If `-width` is omitted, it auto-detects terminal width and falls back to `80`.
+
+Use `-strip-hidden-inline` to remove elements hidden via their own inline `style=""` attribute (see [Stripping hidden elements](#stripping-hidden-elements) above):
+
+```bash
+./htmlterm -ignore-document-css -strip-hidden-inline input.html
+```
 
 Use `-dump-html` to parse input HTML and write the normalized tree instead of terminal-rendered output:
 
