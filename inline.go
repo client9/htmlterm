@@ -92,11 +92,22 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				if b, ok := w.LastByte(); ok && b != '\n' {
 					w.writeNewline()
 				}
-				tableContent := r.renderTable(c)
-				if childDecls["visibility"] == "hidden" {
-					tableContent = blankVisibleContent(tableContent)
+				if isTableLayoutDisplay(childDecls["display"]) {
+					tableContent := r.renderTable(c)
+					if childDecls["visibility"] == "hidden" {
+						tableContent = blankVisibleContent(tableContent)
+					}
+					w.WriteString(tableContent)
+				} else {
+					savedDepth := r.quoteDepth
+					tableContent := r.renderBlockContent(c, childDecls, availWidth)
+					if childDecls["visibility"] == "hidden" {
+						r.quoteDepth = savedDepth
+						tableContent = blankVisibleContent(tableContent)
+					}
+					w.WriteString(tableContent)
+					w.writeNewline()
 				}
-				w.WriteString(tableContent)
 				continue
 			}
 			if c.Data == "ul" || c.Data == "ol" || c.Data == "menu" {

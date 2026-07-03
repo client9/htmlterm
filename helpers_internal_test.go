@@ -181,6 +181,22 @@ func TestExpandShorthand(t *testing.T) {
 	}
 }
 
+func TestParseCSSIgnoresComments(t *testing.T) {
+	rules, err := parseCSS(`/* disabled rule */
+table { border-style: none; }
+td/* comment */{ white-space: normal; }`)
+	if err != nil {
+		t.Fatalf("parseCSS() error = %v", err)
+	}
+	want := []rule{
+		{selector: "table", decls: map[string]string{"border-style": "none"}},
+		{selector: "td", decls: map[string]string{"white-space": "normal"}},
+	}
+	if !reflect.DeepEqual(rules, want) {
+		t.Fatalf("parseCSS() = %#v, want %#v", rules, want)
+	}
+}
+
 func TestMergeInlineStyleTextDecoration(t *testing.T) {
 	base := mergeInlineStyle(inlineStyle{}, map[string]string{"text-decoration": "underline line-through"})
 	if !base.underline || !base.strike {

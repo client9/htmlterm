@@ -122,7 +122,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `template` | Inert template content. The element and all descendants are skipped; styles and counters inside it do not affect the document. |
 | `menu` | Semantic list of commands; treated identically to `<ul>` (default `list-style-type: disc`, `padding-left: 4`). |
 | `wbr` | Optional line-break hint. Emits nothing (no terminal equivalent). |
-| `table` | See table section below |
+| `table` | See table section below. Defaults to `display: table`; set `display: block` with block `tr`/`td` rules to linearize table markup as ordinary document flow. |
 | `caption` | Table caption (default: `display: block; text-align: center`). Rendered above the table, centered over the full table width. |
 | `colgroup` | Column group; direct child of `<table>`. A `span` attribute (default 1) applies the group's own `style=` across that many columns when no `<col>` children are present. Style via `style=` or CSS selectors. |
 | `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS. A `width` HTML attribute is treated as an absolute char count. Cell-level declarations take priority over `<col>` declarations. |
@@ -140,7 +140,25 @@ These apply to any matched element and control text rendering.
 `normal` / `none` values explicitly cancel an inherited value.
 
 #### `display`
-`block` | `inline` | `inline-block` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `none` hides the element and all its children. Not inherited. Defaults: `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`.
+`block` | `inline` | `inline-block` | `table` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`.
+
+To treat table markup as a simple linear document flow, opt out of the table renderer:
+
+```css
+table, thead, tbody, tfoot, tr, td, th {
+  display: block;
+}
+
+td, th {
+  width: auto;
+  white-space: normal;
+}
+
+td + td,
+tr + tr {
+  margin-top: 1;
+}
+```
 
 #### `color`
 Any CSS color value (see [Color Values](#color-values)). Foreground color. Inherited.
@@ -663,7 +681,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Pseudo-classes and pseudo-elements
 - Multi-value `border-top`/`border-bottom` shorthand (e.g. `border-top: 1px solid red`) —
   use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
-- `display: flex`, `display: grid`, `display: table`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, and `none`
+- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none`
 - `flex`, `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` (the default for `td`/`th`); set `white-space: normal` to opt in to word wrapping
 - `border-spacing` / cell padding (column separator is always a single character)

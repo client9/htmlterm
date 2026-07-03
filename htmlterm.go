@@ -36,6 +36,7 @@ type Renderer struct {
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
 const uaCSS = `
+table                   { display: table; }
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside { display: block; }
 dl, dt, dd, figure, figcaption  { display: block; }
 address, details, summary, caption, noscript { display: block; }

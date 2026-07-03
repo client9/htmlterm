@@ -54,6 +54,9 @@ func TestTableCellPadding(t *testing.T) {
 func TestTable(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "two-column hidden-border table", html: `<table style="border-style:hidden"><tr><td width="3">A</td><td width="5">Hello</td></tr></table>`, width: 40, want: "A   Hello\n"},
+		{name: "display table uses table renderer", html: `<table style="display:table; border-style:hidden"><tr><td width="2">A</td><td width="2">B</td></tr></table>`, width: 40, want: "A  B \n"},
+		{name: "display block linearizes table descendants", css: `table, tr, td { display: block; } td { white-space: normal; width: auto; } td + td { margin-top: 1; } h2 { font-weight: normal; margin-bottom: 1; } h2::before { content: "## "; }`, html: `<table><tr><td><h2>Left Headline very long and keeps going</h2></td><td><h2>Right Headline very long and keeps going</h2></td></tr></table>`, width: 60, want: "## Left Headline very long and keeps going\n\n## Right Headline very long and keeps going\n"},
+		{name: "comment before table border style none is ignored", css: `/* table, tr, td { display: block; } */ table { border-style: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, width: 40, want: "A  B \n"},
 		{name: "normal border style: single header and data row", html: `<table><tr><th width="3">H1</th><th width="4">H2</th></tr><tr><td>A</td><td>Long</td></tr></table>`, width: 40, want: "┌───┬────┐\n│H1 │H2  │\n├───┼────┤\n│A  │Long│\n└───┴────┘\n"},
 		{name: "table width:100% expands flexible column", css: `table { width: 100%; border-style: hidden; }`, html: `<table><tr><td width="5">fixed</td><td>flex</td></tr></table>`, width: 20, want: "fixed flex          \n"},
 		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},

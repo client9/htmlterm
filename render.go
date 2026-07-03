@@ -86,6 +86,10 @@ func (r *Renderer) isRootInlineContent(n *html.Node) bool {
 	}
 }
 
+func isTableLayoutDisplay(display string) bool {
+	return display == "" || display == "table"
+}
+
 // renderNode dispatches on node type. html.Parse wraps content in
 // <html><head></head><body>...</body></html>, so those are transparent.
 func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
@@ -141,7 +145,11 @@ func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
 			}
 			switch n.Data {
 			case "table":
-				w.WriteString(r.renderTable(n))
+				if isTableLayoutDisplay(decls["display"]) {
+					w.WriteString(r.renderTable(n))
+				} else {
+					r.renderDisplayNode(w, n)
+				}
 			case "ol", "ul", "menu":
 				ordered := n.Data == "ol"
 				if mt := parseMargin(decls["margin-top"]); mt > 0 && w.Len() > 0 {

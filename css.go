@@ -72,6 +72,8 @@ func parseCSS(src string) ([]rule, error) {
 		switch state {
 		case inSelector:
 			switch tt {
+			case css.CommentToken:
+				continue
 			case css.LeftBraceToken:
 				curDecls = make(map[string]string)
 				state = inDeclarations
@@ -82,6 +84,8 @@ func parseCSS(src string) ([]rule, error) {
 
 		case inDeclarations:
 			switch tt {
+			case css.CommentToken:
+				continue
 			case css.RightBraceToken:
 				commitRule()
 			case css.ColonToken:
@@ -135,6 +139,8 @@ func parseInlineDecls(src string) map[string]string {
 			break
 		}
 		switch tt {
+		case css.CommentToken:
+			continue
 		case css.ColonToken:
 			if !inValue {
 				inValue = true
