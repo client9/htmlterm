@@ -100,6 +100,30 @@ func TestTerminalControlSanitization(t *testing.T) {
 	}
 }
 
+func TestBackgroundShorthandColor(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{
+		CSS:     `span { background: url(bg.png) no-repeat center/cover #00ff00; }`,
+		Width:   40,
+		Profile: colorprofile.TrueColor,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p><span style="background: red">hot</span> <span>go</span></p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[48;2;255;0;0m") {
+		t.Fatalf("inline background shorthand did not emit red background: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[48;2;0;255;0m") {
+		t.Fatalf("stylesheet background shorthand did not emit green background: %q", got)
+	}
+	if stripANSI(got) != "hot go\n\n" {
+		t.Fatalf("background shorthand changed text output: %q", stripANSI(got))
+	}
+}
+
 func TestOSCHyperlinkSanitizesHref(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {

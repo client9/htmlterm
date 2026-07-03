@@ -148,6 +148,12 @@ Any CSS color value (see [Color Values](#color-values)). Foreground color. Inher
 #### `background-color`
 Any CSS color value (see [Color Values](#color-values)). Background color. Not inherited.
 
+#### `background`
+Shorthand recognized only when it contains a CSS color value. The color is
+mapped to `background-color`; image, repeat, attachment, position, size, origin,
+and clip components are ignored. For example, `background: url(bg.png) #003366
+no-repeat` behaves like `background-color: #003366`. Not inherited.
+
 #### `opacity`
 `0.0`–`1.0`. Scales the foreground and background color channels. `1` is fully opaque (the default); `0` renders as black. Inherited.
 

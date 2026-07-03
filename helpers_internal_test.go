@@ -99,6 +99,30 @@ func TestExpandShorthand(t *testing.T) {
 			},
 		},
 		{
+			name: "background extracts named color",
+			prop: "background",
+			val:  "red",
+			want: map[string]string{"background-color": "red"},
+		},
+		{
+			name: "background extracts color among unsupported tokens",
+			prop: "background",
+			val:  "url(bg.png) no-repeat center/cover #123456",
+			want: map[string]string{"background-color": "#123456"},
+		},
+		{
+			name: "background extracts functional color",
+			prop: "background",
+			val:  "rgb(255 0 0) fixed",
+			want: map[string]string{"background-color": "rgb(255 0 0)"},
+		},
+		{
+			name: "background ignores url without color",
+			prop: "background",
+			val:  "url(bg.png) no-repeat center/cover",
+			want: map[string]string{},
+		},
+		{
 			name: "margin block start alias",
 			prop: "margin-block-start",
 			val:  "1",

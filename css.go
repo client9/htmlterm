@@ -172,9 +172,9 @@ func copyDecls(m map[string]string) map[string]string {
 // property→value pairs. For other properties, the map contains only the
 // original prop→val pair.
 //
-// Supported shorthands: margin, padding (1–4 value syntax), list-style.
-// Supported logical aliases are the block/inline start/end forms for margin and
-// padding.
+// Supported shorthands: margin, padding (1–4 value syntax), background color
+// extraction, list-style. Supported logical aliases are the block/inline
+// start/end forms for margin and padding.
 func expandShorthand(prop, val string) map[string]string {
 	var sides [4]string // top, right, bottom, left
 	switch prop {
@@ -200,6 +200,8 @@ func expandShorthand(prop, val string) map[string]string {
 		}
 	case "list-style":
 		return expandListStyleShorthand(val)
+	case "background":
+		return expandBackgroundShorthand(val)
 	case "margin-block-start":
 		return map[string]string{"margin-top": val}
 	case "margin-block-end":
@@ -218,6 +220,16 @@ func expandShorthand(prop, val string) map[string]string {
 		return map[string]string{"padding-right": val}
 	}
 	return map[string]string{prop: val}
+}
+
+func expandBackgroundShorthand(val string) map[string]string {
+	for _, tok := range splitCSSComponentValues(val) {
+		tok = strings.TrimSpace(tok)
+		if tok != "" && parseCSSColor(tok) != nil {
+			return map[string]string{"background-color": tok}
+		}
+	}
+	return map[string]string{}
 }
 
 func expandListStyleShorthand(val string) map[string]string {
