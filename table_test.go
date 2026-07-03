@@ -56,6 +56,8 @@ func TestTable(t *testing.T) {
 		{name: "display none table row is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr class="gone"><td>B</td></tr><tr><td>C</td></tr></table>`, want: "A\nC\n"},
 		{name: "thead row is header, tbody th row is not", html: `<table><thead><tr><th width="3">H</th></tr></thead><tbody><tr><th width="3">R</th></tr></tbody></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│R  │\n└───┘\n"},
 		{name: "no thead: first all-th row is implicit header", html: `<table><tr><th width="3">H</th></tr><tr><td width="3">D</td></tr></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│D  │\n└───┘\n"},
+		// tfoot all-<th> rows must NOT be promoted to implicit headers.
+		{name: "tfoot all-th row is not promoted to implicit header", html: `<table><tfoot><tr><th width="3">F</th></tr></tfoot><tbody><tr><td width="3">D</td></tr></tbody></table>`, width: 40, want: "┌───┐\n│F  │\n│D  │\n└───┘\n"},
 	})
 }
 

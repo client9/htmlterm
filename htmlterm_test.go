@@ -523,6 +523,36 @@ func TestVisibilityHidden(t *testing.T) {
 			width: 20,
 			want:  "      end\n\n",
 		},
+		// display:block element with visibility:hidden must blank (fix for case "block" in renderDisplayNode)
+		{
+			name:  "visibility hidden display:block element blanks content",
+			html:  `<div style="visibility:hidden">secret</div>`,
+			width: 20,
+			want:  "      \n",
+		},
+		// display:block child inside renderInlineAcc must also blank (fix for case "block" in renderInlineAcc)
+		{
+			name:  "visibility hidden block child in block context blanks content",
+			html:  `<section><div style="display:block; visibility:hidden">s</div>ok</section>`,
+			width: 20,
+			want:  " \nok\n",
+		},
+		// <li visibility:hidden> must blank (fix: renderList checks li's own visibility)
+		{
+			name:  "visibility hidden li element blanks content and prefix",
+			html:  `<ul><li style="visibility:hidden">secret</li><li>visible</li></ul>`,
+			width: 20,
+			want:  "            \n    • visible\n",
+		},
+		// quoteDepth must be restored after rendering a visibility:hidden element
+		// so subsequent <q> elements use the correct nesting level.
+		{
+			name:  "quoteDepth not leaked from visibility:hidden block element",
+			css:   `div::before { content: open-quote; }`,
+			html:  `<div style="visibility:hidden">x</div><q>y</q>`,
+			width: 40,
+			want:  "  \n“y”",
+		},
 	})
 }
 
@@ -589,6 +619,10 @@ func TestListStyleVariants(t *testing.T) {
 		{name: "li::marker color keeps layout", css: `li::marker { color: #888888; }`, html: `<ul><li>a</li><li>b</li></ul>`, want: "    • a\n    • b\n"},
 		{name: "li::marker on ol keeps layout", css: `li::marker { color: #ff0000; }`, html: `<ol><li>x</li><li>y</li></ol>`, want: "    1. x\n    2. y\n"},
 		{name: "li::marker with double-colon keeps layout", css: `li::marker { color: #444444; }`, html: `<ul><li>hi</li></ul>`, want: "    • hi\n"},
+		// CSS \A escape inside a quoted list-style-type string must be stripped so
+		// it does not break visual-width accounting or produce a literal newline.
+		{name: "list-style-type custom string strips CSS \\A newline escape", html: `<ul style="list-style-type:'\A* '"><li>word1 word2 word3 word4 word5</li></ul>`, width: 16,
+			want: "    * word1\n      word2\n      word3\n      word4\n      word5\n"},
 	})
 }
 

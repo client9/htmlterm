@@ -321,3 +321,13 @@ func TestParseCSSContentStringNoOOBPanic(t *testing.T) {
 	got = r.parseCSSContentString(`"a\"`, nil)
 	_ = got
 }
+
+func TestClampCellPaddingZeroWidth(t *testing.T) {
+	// Zero-width column must produce zero content, not a stray space character.
+	for _, tc := range []struct{ pl, pr int }{{0, 0}, {2, 2}, {1, 0}} {
+		pl, pr, cw := clampCellPadding(0, tc.pl, tc.pr)
+		if pl != 0 || pr != 0 || cw != 0 {
+			t.Errorf("clampCellPadding(0,%d,%d) = (%d,%d,%d), want (0,0,0)", tc.pl, tc.pr, pl, pr, cw)
+		}
+	}
+}

@@ -102,7 +102,13 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				if childWS == "pre" || childWS == "pre-wrap" {
 					w.EnterPre()
 				}
-				w.WriteString(r.renderBlockContent(c, childDecls, availWidth))
+				savedDepth := r.quoteDepth
+				blockContent := r.renderBlockContent(c, childDecls, availWidth)
+				if childDecls["visibility"] == "hidden" {
+					r.quoteDepth = savedDepth
+					blockContent = blankVisibleContent(blockContent)
+				}
+				w.WriteString(blockContent)
 				if childWS == "pre" || childWS == "pre-wrap" {
 					w.ExitPre()
 				}
@@ -110,6 +116,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				w.WriteAtLeastNewlines(parseMargin(childDecls["margin-bottom"]) + 1)
 			default:
 				childAcc := mergeInlineStyle(acc, childDecls)
+				savedDepth := r.quoteDepth
 				inner := r.renderInlineAcc(c, childAcc, availWidth)
 				if display == "inline-block" {
 					if wv, ok := childDecls["width"]; ok {
@@ -125,6 +132,7 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 					}
 				}
 				if childDecls["visibility"] == "hidden" {
+					r.quoteDepth = savedDepth
 					inner = blankVisibleContent(inner)
 				}
 				if c.Data == "a" {

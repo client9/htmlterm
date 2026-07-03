@@ -136,12 +136,17 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 		if mt := parseMargin(decls["margin-top"]); mt > 0 && w.Len() > 0 {
 			w.WriteAtLeastNewlines(mt + 1)
 		}
-		content := r.wrapHyperlink(href, r.renderBlockContent(n, decls, r.width))
+		savedDepth := r.quoteDepth
+		content := r.renderBlockContent(n, decls, r.width)
+		if decls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
+			content = blankVisibleContent(content)
+		}
 		ws := decls["white-space"]
 		if ws == "pre" || ws == "pre-wrap" {
 			w.EnterPre()
 		}
-		w.WriteString(content)
+		w.WriteString(r.wrapHyperlink(href, content))
 		if ws == "pre" || ws == "pre-wrap" {
 			w.ExitPre()
 		}
@@ -149,6 +154,7 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 		w.WriteAtLeastNewlines(parseMargin(decls["margin-bottom"]) + 1)
 	case "inline-block":
 		acc := extractInlineStyle(decls)
+		savedDepth := r.quoteDepth
 		inner := r.renderInlineAcc(n, acc, r.width)
 		if wv, ok := decls["width"]; ok {
 			if abs, pct, ok2 := parseSizeVal(wv); ok2 {
@@ -162,13 +168,16 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 			}
 		}
 		if decls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
 			inner = blankVisibleContent(inner)
 		}
 		w.WriteString(r.wrapHyperlink(href, inner))
 	default:
 		acc := extractInlineStyle(decls)
+		savedDepth := r.quoteDepth
 		inner := r.renderInlineAcc(n, acc, r.width)
 		if decls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
 			inner = blankVisibleContent(inner)
 		}
 		w.WriteString(r.wrapHyperlink(href, inner))

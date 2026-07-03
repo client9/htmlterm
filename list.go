@@ -118,11 +118,18 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 			continue
 		}
 		itemIdx++
+		liDecls := r.resolveDecls(c)
 		prefix := listItemPrefix(listStyleType, ordered, itemIdx, prefixWidth)
 		if md := r.pseudoElemDecls(c, "marker"); len(md) > 0 {
 			prefix = extractInlineStyle(md).render(prefix, r.profile)
 		}
+		savedDepth := r.quoteDepth
 		raw := strings.TrimRight(r.renderInline(c, contentWidth), "\n ")
+		if liDecls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
+			raw = blankVisibleContent(raw)
+			prefix = blankVisibleContent(prefix)
+		}
 		lines := strings.Split(raw, "\n")
 		for li, line := range lines {
 			if li == 0 {
@@ -158,7 +165,15 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 func listStyleCustomString(style string) (string, bool) {
 	s := strings.TrimSpace(style)
 	if len(s) >= 2 && ((s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')) {
-		return parseCSSString(s), true
+		decoded := parseCSSString(s)
+		// Newlines decoded from CSS escapes (e.g. \A) break visual-width accounting.
+		decoded = strings.Map(func(r rune) rune {
+			if r == '\n' || r == '\r' {
+				return -1
+			}
+			return r
+		}, decoded)
+		return decoded, true
 	}
 	return "", false
 }

@@ -26,6 +26,9 @@ type tableCell struct {
 // clampCellPadding returns effective (pl, pr, contentW) for a cell of given width,
 // clamping padding so content gets at least 1 character.
 func clampCellPadding(width, pl, pr int) (int, int, int) {
+	if width <= 0 {
+		return 0, 0, 0
+	}
 	contentW := width - pl - pr
 	if contentW < 1 {
 		excess := 1 - contentW
@@ -124,8 +127,8 @@ func (r *Renderer) renderTable(n *html.Node) string {
 
 	colDecls := r.collectColDecls(n)
 
-	var collect func(*html.Node, bool)
-	collect = func(n *html.Node, inTHead bool) {
+	var collect func(*html.Node, bool, bool)
+	collect = func(n *html.Node, inTHead, inTFoot bool) {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			if c.Type != html.ElementNode {
 				continue
@@ -136,27 +139,27 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, inlineStyle{}, r.width)))
 				}
 			case "thead":
-				collect(c, true)
-			case "tbody", "tfoot":
-				collect(c, false)
+				collect(c, true, false)
+			case "tbody":
+				collect(c, false, false)
+			case "tfoot":
+				collect(c, false, true)
 			case "tr":
 				trDecls := r.resolveDecls(c)
 				if trDecls["display"] == "none" {
 					continue
 				}
 				var cells []tableCell
-				// A row is a header row only when it lives inside <thead> or,
-				// when there is no <thead>, when it is the first all-<th> row
-				// directly under the table element (implicit header heuristic).
+				// A row is a header row when it lives inside <thead>. Without
+				// <thead>, the first all-<th> row in <tbody> acts as an implicit
+				// header. Rows inside <tfoot> are never promoted to headers.
 				isHeader := inTHead
-				if !inTHead && n == c.Parent {
+				if !inTHead && !inTFoot {
 					allTH := true
 					for td := c.FirstChild; td != nil; td = td.NextSibling {
-						if td.Type == html.ElementNode && (td.Data == "th" || td.Data == "td") {
-							if td.Data != "th" {
-								allTH = false
-								break
-							}
+						if td.Type == html.ElementNode && td.Data == "td" {
+							allTH = false
+							break
 						}
 					}
 					if allTH && len(headers) == 0 {
@@ -206,7 +209,9 @@ func (r *Renderer) renderTable(n *html.Node) string {
 					}
 					cellText := plainInlineText(r.renderInlineAcc(td, inlineStyle{}, r.width))
 					if tdDecls["visibility"] == "hidden" {
-						cellText = ""
+						// Replace with spaces to preserve visual width (visibility:hidden
+						// hides content but the cell still occupies space).
+						cellText = strings.Repeat(" ", ansiVisibleLen(cellText))
 					}
 					cells = append(cells, tableCell{
 						text:          cellText,
@@ -233,7 +238,7 @@ func (r *Renderer) renderTable(n *html.Node) string {
 			}
 		}
 	}
-	collect(n, false)
+	collect(n, false, false)
 
 	numCols := len(headers)
 	if numCols == 0 && len(rows) > 0 {
