@@ -429,6 +429,7 @@ Item content word-wraps at the available content width.
 
 | Property | Values | Notes |
 |----------|--------|-------|
+| `list-style` | Any supported `list-style-type` and/or `list-style-position`, in either order | Shorthand for the supported list longhands. `list-style-image` values such as `url(...)` are ignored. |
 | `list-style-type` | See table below | Prefix string for each `<li>`. A quoted string literal (e.g. `"→ "`) is used verbatim as the bullet. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
 | `list-style-position` | `outside` (default), `inside` | `outside`: prefix hangs to the left; continuation lines align under the first text character. `inside`: prefix flows inline with text; continuation lines align with `padding-left`. Inherited. |
 | `padding-left` | `4` | Indents the entire list from the left; combined with `margin-left` for total indentation. Default: `4`. |
@@ -451,6 +452,12 @@ Item content word-wraps at the available content width.
 
 A quoted string literal sets a custom bullet used verbatim for every item, e.g. `list-style-type: "→ "`. The string is used as-is with no additional spacing — include a trailing space in the string if desired. Works on both `<ul>` and `<ol>`.
 
+The `list-style` shorthand accepts the supported type and position values in
+either order, e.g. `list-style: square inside`, `list-style: inside upper-roman`,
+or `list-style: "→ " outside`. Image values such as `url(bullet.png)` are
+ignored, so `list-style: url(bullet.png) square` behaves like
+`list-style-type: square`.
+
 Numeric prefixes (`decimal`, `*-roman`, `*-alpha`) are right-aligned within a
 fixed-width column sized to the widest prefix in the list (e.g. `" 1."` aligns
 with `"10."` in a ten-item list).
@@ -463,8 +470,8 @@ For example, `<ol start="5">` numbers items 5, 6, 7 … The prefix column width
 is sized to the widest number that will appear (e.g. `start="9"` with two items
 produces a two-digit-wide column for items 9 and 10).
 
-**Not supported:** `list-style-image`; `list-style` shorthand; the
-`type` HTML attribute on `<ol>` (use `list-style-type` CSS instead).
+**Not supported:** `list-style-image`; the `type` HTML attribute on `<ol>` (use
+`list-style-type` CSS instead).
 
 ---
 

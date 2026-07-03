@@ -63,6 +63,42 @@ func TestExpandShorthand(t *testing.T) {
 			want: map[string]string{"margin": "1 2 3 4 5"},
 		},
 		{
+			name: "list-style type and position",
+			prop: "list-style",
+			val:  "upper-roman inside",
+			want: map[string]string{
+				"list-style-type":     "upper-roman",
+				"list-style-position": "inside",
+			},
+		},
+		{
+			name: "list-style position before type",
+			prop: "list-style",
+			val:  "outside square",
+			want: map[string]string{
+				"list-style-type":     "square",
+				"list-style-position": "outside",
+			},
+		},
+		{
+			name: "list-style custom string preserves spaces",
+			prop: "list-style",
+			val:  `"-> " inside`,
+			want: map[string]string{
+				"list-style-type":     `"-> "`,
+				"list-style-position": "inside",
+			},
+		},
+		{
+			name: "list-style ignores url image",
+			prop: "list-style",
+			val:  `url("bullet image.png") circle inside`,
+			want: map[string]string{
+				"list-style-type":     "circle",
+				"list-style-position": "inside",
+			},
+		},
+		{
 			name: "margin block start alias",
 			prop: "margin-block-start",
 			val:  "1",
