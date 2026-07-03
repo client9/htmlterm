@@ -13,14 +13,17 @@
 //	-ignore-document-css     ignore <style> elements and style= attributes in the HTML
 //	-no-osc8-links       disable OSC 8 hyperlink sequences for <a> elements
 //	-max-blank-lines <n> collapse runs of blank lines to at most n (0 = disabled)
+//	-dump-html           parse input HTML and dump the normalized tree
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
+	"golang.org/x/net/html"
 	"golang.org/x/term"
 
 	"github.com/client9/htmlterm"
@@ -38,8 +41,39 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	noDocCSS := fs.Bool("ignore-document-css", false, "ignore <style> elements and style= attributes in HTML")
 	noOSC8 := fs.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
 	maxBlankLines := fs.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
+	dumpHTML := fs.Bool("dump-html", false, "parse input HTML and dump the normalized tree")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	var src io.Reader = stdin
+	if fs.NArg() > 0 {
+		f, err := os.Open(fs.Arg(0))
+		if err != nil {
+			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		src = f
+	}
+
+	data, err := io.ReadAll(src)
+	if err != nil {
+		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+		return 1
+	}
+
+	if *dumpHTML {
+		doc, err := html.Parse(bytes.NewReader(data))
+		if err != nil {
+			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+			return 1
+		}
+		if err := html.Render(stdout, doc); err != nil {
+			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
+			return 1
+		}
+		return 0
 	}
 
 	css := ""
@@ -67,23 +101,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		NoOSC8Links:       *noOSC8,
 		MaxBlankLines:     *maxBlankLines,
 	})
-	if err != nil {
-		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
-		return 1
-	}
-
-	var src io.Reader = stdin
-	if fs.NArg() > 0 {
-		f, err := os.Open(fs.Arg(0))
-		if err != nil {
-			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
-			return 1
-		}
-		defer f.Close()
-		src = f
-	}
-
-	data, err := io.ReadAll(src)
 	if err != nil {
 		fmt.Fprintf(stderr, "htmlterm: %v\n", err)
 		return 1

@@ -67,6 +67,36 @@ func TestRunNoOSC8Links(t *testing.T) {
 	}
 }
 
+func TestRunDumpHTMLFromStdin(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"-dump-html"}, strings.NewReader(`<p>hello<b>world`), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run exit = %d, stderr=%q", code, stderr.String())
+	}
+	want := `<html><head></head><body><p>hello<b>world</b></p></body></html>`
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
+func TestRunDumpHTMLFromFile(t *testing.T) {
+	dir := t.TempDir()
+	htmlPath := filepath.Join(dir, "input.html")
+	if err := os.WriteFile(htmlPath, []byte(`<table><tr><td>x`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"-dump-html", htmlPath}, nil, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("run exit = %d, stderr=%q", code, stderr.String())
+	}
+	want := `<html><head></head><body><table><tbody><tr><td>x</td></tr></tbody></table></body></html>`
+	if got := stdout.String(); got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+}
+
 func TestRunMissingCSSFile(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"-css", filepath.Join(t.TempDir(), "missing.css")}, strings.NewReader("<p>x</p>"), &stdout, &stderr)
