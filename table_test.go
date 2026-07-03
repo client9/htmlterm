@@ -7,6 +7,14 @@ import (
 	"github.com/client9/htmlterm"
 )
 
+func trimRightPerLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimRight(lines[i], " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
 func TestTextOverflow(t *testing.T) {
 	cell := func(attrs, content string) string {
 		return `<table style="border-style:hidden"><tr><td ` + attrs + `>` + content + `</td></tr></table>`
@@ -61,6 +69,42 @@ func TestTable(t *testing.T) {
 	})
 }
 
+func TestNestedTablesInCells(t *testing.T) {
+	render := func(css, htmlStr string) string {
+		t.Helper()
+		r, err := htmlterm.New(htmlterm.Options{CSS: css, Width: 80})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		got, err := r.Render(htmlStr)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return trimRightPerLine(stripANSI(got))
+	}
+
+	got := render("", `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "┌─┐\n│x│\n└─┘\n" {
+		t.Fatalf("nested table did not render as table:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
+	}
+
+	got = render(`table { border-style: normal; }`, `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "┌─┐\n│x│\n└─┘\n" {
+		t.Fatalf("nested table did not apply table CSS:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
+	}
+
+	got = render(`table { border-style: none; }`, `<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "x\n" {
+		t.Fatalf("nested borderless table was not compact:\ngot  %q\nwant %q", got, "x\n")
+	}
+
+	got = render(`table { border-style: none; } table::before { content: "<TABLE>"; } table::after { content: "</TABLE>"; } tr::before { content: "<TR>"; } tr::after { content: "</TR>"; } td::before { content: "<TD>"; } td::after { content: "</TD>"; }`,
+		`<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "<TD>\n<TD>x</TD>\n</TD>\n" {
+		t.Fatalf("nested table structural pseudo-elements leaked:\ngot  %q\nwant %q", got, "<TD>\n<TD>x</TD>\n</TD>\n")
+	}
+}
+
 func TestTablePreservesInlineChildStyling(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40})
 	if err != nil {
@@ -88,6 +132,7 @@ func TestTableMultiLine(t *testing.T) {
 		{name: "wrapping with bordered table", html: `<table><tr><th width="5">Name</th></tr><tr><td style="white-space:normal" width="5">Al Bob</td></tr></table>`, want: "┌─────┐\n│Name │\n├─────┤\n│Al   │\n│Bob  │\n└─────┘\n"},
 		{name: "table cell preserves br line breaks", html: `<table style="border-style:hidden"><tr><td width="4">a<br>b</td></tr></table>`, want: "a   \nb   \n"},
 		{name: "table cell skips display none descendants", html: `<table style="border-style:hidden"><tr><td width="4"><span style="display:none">x</span>y</td></tr></table>`, want: "y   \n"},
+		{name: "percentage block children in cells fit page width", css: `h2::before { content: "## "; } table { border-style: none; } td { width: 100%; white-space: normal; } td::after { content: "\A"; }`, html: `<table><tr><td><h2>Left Headline Very Long and Takes Up Space</h2></td><td><h2>Right Headline is also very long and takes up space</h2></td></tr></table>`, width: 30, want: "## Left        ## Right       \nHeadline Very  Headline is    \nLong and       also very      \nTakes Up Space long and takes \n               up space       \n"},
 	})
 }
 

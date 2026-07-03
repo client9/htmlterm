@@ -302,7 +302,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 	for i := 0; i < numCols; i++ {
 		if i < len(headers) {
 			cols[i] = headers[i].constraints
-			cols[i].natural = ansiVisibleLen(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
+			cols[i].natural = maxVisibleLineWidth(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
 		}
 	}
 	for _, row := range rows {
@@ -310,7 +310,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 			if i >= numCols {
 				break
 			}
-			if w := ansiVisibleLen(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
+			if w := maxVisibleLineWidth(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
 				cols[i].natural = w
 			}
 			dc := c.constraints
@@ -343,10 +343,15 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 			break
 		}
 		_, _, contentW := clampCellPadding(widths[i], cells[i].paddingLeft, cells[i].paddingRight)
-		if cells[i].noWrap {
-			cells[i].lines = []string{truncateToWidth(cells[i].text, contentW, cells[i].textOverflow)}
-		} else {
-			cells[i].lines = wordWrapANSI(cells[i].text, contentW, "break-word")
+		for _, line := range strings.Split(strings.TrimRight(cells[i].text, "\n"), "\n") {
+			if cells[i].noWrap {
+				cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
+			} else {
+				cells[i].lines = append(cells[i].lines, wordWrapANSI(line, contentW, "break-word")...)
+			}
+		}
+		if len(cells[i].lines) == 0 {
+			cells[i].lines = []string{""}
 		}
 		if pt := cells[i].paddingTop; pt > 0 {
 			blank := make([]string, pt, pt+len(cells[i].lines))

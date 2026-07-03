@@ -88,6 +88,17 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 			if c.Data == "wbr" {
 				continue
 			}
+			if c.Data == "table" {
+				if b, ok := w.LastByte(); ok && b != '\n' {
+					w.writeNewline()
+				}
+				tableContent := r.renderTable(c)
+				if childDecls["visibility"] == "hidden" {
+					tableContent = blankVisibleContent(tableContent)
+				}
+				w.WriteString(tableContent)
+				continue
+			}
 			if c.Data == "ul" || c.Data == "ol" || c.Data == "menu" {
 				if b, ok := w.LastByte(); ok && b != '\n' {
 					w.writeNewline()

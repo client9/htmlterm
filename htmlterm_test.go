@@ -155,6 +155,9 @@ func TestBareText(t *testing.T) {
 		{name: "bare text in body element", html: `<body>hello</body>`, want: "hello"},
 		{name: "bare text mixed with block element", html: `<body>before<p>paragraph</p>after</body>`, want: "beforeparagraph\n\nafter"},
 		{name: "whitespace-only text between elements is ignored", html: "<body>\n<p>text</p>\n</body>", want: "text\n\n"},
+		{name: "bare root text wraps at terminal width", html: `one two three four five six seven`, width: 20, want: "one two three four\nfive six seven"},
+		{name: "bare body text wraps without trailing newline", html: `<body>one two three four five six</body>`, width: 14, want: "one two three\nfour five six"},
+		{name: "root inline elements wrap together", html: `<span>one two</span> <strong>three four five</strong>`, width: 14, want: "one two three\nfour five"},
 	})
 }
 

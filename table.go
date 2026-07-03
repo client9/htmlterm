@@ -207,9 +207,10 @@ func (r *Renderer) cellConstraints(n *html.Node, decls map[string]string) colCon
 
 // sizeColumns computes final column widths. contentWidth is the space available
 // for cell content (terminal width minus all border/separator overhead).
-// Percentage columns are resolved to absolute widths first; fixed and percentage
-// columns are immune to the expand/shrink pass. Flexible columns start at their
-// natural width (clamped by min/max), then space is distributed or reclaimed.
+// Percentage columns are resolved to absolute widths first; fixed columns are
+// immune to the expand/shrink pass. Flexible columns start at their natural
+// width (clamped by min/max). Extra space is distributed only to flexible
+// columns; overage is reclaimed from flexible and percentage columns.
 func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int {
 	widths := make([]int, len(cols))
 	for i, c := range cols {
@@ -275,12 +276,12 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 		}
 
 	case total > contentWidth:
-		// Shrink flexible columns one unit at a time from the widest,
-		// respecting effective min (floor of 1).
+		// Shrink flexible and percentage columns one unit at a time from the
+		// widest, respecting effective min (floor of 1).
 		for overage := total - contentWidth; overage > 0; {
 			best, bestIdx := -1, -1
 			for i, c := range cols {
-				if isConstrained(c) {
+				if c.fixed > 0 {
 					continue
 				}
 				minW, _ := effectiveMinMax(c, contentWidth)
@@ -295,14 +296,8 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 			if bestIdx < 0 {
 				break
 			}
-			minW, _ := effectiveMinMax(cols[bestIdx], contentWidth)
-			floor := minW
-			if floor < 1 {
-				floor = 1
-			}
-			shrink := min(widths[bestIdx]-floor, overage)
-			widths[bestIdx] -= shrink
-			overage -= shrink
+			widths[bestIdx]--
+			overage--
 		}
 	}
 

@@ -311,6 +311,22 @@ func TestSizeColumnsRespectsMaxAndShrinkMin(t *testing.T) {
 	if !reflect.DeepEqual(shrunk, []int{6, 4, 5}) {
 		t.Fatalf("sizeColumns shrink = %#v, want %#v", shrunk, []int{6, 4, 5})
 	}
+
+	balanced := sizeColumns([]colConstraints{
+		{natural: 35},
+		{natural: 35},
+	}, 34, false)
+	if !reflect.DeepEqual(balanced, []int{17, 17}) {
+		t.Fatalf("sizeColumns balanced shrink = %#v, want %#v", balanced, []int{17, 17})
+	}
+
+	percentShrunk := sizeColumns([]colConstraints{
+		{natural: 5, percent: 1},
+		{natural: 5, percent: 1},
+	}, 29, false)
+	if !reflect.DeepEqual(percentShrunk, []int{14, 15}) {
+		t.Fatalf("sizeColumns percent shrink = %#v, want %#v", percentShrunk, []int{14, 15})
+	}
 }
 
 func TestAlignAndEdgeHelpersPreserveTrailingNewline(t *testing.T) {
