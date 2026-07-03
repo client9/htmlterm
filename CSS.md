@@ -199,6 +199,16 @@ Not inherited.
 #### `width`
 `40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For block elements, `width: 100%` fills the renderer width; margins and border characters are subtracted so the total visual line equals the specified width. Not inherited.
 
+#### `min-width`
+`40` or `50%`. Minimum width for block and `inline-block` elements, using
+the same box semantics as `width`. On block elements it constrains wrapping,
+alignment, borders, and auto-margin placement. Not inherited.
+
+#### `max-width`
+`40` or `50%`. Maximum width for block and `inline-block` elements, using
+the same box semantics as `width`. On block elements it constrains wrapping,
+alignment, borders, and auto-margin placement. Not inherited.
+
 #### `padding`
 One to four values using CSS shorthand order. Expands to `padding-top`,
 `padding-right`, `padding-bottom`, and `padding-left`.
@@ -450,8 +460,8 @@ produces a two-digit-wide column for items 9 and 10).
 
 ## Size Values
 
-Wherever a size is accepted (cell `width`, `min-width`, `max-width`), the
-following forms are recognized:
+Wherever one of these sizing declarations is accepted (`width`, `min-width`,
+`max-width`, and percentage-capable margins), the following forms are recognized:
 
 | Form | Example | Meaning |
 |------|---------|---------|
@@ -461,9 +471,9 @@ following forms are recognized:
 
 Pixel (`px`), `em`, `rem`, and other CSS units are ignored.
 
-The **available content width** is the terminal width minus border/separator
-overhead. For a `width: 100%` table it equals the full terminal width minus
-the sum of all separator characters.
+For block elements, percentages are resolved against the available block width.
+For a `width: 100%` table, the available content width is the terminal width
+minus the sum of all separator characters.
 
 ---
 

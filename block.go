@@ -96,6 +96,44 @@ func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int, p 
 	return drawHRule([]int{max(0, width-runeLen(lc)-runeLen(rc))}, fill, color, lc, "", rc, p)
 }
 
+func resolveCSSSize(s string, availWidth int) (int, bool) {
+	abs, pct, ok := parseSizeVal(s)
+	if !ok {
+		return 0, false
+	}
+	if pct > 0 {
+		return int(pct * float64(availWidth)), true
+	}
+	return abs, true
+}
+
+func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth int) (width int, constrained bool) {
+	width = naturalWidth
+	if w, ok := resolveCSSSize(decls["width"], availWidth); ok {
+		width = w
+		constrained = true
+	}
+	if w, ok := resolveCSSSize(decls["max-width"], availWidth); ok && width > w {
+		width = w
+		constrained = true
+	}
+	if w, ok := resolveCSSSize(decls["min-width"], availWidth); ok && width < w {
+		width = w
+		constrained = true
+	}
+	return width, constrained
+}
+
+func maxVisibleLineWidth(s string) int {
+	maxW := 0
+	for _, line := range strings.Split(s, "\n") {
+		if w := ansiVisibleLen(line); w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
+}
+
 func applyBlockBorders(content string, left, right blockBorder, p colorprofile.Profile) string {
 	paintL := makePainter(left.color, p)
 	paintR := makePainter(right.color, p)
@@ -156,16 +194,8 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 		acc := extractInlineStyle(decls)
 		savedDepth := r.quoteDepth
 		inner := r.renderInlineAcc(n, acc, r.width)
-		if wv, ok := decls["width"]; ok {
-			if abs, pct, ok2 := parseSizeVal(wv); ok2 {
-				colWidth := abs
-				if pct > 0 {
-					colWidth = int(pct * float64(r.width))
-				}
-				if colWidth > 0 {
-					inner = padLinesToWidth(inner, colWidth)
-				}
-			}
+		if colWidth, constrained := resolveWidthConstraints(decls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
+			inner = padLinesToWidth(inner, colWidth)
 		}
 		if decls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth
@@ -297,17 +327,11 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	}
 
 	hasExplicitWidth := false
-	if wv, ok := decls["width"]; ok {
-		if abs, pct, ok2 := parseSizeVal(wv); ok2 {
-			totalW := abs
-			if pct > 0 {
-				totalW = int(pct * float64(availWidth))
-			}
-			inner := totalW - ml - runeLen(bl.char) - pl - pr - runeLen(br.char) - mr
-			if inner > 0 {
-				hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
-				hasExplicitWidth = true
-			}
+	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
+		inner := totalW - ml - runeLen(bl.char) - pl - pr - runeLen(br.char) - mr
+		if inner > 0 {
+			hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
+			hasExplicitWidth = true
 		}
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {

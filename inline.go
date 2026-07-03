@@ -122,16 +122,8 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 				savedDepth := r.quoteDepth
 				inner := r.renderInlineAcc(c, childAcc, availWidth)
 				if display == "inline-block" {
-					if wv, ok := childDecls["width"]; ok {
-						if abs, pct, ok2 := parseSizeVal(wv); ok2 {
-							colWidth := abs
-							if pct > 0 {
-								colWidth = int(pct * float64(r.width))
-							}
-							if colWidth > 0 {
-								inner = padLinesToWidth(inner, colWidth)
-							}
-						}
+					if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
+						inner = padLinesToWidth(inner, colWidth)
 					}
 				}
 				if childDecls["visibility"] == "hidden" {

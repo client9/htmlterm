@@ -212,6 +212,8 @@ func TestDisplay_InlineBlock(t *testing.T) {
 		{name: "inline-block with fixed width pads content", html: `<p><span style="display:inline-block; width:8">hi</span>end</p>`, want: "hi      end\n\n"},
 		{name: "inline-block without width acts like inline", html: `<p><span style="display:inline-block">hi</span>end</p>`, want: "hiend\n\n"},
 		{name: "two inline-block spans side by side", html: `<p><span style="display:inline-block; width:5">A</span><span style="display:inline-block; width:5">B</span></p>`, want: "A    B    \n\n"},
+		{name: "inline-block min-width pads content", html: `<p><span style="display:inline-block; min-width:5">hi</span>end</p>`, want: "hi   end\n\n"},
+		{name: "inline-block max-width clamps explicit width", html: `<p><span style="display:inline-block; width:8; max-width:5">hi</span>end</p>`, want: "hi   end\n\n"},
 	})
 }
 
@@ -321,6 +323,10 @@ func TestBlockBorders(t *testing.T) {
 		{name: "margin auto without explicit width is ignored", html: `<p style="margin-left:auto; margin-right:auto">hi</p>`, width: 20, want: "hi\n\n"},
 		{name: "margin auto center via CSS class", css: `.center { width: 10; margin-left: auto; margin-right: auto; }`, html: `<p class="center">hi</p>`, width: 20, want: "     hi             \n\n"},
 		{name: "margin auto center with borders", html: `<p style="width:12; margin-left:auto; margin-right:auto; border-left:'['; border-right:']'">hi</p>`, width: 20, want: "    [hi        ]    \n\n"},
+		{name: "min-width expands explicit block width", html: `<p style="width:5; min-width:8">hi</p>`, width: 20, want: "hi      \n\n"},
+		{name: "max-width clamps explicit block width", html: `<p style="width:12; max-width:8">hi</p>`, width: 20, want: "hi      \n\n"},
+		{name: "max-width constrains auto block width", html: `<p style="max-width:10">one two three</p>`, width: 40, want: "one two   \nthree     \n\n"},
+		{name: "percentage min-width expands block width", html: `<p style="width:5; min-width:50%">hi</p>`, width: 20, want: "hi        \n\n"},
 		{name: "border-right aligns on word-wrapped lines", html: `<p style="border-right:'|'">one two three four five</p>`, width: 14, want: "one two three|\nfour five    |\n\n"},
 		{name: "padding-right aligns on word-wrapped lines", html: `<p style="padding-right:2">one two three four five</p>`, width: 15, want: "one two three  \nfour five      \n\n"},
 		{name: "border-right single-line content stays flush", html: `<p style="border-right:'|'">hello</p>`, width: 20, want: "hello|\n\n"},
