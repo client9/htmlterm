@@ -10,6 +10,7 @@ that is recognized. Anything not listed here is silently ignored.
 
 | Form | Example |
 |------|---------|
+| Universal | `* { }`, `*.warn { }` |
 | Element | `th { }` |
 | Class | `.num { }` |
 | Multiple classes | `.warn.big { }` |
@@ -20,18 +21,21 @@ that is recognized. Anything not listed here is silently ignored.
 | Attribute value | `td[data-role=header] { }` |
 | Descendant (space) | `tr.unseen td { }` |
 | Child (`>`) | `div > p { }` |
-| Pseudo-class | `li:first-child { }`, `tr:nth-child(odd) { }` |
+| Pseudo-class | `:root { }`, `li:first-child { }`, `tr:nth-child(odd) { }` |
 | Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }` |
 | Adjacent sibling (`+`) | `h2 + p { }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
 
 **Specificity** follows CSS rules: ID = 100, class / pseudo-class / attribute = 10,
-element = 1. Higher specificity wins; equal specificity last-write wins.
+element / pseudo-element = 1, universal selector = 0. Higher specificity wins;
+equal specificity last-write wins.
 
-**Supported pseudo-classes:** `:first-child`, `:last-child`, `:nth-child(odd)`,
-`:nth-child(even)`, `:not(<simple-selector>)`. Full `An+B` expressions are not supported.
-`:not()` accepts a single compound selector (element, class, id, attribute, or
-combinations thereof) as its argument; nested combinators inside `:not()` are not supported.
+**Supported pseudo-classes:** `:root`, `:first-child`, `:last-child`,
+`:nth-child(odd)`, `:nth-child(even)`, `:not(<simple-selector>)`. `:root`
+matches the document element (`html` for parsed HTML documents/fragments). Full `An+B`
+expressions are not supported. `:not()` accepts a single compound selector
+(element, universal selector, class, id, attribute, or combinations thereof)
+as its argument; nested combinators inside `:not()` are not supported.
 
 **Supported pseudo-elements:** `::before`, `::after`, and `::marker` (all also accepted
 with a single colon). `::before`/`::after` inject inline text at the start or end of an

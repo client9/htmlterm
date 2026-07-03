@@ -326,6 +326,24 @@ func TestParseInlineDeclsLogicalSpacingAliases(t *testing.T) {
 	}
 }
 
+func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
+	tests := []struct {
+		sel  string
+		want specificityScore
+	}{
+		{sel: "*", want: specificityScore{}},
+		{sel: "*.hot", want: specificityScore{classes: 1}},
+		{sel: "*::before", want: specificityScore{elements: 1}},
+		{sel: ":root", want: specificityScore{classes: 1}},
+		{sel: ":not(*)", want: specificityScore{}},
+	}
+	for _, tc := range tests {
+		if got := specificity(parseSelector(tc.sel)); got != tc.want {
+			t.Fatalf("specificity(%q) = %#v, want %#v", tc.sel, got, tc.want)
+		}
+	}
+}
+
 func TestEffectiveMinMaxPercent(t *testing.T) {
 	// minPercent > 0 path
 	minW, maxW := effectiveMinMax(colConstraints{minPercent: 0.5}, 20)

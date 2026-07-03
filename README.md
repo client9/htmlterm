@@ -22,7 +22,7 @@ When rendering untrusted HTML or CSS, see [SECURITY.md](./SECURITY.md) for the t
 
 See [CSS.md](./CSS.md) for the full supported surface:
 
-- **Selectors:** element, class, multiple classes, ID, attributes, descendant, child (`>`), adjacent sibling (`+`), `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, `::before`, `::after`
+- **Selectors:** universal (`*`), element, class, multiple classes, ID, attributes, descendant, child (`>`), adjacent sibling (`+`), `:root`, `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, `::before`, `::after`
 - **Layout and styling:** `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`
 - **Tables:** column sizing, wrapping, alignment, border styles, `<colgroup>` / `<col>`
 

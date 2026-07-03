@@ -222,7 +222,7 @@ func (s specificityScore) less(other specificityScore) bool {
 func specificity(parts []selectorPart) specificityScore {
 	var s specificityScore
 	for _, p := range parts {
-		if p.element != "" {
+		if p.element != "" && p.element != "*" {
 			s.elements++
 		}
 		if p.id != "" {
@@ -257,7 +257,7 @@ func matchPart(n *html.Node, p selectorPart) bool {
 	if p.pseudoElem != "" {
 		return false
 	}
-	if p.element != "" && n.Data != p.element {
+	if p.element != "" && p.element != "*" && n.Data != p.element {
 		return false
 	}
 	if p.id != "" && nodeAttr(n, "id") != p.id {
@@ -302,6 +302,8 @@ func matchPseudo(n *html.Node, pseudo string) bool {
 		return false
 	}
 	switch pseudo {
+	case "root":
+		return n.Parent.Type == html.DocumentNode
 	case "first-child":
 		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
 			if s.Type == html.ElementNode {
