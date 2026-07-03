@@ -153,6 +153,21 @@ Any CSS color value (see [Color Values](#color-values)). Background color. Not i
 #### `text-align`
 `left` | `center` | `right`. Effective on cells when column has a width. Inherited.
 
+#### `margin`
+One to four values using CSS shorthand order. Expands to `margin-top`,
+`margin-right`, `margin-bottom`, and `margin-left`.
+
+| Values | Expansion |
+|--------|-----------|
+| `A` | all sides = `A` |
+| `A B` | top/bottom = `A`, right/left = `B` |
+| `A B C` | top = `A`, right/left = `B`, bottom = `C` |
+| `A B C D` | top = `A`, right = `B`, bottom = `C`, left = `D` |
+
+Values use the same formats as the corresponding longhand properties. For
+example, `margin: 1 auto` sets top/bottom margins to `1` and left/right margins
+to `auto`. Not inherited.
+
 #### `margin-top`
 Integer line count (e.g. `1`). Extra blank lines above a block element. Adjacent margins collapse: the larger wins. Not inherited.
 
@@ -169,6 +184,20 @@ Integer (e.g. `4`) or `auto`. Spaces appended to every line of a block element, 
 
 #### `width`
 `40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For block elements, `width: 100%` fills the renderer width; margins and border characters are subtracted so the total visual line equals the specified width. Not inherited.
+
+#### `padding`
+One to four values using CSS shorthand order. Expands to `padding-top`,
+`padding-right`, `padding-bottom`, and `padding-left`.
+
+| Values | Expansion |
+|--------|-----------|
+| `A` | all sides = `A` |
+| `A B` | top/bottom = `A`, right/left = `B` |
+| `A B C` | top = `A`, right/left = `B`, bottom = `C` |
+| `A B C D` | top = `A`, right = `B`, bottom = `C`, left = `D` |
+
+Values use the same formats as the corresponding longhand properties. Not
+inherited.
 
 #### `padding-left`
 `4` or `4ch`. Left padding in rune columns; applies to block elements. Not inherited.
@@ -574,7 +603,6 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Multi-value `border-top`/`border-bottom` shorthand (e.g. `border-top: 1px solid red`) —
   use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
 - `display: flex`, `display: grid`, `display: table`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, and `none`
-- `margin`, `padding` shorthand (use `margin-top`, `margin-bottom`, `padding-top`, `padding-bottom`, `padding-left`, `padding-right`)
 - `flex`, `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` (the default for `td`/`th`); set `white-space: normal` to opt in to word wrapping
 - `border-spacing` / cell padding (column separator is always a single character)
