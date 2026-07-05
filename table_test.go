@@ -51,6 +51,22 @@ func TestTableCellPadding(t *testing.T) {
 	})
 }
 
+func TestTableMarginPadding(t *testing.T) {
+	hidden := `style="border-style:hidden"`
+	runCases(t, []renderCase{
+		{name: "margin-left indents entire table", html: `<table style="margin-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
+		{name: "margin-right adds trailing space", html: `<table style="margin-right:2; border-style:hidden"><tr><td width="4">hi</td></tr></table>`, want: "hi    \n"},
+		{name: "margin-left and margin-right both set", html: `<table style="margin-left:2; margin-right:2; border-style:hidden"><tr><td width="2">hi</td></tr></table>`, width: 10, want: "  hi  \n"},
+		{name: "margin-left percent resolves against available width", html: `<table style="margin-left:50%; border-style:hidden"><tr><td>hi</td></tr></table>`, width: 10, want: "     hi\n"},
+		{name: "padding-left adds space inside margin", html: `<table style="padding-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
+		{name: "padding and margin combine on the left", html: `<table style="margin-left:1; padding-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "   hi\n"},
+		{name: "padding-top adds a blank line before the table", html: `<table style="padding-top:1; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  \nhi\n"},
+		{name: "padding-bottom adds a blank line after the table", html: `<table style="padding-bottom:1; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "hi\n  \n"},
+		{name: "margin and padding shrink column sizing for width:100% table", html: `<table style="width:100%; margin-left:2; margin-right:2; padding-left:1; padding-right:1; border-style:hidden"><tr><td>x</td></tr></table>`, width: 10, want: "   x      \n"},
+		{name: "no margin or padding leaves table unchanged", html: `<table ` + hidden + `><tr><td>hi</td></tr></table>`, want: "hi\n"},
+	})
+}
+
 func TestTable(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "two-column hidden-border table", html: `<table style="border-style:hidden"><tr><td width="3">A</td><td width="5">Hello</td></tr></table>`, width: 40, want: "A   Hello\n"},
@@ -106,6 +122,43 @@ func TestNestedTablesInCells(t *testing.T) {
 	if got != "<TD>\n<TD>x</TD>\n</TD>\n" {
 		t.Fatalf("nested table structural pseudo-elements leaked:\ngot  %q\nwant %q", got, "<TD>\n<TD>x</TD>\n</TD>\n")
 	}
+
+	// A width:100% table nested in a width:100% outer cell must be sized to
+	// the outer cell's content width, not the full renderer width, or its
+	// border overflows the outer cell and gets ellipsis-truncated by the
+	// outer td's default nowrap.
+	r, err := htmlterm.New(htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got2, err := r.Render(`<table style="width:100%"><tr><td><table style="width:100%"><tr><td>Hi</td></tr></table></td></tr></table>`)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got2 = stripANSI(got2)
+	want := "┌──────────────────┐\n│┌────────────────┐│\n││Hi              ││\n│└────────────────┘│\n└──────────────────┘\n"
+	if got2 != want {
+		t.Fatalf("nested width:100%% table overflowed its cell:\ngot  %q\nwant %q", got2, want)
+	}
+
+	// A nested table's own margin-right/padding-right must survive being
+	// embedded in the outer table's cell text, which right-trims plain
+	// trailing spaces (see plainInlineText in table_render.go). Deliberately
+	// not trimming trailing spaces here — that's exactly what regressed.
+	// Padding sits inside the border, margin outside it.
+	r3, err := htmlterm.New(htmlterm.Options{Width: 30})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got3, err := r3.Render(`<table style="border-style:hidden"><tr><td><table style="margin-left:2; margin-right:2; padding-left:2; padding-right:2" ><tr><td>hi</td></tr></table></td></tr></table>`)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got3 = stripANSI(got3)
+	want3 := "  ┌──────┐  \n  │  hi  │  \n  └──────┘  \n"
+	if got3 != want3 {
+		t.Fatalf("nested table's own right margin/padding was lost:\ngot  %q\nwant %q", got3, want3)
+	}
 }
 
 func TestTablePreservesInlineChildStyling(t *testing.T) {
@@ -135,7 +188,7 @@ func TestTableMultiLine(t *testing.T) {
 		{name: "wrapping with bordered table", html: `<table><tr><th width="5">Name</th></tr><tr><td style="white-space:normal" width="5">Al Bob</td></tr></table>`, want: "┌─────┐\n│Name │\n├─────┤\n│Al   │\n│Bob  │\n└─────┘\n"},
 		{name: "table cell preserves br line breaks", html: `<table style="border-style:hidden"><tr><td width="4">a<br>b</td></tr></table>`, want: "a   \nb   \n"},
 		{name: "table cell skips display none descendants", html: `<table style="border-style:hidden"><tr><td width="4"><span style="display:none">x</span>y</td></tr></table>`, want: "y   \n"},
-		{name: "percentage block children in cells fit page width", css: `h2::before { content: "## "; } table { border-style: none; } td { width: 100%; white-space: normal; } td::after { content: "\A"; }`, html: `<table><tr><td><h2>Left Headline Very Long and Takes Up Space</h2></td><td><h2>Right Headline is also very long and takes up space</h2></td></tr></table>`, width: 30, want: "## Left        ## Right       \nHeadline Very  Headline is    \nLong and       also very      \nTakes Up Space long and takes \n               up space       \n"},
+		{name: "percentage block children in cells fit page width", css: `h2::before { content: "## "; } table { border-style: none; } td { width: 100%; white-space: normal; } td::after { content: "\A"; }`, html: `<table><tr><td><h2>Left Headline Very Long and Takes Up Space</h2></td><td><h2>Right Headline is also very long and takes up space</h2></td></tr></table>`, width: 30, want: "## Left        ## Right       \nHeadline Very  Headline is    \nLong and Takes also very long \nUp Space       and takes up   \n               space          \n"},
 	})
 }
 

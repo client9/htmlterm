@@ -146,7 +146,7 @@ func (r *Renderer) renderNode(w *cappedWriter, n *html.Node) {
 			switch n.Data {
 			case "table":
 				if isTableLayoutDisplay(decls["display"]) {
-					w.WriteString(r.renderTable(n))
+					w.WriteString(r.renderTable(n, r.width))
 				} else {
 					r.renderDisplayNode(w, n)
 				}

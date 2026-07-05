@@ -25,15 +25,17 @@ type Options struct {
 // A Renderer can be reused for multiple Render calls, including concurrent
 // calls. Per-document state is built fresh for each render.
 type Renderer struct {
-	rules             []rule
-	width             int
-	profile           colorprofile.Profile
-	ignoreDocumentCSS bool
-	noOSC8Links       bool
-	maxBlankLines     int
-	stripHiddenInline bool
-	counterMap        map[*html.Node]counterSnapshot // built fresh per Render call
-	quoteDepth        int                            // tracks open-quote nesting depth
+	rules               []rule
+	width               int
+	profile             colorprofile.Profile
+	ignoreDocumentCSS   bool
+	noOSC8Links         bool
+	maxBlankLines       int
+	stripHiddenInline   bool
+	counterMap          map[*html.Node]counterSnapshot // built fresh per Render call
+	quoteDepth          int                            // tracks open-quote nesting depth
+	nestedTableWidth    int                            // width hint for a table nested inside a cell currently being sized
+	nestedTableWidthSet bool                           // whether nestedTableWidth is active
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -124,5 +126,8 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	rr.quoteDepth = 0
 	w := cappedWriter{maxBlanks: rr.maxBlankLines}
 	rr.renderNode(&w, doc)
-	return w.String(), nil
+	// Table margin-right uses U+00A0 internally so nested cell text
+	// processing (which right-trims plain spaces) doesn't delete it; convert
+	// back to a plain space for the returned string.
+	return strings.ReplaceAll(w.String(), nbsp, " "), nil
 }

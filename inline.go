@@ -93,7 +93,11 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 					w.writeNewline()
 				}
 				if isTableLayoutDisplay(childDecls["display"]) {
-					tableContent := r.renderTable(c)
+					tableWidth := availWidth
+					if r.nestedTableWidthSet {
+						tableWidth = r.nestedTableWidth
+					}
+					tableContent := r.renderTable(c, tableWidth)
 					if childDecls["visibility"] == "hidden" {
 						tableContent = blankVisibleContent(tableContent)
 					}
