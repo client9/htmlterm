@@ -270,52 +270,12 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 			}
 		}
 	}
-	mlAuto := strings.TrimSpace(decls["margin-left"]) == "auto"
-	mrAuto := strings.TrimSpace(decls["margin-right"]) == "auto"
-	ml := 0
-	if !mlAuto {
-		if abs, pct, ok := parseSizeVal(decls["margin-left"]); ok {
-			if pct > 0 {
-				ml = int(pct * float64(availWidth))
-			} else {
-				ml = abs
-			}
-		}
-	}
-	mr := 0
-	if !mrAuto {
-		if abs, pct, ok := parseSizeVal(decls["margin-right"]); ok {
-			if pct > 0 {
-				mr = int(pct * float64(availWidth))
-			} else {
-				mr = abs
-			}
-		}
-	}
-	pl := 0
-	if v := decls["padding-left"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			pl = abs
-		}
-	}
-	pr := 0
-	if v := decls["padding-right"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			pr = abs
-		}
-	}
-	pt := 0
-	if v := decls["padding-top"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			pt = abs
-		}
-	}
-	pb := 0
-	if v := decls["padding-bottom"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			pb = abs
-		}
-	}
+	ml, mlAuto := resolveMarginSide(decls["margin-left"], availWidth)
+	mr, mrAuto := resolveMarginSide(decls["margin-right"], availWidth)
+	pl := parsePaddingLen(decls["padding-left"])
+	pr := parsePaddingLen(decls["padding-right"])
+	pt := parsePaddingLen(decls["padding-top"])
+	pb := parsePaddingLen(decls["padding-bottom"])
 	hBorderWidth := availWidth - ml - mr
 	acc := extractInlineStyle(decls)
 	textAlign := decls["text-align"]
@@ -336,21 +296,11 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {
 		remaining := availWidth - hBorderWidth - ml - mr
-		if remaining < 0 {
-			remaining = 0
-		}
-		switch {
-		case mlAuto && mrAuto:
-			ml = remaining / 2
-			mr = remaining - ml
-		case mlAuto:
-			ml = remaining
-		case mrAuto:
-			mr = remaining
-		}
+		ml, mr = splitAutoMargins(remaining, ml, mr, mlAuto, mrAuto)
 	}
 
-	innerW := hBorderWidth - runeLen(bl.char) - pl - pr - runeLen(br.char)
+	var innerW int
+	pl, pr, innerW = clampCellPadding(hBorderWidth-runeLen(bl.char)-runeLen(br.char), pl, pr)
 	if innerW < 1 {
 		innerW = 1
 	}

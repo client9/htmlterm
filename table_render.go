@@ -23,26 +23,6 @@ type tableCell struct {
 	lines         []string
 }
 
-// clampCellPadding returns effective (pl, pr, contentW) for a cell of given width,
-// clamping padding so content gets at least 1 character.
-func clampCellPadding(width, pl, pr int) (int, int, int) {
-	if width <= 0 {
-		return 0, 0, 0
-	}
-	contentW := width - pl - pr
-	if contentW < 1 {
-		excess := 1 - contentW
-		if pr >= excess {
-			pr -= excess
-		} else {
-			pl = max(0, pl-(excess-pr))
-			pr = 0
-		}
-		contentW = 1
-	}
-	return pl, pr, contentW
-}
-
 // collectColDecls scans direct <colgroup> children of a <table> node and returns
 // a slice of declaration maps, one entry per column position (expanded by span).
 // A <colgroup> with <col> children uses per-col decls (col overrides colgroup base).
@@ -244,34 +224,16 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 	// padding is blank space inside it (between the margin and the table's
 	// own border/cell content). Percentages resolve against the width
 	// available before either is subtracted, matching renderBlockContent.
-	tableML, tableMR := 0, 0
-	if abs, pct, ok := parseSizeVal(tableDecls["margin-left"]); ok {
-		if pct > 0 {
-			tableML = int(pct * float64(availWidth))
-		} else {
-			tableML = abs
-		}
-	}
-	if abs, pct, ok := parseSizeVal(tableDecls["margin-right"]); ok {
-		if pct > 0 {
-			tableMR = int(pct * float64(availWidth))
-		} else {
-			tableMR = abs
-		}
-	}
-	tablePL, tablePR, tablePT, tablePB := 0, 0, 0, 0
-	if abs, _, ok := parseSizeVal(tableDecls["padding-left"]); ok {
-		tablePL = abs
-	}
-	if abs, _, ok := parseSizeVal(tableDecls["padding-right"]); ok {
-		tablePR = abs
-	}
-	if abs, _, ok := parseSizeVal(tableDecls["padding-top"]); ok {
-		tablePT = abs
-	}
-	if abs, _, ok := parseSizeVal(tableDecls["padding-bottom"]); ok {
-		tablePB = abs
-	}
+	// A margin side of "auto" resolves to 0 here (isAuto tracks it) and is
+	// filled in later, once the table's final rendered width is known — see
+	// the splitAutoMargins call below.
+	origAvailWidth := availWidth
+	tableML, mlAuto := resolveMarginSide(tableDecls["margin-left"], availWidth)
+	tableMR, mrAuto := resolveMarginSide(tableDecls["margin-right"], availWidth)
+	tablePL := parsePaddingLen(tableDecls["padding-left"])
+	tablePR := parsePaddingLen(tableDecls["padding-right"])
+	tablePT := parsePaddingLen(tableDecls["padding-top"])
+	tablePB := parsePaddingLen(tableDecls["padding-bottom"])
 	availWidth = max(1, availWidth-tableML-tableMR-tablePL-tablePR)
 
 	// Estimate final column widths up front (from CSS constraints alone, no
@@ -360,27 +322,10 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 						}
 						tdDecls = merged
 					}
-					pl, pr, pt, pb := 0, 0, 0, 0
-					if v := tdDecls["padding-left"]; v != "" {
-						if abs, _, ok := parseSizeVal(v); ok {
-							pl = abs
-						}
-					}
-					if v := tdDecls["padding-right"]; v != "" {
-						if abs, _, ok := parseSizeVal(v); ok {
-							pr = abs
-						}
-					}
-					if v := tdDecls["padding-top"]; v != "" {
-						if abs, _, ok := parseSizeVal(v); ok {
-							pt = abs
-						}
-					}
-					if v := tdDecls["padding-bottom"]; v != "" {
-						if abs, _, ok := parseSizeVal(v); ok {
-							pb = abs
-						}
-					}
+					pl := parsePaddingLen(tdDecls["padding-left"])
+					pr := parsePaddingLen(tdDecls["padding-right"])
+					pt := parsePaddingLen(tdDecls["padding-top"])
+					pb := parsePaddingLen(tdDecls["padding-bottom"])
 					cellBudget := availWidth
 					if ci < len(estWidths) {
 						cellBudget = max(1, estWidths[ci]-pl-pr)
@@ -392,9 +337,10 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 					cellText := plainInlineText(r.renderInlineAcc(td, inlineStyle{}, cellBudget))
 					r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 					if tdDecls["visibility"] == "hidden" {
-						// Replace with spaces to preserve visual width (visibility:hidden
-						// hides content but the cell still occupies space).
-						cellText = strings.Repeat(" ", ansiVisibleLen(cellText))
+						// Blank the content but keep its line structure (e.g. a <br>
+						// inside the cell) so the cell still occupies the same space;
+						// blankVisibleContent preserves "\n" and blanks everything else.
+						cellText = blankVisibleContent(cellText)
 					}
 					cells = append(cells, tableCell{
 						text:          cellText,
@@ -458,11 +404,19 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 		borderWidths[len(borderWidths)-1] += tablePR
 	}
 
+	// tableW is the table's own final rendered width (border box, including
+	// its padding but not its margin) — used both to center the caption and,
+	// below, to resolve any margin-left/right: auto into concrete blank space.
+	tableW := sum(widths) + overhead + tablePL + tablePR
+	if mlAuto || mrAuto {
+		remaining := origAvailWidth - tableW - tableML - tableMR
+		tableML, tableMR = splitAutoMargins(remaining, tableML, tableMR, mlAuto, mrAuto)
+	}
+
 	captionSide := tableDecls["caption-side"]
 	var out strings.Builder
 	if captionText != "" && captionSide != "bottom" {
 		// Center caption over the table width (default: top), including padding.
-		tableW := sum(widths) + overhead + tablePL + tablePR
 		out.WriteString(centerText(captionText, tableW) + "\n")
 	}
 	out.WriteString(drawHBorder(borderWidths, ts.top, ts.color, r.profile))
@@ -484,7 +438,6 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 	}
 	out.WriteString(drawHBorder(borderWidths, ts.bottom, ts.color, r.profile))
 	if captionText != "" && captionSide == "bottom" {
-		tableW := sum(widths) + overhead + tablePL + tablePR
 		out.WriteString(centerText(captionText, tableW) + "\n")
 	}
 	return wrapTableMargin(out.String(), tableML, tableMR)

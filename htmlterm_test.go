@@ -356,6 +356,10 @@ func TestVerticalBoxModel(t *testing.T) {
 		{name: "height expands short content with blank lines", css: `div { height: 3; width: 5; }`, html: `<div>x</div>`, want: "x    \n     \n     \n"},
 		{name: "height clips overflow with overflow:hidden", css: `div { height: 1; overflow: hidden; }`, html: "<div>a<br>b</div>", want: "a\n"},
 		{name: "height no-ops when content already fills height", css: `div { height: 2; width: 5; }`, html: "<div>a<br>b</div>", want: "a    \nb    \n"},
+		// Padding wider than the available box must shrink (right side first,
+		// then left) rather than pushing the box past its available width —
+		// mirrors the equivalent table-cell clamp in TestTableCellPadding.
+		{name: "padding exceeds available width clamps to keep 1-char content", css: `div { border-left: '|'; border-right: '|'; padding-left: 5; padding-right: 5; }`, html: `<div>X</div>`, width: 5, want: "|  X|\n"},
 	})
 }
 
@@ -624,6 +628,15 @@ func TestVisibilityHidden(t *testing.T) {
 			html:  `<table style="border-style:none"><tr><th>A</th><th class="secret">B</th></tr></table>`,
 			width: 20,
 			want:  "A  \n",
+		},
+		// A <br> inside a hidden cell still occupies its line in the row height;
+		// blanking must preserve line count, not collapse the cell to one line.
+		{
+			name:  "visibility hidden table cell with br preserves line count",
+			css:   `.secret { visibility: hidden; }`,
+			html:  `<table style="border-style:none"><tr><td class="secret">a<br>b</td></tr><tr><td>XX</td></tr></table>`,
+			width: 20,
+			want:  "  \n  \nXX\n",
 		},
 		{
 			name:  "visibility inherited from parent",

@@ -64,6 +64,11 @@ func TestTableMarginPadding(t *testing.T) {
 		{name: "padding-bottom adds a blank line after the table", html: `<table style="padding-bottom:1; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "hi\n  \n"},
 		{name: "margin and padding shrink column sizing for width:100% table", html: `<table style="width:100%; margin-left:2; margin-right:2; padding-left:1; padding-right:1; border-style:hidden"><tr><td>x</td></tr></table>`, width: 10, want: "   x      \n"},
 		{name: "no margin or padding leaves table unchanged", html: `<table ` + hidden + `><tr><td>hi</td></tr></table>`, want: "hi\n"},
+		// margin: auto on a table centers it (or pushes it to one side),
+		// matching the same behavior already supported for block elements.
+		{name: "margin auto both centers table", html: `<table style="margin:0 auto; border-style:hidden"><tr><td width="2">hi</td></tr></table>`, width: 10, want: "    hi    \n"},
+		{name: "margin-left auto pushes table right", html: `<table style="margin-left:auto; border-style:hidden"><tr><td width="2">hi</td></tr></table>`, width: 10, want: "        hi\n"},
+		{name: "margin-right auto fills trailing space", html: `<table style="margin-right:auto; border-style:hidden"><tr><td width="2">hi</td></tr></table>`, width: 10, want: "hi        \n"},
 	})
 }
 
