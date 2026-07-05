@@ -5,6 +5,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/net/html"
 )
 
@@ -169,78 +170,177 @@ func splitTrailingSpaces(s string) (core, trail string) {
 	return s[:i], s[i:]
 }
 
+// ansiCarry tracks the single currently-open SGR style span and/or OSC8
+// hyperlink span while scanning already-styled/hyperlinked text left to
+// right, so a line break inserted mid-span (by word-wrap or a hard break)
+// can close the span before the break and reopen the identical span right
+// after it, making every emitted line independently self-contained.
+//
+// Deliberately flat (not a stack): htmlterm's styling pipeline
+// (style.go's inlineStyle.render + block.go's wrapHyperlink) only ever
+// emits ONE combined SGR open + ONE full reset per span, and ONE OSC8
+// open + ONE OSC8 reset per hyperlink — never partial resets, never two
+// concurrently-open spans of the same kind. If that invariant changes,
+// this needs to become a stack.
+type ansiCarry struct {
+	sgr       string // active SGR open sequence, e.g. "\x1b[4m"; "" if none
+	hyperlink string // active OSC8 open sequence; "" if none
+}
+
+func (c ansiCarry) empty() bool { return c.sgr == "" && c.hyperlink == "" }
+
+// closeSeq closes whatever is open, innermost first (SGR, then OSC8).
+func (c ansiCarry) closeSeq() string {
+	if c.empty() {
+		return ""
+	}
+	var b strings.Builder
+	if c.sgr != "" {
+		b.WriteString(ansi.ResetStyle)
+	}
+	if c.hyperlink != "" {
+		b.WriteString(ansi.ResetHyperlink())
+	}
+	return b.String()
+}
+
+// openSeq reopens whatever is open, outermost first (OSC8, then SGR).
+func (c ansiCarry) openSeq() string {
+	if c.empty() {
+		return ""
+	}
+	var b strings.Builder
+	if c.hyperlink != "" {
+		b.WriteString(c.hyperlink)
+	}
+	if c.sgr != "" {
+		b.WriteString(c.sgr)
+	}
+	return b.String()
+}
+
+// apply classifies one fully-extracted escape sequence (as produced by
+// consumeANSI) and updates the carry: an SGR sequence (CSI ... 'm') with
+// empty/"0" params clears the active SGR span, any other SGR sequence
+// replaces it; an OSC8 sequence with an empty URI clears the active
+// hyperlink span, any other OSC8 sequence replaces it. Anything else is
+// left untouched.
+func (c *ansiCarry) apply(seq string) {
+	switch {
+	case strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m"):
+		params := seq[2 : len(seq)-1]
+		if params == "" || params == "0" {
+			c.sgr = ""
+		} else {
+			c.sgr = seq
+		}
+	case strings.HasPrefix(seq, "\x1b]8;"):
+		rest := seq[len("\x1b]8;"):]
+		semi := strings.IndexByte(rest, ';')
+		if semi < 0 {
+			return
+		}
+		uri := rest[semi+1:]
+		uri = strings.TrimSuffix(uri, "\x07")
+		uri = strings.TrimSuffix(uri, "\x1b\\")
+		if uri == "" {
+			c.hyperlink = ""
+		} else {
+			c.hyperlink = seq
+		}
+	}
+}
+
+// scan walks s in order, updating the carry for every escape sequence it
+// contains (reusing consumeANSI's recognizer).
+func (c *ansiCarry) scan(s string) {
+	if !strings.ContainsRune(s, '\x1b') {
+		return
+	}
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		if runes[i] == '\x1b' {
+			end := consumeANSI(runes, i)
+			c.apply(string(runes[i:end]))
+			i = end
+			continue
+		}
+		i++
+	}
+}
+
 // splitAtVisualWidth splits s into chunks of at most width visible runes,
 // attaching ANSI escape sequences to the preceding visible character.
 // Used for break-all and break-word hard-breaking.
 func splitAtVisualWidth(s string, width int) []string {
+	lines, _ := splitAtVisualWidthCarry(s, width, ansiCarry{})
+	return lines
+}
+
+// splitAtVisualWidthCarry is splitAtVisualWidth's carry-aware core. start is
+// whatever SGR/OSC8 span is already open as of the start of s (from
+// preceding text this call doesn't see); end is whatever span is left open
+// at the end of s. Every internal width-driven break closes the
+// currently-open span before the break and reopens the identical span
+// immediately after, so every returned chunk is self-contained.
+func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, ansiCarry) {
 	if width <= 0 || s == "" {
-		return []string{""}
+		return []string{""}, start
 	}
+	carry := start
 	var lines []string
 	var cur strings.Builder
+	if !carry.empty() {
+		cur.WriteString(carry.openSeq())
+	}
 	col := 0
 	runes := []rune(s)
 	i := 0
 	for i < len(runes) {
 		ch := runes[i]
 		if ch == '\x1b' {
-			// Consume ANSI escape sequence without counting visible width.
-			cur.WriteRune(ch)
-			i++
-			if i >= len(runes) {
-				break
-			}
-			next := runes[i]
-			cur.WriteRune(next)
-			i++
-			if next == '[' {
-				// CSI: consume until final byte (0x40–0x7e).
-				for i < len(runes) && (runes[i] < 0x40 || runes[i] > 0x7e) {
-					cur.WriteRune(runes[i])
-					i++
-				}
-				if i < len(runes) {
-					cur.WriteRune(runes[i])
-					i++
-				}
-			} else if next == ']' {
-				// OSC: consume until ST (ESC \) or BEL.
-				prev := next
-				for i < len(runes) {
-					c2 := runes[i]
-					cur.WriteRune(c2)
-					i++
-					if (prev == '\x1b' && c2 == '\\') || c2 == '\a' {
-						break
-					}
-					prev = c2
-				}
-			}
-			// else: two-char escape already consumed.
-		} else {
-			if col >= width {
-				lines = append(lines, cur.String())
-				cur.Reset()
-				col = 0
-			}
-			cur.WriteRune(ch)
-			col++
-			i++
+			j := consumeANSI(runes, i)
+			seq := string(runes[i:j])
+			cur.WriteString(seq)
+			carry.apply(seq)
+			i = j
+			continue
 		}
+		if col >= width {
+			if !carry.empty() {
+				cur.WriteString(carry.closeSeq())
+			}
+			lines = append(lines, cur.String())
+			cur.Reset()
+			col = 0
+			if !carry.empty() {
+				cur.WriteString(carry.openSeq())
+			}
+		}
+		cur.WriteRune(ch)
+		col++
+		i++
 	}
 	if cur.Len() > 0 {
 		lines = append(lines, cur.String())
 	}
 	if len(lines) == 0 {
-		return []string{""}
+		return []string{""}, carry
 	}
-	return lines
+	return lines, carry
 }
 
 // wordWrapANSI splits text into lines of at most width visible characters.
 // breakMode controls mid-word breaking: "" or "normal" = word boundaries only;
 // "break-word" = also hard-break tokens that overflow the width;
 // "break-all" = break at any character boundary.
+//
+// Any SGR style or OSC8 hyperlink span that gets split across an inserted
+// line break is closed before the break and reopened at the start of the
+// next line (see ansiCarry), so a line's own trailing padding/margin never
+// inherits a style left open by a wrapped span, and every wrapped line of a
+// styled/linked run remains independently styled.
 func wordWrapANSI(text string, width int, breakMode string) []string {
 	if width <= 0 {
 		width = 10
@@ -254,38 +354,59 @@ func wordWrapANSI(text string, width int, breakMode string) []string {
 	var lines []string
 	var cur strings.Builder
 	curLen := 0
+	var carry ansiCarry
+	freshLine := true
+
+	closeAndPush := func() {
+		if !carry.empty() {
+			cur.WriteString(carry.closeSeq())
+		}
+		lines = append(lines, cur.String())
+		cur.Reset()
+		curLen = 0
+		freshLine = true
+	}
+	ensureOpen := func() {
+		if freshLine {
+			if !carry.empty() {
+				cur.WriteString(carry.openSeq())
+			}
+			freshLine = false
+		}
+	}
+
 	tokens := splitANSITokens(text)
 	for _, tok := range tokens {
 		vl := ansiVisibleLen(tok)
 		space := " "
-		if cur.Len() == 0 {
+		if curLen == 0 {
 			space = ""
 		}
-		if curLen+len(space)+vl > width && cur.Len() > 0 {
-			lines = append(lines, cur.String())
-			cur.Reset()
-			curLen = 0
+		if curLen+len(space)+vl > width && curLen > 0 {
+			closeAndPush()
 			space = ""
 		}
 		if breakMode == "break-word" && vl > width {
 			// Hard-break a token that is too wide to fit on any line.
-			if cur.Len() > 0 {
-				lines = append(lines, cur.String())
-				cur.Reset()
-				curLen = 0
+			if curLen > 0 {
+				closeAndPush()
 			}
-			chunks := splitAtVisualWidth(tok, width)
+			chunks, endCarry := splitAtVisualWidthCarry(tok, width, carry)
+			carry = endCarry
 			for k, chunk := range chunks {
 				if k < len(chunks)-1 {
 					lines = append(lines, chunk)
 				} else {
 					cur.WriteString(chunk)
 					curLen = ansiVisibleLen(chunk)
+					freshLine = false
 				}
 			}
 		} else {
+			ensureOpen()
 			cur.WriteString(space + tok)
 			curLen += len(space) + vl
+			carry.scan(tok)
 		}
 	}
 	if cur.Len() > 0 {

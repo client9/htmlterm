@@ -517,8 +517,10 @@ func TestSplitAtVisualWidthEdgeCases(t *testing.T) {
 	if v := stripANSI(lines[0]); v != "abc" {
 		t.Errorf("OSC split lines[0] text = %q, want %q", v, "abc")
 	}
-	if lines[1] != "def" {
-		t.Errorf("OSC split lines[1] = %q, want %q", lines[1], "def")
+	// The hyperlink span is reopened on the continuation line so it stays
+	// active across the break (see ansiCarry in textutil.go).
+	if lines[1] != osc+"def" {
+		t.Errorf("OSC split lines[1] = %q, want %q", lines[1], osc+"def")
 	}
 }
 
