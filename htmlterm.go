@@ -60,7 +60,6 @@ pre                     { white-space: pre; }
 ul, ol, menu            { padding-left: 4; }
 dd                      { padding-left: 4; }
 dl                      { margin-bottom: 1; }
-td, th                  { white-space: nowrap; text-overflow: ellipsis; } 
 blockquote              { border-left: "│"; border-left-color: #555555; padding-left: 1; padding-right: 2; }
 s, del                  { text-decoration: line-through; }
 kbd                     { font-weight: bold; }

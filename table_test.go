@@ -20,13 +20,14 @@ func TestTextOverflow(t *testing.T) {
 		return `<table style="border-style:hidden"><tr><td ` + attrs + `>` + content + `</td></tr></table>`
 	}
 	runCases(t, []renderCase{
-		{name: "ellipsis (default) truncates with …", html: cell(`width="5"`, "Hello World"), want: "Hell…\n"},
-		{name: "clip truncates without marker", html: cell(`style="text-overflow:clip" width="5"`, "Hello World"), want: "Hello\n"},
-		{name: "custom string marker", html: cell(`style='text-overflow:"+"' width="5"`, "Hello World"), want: "Hell+\n"},
-		{name: "no truncation when content fits", html: cell(`width="11"`, "Hello World"), want: "Hello World\n"},
-		{name: "ellipsis on exact fit needs no truncation", html: cell(`width="5"`, "Hello"), want: "Hello\n"},
-		{name: "clip width=1 takes first rune", html: cell(`style="text-overflow:clip" width="1"`, "Hello"), want: "H\n"},
-		{name: "text-overflow via CSS class", css: `.clip td { text-overflow: clip; }`, html: `<table class="clip" style="border-style:hidden"><tr><td width="5">Hello World</td></tr></table>`, want: "Hello\n"},
+		{name: "ellipsis truncates with … when nowrap set", html: cell(`style="white-space:nowrap" width="5"`, "Hello World"), want: "Hell…\n"},
+		{name: "clip truncates without marker", html: cell(`style="white-space:nowrap; text-overflow:clip" width="5"`, "Hello World"), want: "Hello\n"},
+		{name: "custom string marker", html: cell(`style='white-space:nowrap; text-overflow:"+"' width="5"`, "Hello World"), want: "Hell+\n"},
+		{name: "no truncation when content fits", html: cell(`style="white-space:nowrap" width="11"`, "Hello World"), want: "Hello World\n"},
+		{name: "ellipsis on exact fit needs no truncation", html: cell(`style="white-space:nowrap" width="5"`, "Hello"), want: "Hello\n"},
+		{name: "clip width=1 takes first rune", html: cell(`style="white-space:nowrap; text-overflow:clip" width="1"`, "Hello"), want: "H\n"},
+		{name: "text-overflow via CSS class", css: `.clip td { white-space: nowrap; text-overflow: clip; }`, html: `<table class="clip" style="border-style:hidden"><tr><td width="5">Hello World</td></tr></table>`, want: "Hello\n"},
+		{name: "no white-space set wraps instead of truncating", html: cell(`width="5"`, "Hello World"), want: "Hello\nWorld\n"},
 	})
 }
 
@@ -37,7 +38,7 @@ func TestTableCellPadding(t *testing.T) {
 		{name: "padding-right adds space after cell content", html: `<table ` + hidden + `><tr><td style="padding-right:1" width="6">ab</td></tr></table>`, want: "ab    \n"},
 		{name: "padding-left and padding-right both set", html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1" width="7">ab</td></tr></table>`, want: " ab    \n"},
 		{name: "natural width includes padding when no explicit width set", html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1">ab</td></tr></table>`, want: " ab \n"},
-		{name: "padding-left truncates content to reduced content width", html: `<table ` + hidden + `><tr><td style="padding-left:1" width="5">Hello</td></tr></table>`, want: " Hel…\n"},
+		{name: "padding-left truncates content to reduced content width", html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:nowrap" width="5">Hello</td></tr></table>`, want: " Hel…\n"},
 		{name: "padding-top adds blank line above content", html: `<table ` + hidden + `><tr><td style="padding-top:1" width="5">ab</td></tr></table>`, want: "     \nab   \n"},
 		{name: "padding-bottom adds blank line below content", html: `<table ` + hidden + `><tr><td style="padding-bottom:1" width="5">ab</td></tr></table>`, want: "ab   \n     \n"},
 		{name: "padding-top 2 adds two blank lines above", html: `<table ` + hidden + `><tr><td style="padding-top:2" width="4">X</td></tr></table>`, want: "    \n    \nX   \n"},

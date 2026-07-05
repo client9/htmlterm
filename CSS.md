@@ -293,7 +293,7 @@ Integer line count (e.g. `3`). Minimum content-box height in lines. The element 
 Integer line count (e.g. `10`). Maximum content-box height in lines. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited.
 
 #### `white-space`
-`normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. **`td` and `th` default to `nowrap`** (single-line truncation); set `white-space: normal` on a cell or ancestor to enable multi-line wrapping instead. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
+`normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements, including `td` and `th`. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping; set it on a cell or ancestor to get single-line truncation (see `text-overflow`) instead of multi-line wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
 
 #### `overflow`
 `visible` | `hidden` | `clip`. Controls whether content that exceeds an explicit `width` is clipped. Default `visible`: text overflows the box. `hidden` and `clip` both truncate each line to the content width. **Requires an explicit `width`**; without one the element already fills the available width. `text-overflow` controls the truncation marker. Not inherited.
@@ -528,7 +528,7 @@ The `width` HTML attribute on `<th>`/`<td>` is equivalent to CSS `width`
 | `width` | `width: 14` or `width: 25%` | Fixed or percentage column width; immune to expand/shrink |
 | `min-width` | `min-width: 8` or `min-width: 10%` | Column will not shrink below this value |
 | `max-width` | `max-width: 40` or `max-width: 30%` | Column will not expand beyond this value |
-| `white-space` | `nowrap` \| `normal` | Controls cell line-wrapping. Default `nowrap`: content is clipped to one line using `text-overflow`. Set to `normal` (or inherit it from a parent) to enable multi-line word-wrapping; `text-overflow` is then ignored. |
+| `white-space` | `nowrap` \| `normal` | Controls cell line-wrapping. Default `normal`: content word-wraps across multiple lines. Set to `nowrap` to clip to a single line using `text-overflow` instead. |
 | `text-overflow` | `clip` \| `ellipsis` \| `"‹str›"` | How overflowing text is indicated when `white-space: nowrap`. Default `ellipsis` (`…`). `clip` cuts with no marker; a quoted string (e.g. `text-overflow: "+"`) uses that as the marker. Not inherited. Ignored when `white-space: normal`. |
 | `vertical-align` | `top` \| `middle` \| `bottom` | Vertical placement of the cell's content within the row height. Default `top`. `bottom` pins content to the last line of the row; `middle` centres it. Not inherited. Only meaningful when rows contain multi-line cells of differing heights. |
 
@@ -683,5 +683,5 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
   use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
 - `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none`
 - `flex`, `grid`, or positioned layout
-- Multi-line cell content when `white-space: nowrap` (the default for `td`/`th`); set `white-space: normal` to opt in to word wrapping
+- Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-spacing` / cell padding (column separator is always a single character)
