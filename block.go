@@ -384,8 +384,12 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		rawContent = strings.Join(lines, "\n")
 	}
 
+	// closedBox is true when a top/bottom rule is combined with a right
+	// border: the rule always spans the full box width, so the right
+	// border must be pushed out to meet it rather than hugging content.
+	closedBox := (bt.char != "" || bb.char != "") && br.char != ""
 	var content string
-	needsAlign := textAlign != "" || (hasExplicitWidth && ws != "nowrap")
+	needsAlign := textAlign != "" || closedBox || (hasExplicitWidth && ws != "nowrap")
 	if needsAlign {
 		content = alignLines(rawContent, textAlign, innerW)
 	} else {
