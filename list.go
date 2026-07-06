@@ -124,32 +124,30 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 			prefix = extractInlineStyle(md).render(prefix, r.profile)
 		}
 		savedDepth := r.quoteDepth
-		raw := strings.TrimRight(r.renderInline(c, contentWidth), "\n ")
+		tokens := r.renderInlineAccTokens(c, inlineStyle{}, contentWidth)
+		tokens = trimTrailingBreaksAndSpace(tokens)
 		if liDecls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth
-			raw = blankVisibleContent(raw)
+			tokens = blankVisibleContentTokens(tokens)
 			prefix = blankVisibleContent(prefix)
 		}
-		lines := strings.Split(raw, "\n")
-		for li, line := range lines {
-			if li == 0 {
-				wrapped := wordWrapANSI(line, firstLineWidth, "")
-				for wi, seg := range wrapped {
-					if wi == 0 {
-						sb.WriteString(indentStr + prefix + seg + "\n")
-					} else {
-						sb.WriteString(hangStr + seg + "\n")
-					}
-				}
-			} else {
-				if strings.TrimSpace(line) == "" {
-					sb.WriteByte('\n')
-					continue
-				}
-				wrapped := wordWrapANSI(line, contentWidth, "")
-				for _, seg := range wrapped {
-					sb.WriteString(hangStr + seg + "\n")
-				}
+		// One call handles both the first line's narrower width (room for
+		// the prefix) and the rest — eliminating the historical double-wrap
+		// (wrap once via renderInline at contentWidth, split on "\n", then
+		// wrap the first line again narrower and string-concatenate the
+		// prefix on front).
+		body, _ := wordWrapTokens(tokens, contentWidth, "", firstLineWidth)
+		for i, line := range body.lines {
+			switch {
+			case i == 0:
+				sb.WriteString(indentStr + prefix + line + "\n")
+			case line == "":
+				// No hanging-indent padding on a genuinely blank line (e.g.
+				// from "<br><br>" inside the item) — avoids trailing
+				// whitespace-only lines.
+				sb.WriteByte('\n')
+			default:
+				sb.WriteString(hangStr + line + "\n")
 			}
 		}
 	}

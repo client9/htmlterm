@@ -341,81 +341,11 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 // next line (see ansiCarry), so a line's own trailing padding/margin never
 // inherits a style left open by a wrapped span, and every wrapped line of a
 // styled/linked run remains independently styled.
+//
+// Thin shim over wordWrapTokens with a single text token — see wraptoken.go.
 func wordWrapANSI(text string, width int, breakMode string) []string {
-	if width <= 0 {
-		width = 10
-	}
-	if breakMode == "break-all" {
-		return splitAtVisualWidth(text, width)
-	}
-	if ansiVisibleLen(text) <= width {
-		return []string{text}
-	}
-	var lines []string
-	var cur strings.Builder
-	curLen := 0
-	var carry ansiCarry
-	freshLine := true
-
-	closeAndPush := func() {
-		if !carry.empty() {
-			cur.WriteString(carry.closeSeq())
-		}
-		lines = append(lines, cur.String())
-		cur.Reset()
-		curLen = 0
-		freshLine = true
-	}
-	ensureOpen := func() {
-		if freshLine {
-			if !carry.empty() {
-				cur.WriteString(carry.openSeq())
-			}
-			freshLine = false
-		}
-	}
-
-	tokens := splitANSITokens(text)
-	for _, tok := range tokens {
-		vl := ansiVisibleLen(tok)
-		space := " "
-		if curLen == 0 {
-			space = ""
-		}
-		if curLen+len(space)+vl > width && curLen > 0 {
-			closeAndPush()
-			space = ""
-		}
-		if breakMode == "break-word" && vl > width {
-			// Hard-break a token that is too wide to fit on any line.
-			if curLen > 0 {
-				closeAndPush()
-			}
-			chunks, endCarry := splitAtVisualWidthCarry(tok, width, carry)
-			carry = endCarry
-			for k, chunk := range chunks {
-				if k < len(chunks)-1 {
-					lines = append(lines, chunk)
-				} else {
-					cur.WriteString(chunk)
-					curLen = ansiVisibleLen(chunk)
-					freshLine = false
-				}
-			}
-		} else {
-			ensureOpen()
-			cur.WriteString(space + tok)
-			curLen += len(space) + vl
-			carry.scan(tok)
-		}
-	}
-	if cur.Len() > 0 {
-		lines = append(lines, cur.String())
-	}
-	if len(lines) == 0 {
-		lines = []string{""}
-	}
-	return lines
+	b, _ := wordWrapTokens([]wrapToken{{text: text}}, width, breakMode, 0)
+	return b.lines
 }
 
 // ansiVisibleLen returns the number of visible (non-ANSI-escape) runes in s.

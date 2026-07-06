@@ -342,24 +342,44 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	if innerW < 1 {
 		innerW = 1
 	}
-	rawContent := strings.TrimRight(r.renderInlineAcc(n, acc, innerW), "\n")
+	tokens := r.renderInlineAccTokens(n, acc, innerW)
+	for len(tokens) > 0 && tokens[len(tokens)-1].brk {
+		tokens = tokens[:len(tokens)-1]
+	}
 	wasWrapped := false
 	ws := decls["white-space"]
-	if ws != "pre" && ws != "pre-wrap" && strings.HasSuffix(rawContent, " ") && !strings.HasSuffix(rawContent, "  ") {
-		rawContent = rawContent[:len(rawContent)-1]
+	if ws != "pre" && ws != "pre-wrap" && len(tokens) > 0 {
+		last := len(tokens) - 1
+		if tokens[last].box == nil && !tokens[last].brk {
+			t := tokens[last].text
+			if strings.HasSuffix(t, " ") && !strings.HasSuffix(t, "  ") {
+				tokens[last] = wrapToken{text: t[:len(t)-1]}
+			}
+		}
 	}
-	var lines []string
-	if ws != "pre" && ws != "nowrap" && !strings.Contains(rawContent, "\n") {
+	// hasStructure mirrors the historical strings.Contains(rawContent, "\n")
+	// guard: content already shaped by a block/br/table/list child (as
+	// opposed to plain flowable text) never counts as "wrapped" below, even
+	// when wordWrapTokens' result has multiple lines — those lines come from
+	// forced structure, not width-driven reflow.
+	hasStructure := false
+	for _, tk := range tokens {
+		if tk.brk || tk.box != nil {
+			hasStructure = true
+			break
+		}
+	}
+	var b box
+	if ws == "pre" || ws == "nowrap" {
+		b = newBox(tokensToString(tokens))
+	} else {
 		breakMode := decls["overflow-wrap"]
 		if breakMode == "" {
 			breakMode = decls["word-break"]
 		}
-		lines = wordWrapANSI(rawContent, innerW, breakMode)
-		wasWrapped = len(lines) > 1
-	} else {
-		lines = strings.Split(rawContent, "\n")
+		b, _ = wordWrapTokens(tokens, innerW, breakMode, 0)
+		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
-	b := box{lines: lines, width: linesWidth(lines)}
 
 	ov := decls["overflow"]
 	if (ov == "hidden" || ov == "clip") && hasExplicitWidth {

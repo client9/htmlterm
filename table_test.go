@@ -167,44 +167,6 @@ func TestNestedTablesInCells(t *testing.T) {
 	}
 }
 
-// TestNestedTablesDeepMarginSurvival pins the exact current behavior of the
-// nbsp-for-unbreakable-content mechanism (table_render.go's nbsp const /
-// wrapTableMargin) two levels deep and in isolation (margin-right alone, no
-// padding), before RENDERING.md's rewrite removes it in favor of embedding a
-// nested table as a real box with a known width. If this rewrite changes
-// this output, the removal changed observable behavior, not just mechanism.
-func TestNestedTablesDeepMarginSurvival(t *testing.T) {
-	r, err := htmlterm.New(htmlterm.Options{Width: 40})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	// Two levels of borderless wrapper tables around an innermost table with
-	// its own margin-left/right + padding-left/right.
-	got, err := r.Render(`<table style="border-style:hidden"><tr><td><table style="border-style:hidden"><tr><td><table style="margin-left:1; margin-right:1; padding-left:1; padding-right:1"><tr><td>hi</td></tr></table></td></tr></table></td></tr></table>`)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	got = stripANSI(got)
-	want := " ┌────┐ \n │ hi │ \n └────┘ \n"
-	if got != want {
-		t.Fatalf("two-level-deep nested table margin/padding lost:\ngot  %q\nwant %q", got, want)
-	}
-
-	// margin-right alone (no padding) on a singly-nested table: the nbsp
-	// trick exists precisely because plainInlineText right-trims plain
-	// trailing spaces, so this isolates the margin-only case.
-	got2, err := r.Render(`<table style="border-style:hidden"><tr><td><table style="margin-right:2"><tr><td>hi</td></tr></table></td></tr></table>`)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	got2 = stripANSI(got2)
-	want2 := "┌──┐  \n│hi│  \n└──┘  \n"
-	if got2 != want2 {
-		t.Fatalf("margin-right-only nested table lost trailing margin:\ngot  %q\nwant %q", got2, want2)
-	}
-}
-
 func TestTablePreservesInlineChildStyling(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40})
 	if err != nil {

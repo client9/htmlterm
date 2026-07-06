@@ -9,7 +9,7 @@ import (
 )
 
 type tableCell struct {
-	text          string
+	tokens        []wrapToken
 	textAlign     string
 	cellStyle     inlineStyle
 	constraints   colConstraints
@@ -334,16 +334,24 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 					}
 					savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 					r.nestedTableWidth, r.nestedTableWidthSet = cellBudget, true
-					cellText := plainInlineText(r.renderInlineAcc(td, inlineStyle{}, cellBudget))
+					cellTokens := r.renderInlineAccTokens(td, inlineStyle{}, cellBudget)
 					r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
+					// A trailing brk (e.g. from a block child or nested table
+					// rendered via pushBox) is only ever meaningful as
+					// structural separation between siblings — trailing, it's
+					// not real content and would otherwise wrap to a spurious
+					// blank line at the bottom of the cell.
+					for len(cellTokens) > 0 && cellTokens[len(cellTokens)-1].brk {
+						cellTokens = cellTokens[:len(cellTokens)-1]
+					}
 					if tdDecls["visibility"] == "hidden" {
-						// Blank the content but keep its line structure (e.g. a <br>
-						// inside the cell) so the cell still occupies the same space;
-						// blankVisibleContent preserves "\n" and blanks everything else.
-						cellText = blankVisibleContent(cellText)
+						// Blank the content but keep its line/box structure (e.g. a
+						// <br> or nested block inside the cell) so the cell still
+						// occupies the same space.
+						cellTokens = blankVisibleContentTokens(cellTokens)
 					}
 					cells = append(cells, tableCell{
-						text:          cellText,
+						tokens:        cellTokens,
 						textAlign:     tdDecls["text-align"],
 						cellStyle:     extractInlineStyle(tdDecls),
 						constraints:   r.cellConstraints(td, tdDecls),
@@ -443,24 +451,25 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 	return wrapTableMargin(out.String(), tableML, tableMR)
 }
 
+// nbsp is U+00A0 (non-breaking space). A real &nbsp; HTML entity decodes to
+// this rune and survives rendering as a distinct character
+// (normalizeWhiteSpace and plainInlineText only touch plain ASCII space);
+// Render's final pass normalizes it to a plain space in the returned string,
+// since terminals don't distinguish breaking from non-breaking spaces.
+const nbsp = "\u00A0"
+
 // wrapTableMargin applies the <table> element's own margin-left/right as
 // blank space outside its fully-rendered text (padding is applied inside the
 // border box itself, in the main body of renderTable, since CSS padding sits
 // between the border and the content, not outside the border like margin).
-//
-// Right-side fill (margin-right) uses U+00A0 (non-breaking space) instead of
-// a plain space. When this table is nested inside another table's cell, the
-// outer table computes its cell text via plainInlineText, which right-trims
-// plain trailing spaces — that would silently delete this table's own right
-// margin on every level of nesting. A trailing U+00A0 survives that trim;
-// Render converts it back to a plain space before returning the final string.
-// nbsp is U+00A0 (non-breaking space). See wrapTableMargin for why it's used
-// instead of a plain space for a table's own right margin.
-const nbsp = "\u00A0"
-
+// Plain spaces are safe on both sides: when this table is nested inside
+// another table's cell, the outer table embeds it as a box token (see
+// renderInlineAccTokens), never as flattened text passed through
+// plainInlineText's trailing-space trim — so nothing here needs protecting
+// from trimming the way it did before cells were token-based.
 func wrapTableMargin(s string, ml, mr int) string {
 	if ml > 0 || mr > 0 {
-		s = applyLineEdges(s, strings.Repeat(" ", ml), strings.Repeat(nbsp, mr))
+		s = applyLineEdges(s, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
 	}
 	return s
 }
@@ -475,7 +484,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 	for i := 0; i < numCols; i++ {
 		if i < len(headers) {
 			cols[i] = headers[i].constraints
-			cols[i].natural = maxVisibleLineWidth(headers[i].text) + headers[i].paddingLeft + headers[i].paddingRight
+			cols[i].natural = tokensNaturalWidth(headers[i].tokens) + headers[i].paddingLeft + headers[i].paddingRight
 		}
 	}
 	for _, row := range rows {
@@ -483,7 +492,7 @@ func buildTableColumns(headers []tableCell, rows [][]tableCell, numCols int) []c
 			if i >= numCols {
 				break
 			}
-			if w := maxVisibleLineWidth(c.text) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
+			if w := tokensNaturalWidth(c.tokens) + c.paddingLeft + c.paddingRight; w > cols[i].natural {
 				cols[i].natural = w
 			}
 			dc := c.constraints
@@ -516,12 +525,18 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 			break
 		}
 		_, _, contentW := clampCellPadding(widths[i], cells[i].paddingLeft, cells[i].paddingRight)
-		for _, line := range strings.Split(strings.TrimRight(cells[i].text, "\n"), "\n") {
-			if cells[i].noWrap {
+		if cells[i].noWrap {
+			// Not wrapped, so a plain trailing space from source text (e.g.
+			// "<td>hi </td>") won't get naturally dropped by tokenization the
+			// way wrapping does — trim it explicitly, per line, matching
+			// plainInlineText's historical role here.
+			flat := plainInlineText(tokensToString(cells[i].tokens))
+			for _, line := range strings.Split(strings.TrimRight(flat, "\n"), "\n") {
 				cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
-			} else {
-				cells[i].lines = append(cells[i].lines, wordWrapANSI(line, contentW, "break-word")...)
 			}
+		} else {
+			b, _ := wordWrapTokens(cells[i].tokens, contentW, "break-word", 0)
+			cells[i].lines = append(cells[i].lines, b.lines...)
 		}
 		if len(cells[i].lines) == 0 {
 			cells[i].lines = []string{""}
@@ -544,8 +559,9 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 		}
 	}
 	paint := makePainter(ts.color, p)
-	var sb strings.Builder
+	rowLines := make([]string, 0, height)
 	for lineIdx := 0; lineIdx < height; lineIdx++ {
+		var sb strings.Builder
 		sb.WriteString(paint(ts.left))
 		if boxPL > 0 {
 			sb.WriteString(strings.Repeat(" ", boxPL))
@@ -583,9 +599,9 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 			sb.WriteString(strings.Repeat(" ", boxPR))
 		}
 		sb.WriteString(paint(ts.right))
-		sb.WriteByte('\n')
+		rowLines = append(rowLines, sb.String())
 	}
-	return sb.String()
+	return strings.Join(rowLines, "\n") + "\n"
 }
 
 // blankBoxRow draws one bordered but content-free row (left border + blank
