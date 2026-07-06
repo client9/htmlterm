@@ -3,6 +3,7 @@ package htmlterm
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
@@ -15,6 +16,22 @@ type blockBorder struct {
 	color string
 }
 
+// applyLineEdgesBox prepends prefix and appends suffix to every line of b.
+func applyLineEdgesBox(b box, prefix, suffix string) box {
+	if prefix == "" && suffix == "" {
+		return b
+	}
+	lines := make([]string, len(b.lines))
+	for i, line := range b.lines {
+		lines[i] = prefix + line + suffix
+	}
+	return box{lines: lines, width: linesWidth(lines)}
+}
+
+// applyLineEdges is a string-signature shim over applyLineEdgesBox, preserving
+// the historical quirk that a trailing "\n" on content is stripped before the
+// per-line transform and restored after — content has no trailing-newline
+// concept in box form, so that behavior lives here rather than in the core.
 func applyLineEdges(content, prefix, suffix string) string {
 	if prefix == "" && suffix == "" {
 		return content
@@ -23,26 +40,21 @@ func applyLineEdges(content, prefix, suffix string) string {
 	if trailing {
 		content = content[:len(content)-1]
 	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line + suffix
-	}
-	result := strings.Join(lines, "\n")
+	result := applyLineEdgesBox(newBox(content), prefix, suffix).join()
 	if trailing {
 		result += "\n"
 	}
 	return result
 }
 
-func alignLines(content, dir string, width int) string {
-	trailing := strings.HasSuffix(content, "\n")
-	if trailing {
-		content = content[:len(content)-1]
-	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
+// alignLinesBox pads every line of b to width (lines already >= width are
+// left unchanged), aligning left/right/center per dir.
+func alignLinesBox(b box, dir string, width int) box {
+	lines := make([]string, len(b.lines))
+	for i, line := range b.lines {
 		vl := ansiVisibleLen(line)
 		if vl >= width {
+			lines[i] = line
 			continue
 		}
 		pad := width - vl
@@ -56,25 +68,45 @@ func alignLines(content, dir string, width int) string {
 			lines[i] = line + strings.Repeat(" ", pad)
 		}
 	}
-	result := strings.Join(lines, "\n")
+	return box{lines: lines, width: linesWidth(lines)}
+}
+
+// alignLines is a string-signature shim over alignLinesBox; see applyLineEdges
+// for why the trailing-newline handling lives in the shim, not the core.
+func alignLines(content, dir string, width int) string {
+	trailing := strings.HasSuffix(content, "\n")
+	if trailing {
+		content = content[:len(content)-1]
+	}
+	result := alignLinesBox(newBox(content), dir, width).join()
 	if trailing {
 		result += "\n"
 	}
 	return result
 }
 
+// padLinesToWidthBox pads every line of b shorter than width with trailing
+// spaces; lines already >= width are left unchanged.
+func padLinesToWidthBox(b box, width int) box {
+	lines := make([]string, len(b.lines))
+	for i, line := range b.lines {
+		if vl := ansiVisibleLen(line); vl < width {
+			lines[i] = line + strings.Repeat(" ", width-vl)
+		} else {
+			lines[i] = line
+		}
+	}
+	return box{lines: lines, width: linesWidth(lines)}
+}
+
+// padLinesToWidth is a string-signature shim over padLinesToWidthBox; see
+// applyLineEdges for why the trailing-newline handling lives in the shim.
 func padLinesToWidth(content string, width int) string {
 	trailing := strings.HasSuffix(content, "\n")
 	if trailing {
 		content = content[:len(content)-1]
 	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if vl := ansiVisibleLen(line); vl < width {
-			lines[i] = line + strings.Repeat(" ", width-vl)
-		}
-	}
-	result := strings.Join(lines, "\n")
+	result := padLinesToWidthBox(newBox(content), width).join()
 	if trailing {
 		result += "\n"
 	}
@@ -134,22 +166,16 @@ func maxVisibleLineWidth(s string) int {
 	return maxW
 }
 
-func applyBlockBorders(content string, left, right blockBorder, p colorprofile.Profile) string {
+// applyBlockBordersBox prepends the painted left border char and appends the
+// painted right border char to every line of b.
+func applyBlockBordersBox(b box, left, right blockBorder, p colorprofile.Profile) box {
 	paintL := makePainter(left.color, p)
 	paintR := makePainter(right.color, p)
-	trailing := strings.HasSuffix(content, "\n")
-	if trailing {
-		content = content[:len(content)-1]
-	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
+	lines := make([]string, len(b.lines))
+	for i, line := range b.lines {
 		lines[i] = paintL(left.char) + line + paintR(right.char)
 	}
-	result := strings.Join(lines, "\n")
-	if trailing {
-		result += "\n"
-	}
-	return result
+	return box{lines: lines, width: linesWidth(lines)}
 }
 
 // parseMargin parses a CSS margin-top / margin-bottom value as a line count.
@@ -214,8 +240,20 @@ func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
 	}
 }
 
-// renderBlockContent renders the styled, bordered, and margined content of a block element.
+// renderBlockContent renders the styled, bordered, and margined content of a
+// block element. Thin shim over renderBlockContentBox for callers not yet
+// migrated to box.
 func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, availWidth int) string {
+	return r.renderBlockContentBox(n, decls, availWidth).join()
+}
+
+// renderBlockContentBox is renderBlockContent's box-based core. It preserves
+// the exact operation order of the original string implementation (border
+// resolution → margin/padding resolution → clampCellPadding → inline content
+// → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
+// height padding → text-indent → vertical padding → horizontal padding →
+// borders → top/bottom rules → margins → visibility:hidden blanking, last).
+func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) box {
 	bl := blockBorder{char: parseCSSString(decls["border-left"]), color: decls["border-left-color"]}
 	br := blockBorder{char: parseCSSString(decls["border-right"]), color: decls["border-right-color"]}
 	bt := blockBorder{char: parseCSSString(decls["border-top"]), color: decls["border-top-color"]}
@@ -310,15 +348,18 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 	if ws != "pre" && ws != "pre-wrap" && strings.HasSuffix(rawContent, " ") && !strings.HasSuffix(rawContent, "  ") {
 		rawContent = rawContent[:len(rawContent)-1]
 	}
+	var lines []string
 	if ws != "pre" && ws != "nowrap" && !strings.Contains(rawContent, "\n") {
 		breakMode := decls["overflow-wrap"]
 		if breakMode == "" {
 			breakMode = decls["word-break"]
 		}
-		wrapped := wordWrapANSI(rawContent, innerW, breakMode)
-		rawContent = strings.Join(wrapped, "\n")
-		wasWrapped = len(wrapped) > 1
+		lines = wordWrapANSI(rawContent, innerW, breakMode)
+		wasWrapped = len(lines) > 1
+	} else {
+		lines = strings.Split(rawContent, "\n")
 	}
+	b := box{lines: lines, width: linesWidth(lines)}
 
 	ov := decls["overflow"]
 	if (ov == "hidden" || ov == "clip") && hasExplicitWidth {
@@ -327,33 +368,24 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 			toVal = "clip"
 		}
 		suffix := textOverflowSuffix(toVal)
-		lines := strings.Split(rawContent, "\n")
-		for i, ln := range lines {
-			lines[i] = truncateToWidth(ln, innerW, suffix)
+		newLines := make([]string, len(b.lines))
+		for i, ln := range b.lines {
+			newLines[i] = truncateToWidth(ln, innerW, suffix)
 		}
-		rawContent = strings.Join(lines, "\n")
+		b = box{lines: newLines, width: linesWidth(newLines)}
 	}
 
 	// closedBox is true when a top/bottom rule is combined with a right
 	// border: the rule always spans the full box width, so the right
 	// border must be pushed out to meet it rather than hugging content.
 	closedBox := (bt.char != "" || bb.char != "") && br.char != ""
-	var content string
 	needsAlign := textAlign != "" || closedBox || (hasExplicitWidth && ws != "nowrap")
 	if needsAlign {
-		content = alignLines(rawContent, textAlign, innerW)
-	} else {
-		content = rawContent
+		b = alignLinesBox(b, textAlign, innerW)
 	}
 
 	if !needsAlign && wasWrapped && (pr > 0 || br.char != "") {
-		maxW := 0
-		for _, ln := range strings.Split(content, "\n") {
-			if vl := ansiVisibleLen(ln); vl > maxW {
-				maxW = vl
-			}
-		}
-		content = padLinesToWidth(content, maxW)
+		b = padLinesToWidthBox(b, b.width)
 	}
 
 	minH := 0
@@ -369,7 +401,7 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 		}
 	}
 	if heightLines > 0 || minH > 0 || maxH > 0 {
-		lines := strings.Split(content, "\n")
+		lines := b.lines
 		blank := strings.Repeat(" ", innerW)
 		if heightLines > 0 {
 			// Fixed height takes priority over min/max.
@@ -392,7 +424,7 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 				}
 			}
 		}
-		content = strings.Join(lines, "\n")
+		b = box{lines: lines, width: linesWidth(lines)}
 	}
 	// text-indent: apply only when this element's first rendered content is
 	// direct inline text (not a child block that will apply its own indent).
@@ -405,51 +437,59 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 				indent = abs
 			}
 		}
-		if indent > 0 {
-			lines := strings.SplitN(content, "\n", 2)
-			if len(lines) >= 1 {
-				lines[0] = strings.Repeat(" ", indent) + lines[0]
-			}
-			content = strings.Join(lines, "\n")
+		if indent > 0 && len(b.lines) > 0 {
+			lines := b.lines
+			lines[0] = strings.Repeat(" ", indent) + lines[0]
+			b = box{lines: lines, width: linesWidth(lines)}
 		}
 	}
 	if pt > 0 || pb > 0 {
 		blank := strings.Repeat(" ", innerW)
+		lines := b.lines
 		if pt > 0 {
-			content = strings.Repeat(blank+"\n", pt) + content
+			padded := make([]string, 0, pt+len(lines))
+			for range pt {
+				padded = append(padded, blank)
+			}
+			lines = append(padded, lines...)
 		}
 		if pb > 0 {
-			content = content + "\n" + strings.Repeat(blank+"\n", pb)
-			content = strings.TrimSuffix(content, "\n")
+			for range pb {
+				lines = append(lines, blank)
+			}
 		}
+		b = box{lines: lines, width: linesWidth(lines)}
 	}
 	if pl > 0 || pr > 0 {
-		content = applyLineEdges(content, strings.Repeat(" ", pl), strings.Repeat(" ", pr))
+		b = applyLineEdgesBox(b, strings.Repeat(" ", pl), strings.Repeat(" ", pr))
 	}
 	if bl.char != "" || br.char != "" {
-		content = applyBlockBorders(content, bl, br, r.profile)
+		b = applyBlockBordersBox(b, bl, br, r.profile)
 	}
+	isEmpty := func() bool { return len(b.lines) == 1 && b.lines[0] == "" }
 	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
-		if content != "" {
-			content = top + "\n" + content
+		if isEmpty() {
+			b.lines = []string{top}
 		} else {
-			content = top
+			b.lines = append([]string{top}, b.lines...)
 		}
+		b.width = linesWidth(b.lines)
 	}
 	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
-		if content != "" {
-			content = content + "\n" + bot
+		if isEmpty() {
+			b.lines = []string{bot}
 		} else {
-			content = bot
+			b.lines = append(b.lines, bot)
 		}
+		b.width = linesWidth(b.lines)
 	}
 	if ml > 0 || mr > 0 {
-		content = applyLineEdges(content, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
+		b = applyLineEdgesBox(b, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
 	}
 	if decls["visibility"] == "hidden" {
-		content = blankVisibleContent(content)
+		b = blankVisibleContentBox(b)
 	}
-	return content
+	return b
 }
 
 // firstContentIsInline reports whether n's first non-whitespace content is
@@ -473,18 +513,24 @@ func (r *Renderer) firstContentIsInline(n *html.Node) bool {
 
 // blankVisibleContent removes all ANSI escapes and replaces every non-newline
 // character with a space, preserving line structure for layout purposes.
+// Thin shim over blankVisibleContentBox for callers not yet migrated to box.
 func blankVisibleContent(s string) string {
-	plain := stripANSI(s)
-	var b strings.Builder
-	b.Grow(len(plain))
-	for _, ch := range plain {
-		if ch == '\n' {
-			b.WriteRune('\n')
-		} else {
-			b.WriteRune(' ')
-		}
+	return blankVisibleContentBox(newBox(s)).join()
+}
+
+// blankLineVisible strips ANSI from line and replaces every remaining rune
+// with a space, preserving rune count.
+func blankLineVisible(line string) string {
+	return strings.Repeat(" ", utf8.RuneCountInString(stripANSI(line)))
+}
+
+// blankVisibleContentBox is blankVisibleContent's box-based core.
+func blankVisibleContentBox(b box) box {
+	lines := make([]string, len(b.lines))
+	for i, line := range b.lines {
+		lines[i] = blankLineVisible(line)
 	}
-	return b.String()
+	return box{lines: lines, width: linesWidth(lines)}
 }
 
 // parseCSSString unquotes a CSS quoted string token (e.g. `"│"` → `│`).

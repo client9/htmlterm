@@ -12,18 +12,24 @@ type box struct {
 	width int
 }
 
-// newBox splits s into a box. width is the max ansiVisibleLen across lines,
-// so callers that haven't padded every line to a uniform width yet still get
-// a usable (if not yet uniform) box.
+// newBox splits s into a box, width computed via linesWidth so callers that
+// haven't padded every line to a uniform width yet still get a usable (if
+// not yet uniform) box.
 func newBox(s string) box {
 	lines := strings.Split(s, "\n")
+	return box{lines: lines, width: linesWidth(lines)}
+}
+
+// linesWidth is the max ansiVisibleLen across lines — the box.width a set of
+// lines would get if wrapped in a box.
+func linesWidth(lines []string) int {
 	w := 0
 	for _, line := range lines {
 		if vl := ansiVisibleLen(line); vl > w {
 			w = vl
 		}
 	}
-	return box{lines: lines, width: w}
+	return w
 }
 
 // join reassembles b's lines into a single string, one "\n" between each
