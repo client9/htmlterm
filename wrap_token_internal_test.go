@@ -55,19 +55,23 @@ func TestWordWrapTokensInlineBlockSiblingsShareLine(t *testing.T) {
 	}
 }
 
-// TestWordWrapTokensOversizedBoxClips verifies a box token wider than the
-// available width is clipped (overflow:hidden semantics), not left to
-// overflow silently.
-func TestWordWrapTokensOversizedBoxClips(t *testing.T) {
+// TestWordWrapTokensOversizedBoxOverflows verifies a box token wider than the
+// available width is embedded as-is, not clipped — it has already made its
+// own overflow decision (renderBlockContentBox only clips when
+// overflow:hidden and an explicit width are both set); re-clipping every
+// wider box unconditionally at this level would silently truncate ordinary
+// unbreakable content (e.g. overflow-wrap:normal with a long word) that's
+// supposed to overflow its container instead.
+func TestWordWrapTokensOversizedBoxOverflows(t *testing.T) {
 	bx := box{lines: []string{"0123456789"}, width: 10}
 	tokens := []wrapToken{{box: &bx}}
 	got, _ := wordWrapTokens(tokens, 5, "", 0)
-	want := []string{"01234"}
+	want := []string{"0123456789"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
 	}
-	if got.width != 5 {
-		t.Fatalf("width = %d, want 5", got.width)
+	if got.width != 10 {
+		t.Fatalf("width = %d, want 10", got.width)
 	}
 }
 

@@ -109,7 +109,7 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		}
 		if c.Data == "ol" || c.Data == "ul" || c.Data == "menu" {
 			nested := r.renderList(c, c.Data == "ol", contentWidth)
-			for _, line := range strings.Split(strings.TrimRight(nested, "\n"), "\n") {
+			for _, line := range strings.Split(strings.TrimSuffix(nested, "\n"), "\n") {
 				sb.WriteString(hangStr + line + "\n")
 			}
 			continue

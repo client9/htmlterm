@@ -132,10 +132,24 @@ func (r *Renderer) renderTree(doc *html.Node) (string, error) {
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.quoteDepth = 0
-	w := cappedWriter{maxBlanks: rr.maxBlankLines}
-	rr.renderNode(&w, doc)
-	// Table margin-right uses U+00A0 internally so nested cell text
-	// processing (which right-trims plain spaces) doesn't delete it; convert
-	// back to a plain space for the returned string.
-	return strings.ReplaceAll(w.String(), nbsp, " "), nil
+	tokens := rr.renderRootTokens(doc)
+	// A trailing brk means the document's last content ended with a
+	// structural writeNewline/margin call — the root's own terminating "\n"
+	// that box.join()'s "no trailing newline" convention doesn't otherwise
+	// produce (that convention exists for boxes embedded into a parent, not
+	// the document itself). Bare inline root content (e.g. "<span>hi</span>"
+	// with nothing else) ends in no brk and gets no trailing newline,
+	// matching that this has always rendered as "hi", not "hi\n".
+	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
+	b, _ := wordWrapTokens(tokens, rr.width, "", 0)
+	lines := capBlankRuns(b.lines, b.pre, rr.maxBlankLines)
+	out := strings.Join(lines, "\n")
+	if trailingNewline {
+		out += "\n"
+	}
+	// A real &nbsp; HTML entity survives rendering as a distinct character
+	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
+	// normalize it to a plain space in the final string, since terminals
+	// don't distinguish breaking from non-breaking spaces.
+	return strings.ReplaceAll(out, nbsp, " "), nil
 }

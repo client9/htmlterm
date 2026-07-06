@@ -531,7 +531,7 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 			// way wrapping does — trim it explicitly, per line, matching
 			// plainInlineText's historical role here.
 			flat := plainInlineText(tokensToString(cells[i].tokens))
-			for _, line := range strings.Split(strings.TrimRight(flat, "\n"), "\n") {
+			for _, line := range strings.Split(strings.TrimSuffix(flat, "\n"), "\n") {
 				cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
 			}
 		} else {

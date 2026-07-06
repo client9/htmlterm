@@ -104,7 +104,18 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 		if hasContent(tokens) {
 			tokens = ensureBreaks(tokens, minBreaksBefore+1)
 		}
-		bx := newBox(strings.TrimRight(content, "\n"))
+		bx := newBox(strings.TrimSuffix(content, "\n"))
+		tokens = append(tokens, wrapToken{box: &bx, node: node})
+		tokens = append(tokens, wrapToken{brk: true})
+	}
+	// pushBoxDirect is pushBox for a caller that already has a box (a block
+	// child, via renderBlockContentBox) rather than a string — going through
+	// pushBox's string signature would silently drop bx.pre, since
+	// box.join()/newBox has no pre-tagging concept.
+	pushBoxDirect := func(bx box, minBreaksBefore int, node *html.Node) {
+		if hasContent(tokens) {
+			tokens = ensureBreaks(tokens, minBreaksBefore+1)
+		}
 		tokens = append(tokens, wrapToken{box: &bx, node: node})
 		tokens = append(tokens, wrapToken{brk: true})
 	}
@@ -171,23 +182,26 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 			switch display {
 			case "block":
 				savedDepth := r.quoteDepth
-				blockContent := r.renderBlockContent(c, childDecls, availWidth)
+				bx := r.renderBlockContentBox(c, childDecls, availWidth)
 				if childDecls["visibility"] == "hidden" {
 					r.quoteDepth = savedDepth
-					blockContent = blankVisibleContent(blockContent)
+					bx = blankVisibleContentBox(bx)
 				}
-				pushBox(blockContent, parseMargin(childDecls["margin-top"]), c)
+				pushBoxDirect(bx, parseMargin(childDecls["margin-top"]), c)
 				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
 			default:
 				childAcc := mergeInlineStyle(acc, childDecls)
 				savedDepth := r.quoteDepth
-				// TrimRight: a nested recursive call whose own last child
-				// was block-ish (e.g. an implicit <tbody> wrapping <tr>)
-				// can end in a trailing structural newline that was only
-				// ever meaningful as cappedWriter pending state, never real
-				// content — pushBox already trims this for its own inputs;
-				// this mirrors that for the plain-inline/inline-block path.
-				inner := strings.TrimRight(r.renderInlineAcc(c, childAcc, availWidth), "\n")
+				// TrimSuffix (at most one "\n"): a nested recursive call
+				// whose own last child was block-ish (e.g. an implicit
+				// <tbody> wrapping <tr>) can end in a trailing structural
+				// newline that was only ever meaningful as pending
+				// accumulator state, never real content — pushBox already
+				// trims this for its own inputs; this mirrors that for the
+				// plain-inline/inline-block path. Only one is trimmed, not
+				// all trailing newlines, since a further one could be a
+				// real trailing blank line (e.g. from padding-bottom).
+				inner := strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
 				if display == "inline-block" {
 					if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
 						inner = padLinesToWidth(inner, colWidth)

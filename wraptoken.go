@@ -249,18 +249,52 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 
 	var outLines []string
+	var outPre []bool
+	anyPre := false
 	var cur strings.Builder
 	curLen := 0
+	curPre := false
 	var carry ansiCarry
 	freshLine := true
 
+	// pushLine appends both a line and its pre-flag in lockstep — every
+	// outLines append in this function goes through here so the two slices
+	// never drift out of alignment.
+	pushLine := func(line string, isPre bool) {
+		outLines = append(outLines, line)
+		outPre = append(outPre, isPre)
+		if isPre {
+			anyPre = true
+		}
+	}
+
+	// boxJustClosed is true immediately after a multi-line box's lines were
+	// appended directly (bypassing cur entirely, unlike a single-line glued
+	// box which accumulates into cur). The mandatory brk that always follows
+	// a box token (renderInlineAccTokens's pushBox, root-level table/list/
+	// block handling) exists to guarantee "something separates this from
+	// what follows" — for a single-line glued box that's cur's own pending
+	// content, finalized into a real line by the first closeAndPush; for a
+	// multi-line box, that separation is already structurally established
+	// (its own last line already ended it, and freshLine is already true),
+	// so that first closeAndPush must be a no-op, not push a spurious blank
+	// line. A *second* brk in the same run still pushes a real blank line —
+	// consecutive <br><br> after a box is exactly as intentional as after
+	// any other content.
+	boxJustClosed := false
 	closeAndPush := func() {
+		if cur.Len() == 0 && boxJustClosed {
+			boxJustClosed = false
+			return
+		}
+		boxJustClosed = false
 		if !carry.empty() {
 			cur.WriteString(carry.closeSeq())
 		}
-		outLines = append(outLines, cur.String())
+		pushLine(cur.String(), curPre)
 		cur.Reset()
 		curLen = 0
+		curPre = false
 		freshLine = true
 	}
 	ensureOpen := func() {
@@ -295,7 +329,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			carry = endCarry
 			for k, chunk := range chunks {
 				if k < len(chunks)-1 {
-					outLines = append(outLines, chunk)
+					pushLine(chunk, false)
 				} else {
 					cur.WriteString(chunk)
 					curLen = ansiVisibleLen(chunk)
@@ -316,14 +350,18 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	// doesn't imply source whitespace the way a splitANSITokens word
 	// boundary does; any real whitespace there is already its own preceding
 	// or following text token. Its content is already fully self-styled, so
-	// it neither reopens the surrounding carry nor scans into it.
-	placeGlued := func(line string, w int) (row, col int) {
+	// it neither reopens the surrounding carry nor scans into it. isPre
+	// marks the whole resulting line pre if this glued box itself was pre.
+	placeGlued := func(line string, w int, isPre bool) (row, col int) {
 		if curLen+w > curWidth() && curLen > 0 {
 			closeAndPush()
 		}
 		row, col = len(outLines), curLen
 		cur.WriteString(line)
 		curLen += w
+		if isPre {
+			curPre = true
+		}
 		freshLine = false
 		return row, col
 	}
@@ -336,7 +374,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		carry = endCarry
 		for k, chunk := range chunks {
 			if k < len(chunks)-1 {
-				outLines = append(outLines, chunk)
+				pushLine(chunk, false)
 			} else {
 				cur.WriteString(chunk)
 				curLen = ansiVisibleLen(chunk)
@@ -354,20 +392,21 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			bx := *t.box
 			lines := bx.lines
 			w := bx.width
-			if w > width {
-				clipped := make([]string, len(lines))
-				for i, ln := range lines {
-					clipped[i] = truncateToWidth(ln, width, "")
-				}
-				lines = clipped
-				w = width
-			}
+			// A box wider than width is embedded as-is, not clipped: it has
+			// already made its own overflow decision (e.g. renderBlockContentBox
+			// only clips when overflow:hidden and an explicit width are both
+			// set); a box that's simply wider because its content couldn't or
+			// didn't need to break (overflow-wrap:normal and an unbreakable
+			// word, for instance) must be allowed to overflow its container
+			// the same way any other CSS content does by default.
 			if len(lines) > 1 {
 				if curLen > 0 {
 					closeAndPush()
 				}
 				startRow := len(outLines)
-				outLines = append(outLines, lines...)
+				for i, ln := range lines {
+					pushLine(ln, len(bx.pre) > i && bx.pre[i])
+				}
 				if t.node != nil {
 					positions[t.node] = Rect{Row: startRow, Col: 0, Width: w, Height: len(lines)}
 				}
@@ -375,12 +414,15 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				freshLine = true
 				curLen = 0
 				firstSegmentDone = true
+				boxJustClosed = true
 			} else {
 				line := ""
+				isPre := false
 				if len(lines) == 1 {
 					line = lines[0]
+					isPre = len(bx.pre) > 0 && bx.pre[0]
 				}
-				row, col := placeGlued(line, w)
+				row, col := placeGlued(line, w, isPre)
 				if t.node != nil {
 					positions[t.node] = Rect{Row: row, Col: col, Width: w, Height: 1}
 				}
@@ -427,7 +469,11 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		}
 	}
 	if cur.Len() > 0 || len(outLines) == 0 {
-		outLines = append(outLines, cur.String())
+		pushLine(cur.String(), curPre)
 	}
-	return box{lines: outLines, width: linesWidth(outLines)}, positions
+	var pre []bool
+	if anyPre {
+		pre = outPre
+	}
+	return box{lines: outLines, width: linesWidth(outLines), pre: pre}, positions
 }

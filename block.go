@@ -187,59 +187,6 @@ func parseMargin(s string) int {
 	return n
 }
 
-// renderDisplayNode renders n according to its CSS display property.
-func (r *Renderer) renderDisplayNode(w *cappedWriter, n *html.Node) {
-	decls := r.resolveDecls(n)
-	href := ""
-	if n.Data == "a" {
-		href = nodeAttr(n, "href")
-	}
-	switch decls["display"] {
-	case "none":
-	case "block":
-		if mt := parseMargin(decls["margin-top"]); mt > 0 && w.Len() > 0 {
-			w.WriteAtLeastNewlines(mt + 1)
-		}
-		savedDepth := r.quoteDepth
-		content := r.renderBlockContent(n, decls, r.width)
-		if decls["visibility"] == "hidden" {
-			r.quoteDepth = savedDepth
-			content = blankVisibleContent(content)
-		}
-		ws := decls["white-space"]
-		if ws == "pre" || ws == "pre-wrap" {
-			w.EnterPre()
-		}
-		w.WriteString(r.wrapHyperlink(href, content))
-		if ws == "pre" || ws == "pre-wrap" {
-			w.ExitPre()
-		}
-		w.writeNewline()
-		w.WriteAtLeastNewlines(parseMargin(decls["margin-bottom"]) + 1)
-	case "inline-block":
-		acc := extractInlineStyle(decls)
-		savedDepth := r.quoteDepth
-		inner := r.renderInlineAcc(n, acc, r.width)
-		if colWidth, constrained := resolveWidthConstraints(decls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
-			inner = padLinesToWidth(inner, colWidth)
-		}
-		if decls["visibility"] == "hidden" {
-			r.quoteDepth = savedDepth
-			inner = blankVisibleContent(inner)
-		}
-		w.WriteString(r.wrapHyperlink(href, inner))
-	default:
-		acc := extractInlineStyle(decls)
-		savedDepth := r.quoteDepth
-		inner := r.renderInlineAcc(n, acc, r.width)
-		if decls["visibility"] == "hidden" {
-			r.quoteDepth = savedDepth
-			inner = blankVisibleContent(inner)
-		}
-		w.WriteString(r.wrapHyperlink(href, inner))
-	}
-}
-
 // renderBlockContent renders the styled, bordered, and margined content of a
 // block element. Thin shim over renderBlockContentBox for callers not yet
 // migrated to box.
@@ -509,6 +456,24 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	if decls["visibility"] == "hidden" {
 		b = blankVisibleContentBox(b)
 	}
+	// Reset b.pre based on this element's own resolved white-space,
+	// regardless of what children's boxes may have carried in: the old
+	// cappedWriter model's EnterPre/ExitPre was scoped to exactly one
+	// child's own content (inline.go's nested "block" case entered/exited
+	// pre mode around writing just that child's block content into the
+	// parent's writer) and never persisted past it — a <pre> nested inside
+	// a non-pre ancestor loses its exemption the moment that ancestor's own
+	// (non-pre) content reaches a writer instance that isn't in pre mode.
+	// Crossing this function's own boundary is the box-model equivalent of
+	// that per-element EnterPre/ExitPre scoping.
+	if ws == "pre" || ws == "pre-wrap" {
+		b.pre = make([]bool, len(b.lines))
+		for i := range b.pre {
+			b.pre[i] = true
+		}
+	} else {
+		b.pre = nil
+	}
 	return b
 }
 
@@ -764,4 +729,19 @@ func (r *Renderer) wrapHyperlink(href, text string) string {
 		return text
 	}
 	return ansi.SetHyperlink(href) + text + ansi.ResetHyperlink()
+}
+
+// wrapHyperlinkBox is wrapHyperlink's box-based equivalent, preserving b.pre
+// (the string-signature version, joining and re-splitting, would silently
+// drop it — box.join() has no pre-tagging concept). The OSC 8 sequences are
+// zero-width and never contain "\n", so this never changes b's line count.
+func (r *Renderer) wrapHyperlinkBox(href string, b box) box {
+	href = sanitizeTerminalText(href, false)
+	if href == "" || r.noOSC8Links || r.profile <= colorprofile.Ascii || len(b.lines) == 0 {
+		return b
+	}
+	lines := append([]string(nil), b.lines...)
+	lines[0] = ansi.SetHyperlink(href) + lines[0]
+	lines[len(lines)-1] += ansi.ResetHyperlink()
+	return box{lines: lines, width: linesWidth(lines), pre: b.pre}
 }

@@ -6,10 +6,15 @@ import "strings"
 // — position is assigned by whichever caller embeds it into a parent. lines
 // holds one entry per output row (ANSI-styled, no trailing "\n"); width is
 // the visible column width, uniform across lines, matching what today's
-// string-based helpers already enforce via padding in practice.
+// string-based helpers already enforce via padding in practice. pre marks
+// lines that came from pre-formatted (white-space: pre/pre-wrap) content —
+// nil when no such lines are present, else parallel to lines — so the
+// final blank-run-capping pass can exempt them the way cappedWriter's
+// preDepth used to.
 type box struct {
 	lines []string
 	width int
+	pre   []bool
 }
 
 // newBox splits s into a box, width computed via linesWidth so callers that
