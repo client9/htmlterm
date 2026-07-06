@@ -2,6 +2,37 @@ package htmlterm
 
 import "strings"
 
+// box is rendered content that hasn't been assigned an absolute position yet
+// — position is assigned by whichever caller embeds it into a parent. lines
+// holds one entry per output row (ANSI-styled, no trailing "\n"); width is
+// the visible column width, uniform across lines, matching what today's
+// string-based helpers already enforce via padding in practice.
+type box struct {
+	lines []string
+	width int
+}
+
+// newBox splits s into a box. width is the max ansiVisibleLen across lines,
+// so callers that haven't padded every line to a uniform width yet still get
+// a usable (if not yet uniform) box.
+func newBox(s string) box {
+	lines := strings.Split(s, "\n")
+	w := 0
+	for _, line := range lines {
+		if vl := ansiVisibleLen(line); vl > w {
+			w = vl
+		}
+	}
+	return box{lines: lines, width: w}
+}
+
+// join reassembles b's lines into a single string, one "\n" between each
+// line and none at the end — the inverse of newBox for content with no
+// trailing newline.
+func (b box) join() string {
+	return strings.Join(b.lines, "\n")
+}
+
 // parsePaddingLen parses a CSS padding-<side> value as an absolute character
 // count. Percentages are not supported for padding (parseSizeVal's pct return
 // is discarded), matching prior behavior in both the block and table-cell box
