@@ -104,6 +104,15 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
+	return r.renderTree(doc)
+}
+
+// renderTree renders an already-parsed document node. It builds fresh
+// per-document scratch state (resolved CSS rules, counters) from r's
+// configuration, the same way Render does after parsing, so it can be
+// reused against a tree that didn't come from a fresh html.Parse call
+// (see Document.Render).
+func (r *Renderer) renderTree(doc *html.Node) (string, error) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
