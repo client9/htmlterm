@@ -1052,4 +1052,31 @@ func TestMaxBlankLines(t *testing.T) {
 	if regexp.MustCompile(`\n{4,}`).MatchString(got) {
 		t.Errorf("bare newline accumulation: got %q (contains 4+ consecutive newlines with MaxBlankLines=2)", got)
 	}
+
+	// A trailing <br><br> inside one element (2 blank lines of real content)
+	// followed immediately by a sibling with its own margin-top: sized so
+	// neither contribution alone reaches the cap. Current cappedWriter
+	// semantics take the MAX of the two (WriteAtLeastNewlines "ensures at
+	// least n newlines are pending", never sums) — confirmed empirically:
+	// uncapped (MaxBlankLines:0) this is "text\n\n\nnext\n" (2 blank lines
+	// total), not 4 blank lines, so a box-based rewrite's margin-collapse
+	// arithmetic must treat a child's own trailing blank content as
+	// equivalent to a margin-bottom value for collapse purposes against the
+	// next sibling's margin-top, not simply concatenate-then-add.
+	got = render(0, `div { margin-top: 2; }`, `<div>text<br><br></div><div>next</div>`)
+	if got != "text\n\n\nnext\n" {
+		t.Errorf("br-tail + margin-top must collapse via max, not sum: got %q want %q", got, "text\n\n\nnext\n")
+	}
+	got = render(10, `div { margin-top: 2; }`, `<div>text<br><br></div><div>next</div>`)
+	if got != "text\n\n\nnext\n" {
+		t.Errorf("br-tail + margin-top (capping enabled but not triggered): got %q want %q", got, "text\n\n\nnext\n")
+	}
+
+	// A <pre> block nested inside a <div>, followed by a sibling with its
+	// own margin-top: the pre exemption must survive crossing the boundary
+	// into the next element's margin-collapse arithmetic.
+	got = render(2, `div { margin-top: 5; }`, "<div><pre>a\n\n\n\nb</pre></div><div>next</div>")
+	if got != "a\n\n\nb\n\n\nnext\n" {
+		t.Errorf("pre exemption across element boundary: got %q want %q", got, "a\n\n\nb\n\n\nnext\n")
+	}
 }
