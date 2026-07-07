@@ -366,6 +366,14 @@ func matchPseudo(n *html.Node, pseudo string) bool {
 				}
 			}
 		}
+	case "checked":
+		return nodeHasAttr(n, "checked")
+	case "disabled":
+		return nodeHasAttr(n, "disabled")
+	case "required":
+		return nodeHasAttr(n, "required")
+	case "focus":
+		return nodeHasAttr(n, focusAttr)
 	}
 	return false
 }

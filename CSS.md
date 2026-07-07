@@ -36,11 +36,17 @@ element / pseudo-element = 1, universal selector = 0. Higher specificity wins;
 equal specificity last-write wins.
 
 **Supported pseudo-classes:** `:root`, `:first-child`, `:last-child`,
-`:nth-child(odd)`, `:nth-child(even)`, `:not(<simple-selector>)`. `:root`
-matches the document element (`html` for parsed HTML documents/fragments). Full `An+B`
-expressions are not supported. `:not()` accepts a single compound selector
-(element, universal selector, class, id, attribute, or combinations thereof)
-as its argument; nested combinators inside `:not()` are not supported.
+`:nth-child(odd)`, `:nth-child(even)`, `:not(<simple-selector>)`, `:checked`,
+`:disabled`, `:required`, `:focus`. `:root` matches the document element
+(`html` for parsed HTML documents/fragments). Full `An+B` expressions are not
+supported. `:not()` accepts a single compound selector (element, universal
+selector, class, id, attribute, or combinations thereof) as its argument;
+nested combinators inside `:not()` are not supported. `:checked`/`:disabled`/
+`:required` match the real HTML `checked`/`disabled`/`required` attributes'
+presence. `:focus` matches whichever element `Document.Focus` (see the
+package godoc's events section) most recently marked focused; it has no
+meaning against `Renderer.Render`'s one-shot rendering, only against a live
+`Document`.
 
 **Supported pseudo-elements:** `::before`, `::after`, and `::marker` (all also accepted
 with a single colon). `::before`/`::after` inject inline text at the start or end of an
@@ -55,8 +61,8 @@ match), `[attr~=val]` (whitespace-separated word), `[attr|=val]` (exact value
 or value followed by `-`), `[attr^=val]` (prefix), `[attr$=val]` (suffix), and
 `[attr*=val]` (substring).
 
-**Not supported:** `:hover`, `:focus`, and other pseudo-classes beyond those listed
-above; general sibling (`~`) combinator.
+**Not supported:** `:hover`, `:active`, and other pseudo-classes beyond those
+listed above; general sibling (`~`) combinator.
 
 ---
 
