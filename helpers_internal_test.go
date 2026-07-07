@@ -747,3 +747,26 @@ func TestClampCellPaddingZeroWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestDocumentElementResizeDispatch(t *testing.T) {
+	// DocumentElement is the target Loop.Run dispatches "resize" to
+	// (loop.go) — verify the general dispatch mechanism fires a listener
+	// registered on it, the same way any other element's listeners work.
+	// Loop.Run itself isn't exercised here (needs a real terminal); this
+	// only pins the dispatch-target plumbing DocumentElement/loop.go rely on.
+	doc, err := ParseDocument(`<p>hi</p>`, Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	fired := false
+	doc.AddEventListener(doc.DocumentElement(), "resize", false, func(e *Event) {
+		fired = true
+		if e.Type != "resize" {
+			t.Errorf("Event.Type = %q, want %q", e.Type, "resize")
+		}
+	})
+	doc.dispatch(doc.doc, "resize", "")
+	if !fired {
+		t.Error("resize listener did not fire")
+	}
+}

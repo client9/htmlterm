@@ -445,3 +445,67 @@ func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
 		t.Errorf("Rect().Row after adding margin-bottom = %d, want > %d (before)", after.Row, before.Row)
 	}
 }
+
+func TestDocumentSetSizeAndSize(t *testing.T) {
+	doc, err := htmlterm.ParseDocument(`<p>hi</p>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if w, h := doc.Size(); w != 40 || h != htmlterm.SizeAutomatic {
+		t.Fatalf("Size() = (%d, %d), want (40, SizeAutomatic)", w, h)
+	}
+
+	doc.SetSize(20, 3)
+	if w, h := doc.Size(); w != 20 || h != 3 {
+		t.Fatalf("Size() after SetSize(20, 3) = (%d, %d), want (20, 3)", w, h)
+	}
+
+	got, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines := strings.Split(strings.TrimSuffix(stripANSI(got), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("Render() after SetSize(20, 3) has %d lines, want 3: %q", len(lines), got)
+	}
+
+	doc.SetSize(20, htmlterm.SizeNatural)
+	got, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	r, err := htmlterm.New(htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	want, err := r.Render(`<p>hi</p>`)
+	if err != nil {
+		t.Fatalf("Render (baseline): %v", err)
+	}
+	if stripANSI(got) != stripANSI(want) {
+		t.Errorf("Render() after SetSize(20, SizeNatural) = %q, want %q (unconstrained baseline)", got, want)
+	}
+}
+
+func TestDocumentElementIsStableHandle(t *testing.T) {
+	// DocumentElement is the dispatch target Loop uses for the "resize"
+	// event (there's no separate window-level concept in this package) —
+	// verify it's a usable AddEventListener target and consistently
+	// resolves to the same underlying node across calls (see
+	// TestDocumentElementResizeDispatch, an internal test, for the
+	// dispatch itself — "resize" is only ever fired by Loop/dispatch,
+	// which is unexported).
+	doc, err := htmlterm.ParseDocument(`<p>hi</p>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	doc.AddEventListener(doc.DocumentElement(), "resize", false, func(e *htmlterm.Event) {})
+
+	// A second, separately-obtained handle must resolve to the same
+	// underlying node — same "throwaway handle, stable identity" contract
+	// as any other Element (see element.go).
+	doc.DocumentElement().SetAttribute("data-test", "marker")
+	if !doc.DocumentElement().HasAttribute("data-test") {
+		t.Fatal("DocumentElement() should consistently resolve to the same node across calls")
+	}
+}

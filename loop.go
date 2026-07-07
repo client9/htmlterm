@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 )
 
@@ -22,6 +24,16 @@ type Loop struct {
 	in  *os.File
 	out io.Writer
 
+	// autoWidth/autoHeight remember whether doc's Width/Height were
+	// SizeAutomatic when NewLoop was called — captured once and separately
+	// from doc's own stored Options, because applyTerminalSize's first
+	// resolution overwrites SizeAutomatic (0) with a concrete number via
+	// Document.SetSize; re-deriving "is this axis automatic" from
+	// doc.Size() on every call would see that concrete number from the
+	// second call onward and wrongly conclude tracking should stop.
+	autoWidth  bool
+	autoHeight bool
+
 	timers      map[timerID]*timerState
 	nextTimerID timerID
 	timerCh     chan timerFire
@@ -31,15 +43,22 @@ type Loop struct {
 // real file is required so raw mode can be applied via its file descriptor)
 // and writes rendered frames to out (typically os.Stdout). Timers
 // (SetInterval/SetTimeout) may be registered any time after construction,
-// including before Run is called.
+// including before Run is called. Whether doc's Width/Height track the
+// terminal (SizeAutomatic) is fixed as of this call — see applyTerminalSize.
 func NewLoop(doc *Document, in *os.File, out io.Writer) *Loop {
-	return &Loop{
+	l := &Loop{
 		doc:     doc,
 		in:      in,
 		out:     out,
 		timers:  make(map[timerID]*timerState),
 		timerCh: make(chan timerFire),
 	}
+	if doc != nil {
+		width, height := doc.Size()
+		l.autoWidth = width == SizeAutomatic
+		l.autoHeight = height == SizeAutomatic
+	}
+	return l
 }
 
 // writeFrame writes doc.Render()'s output with every "\n" widened to
@@ -63,10 +82,16 @@ type inputMsg struct {
 }
 
 // Run puts the terminal into raw mode, enables SGR mouse reporting, and
-// repaints doc after every keyboard/mouse event, and after every fired timer
-// (SetInterval/SetTimeout, timer.go), until Ctrl-C (\x03) is read or in
+// repaints doc after every keyboard/mouse event, after every fired timer
+// (SetInterval/SetTimeout, timer.go), and after every terminal resize
+// (SIGWINCH — see applyTerminalSize), until Ctrl-C (\x03) is read or in
 // reaches EOF/an error. The terminal is always restored to its original mode
 // and mouse reporting disabled before Run returns, even on error.
+//
+// SIGWINCH handling ties Run to POSIX-like platforms specifically (syscall
+// has no such signal on Windows) — a stronger, compile-time version of the
+// rest of the package's already-POSIX-oriented, Windows-unverified stance
+// (see terminal.go's raw-mode primitives).
 func (l *Loop) Run() error {
 	restore, err := enterRawMode(int(l.in.Fd()))
 	if err != nil {
@@ -89,6 +114,8 @@ func (l *Loop) Run() error {
 		return err
 	}
 
+	l.applyTerminalSize()
+
 	if err := l.paint(originRow); err != nil {
 		return err
 	}
@@ -108,6 +135,19 @@ func (l *Loop) Run() error {
 			}
 		}
 	}()
+
+	// resizeCh relays SIGWINCH. Registered unconditionally, regardless of
+	// whether doc's Width/Height are actually SizeAutomatic: a host doing
+	// its own multi-pane sizing (several Documents composited outside of
+	// any single Loop's control — see INTERACTIVE.md) still wants a
+	// "resize" event to react to, even if this particular Document's own
+	// size is fixed or SizeNatural. applyTerminalSize itself is the only
+	// part that's conditional (a no-op if neither dimension is automatic).
+	// Buffered so a signal arriving while Run is busy elsewhere isn't
+	// dropped, per os/signal's documented recommendation.
+	resizeCh := make(chan os.Signal, 1)
+	signal.Notify(resizeCh, syscall.SIGWINCH)
+	defer signal.Stop(resizeCh)
 
 	for {
 		select {
@@ -132,12 +172,52 @@ func (l *Loop) Run() error {
 
 		case fire := <-l.timerCh:
 			l.handleTimerFire(fire)
+
+		case <-resizeCh:
+			l.applyTerminalSize()
+			// No default action to prevent (see event.go's Event doc
+			// comment on "submit") — htmlterm has no re-layout concept of
+			// its own beyond what applyTerminalSize just did; a listener
+			// reacts to the new size via Document.Size/Rect, e.g. a host
+			// with several Documents recomputing each pane's own extent.
+			l.doc.dispatch(l.doc.doc, "resize", "")
 		}
 
 		if err := l.paint(originRow); err != nil {
 			return err
 		}
 	}
+}
+
+// applyTerminalSize resolves whichever of Width/Height was SizeAutomatic at
+// NewLoop time (l.autoWidth/l.autoHeight) against l.in's current terminal
+// size and installs the result via Document.SetSize — called once before
+// Run's first paint, and again on every SIGWINCH. A no-op if neither was
+// ever automatic. Deliberately consults l.autoWidth/l.autoHeight rather than
+// re-deriving "is this automatic" from doc.Size()'s current value: the very
+// first resolution overwrites SizeAutomatic (0) with a concrete number, so
+// checking the current value again on the next call would see that number
+// and wrongly conclude tracking should stop. A failed size query (e.g. in
+// isn't actually a terminal) leaves an automatic Width at a safe 80-column
+// fallback, matching cmd/main.go's CLI default; an automatic Height simply
+// keeps its last-known value, already inert/unconstrained if that's still 0
+// (see Options.Height) — no separate fallback needed.
+func (l *Loop) applyTerminalSize() {
+	if !l.autoWidth && !l.autoHeight {
+		return
+	}
+	width, height := l.doc.Size()
+	w, h, err := getTerminalSize(int(l.in.Fd()))
+	if l.autoWidth {
+		if err != nil || w <= 0 {
+			w = 80
+		}
+		width = w
+	}
+	if l.autoHeight && err == nil && h > 0 {
+		height = h
+	}
+	l.doc.SetSize(width, height)
 }
 
 // paint renders doc, redraws it at the document's fixed screen position

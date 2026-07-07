@@ -77,6 +77,34 @@ func TestSplitAutoMargins(t *testing.T) {
 	}
 }
 
+func TestForceHeight(t *testing.T) {
+	tests := []struct {
+		name   string
+		lines  []string
+		height int
+		want   []string
+	}{
+		{"pads short content with blank lines", []string{"a", "b"}, 4, []string{"a", "b", "", ""}},
+		{"truncates tall content", []string{"a", "b", "c", "d"}, 2, []string{"a", "b"}},
+		{"exact match is unchanged", []string{"a", "b"}, 2, []string{"a", "b"}},
+		{"empty input pads entirely", nil, 3, []string{"", "", ""}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := forceHeight(tc.lines, tc.height)
+			if len(got) != len(tc.want) {
+				t.Fatalf("forceHeight(%v, %d) = %v, want %v", tc.lines, tc.height, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("forceHeight(%v, %d) = %v, want %v", tc.lines, tc.height, got, tc.want)
+					break
+				}
+			}
+		})
+	}
+}
+
 func TestClampCellPadding(t *testing.T) {
 	tests := []struct {
 		name          string

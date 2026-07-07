@@ -54,6 +54,34 @@ func (d *Document) Render() (string, error) {
 	return out, nil
 }
 
+// SetSize updates the width/height the next Render call lays out against,
+// without discarding the parsed tree — the mechanism a resize (terminal
+// SIGWINCH via Loop, or any other host-driven resize logic) uses to take
+// effect. width/height follow Options.Width/Options.Height's conventions
+// (a concrete column/line count, or SizeNatural for height). Passing
+// SizeAutomatic here is inert, same as it is in Options: resolving it
+// requires querying a terminal, which Document has no access to itself —
+// see Loop, which resolves it before ever calling SetSize.
+func (d *Document) SetSize(width, height int) {
+	d.opts.Width = width
+	d.opts.Height = height
+}
+
+// Size returns the width/height the most recent ParseDocument/SetSize call
+// installed — the values the next Render call will lay out against.
+func (d *Document) Size() (width, height int) {
+	return d.opts.Width, d.opts.Height
+}
+
+// DocumentElement returns a handle onto the document's root node. There is
+// no separate window-level concept in this package (see Loop's "resize"
+// event), so this doubles as that event's dispatch target — register a
+// listener via AddEventListener(doc.DocumentElement(), "resize", ...) the
+// same way any other element's listeners are registered.
+func (d *Document) DocumentElement() *Element {
+	return &Element{node: d.doc}
+}
+
 // Rect returns el's position and size as of the most recent Render call
 // (the CSS border box — content+padding+border, excluding margin — see
 // RENDERING.md's Position tracking section for the exact semantics and its

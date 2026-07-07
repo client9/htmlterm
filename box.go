@@ -44,6 +44,22 @@ func (b box) join() string {
 	return strings.Join(b.lines, "\n")
 }
 
+// forceHeight clips or pads lines to exactly height rows (height > 0):
+// truncates from the end if there are more, appends empty lines if there are
+// fewer. Used for Options.Height/renderTree's root-level height constraint,
+// which — unlike a per-element "height" (renderBlockContentBox) — has no
+// paired "overflow" declaration to gate clipping on: it's a host-supplied
+// viewport size, not CSS, so it always both pads and truncates.
+func forceHeight(lines []string, height int) []string {
+	if len(lines) > height {
+		return lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return lines
+}
+
 // parsePaddingLen parses a CSS padding-<side> value as an absolute character
 // count. Percentages are not supported for padding (parseSizeVal's pct return
 // is discarded), matching prior behavior in both the block and table-cell box

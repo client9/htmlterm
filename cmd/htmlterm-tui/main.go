@@ -6,6 +6,12 @@
 // whose handler reveals a result line underneath echoing what was entered —
 // demonstrating the event system end to end, not just individual field
 // mutation.
+//
+// Width is SizeAutomatic and Height is SizeNatural: resize the terminal
+// window and the long paragraph below the form reflows live at the new
+// width (via Loop's SIGWINCH handling — see loop.go's applyTerminalSize),
+// while the document's height is left unconstrained rather than
+// clipped/padded to the terminal's row count.
 package main
 
 import (
@@ -27,6 +33,7 @@ const formHTML = `
   #status { color: #888888; }
   #spinner::before { content: attr(data-frame); }
   #clock::before { content: attr(data-time); }
+  #lorem { margin-top: 1; }
 </style>
 <form id="myform">
   <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
@@ -35,6 +42,16 @@ const formHTML = `
 </form>
 <div id="result"></div>
 <div id="status"><span id="spinner" data-frame="⠋"></span> <span id="clock" data-time="00:00:00"></span></div>
+<p id="lorem">Resize this terminal window to see this paragraph reflow live
+at the new width. Width tracks the terminal automatically (SizeAutomatic),
+kept live across every resize via Loop's SIGWINCH handling, while Height
+stays SizeNatural: only the wrap width changes, and nothing above or below
+gets clipped or padded vertically. Lorem ipsum dolor sit amet, consectetur
+adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
+aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
+nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
+reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
+pariatur.</p>
 `
 
 // spinnerFrames cycles a decorative Braille spinner, driven by
@@ -47,7 +64,10 @@ func main() {
 }
 
 func run() int {
-	doc, err := htmlterm.ParseDocument(formHTML, htmlterm.Options{Width: 60})
+	doc, err := htmlterm.ParseDocument(formHTML, htmlterm.Options{
+		Width:  htmlterm.SizeAutomatic,
+		Height: htmlterm.SizeNatural,
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm-tui: %v\n", err)
 		return 1

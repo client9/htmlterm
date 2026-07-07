@@ -9,10 +9,32 @@ import (
 	"golang.org/x/net/html"
 )
 
+// SizeAutomatic is the zero value for Options.Width/Options.Height: track the
+// terminal's current size for that dimension. Plain Renderer.Render/Document
+// have no terminal to query, so it's inert there (behaves like SizeNatural
+// for Height; Width has no natural fallback and is simply left at 0, same as
+// before this constant existed). Loop is what actually resolves it — see
+// Loop.Run and Document.SetSize — querying the terminal once at startup and
+// again on every SIGWINCH, keeping whichever of Width/Height is
+// SizeAutomatic live for the life of the Loop. It is the zero value
+// deliberately, matching the rest of Options: a caller who never mentions
+// Width/Height and drives rendering through Loop gets automatic sizing
+// without writing anything.
+const SizeAutomatic = 0
+
+// SizeNatural, valid for Options.Height only, means "don't constrain height
+// at all" — the document renders at whatever line count its content
+// produces, with no clipping or padding (today's behavior, before Height
+// existed). There is no equivalent for Width: wrapping always needs a
+// concrete column count, so a "natural width" isn't a meaningful concept
+// here the way it is for height.
+const SizeNatural = -1
+
 // Options configures a Renderer.
 type Options struct {
 	CSS               string               // additional stylesheet layered above built-in UA defaults
 	Width             int                  // terminal column count; affects wrapping, tables, percentage widths
+	Height            int                  // content-box line count the whole document is clipped/padded to; zero value is SizeAutomatic (see there); SizeNatural (-1) leaves it unconstrained
 	IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
 	Profile           colorprofile.Profile // color profile; zero value (NoTTY) auto-detects from environment
 	NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
@@ -27,6 +49,7 @@ type Options struct {
 type Renderer struct {
 	rules               []rule
 	width               int
+	height              int
 	profile             colorprofile.Profile
 	ignoreDocumentCSS   bool
 	noOSC8Links         bool
@@ -94,6 +117,7 @@ func New(opts Options) (*Renderer, error) {
 	return &Renderer{
 		rules:             rules,
 		width:             opts.Width,
+		height:            opts.Height,
 		profile:           profile,
 		ignoreDocumentCSS: opts.IgnoreDocumentCSS,
 		noOSC8Links:       opts.NoOSC8Links,
@@ -131,6 +155,7 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
+		height:            r.height,
 		profile:           r.profile,
 		ignoreDocumentCSS: r.ignoreDocumentCSS,
 		noOSC8Links:       r.noOSC8Links,
@@ -167,6 +192,17 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
 			remapped[n] = rect
 		}
 		positions = remapped
+	}
+	// rr.height <= 0 covers both SizeNatural (-1, explicitly unconstrained)
+	// and an unresolved SizeAutomatic (0) — outside of Loop there's no
+	// terminal to resolve automatic sizing against, so it's inert here,
+	// same as natural. Unlike a per-element "height" (block.go), the root
+	// has no paired "overflow" declaration to gate clipping on: a fixed root
+	// height is a viewport constraint from the host, not CSS, so it always
+	// both pads short content and truncates tall content — what a
+	// non-scrolling terminal viewport needs (see forceHeight, box.go).
+	if rr.height > 0 {
+		lines = forceHeight(lines, rr.height)
 	}
 	out := strings.Join(lines, "\n")
 	if trailingNewline {

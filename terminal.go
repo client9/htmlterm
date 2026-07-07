@@ -32,3 +32,10 @@ func enterRawMode(fd int) (restore func() error, err error) {
 	}
 	return func() error { return term.Restore(fd, state) }, nil
 }
+
+// getTerminalSize returns fd's current column/row count, via
+// golang.org/x/term — the query Loop.applyTerminalSize (loop.go) uses to
+// resolve SizeAutomatic, both at startup and again on every SIGWINCH.
+func getTerminalSize(fd int) (width, height int, err error) {
+	return term.GetSize(fd)
+}

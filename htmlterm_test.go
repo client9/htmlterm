@@ -49,6 +49,59 @@ func runCases(t *testing.T, cases []renderCase) {
 	}
 }
 
+func TestOptionsHeight(t *testing.T) {
+	render := func(height int) string {
+		t.Helper()
+		r, err := htmlterm.New(htmlterm.Options{Width: 40, Height: height})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		out, err := r.Render(`<p>hi</p>`)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return stripANSI(out)
+	}
+	linesOf := func(out string) []string {
+		return strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	}
+
+	natural := render(htmlterm.SizeNatural)
+	naturalLines := linesOf(natural)
+	if len(naturalLines) == 0 || naturalLines[0] != "hi" {
+		t.Fatalf("unexpected SizeNatural render: %q", natural)
+	}
+
+	t.Run("SizeAutomatic outside Loop behaves like SizeNatural", func(t *testing.T) {
+		if got := render(htmlterm.SizeAutomatic); got != natural {
+			t.Errorf("render(SizeAutomatic) = %q, want same as SizeNatural %q", got, natural)
+		}
+	})
+
+	t.Run("positive height pads short content with blank lines", func(t *testing.T) {
+		want := len(naturalLines) + 3
+		lines := linesOf(render(want))
+		if len(lines) != want {
+			t.Fatalf("got %d lines, want %d: %v", len(lines), want, lines)
+		}
+		if lines[0] != "hi" {
+			t.Errorf("first line = %q, want %q", lines[0], "hi")
+		}
+		for _, l := range lines[len(naturalLines):] {
+			if l != "" {
+				t.Errorf("expected padded lines blank, got %q in %v", l, lines)
+			}
+		}
+	})
+
+	t.Run("positive height truncates tall content", func(t *testing.T) {
+		lines := linesOf(render(1))
+		if len(lines) != 1 || lines[0] != "hi" {
+			t.Errorf("render(1) lines = %v, want [%q]", lines, "hi")
+		}
+	})
+}
+
 func TestIgnoreDocumentCSS(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, IgnoreDocumentCSS: true})
 	if err != nil {
