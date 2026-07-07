@@ -11,9 +11,12 @@ It is designed for terminal UIs, CLIs, and text-first applications that want ric
 
 - Render HTML fragments or full documents to ANSI-styled terminal output.
 - Apply CSS from the renderer, `<style>` tags, and inline `style=""` attributes.
-- Support common block and inline elements including headings, paragraphs, lists, blockquotes, links, and tables.
+- Support common block and inline elements including headings, paragraphs, lists, blockquotes, links, tables, and forms.
 - Support a focused CSS subset including selectors, inheritance, margins, padding, borders, width, wrapping, overflow, and text transforms.
 - Emit OSC 8 hyperlinks for `<a href="...">...</a>` when supported by the terminal.
+- A mutable `Document`/`Element` API for hosts that want to query, mutate, and re-render a tree instead of parsing once and discarding it.
+- Native Go DOM-style events (`AddEventListener`, capture/target/bubble phases), focus management, and hit-testing (`Document.Rect`) — no scripting engine, just Go closures.
+- A `Loop` that drives a `Document` against a real terminal: raw-mode keyboard/mouse input, `SetInterval`/`SetTimeout` timers, and a render loop — enough to build a small interactive TUI.
 
 ## Scope
 
@@ -122,6 +125,40 @@ Steps 3 and 4 are both suppressed by `Options.IgnoreDocumentCSS`.
 
 Higher specificity wins within a given layer; later rules win on ties.
 
+## Interactive documents
+
+Beyond one-shot `Renderer.Render`, `htmlterm` has a mutable `Document`/`Element`
+API and an event system modeled on the browser DOM — no scripting engine, just
+native Go closures registered the way `addEventListener` would be:
+
+```go
+doc, err := htmlterm.ParseDocument(`
+	<form id="f">
+	  <label>Name: <input id="name"></label>
+	  <button type="submit">Submit</button>
+	</form>`, htmlterm.Options{Width: 40})
+
+name := doc.GetElementByID("name")
+doc.Focus(name)
+
+doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *htmlterm.Event) {
+	fmt.Println("submitted:", name.Value())
+})
+
+doc.DispatchKey("h")
+doc.DispatchKey("i")
+doc.DispatchKey("Enter") // fires "submit" — Enter on a focused text field is an implicit submit
+
+out, _ := doc.Render()
+fmt.Print(out)
+```
+
+- **`Document`/`Element`** (`ParseDocument`, `GetElementByID`, `QuerySelector`/`QuerySelectorAll`, attribute get/set/remove, `ClassList`, `Value`/`SetValue`, `Checked`/`SetChecked`) — parse once, mutate and re-render repeatedly, instead of `Renderer.Render`'s parse-once-discard model.
+- **Events** — `Document.AddEventListener(el, type, capture, fn)` / `RemoveEventListener`, with `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`, dispatched through capture → target → bubble phases. `Document.DispatchClick(row, col)` and `DispatchKey(key)` hit-test/route input and run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter).
+- **Focus and hit-testing** — `Document.Focus`/`Blur`/`FocusNext`/`FocusPrev` manage a `:focus`-matching focused element; `Document.Rect(el)` returns an element's on-screen position and size (the CSS border box), recorded for free as a byproduct of rendering — useful for translating real mouse coordinates into `DispatchClick` calls.
+- **Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with sensible terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `<select>` is not yet supported (no dropdown-rendering concept exists).
+- **`Loop`** (`NewLoop`, `Loop.Run`) drives a `Document` against a real terminal: raw mode, SGR mouse reporting, keyboard/mouse decoding into `DispatchClick`/`DispatchKey` calls, and repaint after every event. `Loop.SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout` mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. See [`cmd/htmlterm-tui`](./cmd/htmlterm-tui) for a complete runnable example (form + spinner + clock), and `INTERACTIVE.md`/`REPAINT.md` for the full design history, including known gaps (no `<select>` dropdown, no terminal resize handling, no line-level diff repaint yet — every paint currently redraws the whole frame).
+
 ## CLI
 
 The repository also includes a small CLI in [`cmd/`](./cmd):
@@ -163,3 +200,4 @@ make vuln     # govulncheck ./...
 - Unsupported HTML and CSS are ignored rather than treated as errors.
 - Table cells default to `white-space: nowrap` and `text-overflow: ellipsis`.
 - Blockquote, emphasis, strong text, links, and several semantic HTML elements have built-in default styling.
+- The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`) and hasn't been verified on Windows.
