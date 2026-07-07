@@ -11,6 +11,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/client9/htmlterm"
 )
@@ -23,6 +24,9 @@ const formHTML = `
   #result.visible::before {
     content: "Submitted! Name: " attr(data-name) " — Subscribed: " attr(data-subscribed);
   }
+  #status { color: #888888; }
+  #spinner::before { content: attr(data-frame); }
+  #clock::before { content: attr(data-time); }
 </style>
 <form id="myform">
   <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
@@ -30,7 +34,13 @@ const formHTML = `
   <button type="submit">Submit</button>
 </form>
 <div id="result"></div>
+<div id="status"><span id="spinner" data-frame="⠋"></span> <span id="clock" data-time="00:00:00"></span></div>
 `
+
+// spinnerFrames cycles a decorative Braille spinner, driven by
+// Loop.SetInterval (timer.go) — a periodic update with nothing to do with
+// keyboard/mouse input, demonstrating the timer mechanism end to end.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func main() {
 	os.Exit(run())
@@ -60,7 +70,21 @@ func run() int {
 		result.ClassList().Add("visible")
 	})
 
-	if err := htmlterm.NewLoop(doc, os.Stdin, os.Stdout).Run(); err != nil {
+	loop := htmlterm.NewLoop(doc, os.Stdin, os.Stdout)
+
+	spinner := doc.GetElementByID("spinner")
+	spinnerFrame := 0
+	loop.SetInterval(100*time.Millisecond, func() {
+		spinnerFrame = (spinnerFrame + 1) % len(spinnerFrames)
+		spinner.SetAttribute("data-frame", spinnerFrames[spinnerFrame])
+	})
+
+	clock := doc.GetElementByID("clock")
+	loop.SetInterval(time.Second, func() {
+		clock.SetAttribute("data-time", time.Now().Format("15:04:05"))
+	})
+
+	if err := loop.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm-tui: %v\n", err)
 		return 1
 	}

@@ -13,19 +13,33 @@ import (
 // Loop drives a Document interactively against a real terminal: it puts in
 // into raw mode, decodes keyboard and mouse input off it, dispatches the
 // resulting events to doc (Document.DispatchKey/DispatchClick), and repaints
-// out after every dispatch. It depends only on Document's public API —
-// Render, DispatchClick, DispatchKey — the same layer any other caller uses.
+// out after every dispatch — or after a SetInterval/SetTimeout timer fires
+// (timer.go), so periodic, non-input-driven updates (a spinner, a live
+// clock) repaint too. It depends only on Document's public API — Render,
+// DispatchClick, DispatchKey — the same layer any other caller uses.
 type Loop struct {
 	doc *Document
 	in  *os.File
 	out io.Writer
+
+	timers      map[timerID]*timerState
+	nextTimerID timerID
+	timerCh     chan timerFire
 }
 
 // NewLoop returns a Loop that reads input from in (typically os.Stdin — a
 // real file is required so raw mode can be applied via its file descriptor)
-// and writes rendered frames to out (typically os.Stdout).
+// and writes rendered frames to out (typically os.Stdout). Timers
+// (SetInterval/SetTimeout) may be registered any time after construction,
+// including before Run is called.
 func NewLoop(doc *Document, in *os.File, out io.Writer) *Loop {
-	return &Loop{doc: doc, in: in, out: out}
+	return &Loop{
+		doc:     doc,
+		in:      in,
+		out:     out,
+		timers:  make(map[timerID]*timerState),
+		timerCh: make(chan timerFire),
+	}
 }
 
 // writeFrame writes doc.Render()'s output with every "\n" widened to
@@ -39,11 +53,20 @@ func writeFrame(w io.Writer, frame string) error {
 	return err
 }
 
+// inputMsg is one decodeEvent result (or the error that ended decoding),
+// relayed by Run's input-reading goroutine onto a channel so Run's main loop
+// can select between it and a timer firing (timerFire, timer.go) rather than
+// blocking solely on terminal input.
+type inputMsg struct {
+	ev  inputEvent
+	err error
+}
+
 // Run puts the terminal into raw mode, enables SGR mouse reporting, and
-// repaints doc after every keyboard/mouse event until Ctrl-C (\x03) is read
-// or in reaches EOF/an error. The terminal is always restored to its
-// original mode and mouse reporting disabled before Run returns, even on
-// error.
+// repaints doc after every keyboard/mouse event, and after every fired timer
+// (SetInterval/SetTimeout, timer.go), until Ctrl-C (\x03) is read or in
+// reaches EOF/an error. The terminal is always restored to its original mode
+// and mouse reporting disabled before Run returns, even on error.
 func (l *Loop) Run() error {
 	restore, err := enterRawMode(int(l.in.Fd()))
 	if err != nil {
@@ -70,24 +93,45 @@ func (l *Loop) Run() error {
 		return err
 	}
 
-	for {
-		ev, err := decodeEvent(r)
-		if err != nil {
-			if err == io.EOF {
-				return nil
+	// Input is decoded on its own goroutine and relayed here over a channel,
+	// rather than Run blocking directly on decodeEvent, so the loop below
+	// can select between "input arrived" and "a timer fired" — every
+	// Document mutation and every paint() call still happens on this one
+	// goroutine, so no locking is needed anywhere (see timer.go).
+	inputCh := make(chan inputMsg)
+	go func() {
+		for {
+			ev, err := decodeEvent(r)
+			inputCh <- inputMsg{ev: ev, err: err}
+			if err != nil {
+				return
 			}
-			return err
 		}
+	}()
 
-		switch {
-		case ev.kind == keyEvent && ev.key == "\x03":
-			return nil
-		case ev.kind == keyEvent && ev.key != "":
-			l.doc.DispatchKey(ev.key)
-		case ev.kind == clickEvent:
-			l.doc.DispatchClick(ev.row-originRow, ev.col)
-		default:
-			continue // an ignored mouse report (release, drag, other button)
+	for {
+		select {
+		case msg := <-inputCh:
+			if msg.err != nil {
+				if msg.err == io.EOF {
+					return nil
+				}
+				return msg.err
+			}
+
+			switch ev := msg.ev; {
+			case ev.kind == keyEvent && ev.key == "\x03":
+				return nil
+			case ev.kind == keyEvent && ev.key != "":
+				l.doc.DispatchKey(ev.key)
+			case ev.kind == clickEvent:
+				l.doc.DispatchClick(ev.row-originRow, ev.col)
+			default:
+				continue // an ignored mouse report (release, drag, other button)
+			}
+
+		case fire := <-l.timerCh:
+			l.handleTimerFire(fire)
 		}
 
 		if err := l.paint(originRow); err != nil {
