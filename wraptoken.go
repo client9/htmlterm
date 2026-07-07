@@ -75,7 +75,10 @@ func hasContent(tokens []wrapToken) bool {
 // lastRune returns the last visible rune the token stream would produce, and
 // whether there's any content at all — the direct replacement for
 // cappedWriter.LastByte()'s use for CSS whitespace-collapse decisions (is the
-// next text node arriving at a line start, or right after a space).
+// next text node arriving at a line start, or right after a space). A text
+// token's content may itself carry ANSI styling (appendTextSegment no longer
+// keeps trailing spaces unstyled), so this strips escape sequences first
+// rather than trusting the token's raw last byte/rune.
 func lastRune(tokens []wrapToken) (r rune, ok bool) {
 	if len(tokens) == 0 {
 		return 0, false
@@ -88,7 +91,7 @@ func lastRune(tokens []wrapToken) (r rune, ok bool) {
 		// Opaque: a box token is never itself a space or a line-start marker.
 		return 0, true
 	default:
-		rs := []rune(last.text)
+		rs := []rune(stripANSI(last.text))
 		if len(rs) == 0 {
 			return 0, false
 		}

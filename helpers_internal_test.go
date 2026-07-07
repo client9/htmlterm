@@ -307,6 +307,40 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
+func TestTrimOneTrailingVisibleSpace(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{"plain trailing space", "hi ", "hi", true},
+		{"no trailing space", "hi", "hi", false},
+		{"styled trailing space removed, escapes preserved", "\x1b[31mhi \x1b[0m", "\x1b[31mhi\x1b[0m", true},
+		{"two trailing spaces only removes one", "hi  ", "hi ", true},
+		{"space before a trailing escape sequence still counts as trailing", "hi \x1b[0m", "hi\x1b[0m", true},
+	}
+	for _, c := range cases {
+		got, ok := trimOneTrailingVisibleSpace(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: trimOneTrailingVisibleSpace(%q) = (%q, %v), want (%q, %v)", c.name, c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestLastRuneSeesThroughANSIStyling verifies lastRune reports a styled
+// trailing space's true last visible rune (' '), not the last byte of its
+// closing SGR reset — the fix that lets appendTextSegment keep a styled
+// run's trailing space inside its own ANSI span (see inline.go) without
+// breaking whitespace-collapse decisions that key off lastRune.
+func TestLastRuneSeesThroughANSIStyling(t *testing.T) {
+	tokens := []wrapToken{{text: "\x1b[31mred \x1b[0m"}}
+	r, ok := lastRune(tokens)
+	if !ok || r != ' ' {
+		t.Fatalf("lastRune(styled trailing space) = (%q, %v), want (' ', true)", r, ok)
+	}
+}
+
 // TestANSIIntermediateByte verifies that two-byte escape sequences whose first
 // byte is an intermediate (0x20–0x3F, e.g. ESC '(' for ISO 2022 G0 charset)
 // are fully consumed and do not leak their final byte as visible content.

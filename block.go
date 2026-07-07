@@ -320,8 +320,11 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		last := len(tokens) - 1
 		if tokens[last].box == nil && !tokens[last].brk {
 			t := tokens[last].text
-			if strings.HasSuffix(t, " ") && !strings.HasSuffix(t, "  ") {
-				tokens[last] = wrapToken{text: t[:len(t)-1]}
+			stripped := stripANSI(t)
+			if strings.HasSuffix(stripped, " ") && !strings.HasSuffix(stripped, "  ") {
+				if trimmed, ok := trimOneTrailingVisibleSpace(t); ok {
+					tokens[last] = wrapToken{text: trimmed}
+				}
 			}
 		}
 	}

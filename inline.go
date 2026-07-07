@@ -17,11 +17,10 @@ func (r *Renderer) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int
 // appendText appends text, splitting any embedded "\n" into brk tokens first
 // (text tokens must never contain a literal newline — a CSS content: "\A"
 // pseudo-element value or a <pre>/pre-wrap text node, which preserves source
-// newlines instead of collapsing them, are the two sources of this). Each
-// resulting segment is pushed as one or two tokens: st-styled core plus an
-// unstyled trailing-space tail, matching the historical quirk that trailing
-// spaces stay outside any ANSI span so LastByte/lastRune-style checks (and
-// HasSuffix checks elsewhere) see them as plain content.
+// newlines instead of collapsing them, are the two sources of this). A
+// styled segment's trailing space stays inside its ANSI span (lastRune,
+// wraptoken.go, and block.go's own trailing-space trim are ANSI-aware, via
+// stripANSI/trimOneTrailingVisibleSpace, so they don't need it kept plain).
 func appendText(tokens []wrapToken, st inlineStyle, text string, p colorprofile.Profile) []wrapToken {
 	if text == "" {
 		return tokens
@@ -45,14 +44,7 @@ func appendTextSegment(tokens []wrapToken, st inlineStyle, text string, p colorp
 	if !st.has() {
 		return append(tokens, wrapToken{text: text})
 	}
-	core, trail := splitTrailingSpaces(text)
-	if core != "" {
-		tokens = append(tokens, wrapToken{text: st.render(core, p)})
-	}
-	if trail != "" {
-		tokens = append(tokens, wrapToken{text: trail})
-	}
-	return tokens
+	return append(tokens, wrapToken{text: st.render(text, p)})
 }
 
 // renderInlineAccTokens is renderInlineAcc's token-collecting core. It walks

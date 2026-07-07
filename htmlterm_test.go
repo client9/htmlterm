@@ -207,6 +207,49 @@ func TestBackgroundShorthandColor(t *testing.T) {
 	}
 }
 
+// TestStyledTrailingSpaceStaysInsideANSISpan guards against a regression of
+// the bug found via cmd/htmlterm-tui: a styled run's trailing space used to
+// be pushed outside its ANSI span (appendTextSegment, inline.go) so that
+// button::before's "[ " content lost its :focus background-color on the
+// space between the bracket and the label. The space must now stay inside
+// the same open/close SGR pair as the rest of the run.
+func TestStyledTrailingSpaceStaysInsideANSISpan(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p><span style="background-color:#ff0000">red bg </span>next</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "red bg \x1b[m") {
+		t.Fatalf("styled trailing space fell outside its ANSI span: %q", got)
+	}
+	if stripANSI(got) != "red bg next\n\n" {
+		t.Fatalf("styled trailing space changed visible text: %q", stripANSI(got))
+	}
+}
+
+// TestBlockBoundaryTrailingSpaceTrimIsANSISafe guards block.go's
+// end-of-block trailing-space trim (removing the one stray space a styled
+// run can leave right before a block boundary): it must trim the space
+// itself, not corrupt the surrounding SGR escape sequences, even now that
+// the space can be inside a styled span rather than always plain.
+func TestBlockBoundaryTrailingSpaceTrimIsANSISafe(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p><span style="background-color:#ff0000">text </span></p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\x1b[48;2;255;0;0mtext\x1b[m\n\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestOSCHyperlinkSanitizesHref(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {

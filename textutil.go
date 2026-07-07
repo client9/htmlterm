@@ -159,17 +159,6 @@ func normalizeWhiteSpace(s, mode string, tabSize int) string {
 	}
 }
 
-// splitTrailingSpaces returns s split at the first trailing space: the non-space
-// prefix and the trailing-spaces suffix. Used to keep trailing spaces outside ANSI
-// wrapping so that prevIsSpace and HasSuffix checks see them as plain bytes.
-func splitTrailingSpaces(s string) (core, trail string) {
-	i := len(s)
-	for i > 0 && s[i-1] == ' ' {
-		i--
-	}
-	return s[:i], s[i:]
-}
-
 // ansiCarry tracks the single currently-open SGR style span and/or OSC8
 // hyperlink span while scanning already-styled/hyperlinked text left to
 // right, so a line break inserted mid-span (by word-wrap or a hard break)
@@ -617,6 +606,29 @@ func stripANSI(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// trimOneTrailingVisibleSpace removes s's last visible (non-ANSI-escape)
+// rune if it's a space, preserving every escape sequence exactly where it
+// was — including ones immediately before or after the removed rune, so a
+// styled span's opening/closing codes stay correctly paired around the
+// shortened content. ok is false, and s is returned unchanged, if s has no
+// visible content or its last visible rune isn't a space.
+func trimOneTrailingVisibleSpace(s string) (trimmed string, ok bool) {
+	runes := []rune(s)
+	lastVisible := -1
+	for i := 0; i < len(runes); {
+		if runes[i] == '\x1b' {
+			i = consumeANSI(runes, i)
+			continue
+		}
+		lastVisible = i
+		i++
+	}
+	if lastVisible == -1 || runes[lastVisible] != ' ' {
+		return s, false
+	}
+	return string(runes[:lastVisible]) + string(runes[lastVisible+1:]), true
 }
 
 // sanitizeTerminalText removes terminal escape sequences and control
