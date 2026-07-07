@@ -1,7 +1,11 @@
 // htmlterm-tui is a small interactive demo of htmlterm's Loop: it renders a
 // form to the real terminal and lets you drive it with the keyboard and
-// mouse (Tab/Shift is not wired to a key here — use Tab to move forward,
-// type into the focused field, click a checkbox, Ctrl-C to quit).
+// mouse (Tab to move forward, type into the focused field, click a
+// checkbox, Enter or click Submit to submit, Ctrl-C to quit). Submitting
+// fires a real "submit" event (Document.AddEventListener) on the <form>,
+// whose handler reveals a result line underneath echoing what was entered —
+// demonstrating the event system end to end, not just individual field
+// mutation.
 package main
 
 import (
@@ -14,12 +18,18 @@ import (
 const formHTML = `
 <style>
   input:focus, button:focus { background-color: #4477cc; color: #ffffff; }
+  #result { display: none; }
+  #result.visible { display: block; }
+  #result.visible::before {
+    content: "Submitted! Name: " attr(data-name) " — Subscribed: " attr(data-subscribed);
+  }
 </style>
-<form>
+<form id="myform">
   <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
   <label><input type="checkbox" id="subscribe"> Subscribe to updates</label><br>
   <button type="submit">Submit</button>
 </form>
+<div id="result"></div>
 `
 
 func main() {
@@ -33,9 +43,22 @@ func run() int {
 		return 1
 	}
 
-	if name := doc.GetElementByID("name"); name != nil {
+	name := doc.GetElementByID("name")
+	if name != nil {
 		doc.Focus(name)
 	}
+	subscribe := doc.GetElementByID("subscribe")
+	result := doc.GetElementByID("result")
+
+	doc.AddEventListener(doc.GetElementByID("myform"), "submit", false, func(e *htmlterm.Event) {
+		subscribed := "no"
+		if subscribe.Checked() {
+			subscribed = "yes"
+		}
+		result.SetAttribute("data-name", name.Value())
+		result.SetAttribute("data-subscribed", subscribed)
+		result.ClassList().Add("visible")
+	})
 
 	if err := htmlterm.NewLoop(doc, os.Stdin, os.Stdout).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm-tui: %v\n", err)

@@ -158,6 +158,82 @@ func TestDispatchClickRadioGroupScopedToForm(t *testing.T) {
 	}
 }
 
+func TestDispatchClickSubmitButtonFiresSubmitOnForm(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"><button id="go">Go</button></form>`)
+	form := doc.GetElementByID("f")
+	btn := doc.GetElementByID("go")
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	rect, _ := doc.Rect(btn)
+	doc.DispatchClick(rect.Row, rect.Col)
+
+	if !submitted {
+		t.Error("clicking a bare <button> in a <form> did not fire submit")
+	}
+}
+
+func TestDispatchClickButtonTypeButtonDoesNotSubmit(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><button type="button" id="go">Go</button></form>`)
+	form := doc.GetElementByID("f")
+	btn := doc.GetElementByID("go")
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	rect, _ := doc.Rect(btn)
+	doc.DispatchClick(rect.Row, rect.Col)
+
+	if submitted {
+		t.Error("clicking <button type=button> fired submit, want no-op")
+	}
+}
+
+func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="submit" id="go" value="Go"></form>`)
+	form := doc.GetElementByID("f")
+	btn := doc.GetElementByID("go")
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	rect, _ := doc.Rect(btn)
+	doc.DispatchClick(rect.Row, rect.Col)
+
+	if !submitted {
+		t.Error("clicking input[type=submit] did not fire submit")
+	}
+}
+
+func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"></form>`)
+	form := doc.GetElementByID("f")
+	name := doc.GetElementByID("name")
+	doc.Focus(name)
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	doc.DispatchKey("Enter")
+
+	if !submitted {
+		t.Error("Enter in a text input inside a form did not fire submit")
+	}
+}
+
+func TestDispatchKeyEnterOutsideFormDoesNotSubmit(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="text" id="name">`)
+	name := doc.GetElementByID("name")
+	doc.Focus(name)
+
+	// No form ancestor at all — DispatchKey should just not panic or fire
+	// anything; nothing to assert beyond "doesn't blow up".
+	if !doc.DispatchKey("Enter") {
+		t.Error("DispatchKey(Enter) returned false with a focused element")
+	}
+}
+
 func TestFocusAndBlur(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a"><input id="b" disabled><button id="c">Go</button>`)
 	a := doc.GetElementByID("a")

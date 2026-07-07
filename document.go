@@ -109,9 +109,13 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // recent Render call, dispatches a "click" event (capture/target/bubble) to
 // the innermost matching element, and — unless a listener called
 // Event.PreventDefault — runs the built-in default action: toggling a
-// checkbox's checked state, or checking a radio button and clearing its
-// sibling radios (see clearRadioSiblings). Returns false if no element was
-// hit.
+// checkbox's checked state, checking a radio button and clearing its
+// sibling radios (see clearRadioSiblings), or — for a submit control (an
+// input[type=submit], or a button whose type is unset or "submit", matching
+// HTML's default button type) — dispatching a "submit" event on the nearest
+// ancestor <form> (see nearestForm). htmlterm has no navigation/network
+// concept, so "submit" is exactly what a listener sees: there's no default
+// action for it to prevent. Returns false if no element was hit.
 func (d *Document) DispatchClick(row, col int) bool {
 	target := d.elementAt(row, col)
 	if target == nil {
@@ -122,6 +126,11 @@ func (d *Document) DispatchClick(row, col int) bool {
 		return true
 	}
 	d.applyCheckToggle(target)
+	if isSubmitControl(target) {
+		if form := nearestForm(target); form != nil {
+			d.dispatch(form, "submit", "")
+		}
+	}
 	return true
 }
 
@@ -175,18 +184,47 @@ func isTextEntry(n *html.Node) bool {
 	}
 }
 
+// isSubmitControl reports whether n is a control that submits its form when
+// activated: an input[type=submit], or a button whose type attribute is
+// unset or "submit" — HTML's default button type is "submit", so a bare
+// <button> counts, but <button type="button"> or <button type="reset">
+// don't.
+func isSubmitControl(n *html.Node) bool {
+	typ := strings.ToLower(nodeAttr(n, "type"))
+	switch strings.ToLower(n.Data) {
+	case "input":
+		return typ == "submit"
+	case "button":
+		return typ == "" || typ == "submit"
+	}
+	return false
+}
+
+// nearestForm returns n's nearest ancestor <form>, or nil if it has none.
+func nearestForm(n *html.Node) *html.Node {
+	for p := n.Parent; p != nil; p = p.Parent {
+		if p.Type == html.ElementNode && p.Data == "form" {
+			return p
+		}
+	}
+	return nil
+}
+
 // DispatchKey dispatches a "keydown" event (with Event.Key set to key) to
 // the currently focused element, and — unless a listener called
 // Event.PreventDefault — runs the built-in default action: "Tab" moves
 // focus to the next focusable element (FocusNext); "Backspace" drops the
 // last rune of a focused text entry's value; a lone space (" ") toggles a
-// focused checkbox/radio (applyCheckToggle); any other single-rune key
-// appends to a focused text entry's (input or textarea) value. key follows
-// the convention described in INTERACTIVE.md: a single printable rune as a
-// UTF-8 string ("a", "5", " "), or a named key from a fixed vocabulary
-// ("Enter", "Backspace", "Tab", "Escape", "ArrowUp"/"Down"/"Left"/"Right").
-// The host owns all raw-terminal-byte-to-key-name translation; htmlterm
-// never reads a terminal itself. Returns false if nothing is focused.
+// focused checkbox/radio (applyCheckToggle); "Enter" on a submit control or
+// a focused text entry dispatches "submit" on the nearest ancestor <form> —
+// matching HTML's implicit-submit-on-Enter behavior for a single-line text
+// field; any other single-rune key appends to a focused text entry's (input
+// or textarea) value. key follows the convention described in
+// INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
+// or a named key from a fixed vocabulary ("Enter", "Backspace", "Tab",
+// "Escape", "ArrowUp"/"Down"/"Left"/"Right"). The host owns all
+// raw-terminal-byte-to-key-name translation; htmlterm never reads a
+// terminal itself. Returns false if nothing is focused.
 func (d *Document) DispatchKey(key string) bool {
 	if d.focused == nil || key == "" {
 		return false
@@ -209,6 +247,10 @@ func (d *Document) DispatchKey(key string) bool {
 		}
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
+	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
+		if form := nearestForm(target); form != nil {
+			d.dispatch(form, "submit", "")
+		}
 	default:
 		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
 			setAttr(target, "value", nodeAttr(target, "value")+key)
@@ -226,11 +268,8 @@ func (d *Document) clearRadioSiblings(target *html.Node) {
 		return
 	}
 	scope := d.doc
-	for p := target.Parent; p != nil; p = p.Parent {
-		if p.Type == html.ElementNode && p.Data == "form" {
-			scope = p
-			break
-		}
+	if form := nearestForm(target); form != nil {
+		scope = form
 	}
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
