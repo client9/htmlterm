@@ -165,13 +165,13 @@ func (r *Renderer) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []w
 			tokens = ensureBreaks(tokens, mt+1)
 		}
 		savedDepth := r.quoteDepth
-		bx := r.renderBlockContentBox(n, decls, r.width)
+		bx, subPositions := r.renderBlockContentBox(n, decls, r.width)
 		if decls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth
 			bx = blankVisibleContentBox(bx)
 		}
 		bx = r.wrapHyperlinkBox(href, bx)
-		tokens = append(tokens, wrapToken{box: &bx, node: n})
+		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
 	case "inline-block":
@@ -192,30 +192,58 @@ func (r *Renderer) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []w
 			inner = blankVisibleContent(inner)
 		}
 		inner = r.wrapHyperlink(href, inner)
-		switch {
-		case inner == "":
-		case strings.Contains(inner, "\n"):
+		if inner != "" {
+			// Unconditionally box (not just when inner contains "\n"),
+			// matching inline.go's nested inline-block case: inline-block
+			// content is deliberately one atomic unit regardless of height,
+			// and boxing it is also what makes it trackable via
+			// Document.Rect — a single-line <button>/<input> would
+			// otherwise become a plain text token with no position at all.
 			bx := newBox(inner)
 			tokens = append(tokens, wrapToken{box: &bx, node: n})
-		default:
-			tokens = append(tokens, wrapToken{text: inner})
 		}
 	default:
-		acc := extractInlineStyle(decls)
-		savedDepth := r.quoteDepth
-		inner := r.renderInlineAcc(n, acc, r.width)
-		if decls["visibility"] == "hidden" {
-			r.quoteDepth = savedDepth
-			inner = blankVisibleContent(inner)
-		}
-		inner = r.wrapHyperlink(href, inner)
-		switch {
-		case inner == "":
-		case strings.Contains(inner, "\n"):
-			bx := newBox(inner)
-			tokens = append(tokens, wrapToken{box: &bx, node: n})
-		default:
-			tokens = append(tokens, wrapToken{text: inner})
+		if n.Data == "a" {
+			// <a> stays string-based, matching inline.go's nested "default"
+			// case: a hyperlink needs whole-string OSC8 wrapping, and a
+			// token-level equivalent isn't worth the complexity given how
+			// rarely a root-level anchor wraps further trackable
+			// descendants (e.g. a form control) — an accepted
+			// position-tracking gap for that specific, uncommon case.
+			acc := extractInlineStyle(decls)
+			savedDepth := r.quoteDepth
+			inner := r.renderInlineAcc(n, acc, r.width)
+			if decls["visibility"] == "hidden" {
+				r.quoteDepth = savedDepth
+				inner = blankVisibleContent(inner)
+			}
+			inner = r.wrapHyperlink(href, inner)
+			switch {
+			case inner == "":
+			case strings.Contains(inner, "\n"):
+				bx := newBox(inner)
+				tokens = append(tokens, wrapToken{box: &bx, node: n})
+			default:
+				tokens = append(tokens, wrapToken{text: inner})
+			}
+		} else {
+			// Plain inline root content (a root-level <label>, <span>,
+			// etc.): splice its own tokens directly instead of flattening
+			// to a string first, so a trackable descendant (e.g. an
+			// <input> inside a root-level <label>) keeps its box-token
+			// identity through to the root wordWrapTokens call — see
+			// inline.go's matching nested case for the full rationale.
+			acc := extractInlineStyle(decls)
+			savedDepth := r.quoteDepth
+			childTokens := r.renderInlineAccTokens(n, acc, r.width)
+			if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
+				childTokens = childTokens[:len(childTokens)-1]
+			}
+			if decls["visibility"] == "hidden" {
+				r.quoteDepth = savedDepth
+				childTokens = blankVisibleContentTokens(childTokens)
+			}
+			tokens = append(tokens, childTokens...)
 		}
 	}
 	return tokens

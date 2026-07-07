@@ -19,8 +19,9 @@ import (
 // HTML passed to Renderer.Render but would be destructive and irreversible
 // against a tree a host intends to keep mutating.
 type Document struct {
-	doc  *html.Node
-	opts Options
+	doc       *html.Node
+	opts      Options
+	positions map[*html.Node]Rect // from the most recent Render call; nil before the first one
 }
 
 // ParseDocument parses htmlStr and returns a Document backed by the
@@ -35,12 +36,39 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 
 // Render renders the document's current tree to a styled terminal string,
 // reflecting any mutations made since ParseDocument or the previous Render.
+// It also refreshes the position map Rect reads from, so a host that mutates
+// the tree and re-renders in a loop always has Rects matching what it just
+// displayed.
 func (d *Document) Render() (string, error) {
 	r, err := New(d.opts)
 	if err != nil {
 		return "", err
 	}
-	return r.renderTree(d.doc)
+	out, positions := r.renderTree(d.doc)
+	d.positions = positions
+	return out, nil
+}
+
+// Rect returns el's position and size as of the most recent Render call
+// (the CSS border box — content+padding+border, excluding margin — see
+// RENDERING.md's Position tracking section for the exact semantics and its
+// documented approximations), and whether a position was recorded for it at
+// all. A position is recorded for every element that produces its own box
+// during composition (block-level elements, tables, lists, inline-block
+// elements including form controls, and plain inline elements like <span>/
+// <label> reached via token-splicing) — see inline.go's and render.go's
+// "default" dispatch cases for exactly which elements that covers, and
+// their doc comments for the specific, uncommon combinations (a hyperlink
+// or another inline-block wrapping a further trackable descendant) where a
+// nested element's own Rect isn't tracked. ok is false if Render hasn't been
+// called yet, or if el has no recorded position (e.g. display:none, or one
+// of those documented gaps).
+func (d *Document) Rect(el *Element) (Rect, bool) {
+	if d.positions == nil || el == nil {
+		return Rect{}, false
+	}
+	rect, ok := d.positions[el.node]
+	return rect, ok
 }
 
 // GetElementByID returns the first element in document order whose id

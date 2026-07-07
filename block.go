@@ -191,7 +191,8 @@ func parseMargin(s string) int {
 // block element. Thin shim over renderBlockContentBox for callers not yet
 // migrated to box.
 func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, availWidth int) string {
-	return r.renderBlockContentBox(n, decls, availWidth).join()
+	b, _ := r.renderBlockContentBox(n, decls, availWidth)
+	return b.join()
 }
 
 // renderBlockContentBox is renderBlockContent's box-based core. It preserves
@@ -200,7 +201,7 @@ func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, ava
 // → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
 // height padding → text-indent → vertical padding → horizontal padding →
 // borders → top/bottom rules → margins → visibility:hidden blanking, last).
-func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) box {
+func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
 	bl := blockBorder{char: parseCSSString(decls["border-left"]), color: decls["border-left-color"]}
 	br := blockBorder{char: parseCSSString(decls["border-right"]), color: decls["border-right-color"]}
 	bt := blockBorder{char: parseCSSString(decls["border-top"]), color: decls["border-top-color"]}
@@ -337,14 +338,17 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		}
 	}
 	var b box
+	var positions map[*html.Node]Rect
 	if ws == "pre" || ws == "nowrap" {
+		// tokensToString doesn't place anything, so no positions to track
+		// here — an accepted gap for pre/nowrap content specifically.
 		b = newBox(tokensToString(tokens))
 	} else {
 		breakMode := decls["overflow-wrap"]
 		if breakMode == "" {
 			breakMode = decls["word-break"]
 		}
-		b, _ = wordWrapTokens(tokens, innerW, breakMode, 0)
+		b, positions = wordWrapTokens(tokens, innerW, breakMode, 0)
 		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
 
@@ -454,6 +458,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		b = applyBlockBordersBox(b, bl, br, r.profile)
 	}
 	isEmpty := func() bool { return len(b.lines) == 1 && b.lines[0] == "" }
+	topRuleDrawn := false
 	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
 		if isEmpty() {
 			b.lines = []string{top}
@@ -461,6 +466,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 			b.lines = append([]string{top}, b.lines...)
 		}
 		b.width = linesWidth(b.lines)
+		topRuleDrawn = true
 	}
 	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
 		if isEmpty() {
@@ -494,7 +500,22 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	} else {
 		b.pre = nil
 	}
-	return b
+	// Shift descendant positions (captured right after the initial wrap,
+	// before any of the transformations above) by everything since applied
+	// that moves rows/columns uniformly: pt prepends pt blank lines; a
+	// drawn top rule prepends one more; pl and the left border character
+	// each shift every line right; ml (baked in as literal padding, unlike
+	// vertical margin) shifts right again. text-indent (row 0 only) and
+	// text-align:right/center (variable per line) are NOT accounted for —
+	// an accepted approximation, since the primary use (hit-testing form
+	// controls) essentially never combines those with tracked descendants.
+	rowShift := pt
+	if topRuleDrawn {
+		rowShift++
+	}
+	colShift := pl + runeLen(bl.char) + ml
+	positions = mergePositions(nil, positions, rowShift, colShift)
+	return b, positions
 }
 
 // firstContentIsInline reports whether n's first non-whitespace content is

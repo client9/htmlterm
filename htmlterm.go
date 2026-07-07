@@ -111,15 +111,23 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
-	return r.renderTree(doc)
+	out, _ := r.renderTree(doc)
+	return out, nil
 }
 
-// renderTree renders an already-parsed document node. It builds fresh
+// renderTree renders an already-parsed document node, building fresh
 // per-document scratch state (resolved CSS rules, counters) from r's
-// configuration, the same way Render does after parsing, so it can be
-// reused against a tree that didn't come from a fresh html.Parse call
-// (see Document.Render).
-func (r *Renderer) renderTree(doc *html.Node) (string, error) {
+// configuration, the same way Render does after parsing — so it can be
+// reused against a tree that didn't come from a fresh html.Parse call (see
+// Document.Render). It also returns the fully resolved (absolute,
+// document-coordinate) position map — the "propagated incrementally, one
+// level at a time" mechanism from RENDERING.md's Position tracking section,
+// resolved once the walk reaches this, the document root. Document.Render
+// uses this to power Document.Rect; Render just discards it, keeping its
+// existing contract exactly. Nothing here can actually fail — parsing (the
+// only failure mode) already happened before this is called — so there's no
+// error return to thread through.
+func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
@@ -148,8 +156,18 @@ func (r *Renderer) renderTree(doc *html.Node) (string, error) {
 	// with nothing else) ends in no brk and gets no trailing newline,
 	// matching that this has always rendered as "hi", not "hi\n".
 	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
-	b, _ := wordWrapTokens(tokens, rr.width, "", 0)
-	lines := capBlankRuns(b.lines, b.pre, rr.maxBlankLines)
+	b, positions := wordWrapTokens(tokens, rr.width, "", 0)
+	lines, rowRemap := capBlankRuns(b.lines, b.pre, rr.maxBlankLines)
+	if rr.maxBlankLines > 0 && len(positions) > 0 {
+		remapped := make(map[*html.Node]Rect, len(positions))
+		for n, rect := range positions {
+			if rect.Row >= 0 && rect.Row < len(rowRemap) {
+				rect.Row = rowRemap[rect.Row]
+			}
+			remapped[n] = rect
+		}
+		positions = remapped
+	}
 	out := strings.Join(lines, "\n")
 	if trailingNewline {
 		out += "\n"
@@ -158,5 +176,5 @@ func (r *Renderer) renderTree(doc *html.Node) (string, error) {
 	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
 	// normalize it to a plain space in the final string, since terminals
 	// don't distinguish breaking from non-breaking spaces.
-	return strings.ReplaceAll(out, nbsp, " "), nil
+	return strings.ReplaceAll(out, nbsp, " "), positions
 }

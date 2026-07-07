@@ -7,7 +7,7 @@ import (
 
 func TestCapBlankRunsDisabledPassesThrough(t *testing.T) {
 	lines := []string{"A", "", "", "", "B"}
-	got := capBlankRuns(lines, nil, 0)
+	got, _ := capBlankRuns(lines, nil, 0)
 	if !reflect.DeepEqual(got, lines) {
 		t.Errorf("got %#v, want unchanged %#v", got, lines)
 	}
@@ -15,7 +15,7 @@ func TestCapBlankRunsDisabledPassesThrough(t *testing.T) {
 
 func TestCapBlankRunsCapsToMaxBlanks1(t *testing.T) {
 	lines := []string{"A", "", "", "", "", "B"}
-	got := capBlankRuns(lines, nil, 1)
+	got, _ := capBlankRuns(lines, nil, 1)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -24,7 +24,7 @@ func TestCapBlankRunsCapsToMaxBlanks1(t *testing.T) {
 
 func TestCapBlankRunsCapsToMaxBlanks2(t *testing.T) {
 	lines := []string{"A", "", "", "", "B"}
-	got := capBlankRuns(lines, nil, 2)
+	got, _ := capBlankRuns(lines, nil, 2)
 	want := []string{"A", "", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -36,7 +36,7 @@ func TestCapBlankRunsRunNotExceedingCapStillBlanksContent(t *testing.T) {
 	// "" — matching cappedWriter's flushNLBuf, which only ever tracked a
 	// pending newline count, never a blank line's original bytes.
 	lines := []string{"A", "   ", "B"}
-	got := capBlankRuns(lines, nil, 5)
+	got, _ := capBlankRuns(lines, nil, 5)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -45,7 +45,7 @@ func TestCapBlankRunsRunNotExceedingCapStillBlanksContent(t *testing.T) {
 
 func TestCapBlankRunsSpaceLineCountsAsBlank(t *testing.T) {
 	lines := []string{"A", " ", "B"}
-	got := capBlankRuns(lines, nil, 1)
+	got, _ := capBlankRuns(lines, nil, 1)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -54,7 +54,7 @@ func TestCapBlankRunsSpaceLineCountsAsBlank(t *testing.T) {
 
 func TestCapBlankRunsNBSPCountsAsBlank(t *testing.T) {
 	lines := []string{"A", " ", " ", " ", "B"}
-	got := capBlankRuns(lines, nil, 1)
+	got, _ := capBlankRuns(lines, nil, 1)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -63,7 +63,7 @@ func TestCapBlankRunsNBSPCountsAsBlank(t *testing.T) {
 
 func TestCapBlankRunsNBSPPreservedWhenDisabled(t *testing.T) {
 	lines := []string{"A", " ", "B"}
-	got := capBlankRuns(lines, nil, 0)
+	got, _ := capBlankRuns(lines, nil, 0)
 	want := []string{"A", " ", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -72,7 +72,7 @@ func TestCapBlankRunsNBSPPreservedWhenDisabled(t *testing.T) {
 
 func TestCapBlankRunsMixedUnicodeSpacesBlank(t *testing.T) {
 	lines := []string{"A", "   ", "B"}
-	got := capBlankRuns(lines, nil, 1)
+	got, _ := capBlankRuns(lines, nil, 1)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -88,7 +88,7 @@ func TestCapBlankRunsMixedUnicodeSpacesBlank(t *testing.T) {
 func TestCapBlankRunsPreLinesExemptAndBreakRuns(t *testing.T) {
 	lines := []string{"A", "", "", "", "pre1", "", "", "pre2", "", "", "", "B"}
 	pre := []bool{false, false, false, false, true, true, true, true, false, false, false, false}
-	got := capBlankRuns(lines, pre, 1)
+	got, _ := capBlankRuns(lines, pre, 1)
 	want := []string{"A", "", "pre1", "", "", "pre2", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)
@@ -97,7 +97,7 @@ func TestCapBlankRunsPreLinesExemptAndBreakRuns(t *testing.T) {
 
 func TestCapBlankRunsNilPreTreatsAllLinesAsCappable(t *testing.T) {
 	lines := []string{"A", "", "", "B"}
-	got := capBlankRuns(lines, nil, 1)
+	got, _ := capBlankRuns(lines, nil, 1)
 	want := []string{"A", "", "B"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v, want %#v", got, want)

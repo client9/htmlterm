@@ -279,3 +279,169 @@ func TestElementValueAndChecked(t *testing.T) {
 		t.Error("HasAttribute(\"checked\") = true after SetChecked(false), want false")
 	}
 }
+
+func TestDocumentRectBeforeRenderIsNotOK(t *testing.T) {
+	doc, err := htmlterm.ParseDocument(`<div id="d">hi</div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, ok := doc.Rect(doc.GetElementByID("d")); ok {
+		t.Error("Rect() before any Render() call: ok = true, want false")
+	}
+}
+
+func TestDocumentRectNilElement(t *testing.T) {
+	doc, err := htmlterm.ParseDocument(`<div>hi</div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, ok := doc.Rect(nil); ok {
+		t.Error("Rect(nil): ok = true, want false")
+	}
+}
+
+func TestDocumentRectBlockElement(t *testing.T) {
+	// blockquote's UA padding-left:1/padding-right:2 and left border are
+	// baked into its box, so its border-box width includes them.
+	doc, err := htmlterm.ParseDocument(`<blockquote id="bq">hi</blockquote>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("bq"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+	want := htmlterm.Rect{Row: 0, Col: 0, Width: 6, Height: 1} // "│ hi  "
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+}
+
+func TestDocumentRectFormControlInsideLabel(t *testing.T) {
+	// The realistic pattern this feature exists for: an <input> wrapped in
+	// a <label>, a plain inline (non-inline-block, non-anchor) element —
+	// verifies token-splicing (not string-flattening) preserves the
+	// input's own trackable position through the label's boundary.
+	doc, err := htmlterm.ParseDocument(`<label>Name: <input type="text" value="Bob" id="in"></label>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("in"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+	want := htmlterm.Rect{Row: 0, Col: 6, Width: 5, Height: 1} // "[Bob]" after "Name: "
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+}
+
+func TestDocumentRectRootLevelInlineBlock(t *testing.T) {
+	// A root-level, single-line inline-block element (no embedded "\n")
+	// must still be tracked — regression test for a bug where render.go's
+	// root dispatch only boxed inline-block content when it happened to
+	// contain a newline, silently leaving single-line content as an
+	// untracked plain text token.
+	doc, err := htmlterm.ParseDocument(`<button id="btn">Click</button>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("btn"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+	want := htmlterm.Rect{Row: 0, Col: 0, Width: 9, Height: 1} // "[ Click ]"
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+}
+
+func TestDocumentRectMultiLineBox(t *testing.T) {
+	doc, err := htmlterm.ParseDocument("<div><textarea id=\"ta\">line one\nline two</textarea></div>", htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("ta"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+	want := htmlterm.Rect{Row: 0, Col: 0, Width: 40, Height: 4} // top border + 2 lines + bottom border
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+}
+
+func TestDocumentRectRowShiftsForPaddingAndBorder(t *testing.T) {
+	// padding-top and a top border rule both prepend rows before the
+	// content's own wrapped position — verifies renderBlockContentBox's
+	// row-shift calculation (pt, plus one more if a top rule is drawn).
+	doc, err := htmlterm.ParseDocument(`<div id="d" style="border-style:normal; padding-top:2; width:100%">hi</div>`, htmlterm.Options{Width: 10})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// want: "┌────────┐\n│        │\n│        │\n│hi      │\n└────────┘\n"
+	// row 0 = top border, rows 1-2 = padding-top, row 3 = content.
+	rect, ok := doc.Rect(doc.GetElementByID("d"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+	if rect.Row != 0 {
+		t.Errorf("Rect().Row = %d, want 0 (the element's own border-box starts at the top rule; rendered: %q)", rect.Row, out)
+	}
+	if rect.Height != 5 {
+		t.Errorf("Rect().Height = %d, want 5 (top border + 2 padding + content + bottom border; rendered: %q)", rect.Height, out)
+	}
+}
+
+func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
+	// Document.Render refreshes the position map on every call, so a
+	// mutate-then-re-render loop always has Rects matching the latest
+	// output — the core host-driven interactive use case from
+	// INTERACTIVE.md.
+	doc, err := htmlterm.ParseDocument(`<p id="first">A</p><div id="target">B</div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	before, ok := doc.Rect(doc.GetElementByID("target"))
+	if !ok {
+		t.Fatal("Rect() ok = false, want true")
+	}
+
+	doc.GetElementByID("first").SetAttribute("style", "margin-bottom:5")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render (after mutation): %v", err)
+	}
+	after, ok := doc.Rect(doc.GetElementByID("target"))
+	if !ok {
+		t.Fatal("Rect() after re-render: ok = false, want true")
+	}
+	if after.Row <= before.Row {
+		t.Errorf("Rect().Row after adding margin-bottom = %d, want > %d (before)", after.Row, before.Row)
+	}
+}

@@ -110,13 +110,13 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 	}
 	// pushBoxDirect is pushBox for a caller that already has a box (a block
 	// child, via renderBlockContentBox) rather than a string — going through
-	// pushBox's string signature would silently drop bx.pre, since
-	// box.join()/newBox has no pre-tagging concept.
-	pushBoxDirect := func(bx box, minBreaksBefore int, node *html.Node) {
+	// pushBox's string signature would silently drop bx.pre and subPositions,
+	// since box.join()/newBox has no pre-tagging or position concept.
+	pushBoxDirect := func(bx box, subPositions map[*html.Node]Rect, minBreaksBefore int, node *html.Node) {
 		if hasContent(tokens) {
 			tokens = ensureBreaks(tokens, minBreaksBefore+1)
 		}
-		tokens = append(tokens, wrapToken{box: &bx, node: node})
+		tokens = append(tokens, wrapToken{box: &bx, node: node, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 	}
 
@@ -182,54 +182,97 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 			switch display {
 			case "block":
 				savedDepth := r.quoteDepth
-				bx := r.renderBlockContentBox(c, childDecls, availWidth)
+				bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
 				if childDecls["visibility"] == "hidden" {
 					r.quoteDepth = savedDepth
 					bx = blankVisibleContentBox(bx)
 				}
-				pushBoxDirect(bx, parseMargin(childDecls["margin-top"]), c)
+				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
 				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
 			default:
-				childAcc := mergeInlineStyle(acc, childDecls)
-				savedDepth := r.quoteDepth
-				var inner string
-				if c.Data == "input" {
-					// <input> has no children — its visual content is
-					// synthesized from attributes (type/value/placeholder/
-					// checked), not rendered from child nodes.
-					inner = inputDisplayText(c)
-				} else {
-					// TrimSuffix (at most one "\n"): a nested recursive call
-					// whose own last child was block-ish (e.g. an implicit
-					// <tbody> wrapping <tr>) can end in a trailing structural
-					// newline that was only ever meaningful as pending
-					// accumulator state, never real content — pushBox already
-					// trims this for its own inputs; this mirrors that for the
-					// plain-inline/inline-block path. Only one is trimmed, not
-					// all trailing newlines, since a further one could be a
-					// real trailing blank line (e.g. from padding-bottom).
-					inner = strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
-				}
-				if display == "inline-block" {
-					if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
-						inner = padLinesToWidth(inner, colWidth)
+				if display == "inline-block" || c.Data == "a" {
+					// inline-block (including <input>, always inline-block
+					// per the UA stylesheet) and <a> stay string-based: an
+					// inline-block's content is deliberately one atomic
+					// unit regardless of what's inside it, and a hyperlink
+					// needs whole-string OSC8 wrapping — neither is worth
+					// the complexity of a token-level equivalent given
+					// how rarely either wraps further trackable
+					// descendants (e.g. a second form control) in
+					// practice. This is an accepted position-tracking gap
+					// for that specific, uncommon combination.
+					childAcc := mergeInlineStyle(acc, childDecls)
+					savedDepth := r.quoteDepth
+					var inner string
+					if c.Data == "input" {
+						// <input> has no children — its visual content is
+						// synthesized from attributes (type/value/placeholder/
+						// checked), not rendered from child nodes.
+						inner = inputDisplayText(c)
+					} else {
+						// TrimSuffix (at most one "\n"): a nested recursive
+						// call whose own last child was block-ish (e.g. an
+						// implicit <tbody> wrapping <tr>) can end in a
+						// trailing structural newline that was only ever
+						// meaningful as pending accumulator state, never real
+						// content — pushBox already trims this for its own
+						// inputs; this mirrors that for the plain-inline/
+						// inline-block path. Only one is trimmed, not all
+						// trailing newlines, since a further one could be a
+						// real trailing blank line (e.g. from padding-bottom).
+						inner = strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
 					}
-				}
-				if childDecls["visibility"] == "hidden" {
-					r.quoteDepth = savedDepth
-					inner = blankVisibleContent(inner)
-				}
-				if c.Data == "a" {
-					inner = r.wrapHyperlink(nodeAttr(c, "href"), inner)
-				}
-				switch {
-				case inner == "":
-					// nothing to add
-				case display == "inline-block" || strings.Contains(inner, "\n"):
-					bx := newBox(inner)
-					tokens = append(tokens, wrapToken{box: &bx, node: c})
-				default:
-					tokens = append(tokens, wrapToken{text: inner})
+					if display == "inline-block" {
+						if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
+							inner = padLinesToWidth(inner, colWidth)
+						}
+					}
+					if childDecls["visibility"] == "hidden" {
+						r.quoteDepth = savedDepth
+						inner = blankVisibleContent(inner)
+					}
+					if c.Data == "a" {
+						inner = r.wrapHyperlink(nodeAttr(c, "href"), inner)
+					}
+					switch {
+					case inner == "":
+						// nothing to add
+					case display == "inline-block" || strings.Contains(inner, "\n"):
+						bx := newBox(inner)
+						tokens = append(tokens, wrapToken{box: &bx, node: c})
+					default:
+						tokens = append(tokens, wrapToken{text: inner})
+					}
+				} else {
+					// Plain inline (span, em, strong, label, etc.): splice
+					// the child's own tokens directly into this level's
+					// stream instead of flattening to a string first — the
+					// only way a trackable descendant (e.g. an <input>
+					// inside a <label>) keeps its box-token identity (and
+					// so its position) through to whichever ancestor's
+					// wordWrapTokens call ultimately places it. It also
+					// naturally preserves word-wrap-ability across this
+					// element's own boundary, matching RENDERING.md's
+					// original token-splicing intent for plain inline
+					// content (findings #3/#4) more closely than the
+					// flatten-then-rebox approach the other branch uses.
+					childAcc := mergeInlineStyle(acc, childDecls)
+					savedDepth := r.quoteDepth
+					childTokens := r.renderInlineAccTokens(c, childAcc, availWidth)
+					// Trim one trailing brk, mirroring the TrimSuffix quirk
+					// on the string-based branch above: a nested block-ish
+					// descendant's own mandatory trailing brk is structural,
+					// not content, and would otherwise closeAndPush a
+					// spurious blank line once these tokens reach a
+					// wordWrapTokens call.
+					if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
+						childTokens = childTokens[:len(childTokens)-1]
+					}
+					if childDecls["visibility"] == "hidden" {
+						r.quoteDepth = savedDepth
+						childTokens = blankVisibleContentTokens(childTokens)
+					}
+					tokens = append(tokens, childTokens...)
 				}
 			}
 		case html.ErrorNode, html.DocumentNode, html.CommentNode, html.DoctypeNode, html.RawNode:

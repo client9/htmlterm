@@ -17,17 +17,51 @@ type wrapToken struct {
 	brk  bool       // forced line break, e.g. <br>
 	box  *box       // pre-rendered sub-box; nil unless this token is a box
 	node *html.Node // originating node, for position tracking (nil if not needed)
+
+	// subPositions carries box's own descendants' positions, relative to
+	// box's own (0,0) origin (top-left of box.lines, as returned by
+	// whichever function produced it — e.g. renderBlockContentBox). nil if
+	// box has no trackable descendants. wordWrapTokens shifts these by
+	// wherever it ultimately places this token and merges them into its own
+	// returned position map — this is the "propagated incrementally, one
+	// level at a time" mechanism RENDERING.md's Position tracking section
+	// describes: nothing needs to know the absolute position of anything
+	// until the walk reaches the document root.
+	subPositions map[*html.Node]Rect
 }
 
 // Rect is a box's position and size relative to whatever coordinate space it
 // was recorded in — see RENDERING.md's "Position tracking" section. It
-// reports the CSS border box (content+padding+border), excluding margin,
-// matching getBoundingClientRect() semantics; that inset is applied by the
-// caller that knows the relevant margin values (see renderBlockContentBox),
-// not by wordWrapTokens itself.
+// approximates the CSS border box (content+padding+border): horizontal
+// margin, when an element sets margin-left/right explicitly, is baked into
+// its box the same way padding is (see renderBlockContentBox) and is not
+// currently subtracted back out, so Rect may include a few extra columns of
+// margin overlap for such elements. Vertical margin is unaffected (it's
+// injected as separate blank lines around a box, never baked into it). This
+// is an accepted simplification: the primary motivating use (hit-testing
+// form controls — see INTERACTIVE.md) essentially never sets margin on
+// input/button/textarea.
 type Rect struct {
 	Row, Col      int
 	Width, Height int
+}
+
+// mergePositions copies src into dst, shifting every entry by (dRow, dCol) —
+// used when a box token gets placed at (dRow, dCol) within a larger
+// composition, to carry its own descendants' positions along with it.
+func mergePositions(dst map[*html.Node]Rect, src map[*html.Node]Rect, dRow, dCol int) map[*html.Node]Rect {
+	if len(src) == 0 {
+		return dst
+	}
+	if dst == nil {
+		dst = make(map[*html.Node]Rect, len(src))
+	}
+	for n, rect := range src {
+		rect.Row += dRow
+		rect.Col += dCol
+		dst[n] = rect
+	}
+	return dst
 }
 
 // hasContent reports whether any token has been collected yet — the direct
@@ -410,6 +444,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				if t.node != nil {
 					positions[t.node] = Rect{Row: startRow, Col: 0, Width: w, Height: len(lines)}
 				}
+				positions = mergePositions(positions, t.subPositions, startRow, 0)
 				// Force a break after: next content must start a fresh line.
 				freshLine = true
 				curLen = 0
@@ -426,6 +461,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				if t.node != nil {
 					positions[t.node] = Rect{Row: row, Col: col, Width: w, Height: 1}
 				}
+				positions = mergePositions(positions, t.subPositions, row, col)
 			}
 		default:
 			if t.text == "" {
