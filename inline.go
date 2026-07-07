@@ -192,16 +192,24 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 			default:
 				childAcc := mergeInlineStyle(acc, childDecls)
 				savedDepth := r.quoteDepth
-				// TrimSuffix (at most one "\n"): a nested recursive call
-				// whose own last child was block-ish (e.g. an implicit
-				// <tbody> wrapping <tr>) can end in a trailing structural
-				// newline that was only ever meaningful as pending
-				// accumulator state, never real content — pushBox already
-				// trims this for its own inputs; this mirrors that for the
-				// plain-inline/inline-block path. Only one is trimmed, not
-				// all trailing newlines, since a further one could be a
-				// real trailing blank line (e.g. from padding-bottom).
-				inner := strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
+				var inner string
+				if c.Data == "input" {
+					// <input> has no children — its visual content is
+					// synthesized from attributes (type/value/placeholder/
+					// checked), not rendered from child nodes.
+					inner = inputDisplayText(c)
+				} else {
+					// TrimSuffix (at most one "\n"): a nested recursive call
+					// whose own last child was block-ish (e.g. an implicit
+					// <tbody> wrapping <tr>) can end in a trailing structural
+					// newline that was only ever meaningful as pending
+					// accumulator state, never real content — pushBox already
+					// trims this for its own inputs; this mirrors that for the
+					// plain-inline/inline-block path. Only one is trimmed, not
+					// all trailing newlines, since a further one could be a
+					// real trailing blank line (e.g. from padding-bottom).
+					inner = strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
+				}
 				if display == "inline-block" {
 					if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
 						inner = padLinesToWidth(inner, colWidth)

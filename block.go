@@ -289,7 +289,27 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	if innerW < 1 {
 		innerW = 1
 	}
-	tokens := r.renderInlineAccTokens(n, acc, innerW)
+	var tokens []wrapToken
+	if n.Data == "textarea" {
+		// <textarea>'s current value is its "value" attribute in this
+		// package's simplified form-control model (matching
+		// Element.Value/SetValue, which always reads/writes that attribute
+		// for every control) — but real HTML's default value for a
+		// never-touched textarea is its child text, with one leading
+		// newline right after the opening tag ignored per spec, so fall
+		// back to that when no value attribute has been set yet.
+		// appendText already knows how to split embedded "\n"s (a
+		// multi-line value) into brk tokens, so the rest of this function's
+		// wrap/border/padding handling applies exactly as it would to any
+		// other block's content.
+		val := nodeAttr(n, "value")
+		if val == "" {
+			val = strings.TrimPrefix(rawContent(n), "\n")
+		}
+		tokens = appendText(nil, inlineStyle{}, val, r.profile)
+	} else {
+		tokens = r.renderInlineAccTokens(n, acc, innerW)
+	}
 	for len(tokens) > 0 && tokens[len(tokens)-1].brk {
 		tokens = tokens[:len(tokens)-1]
 	}

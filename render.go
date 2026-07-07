@@ -177,7 +177,13 @@ func (r *Renderer) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []w
 	case "inline-block":
 		acc := extractInlineStyle(decls)
 		savedDepth := r.quoteDepth
-		inner := r.renderInlineAcc(n, acc, r.width)
+		var inner string
+		if n.Data == "input" {
+			// <input> has no children — see inline.go's nested case for why.
+			inner = inputDisplayText(n)
+		} else {
+			inner = r.renderInlineAcc(n, acc, r.width)
+		}
 		if colWidth, constrained := resolveWidthConstraints(decls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
 			inner = padLinesToWidth(inner, colWidth)
 		}
