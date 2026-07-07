@@ -331,6 +331,81 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 	return lines, carry
 }
 
+// spliceColumns overwrites visible columns [col, col+width) of line with
+// replacement, preserving line's ANSI styling for the untouched prefix/
+// suffix and re-carrying any open span across the splice boundary — the
+// primitive popup/overlay rendering needs (see RENDERING.md's popup
+// section) to punch replacement content into an already-composed line
+// without disturbing anything outside the overwritten range, unlike
+// splitAtVisualWidth/splitAtVisualWidthCarry, which only chop a string into
+// sequential chunks from column 0 and have no notion of an interior
+// overwrite. replacement is inserted verbatim — the caller is responsible
+// for it being exactly width visible columns wide (e.g. a popup's own
+// already-rendered box.width) so the result's total visible width matches
+// line's; spliceColumns does not itself pad or truncate it.
+//
+// If line is narrower than col, it's padded with spaces so replacement
+// lands at the requested column. If line is narrower than col+width,
+// there's nothing past its own end to preserve, so the result simply ends
+// after replacement.
+func spliceColumns(line string, col, width int, replacement string) string {
+	if col < 0 || width <= 0 {
+		return line
+	}
+	var out strings.Builder
+	carry := ansiCarry{}
+	runes := []rune(line)
+	i := 0
+	visCol := 0
+	// Copy the untouched prefix, tracking carry state as we go so it can be
+	// closed cleanly right before replacement.
+	for i < len(runes) && visCol < col {
+		if runes[i] == '\x1b' {
+			j := consumeANSI(runes, i)
+			seq := string(runes[i:j])
+			out.WriteString(seq)
+			carry.apply(seq)
+			i = j
+			continue
+		}
+		out.WriteRune(runes[i])
+		i++
+		visCol++
+	}
+	for visCol < col {
+		out.WriteByte(' ')
+		visCol++
+	}
+	if !carry.empty() {
+		out.WriteString(carry.closeSeq())
+	}
+	out.WriteString(replacement)
+	// Skip the overwritten region without emitting it, still tracking
+	// carry state so the resuming suffix below can reopen whatever span
+	// was active there — the same span, if any, that spanned across the
+	// entire cut region and would otherwise be orphaned (its opening
+	// sequence discarded, only its eventual reset surviving in the
+	// suffix).
+	skipEnd := col + width
+	for i < len(runes) && visCol < skipEnd {
+		if runes[i] == '\x1b' {
+			j := consumeANSI(runes, i)
+			carry.apply(string(runes[i:j]))
+			i = j
+			continue
+		}
+		i++
+		visCol++
+	}
+	if i < len(runes) {
+		if !carry.empty() {
+			out.WriteString(carry.openSeq())
+		}
+		out.WriteString(string(runes[i:]))
+	}
+	return out.String()
+}
+
 // wordWrapANSI splits text into lines of at most width visible characters.
 // breakMode controls mid-word breaking: "" or "normal" = word boundaries only;
 // "break-word" = also hard-break tokens that overflow the width;

@@ -597,6 +597,87 @@ func TestSplitAtVisualWidthEdgeCases(t *testing.T) {
 	}
 }
 
+func TestSpliceColumns(t *testing.T) {
+	t.Run("plain text interior splice", func(t *testing.T) {
+		got := spliceColumns("0123456789", 3, 4, "XXXX")
+		want := "012XXXX789"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("splice at column 0", func(t *testing.T) {
+		got := spliceColumns("0123456789", 0, 3, "XXX")
+		want := "XXX3456789"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("splice reaching past line's end preserves nothing after", func(t *testing.T) {
+		got := spliceColumns("012345", 3, 10, "XXXXXXXXXX")
+		want := "012XXXXXXXXXX"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("splice starting past line's end pads with spaces", func(t *testing.T) {
+		got := spliceColumns("01", 4, 2, "XX")
+		want := "01  XX"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("width<=0 or negative col is a no-op", func(t *testing.T) {
+		if got := spliceColumns("hello", 2, 0, "X"); got != "hello" {
+			t.Errorf("width=0: spliceColumns = %q, want unchanged %q", got, "hello")
+		}
+		if got := spliceColumns("hello", -1, 2, "X"); got != "hello" {
+			t.Errorf("col<0: spliceColumns = %q, want unchanged %q", got, "hello")
+		}
+	})
+
+	t.Run("a span that closes before the cut region needs no reopening", func(t *testing.T) {
+		bold := "\x1b[1m"
+		reset := "\x1b[m"
+		// The bold span closes right after "012", well before the cut
+		// region [3,7) even starts, so the suffix "789" was never bold in
+		// the original and shouldn't be reopened as bold either.
+		line := bold + "012" + reset + "3456789"
+		got := spliceColumns(line, 3, 4, "XXXX")
+		want := bold + "012" + reset + "XXXX" + "789"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("a span spanning the whole cut region is reopened for the resuming suffix", func(t *testing.T) {
+		bold := "\x1b[1m"
+		reset := "\x1b[m"
+		// The bold span opens before col 3 and stays open across the whole
+		// cut region [3,7) and into the resuming suffix, only closing at
+		// the very end — without carry-through, "789" would resume
+		// unstyled even though the original span was still active there.
+		line := "012" + bold + "3456789" + reset
+		got := spliceColumns(line, 3, 4, "XXXX")
+		want := "012" + "XXXX" + bold + "789" + reset
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("replacement content is inserted verbatim, including its own styling", func(t *testing.T) {
+		styled := "\x1b[31mpopup\x1b[m"
+		got := spliceColumns("0123456789", 3, 5, styled)
+		want := "012" + styled + "89"
+		if got != want {
+			t.Errorf("spliceColumns = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestCopyMapNonEmpty(t *testing.T) {
 	src := map[string]string{"color": "red", "font-weight": "bold"}
 	dst := copyMap(src)
