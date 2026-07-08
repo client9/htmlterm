@@ -221,6 +221,24 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[
 	// non-scrolling terminal viewport needs (see forceHeight, box.go).
 	if rr.height > 0 {
 		lines = forceHeight(lines, rr.height)
+		// forceHeight truncates to the first rr.height rows (box.go), so any
+		// position past that row no longer corresponds to anything actually
+		// rendered — drop it, the same way the capBlankRuns remap above keeps
+		// positions in sync with removed rows instead of leaving Document.Rect
+		// pointing at content that isn't on screen (which previously let a
+		// focused/hit-tested element below the fold report a valid Rect —
+		// and Loop's full-screen model always sets rr.height to the real
+		// terminal height, so any document taller than the terminal hit this
+		// whenever focus landed below the fold).
+		if len(positions) > 0 {
+			visible := make(map[*html.Node]Rect, len(positions))
+			for n, rect := range positions {
+				if rect.Row >= 0 && rect.Row < rr.height {
+					visible[n] = rect
+				}
+			}
+			positions = visible
+		}
 	}
 	out := strings.Join(lines, "\n")
 	if trailingNewline {

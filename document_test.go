@@ -403,6 +403,47 @@ func TestDocumentRectFormControlInsideTableCell(t *testing.T) {
 	}
 }
 
+func TestDocumentRectClippedByOptionsHeightIsNotOK(t *testing.T) {
+	// Regression test: renderTree used to remap positions for capBlankRuns'
+	// removed rows but never for forceHeight's truncation, so an element on
+	// a row past Options.Height (clipped out of the rendered output) still
+	// reported a valid Rect — and since Loop's full-screen model always sets
+	// the root height to the real terminal height on every frame, this let
+	// focusCursorPos compute an out-of-bounds cursor position for any
+	// document taller than the terminal whenever focus landed below the
+	// fold.
+	doc, err := htmlterm.ParseDocument(`<div>line1</div><div>line2</div><div>line3</div><div><input type="checkbox" id="cb"></div>`, htmlterm.Options{Width: 40, Height: 2})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if want := "line1\nline2\n"; out != want {
+		t.Fatalf("Render() = %q, want %q", out, want)
+	}
+	if _, ok := doc.Rect(doc.GetElementByID("cb")); ok {
+		t.Error("Rect() ok = true for an element clipped by Options.Height, want false")
+	}
+
+	// An element within the retained rows must still track correctly.
+	visDoc, err := htmlterm.ParseDocument(`<div><input type="checkbox" id="cb2"></div><div>line2</div>`, htmlterm.Options{Width: 40, Height: 2})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := visDoc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := visDoc.Rect(visDoc.GetElementByID("cb2"))
+	if !ok {
+		t.Fatal("Rect() ok = false for a visible element, want true")
+	}
+	if rect.Row != 0 {
+		t.Errorf("Rect().Row = %d, want 0", rect.Row)
+	}
+}
+
 func TestDocumentRectRootLevelInlineBlock(t *testing.T) {
 	// A root-level, single-line inline-block element (no embedded "\n")
 	// must still be tracked — regression test for a bug where render.go's
