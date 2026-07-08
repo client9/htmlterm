@@ -11,6 +11,8 @@ func TestSelectors(t *testing.T) {
 		{name: "multi-class requires all classes to be present", css: `.warn.big { text-transform: uppercase; }`, html: `<p class="warn big">both</p><p class="warn">warn-only</p><p class="big">big-only</p>`, want: "BOTH\n\nwarn-only\n\nbig-only\n\n"},
 		{name: "element plus two classes", css: `p.a.b { text-transform: uppercase; }`, html: `<p class="a b">para</p><div class="a b">div</div>`, want: "PARA\n\ndiv\n"},
 		{name: "extra classes on element do not prevent match", css: `.highlight { text-transform: uppercase; }`, html: `<p class="highlight extra">text</p>`, want: "TEXT\n\n"},
+		{name: "type selector matches case-insensitively", css: `DIV { text-transform: uppercase; }`, html: `<div>mix</div>`, want: "MIX\n"},
+		{name: "type selector matches an uppercase source tag", css: `div { text-transform: uppercase; }`, html: `<DIV>mix</DIV>`, want: "MIX\n"},
 		{name: "universal selector matches any element", css: `* { text-transform: uppercase; }`, html: `<p>alpha <span>beta</span></p><div>gamma</div>`, want: "ALPHA BETA\n\nGAMMA\n"},
 		{name: "universal selector has zero specificity", css: `p { text-transform: lowercase; } * { text-transform: uppercase; }`, html: `<p>MiX</p>`, want: "mix\n\n"},
 		{name: "universal selector combines with classes", css: `*.hot { text-transform: uppercase; }`, html: `<p class="hot">match</p><p>plain</p>`, want: "MATCH\n\nplain\n\n"},

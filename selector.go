@@ -114,7 +114,11 @@ func parseSimpleSelector(tok string) selectorPart {
 	for j < n && tok[j] != '#' && tok[j] != '.' && tok[j] != ':' && tok[j] != '[' {
 		j++
 	}
-	p.element = tok[i:j]
+	// CSS type selectors match case-insensitively, and golang.org/x/net/html
+	// always lowercases parsed HTML tag names — lowercase here so matchPart's
+	// n.Data != p.element comparison actually matches an uppercase/mixed-case
+	// selector like "DIV { ... }" against a real <div>.
+	p.element = strings.ToLower(tok[i:j])
 	i = j
 
 	for i < n {
