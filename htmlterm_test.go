@@ -475,6 +475,13 @@ func TestVerticalBoxModel(t *testing.T) {
 		// then left) rather than pushing the box past its available width —
 		// mirrors the equivalent table-cell clamp in TestTableCellPadding.
 		{name: "padding exceeds available width clamps to keep 1-char content", css: `div { border-left: '|'; border-right: '|'; padding-left: 5; padding-right: 5; }`, html: `<div>X</div>`, width: 5, want: "|  X|\n"},
+		// Regression test: an explicit width smaller than its own
+		// border+padding used to be discarded entirely (hasExplicitWidth
+		// left false), silently falling back to full auto/shrink-wrap
+		// sizing instead of clamping to a 1-column content minimum — the
+		// overflow-x:hidden truncation to "h" (rather than the full
+		// "hello") only engages when hasExplicitWidth is actually true.
+		{name: "width smaller than its own border+padding clamps instead of being discarded", css: `div { width: 2; padding-left: 1; padding-right: 1; border-left: '|'; border-right: '|'; overflow-x: hidden; white-space: nowrap; }`, html: `<div>hello</div>`, width: 5, want: "| h |\n"},
 	})
 }
 

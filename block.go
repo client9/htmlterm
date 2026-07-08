@@ -277,10 +277,16 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
 		inner := totalW - ml - runeLen(bl.char) - pl - pr - runeLen(br.char) - mr
-		if inner > 0 {
-			hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
-			hasExplicitWidth = true
+		// A width too small to fit this element's own border+padding is
+		// clamped to a 1-column minimum rather than discarded — CSS itself
+		// never lets border+padding shrink content below 0, so "too small
+		// to fit" isn't a reason to fall back to full auto/shrink-wrap
+		// sizing (which silently ignored the width declaration entirely).
+		if inner < 1 {
+			inner = 1
 		}
+		hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
+		hasExplicitWidth = true
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {
 		remaining := availWidth - hBorderWidth - ml - mr
