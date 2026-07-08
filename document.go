@@ -216,11 +216,17 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // HTML's default button type) — dispatching a "submit" event on the nearest
 // ancestor <form> (see nearestForm). htmlterm has no navigation/network
 // concept, so "submit" is exactly what a listener sees: there's no default
-// action for it to prevent. Returns false if no element was hit.
+// action for it to prevent. A disabled target (nodeHasAttr(target,
+// "disabled")) is inert — matching real browsers, which never fire click on
+// a disabled form control at all — so no event is dispatched and no default
+// action runs. Returns false if no element was hit.
 func (d *Document) DispatchClick(row, col int) bool {
 	target := d.elementAt(row, col)
 	if target == nil {
 		return false
+	}
+	if nodeHasAttr(target, "disabled") {
+		return true
 	}
 	ev := d.dispatch(target, "click", "")
 	if ev.DefaultPrevented() {
