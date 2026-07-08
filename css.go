@@ -204,6 +204,16 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-bottom": sides[2],
 			prop + "-left":   sides[3],
 		}
+	case "overflow":
+		tokens := strings.Fields(val)
+		switch len(tokens) {
+		case 1:
+			return map[string]string{"overflow-x": tokens[0], "overflow-y": tokens[0]}
+		case 2:
+			return map[string]string{"overflow-x": tokens[0], "overflow-y": tokens[1]}
+		default:
+			return map[string]string{prop: val}
+		}
 	case "list-style":
 		return expandListStyleShorthand(val)
 	case "background":

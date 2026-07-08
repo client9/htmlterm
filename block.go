@@ -265,6 +265,15 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	hBorderWidth := availWidth - ml - mr
 	acc := extractInlineStyle(decls)
 	textAlign := decls["text-align"]
+	// ovX/ovY are overflow-x/overflow-y — see SCROLLING.md's "Scrollbar
+	// gutter and indicator": expandShorthand (css.go) already expands a
+	// plain overflow:<val> shorthand into both, so these are correct even
+	// when only the shorthand was ever set; a more specific overflow-x/-y
+	// declaration overrides just that axis via the normal per-property
+	// cascade (cascade.go's directDecls). ovX gates the width-truncation
+	// check below; ovY gates the height/scroll gate and gutter reservation.
+	ovX := decls["overflow-x"]
+	ovY := decls["overflow-y"]
 	heightLines := 0
 	if v := decls["height"]; v != "" {
 		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
@@ -285,8 +294,19 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		ml, mr = splitAutoMargins(remaining, ml, mr, mlAuto, mrAuto)
 	}
 
+	avail := hBorderWidth - runeLen(bl.char) - runeLen(br.char)
+	// gutterWidth reserves a column for the scrollbar indicator up front,
+	// before wrapping — see SCROLLING.md's "Scrollbar gutter and indicator"
+	// for why this must happen before wordWrapTokens runs (below), not as a
+	// post-hoc overlay. Silently dropped (gutterWidth stays 0) if there
+	// isn't room for it, rather than collapsing content to 0 width.
+	gutterWidth := 0
+	if heightLines > 0 && ovY == "scroll" && avail-scrollbarGutterWidth >= 1 {
+		gutterWidth = scrollbarGutterWidth
+	}
+	hasScrollbarGutter := gutterWidth > 0
 	var innerW int
-	pl, pr, innerW = clampCellPadding(hBorderWidth-runeLen(bl.char)-runeLen(br.char), pl, pr)
+	pl, pr, innerW = clampCellPadding(avail-gutterWidth, pl, pr)
 	if innerW < 1 {
 		innerW = 1
 	}
@@ -355,8 +375,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
 
-	ov := decls["overflow"]
-	if (ov == "hidden" || ov == "clip") && hasExplicitWidth {
+	if (ovX == "hidden" || ovX == "clip") && hasExplicitWidth {
 		toVal := decls["text-overflow"]
 		if toVal == "" {
 			toVal = "clip"
@@ -399,7 +418,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		blank := strings.Repeat(" ", innerW)
 		if heightLines > 0 {
 			// Fixed height takes priority over min/max.
-			switch ov {
+			switch ovY {
 			case "hidden", "clip":
 				if len(lines) > heightLines {
 					lines = lines[:heightLines]
@@ -421,7 +440,8 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 				// Renderer.Render call (no persistent Document to read a
 				// prior offset from), so offset is simply 0 there.
 				offset := r.scrollOffsets[n]
-				maxOffset := max(0, len(lines)-heightLines)
+				totalLines := len(lines)
+				maxOffset := max(0, totalLines-heightLines)
 				offset = min(max(offset, 0), maxOffset)
 				if r.liveScrollOffsets == nil {
 					r.liveScrollOffsets = map[*html.Node]int{}
@@ -434,6 +454,17 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 				for len(lines) < heightLines {
 					lines = append(lines, blank)
 				}
+				// hasScrollbarGutter (not just ovY == "scroll") draws an
+				// always-on gutter indicator, regardless of whether this
+				// frame actually needed to slice — see SCROLLING.md's
+				// "Scrollbar gutter and indicator" for why "auto"
+				// deliberately gets none, and why a too-narrow box (the
+				// gutter wasn't actually reserved in innerW) must not draw
+				// one either, or content would get an unreserved column
+				// appended on top of it instead of a properly narrowed box.
+				if hasScrollbarGutter {
+					lines = appendScrollbarColumn(lines, offset, totalLines, heightLines)
+				}
 			default:
 				for len(lines) < heightLines {
 					lines = append(lines, blank)
@@ -441,7 +472,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 			}
 		} else {
 			// max-height clips (requires overflow: hidden/clip).
-			if maxH > 0 && len(lines) > maxH && (ov == "hidden" || ov == "clip") {
+			if maxH > 0 && len(lines) > maxH && (ovY == "hidden" || ovY == "clip") {
 				lines = lines[:maxH]
 			}
 			// min-height always pads.
@@ -551,7 +582,7 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	}
 	colShift := pl + runeLen(bl.char) + ml
 	positions = mergePositions(nil, positions, rowShift, colShift)
-	if heightLines > 0 && (ov == "scroll" || ov == "auto") {
+	if heightLines > 0 && (ovY == "scroll" || ovY == "auto") {
 		// Rect (assigned by whichever caller embeds this box as a token) is
 		// the full CSS border box, which — unlike heightLines — includes any
 		// border/padding rows added above; DispatchKey's PageUp/PageDown and
@@ -564,6 +595,50 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		r.liveScrollViewport[n] = scrollViewport{height: heightLines, topOffset: rowShift}
 	}
 	return b, positions
+}
+
+// scrollbarGutterWidth is the fixed column width reserved for the scrollbar
+// gutter when overflow-y:scroll is set — see SCROLLING.md's "Scrollbar
+// gutter and indicator". Not CSS-configurable in this pass.
+const scrollbarGutterWidth = 1
+
+// scrollbarTrackChar/scrollbarThumbChar are the fixed glyphs drawn in the
+// scrollbar gutter — not CSS-configurable in this pass (see SCROLLING.md's
+// explicit non-goals for the scrollbar).
+const (
+	scrollbarTrackChar = "│"
+	scrollbarThumbChar = "█"
+)
+
+// appendScrollbarColumn appends one scrollbar-gutter column to each of
+// lines — already exactly heightLines rows of uniform width — using the
+// standard proportional thumb-size/thumb-position formula. totalLines is
+// the content's line count before it was sliced/padded to heightLines, so
+// the thumb reflects the real scrollable range even though lines itself no
+// longer does. Appends rather than overwrites, so real content is never
+// clobbered — see SCROLLING.md's rejected splice-overlay alternative for
+// why that matters. When totalLines <= heightLines (nothing to actually
+// scroll), thumbSize naturally comes out to heightLines, i.e. the thumb
+// fills the whole track, matching a real scrollbar's own convention for
+// "you can already see everything."
+func appendScrollbarColumn(lines []string, offset, totalLines, heightLines int) []string {
+	thumbSize := heightLines
+	if totalLines > heightLines {
+		thumbSize = max(1, min(heightLines*heightLines/totalLines, heightLines))
+	}
+	thumbStart := 0
+	if maxOffset := totalLines - heightLines; maxOffset > 0 {
+		thumbStart = offset * (heightLines - thumbSize) / maxOffset
+	}
+	out := make([]string, len(lines))
+	for i, ln := range lines {
+		ch := scrollbarTrackChar
+		if i >= thumbStart && i < thumbStart+thumbSize {
+			ch = scrollbarThumbChar
+		}
+		out[i] = ln + ch
+	}
+	return out
 }
 
 // firstContentIsInline reports whether n's first non-whitespace content is

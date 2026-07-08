@@ -243,6 +243,24 @@ func TestExpandShorthand(t *testing.T) {
 			val:  "8",
 			want: map[string]string{"padding-right": "8"},
 		},
+		{
+			name: "overflow one value sets both axes",
+			prop: "overflow",
+			val:  "auto",
+			want: map[string]string{"overflow-x": "auto", "overflow-y": "auto"},
+		},
+		{
+			name: "overflow two values set x then y",
+			prop: "overflow",
+			val:  "hidden scroll",
+			want: map[string]string{"overflow-x": "hidden", "overflow-y": "scroll"},
+		},
+		{
+			name: "overflow invalid arity falls back",
+			prop: "overflow",
+			val:  "hidden scroll auto",
+			want: map[string]string{"overflow": "hidden scroll auto"},
+		},
 	}
 
 	for _, tc := range tests {

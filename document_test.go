@@ -895,3 +895,147 @@ func TestScrollContainerWithFocusableChildIsNotDoubleTabStop(t *testing.T) {
 		t.Fatalf("second FocusNext() (wrapping around, only 1 focusable element) landed on id=%q, want %q again", id, "btn")
 	}
 }
+
+// TestOverflowYScrollDrawsGutterIndicator covers SCROLLING.md's "Scrollbar
+// gutter and indicator": overflow-y:scroll reserves a column and draws a
+// track/thumb, unconditionally (regardless of whether content overflows).
+func TestOverflowYScrollDrawsGutterIndicator(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:3;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with overflow-y:scroll = %q, want a thumb character (█)", got)
+	}
+	if !strings.Contains(got, "│") {
+		t.Errorf("render with overflow-y:scroll = %q, want at least one track character (│)", got)
+	}
+}
+
+// TestOverflowYAutoDrawsNoGutter locks in that overflow-y:auto (and plain
+// overflow:auto, its shorthand equivalent) get no gutter/indicator at all —
+// a deliberate SCROLLING.md design choice (see "Why auto gets no indicator,
+// deliberately"), and also a regression guard that this feature didn't
+// change auto's existing, already-shipped rendering.
+func TestOverflowYAutoDrawsNoGutter(t *testing.T) {
+	for _, style := range []string{
+		"height:3;overflow-y:auto",
+		"height:3;overflow:auto",
+	} {
+		htmlStr := `<div id="pane" style="` + style + `">line1<br>line2<br>line3<br>line4<br>line5</div>`
+		doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+		if err != nil {
+			t.Fatalf("ParseDocument (%s): %v", style, err)
+		}
+		out, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render (%s): %v", style, err)
+		}
+		got := stripANSI(out)
+		if strings.ContainsAny(got, "█│") {
+			t.Errorf("render with style=%q = %q, want no gutter/indicator characters", style, got)
+		}
+	}
+}
+
+// TestOverflowYOverridesShorthandPerAxis confirms overflow-y (longhand)
+// overrides just the y-axis of an already-set overflow (shorthand) —
+// exercising expandShorthand's overflow case plus the normal per-property
+// cascade merge (cascade.go's directDecls), the mechanism this feature
+// reuses instead of a bespoke runtime fallback.
+func TestOverflowYOverridesShorthandPerAxis(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto;overflow-y:scroll">line1<br>line2<br>line3<br>line4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with overflow:auto + overflow-y:scroll = %q, want overflow-y to win (a thumb character)", got)
+	}
+}
+
+// TestOverflowYOverridesShorthandPerAxisViaStylesheet is the same check as
+// TestOverflowYOverridesShorthandPerAxis but via two same-specificity
+// <style> rules rather than a single inline style attribute, exercising
+// directDecls' source-order tie-break (cascade.go) rather than
+// parseInlineDecls' sequential-commit merge.
+func TestOverflowYOverridesShorthandPerAxisViaStylesheet(t *testing.T) {
+	htmlStr := `<style>#pane { overflow: auto; } #pane { overflow-y: scroll; }</style>` +
+		`<div id="pane" style="height:2">line1<br>line2<br>line3<br>line4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with later #pane{overflow-y:scroll} rule = %q, want it to win (a thumb character)", got)
+	}
+}
+
+// TestScrollbarThumbTracksScrollPosition verifies the thumb glyph moves to
+// track SetScrollTop, not just that it's drawn once statically.
+func TestScrollbarThumbTracksScrollPosition(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow-y:scroll">AAAA<br>BBBB<br>CCCC<br>DDDD<br>EEEE</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "AAAA█") || !strings.Contains(got, "BBBB│") {
+		t.Fatalf("render at offset 0 = %q, want thumb on the first visible line (AAAA█) and track on the second (BBBB│)", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	doc.SetScrollTop(pane, 3) // max offset (5 lines - height 2)
+	out, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got = stripANSI(out)
+	if !strings.Contains(got, "DDDD│") || !strings.Contains(got, "EEEE█") {
+		t.Errorf("render at max offset = %q, want track on the first visible line (DDDD│) and thumb on the second (EEEE█)", got)
+	}
+}
+
+// TestOverflowYScrollGutterDroppedWhenNoRoom covers the "silently drop the
+// gutter rather than collapse content" edge case named in SCROLLING.md: a
+// box too narrow to spare a column for the gutter renders its content with
+// no gutter/indicator at all, rather than corrupting it.
+func TestOverflowYScrollGutterDroppedWhenNoRoom(t *testing.T) {
+	htmlStr := `<div id="pane" style="width:1;height:2;overflow-y:scroll">a<br>b<br>c</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.ContainsAny(got, "█│") {
+		t.Errorf("render with width:1 (no room for a gutter) = %q, want no gutter/indicator characters", got)
+	}
+	if !strings.Contains(got, "a") || !strings.Contains(got, "b") {
+		t.Errorf("render with width:1 = %q, want real content (a, b) preserved, not corrupted", got)
+	}
+}

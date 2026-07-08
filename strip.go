@@ -46,7 +46,12 @@ func isHiddenInline(n *html.Node) bool {
 	if isZeroValue(decls["opacity"]) {
 		return true
 	}
-	switch decls["overflow"] {
+	// overflow-y specifically: this heuristic is about vertical clipping
+	// (zero height/max-height), and expandShorthand (css.go) now expands a
+	// plain overflow:<val> into both overflow-x/overflow-y, so this still
+	// matches exactly what it did before that change for every existing
+	// caller (which only ever set the shorthand).
+	switch decls["overflow-y"] {
 	case "hidden", "clip":
 		if isZeroValue(decls["height"]) || isZeroValue(decls["max-height"]) {
 			return true

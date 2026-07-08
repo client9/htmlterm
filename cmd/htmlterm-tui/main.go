@@ -13,12 +13,16 @@
 // while the document's height is left unconstrained rather than
 // clipped/padded to the terminal's row count.
 //
-// Below the paragraph is a scrollable log pane (overflow:auto with an
+// Below the paragraph is a scrollable log pane (overflow-y:scroll with an
 // explicit height — see SCROLLING.md), with a second, nested scrollable
-// pane inside it demonstrating that nested overflow:auto regions need no
-// special handling. Scroll either with the mouse wheel over it, or Tab to
-// the button inside (focus auto-scrolls it into view — Document.Focus's
-// scrollIntoView), then use PageUp/PageDown/ArrowUp/ArrowDown.
+// pane inside it (plain overflow:auto) demonstrating that nested scrollable
+// regions need no special handling. Scroll either with the mouse wheel over
+// a pane, or Tab to the button inside the outer one (focus auto-scrolls it
+// into view — Document.Focus's scrollIntoView), then use
+// PageUp/PageDown/ArrowUp/ArrowDown. The outer pane's overflow-y:scroll
+// draws an always-on │/█ gutter/thumb tracking the scroll position — the
+// nested pane's plain overflow:auto deliberately draws none (see
+// SCROLLING.md's "Scrollbar gutter and indicator" for why).
 package main
 
 import (
@@ -59,7 +63,7 @@ aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
 nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
 reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
 pariatur.</p>
-<div id="log" style="height:6;overflow:auto;border-style:normal;padding-left:1;margin-top:1">
+<div id="log" style="height:6;overflow-y:scroll;border-style:normal;padding-left:1;margin-top:1">
 Log line 1<br>Log line 2<br>Log line 3<br>Log line 4<br>Log line 5<br>
 <div id="nested" style="height:3;overflow:auto;border-style:normal;margin-top:1;margin-bottom:1">
 Nested 1<br>Nested 2<br>Nested 3<br>Nested 4<br>Nested 5<br>Nested 6
