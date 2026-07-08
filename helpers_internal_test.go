@@ -272,6 +272,19 @@ func TestExpandShorthand(t *testing.T) {
 	}
 }
 
+// stripRuleParts drops rule.parts (the cached parseSelector result — see
+// rule's doc comment) before comparison, for tests that only care about
+// selector/decls parsing and would otherwise have to duplicate parseSelector's
+// own output shape (already covered by selectors_test.go) in every want.
+func stripRuleParts(rules []rule) []rule {
+	out := make([]rule, len(rules))
+	for i, rl := range rules {
+		rl.parts = nil
+		out[i] = rl
+	}
+	return out
+}
+
 func TestParseCSSIgnoresComments(t *testing.T) {
 	rules, err := parseCSS(`/* disabled rule */
 table { border-style: none; }
@@ -283,8 +296,8 @@ td/* comment */{ white-space: normal; }`)
 		{selector: "table", decls: map[string]string{"border-style": "none"}},
 		{selector: "td", decls: map[string]string{"white-space": "normal"}},
 	}
-	if !reflect.DeepEqual(rules, want) {
-		t.Fatalf("parseCSS() = %#v, want %#v", rules, want)
+	if got := stripRuleParts(rules); !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseCSS() = %#v, want %#v", got, want)
 	}
 }
 
@@ -321,8 +334,61 @@ func TestParseCSSStripsImportant(t *testing.T) {
 	want := []rule{
 		{selector: "p", decls: map[string]string{"display": "none", "color": "red"}},
 	}
-	if !reflect.DeepEqual(rules, want) {
-		t.Fatalf("parseCSS() = %#v, want %#v", rules, want)
+	if got := stripRuleParts(rules); !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseCSS() = %#v, want %#v", got, want)
+	}
+}
+
+// TestPseudoElemDeclsDoesNotMutateSharedCachedParts is a regression test at
+// the unit level for a bug that would have been introduced by rule.parts
+// caching (see rule's doc comment): pseudoElemDecls used to call
+// parseSelector(rl.selector) fresh every time, so temporarily clearing the
+// parsed selector's trailing pseudoElem marker (needed to match a real
+// element node, which can never itself have one) was safe to do in place.
+// Once rule.parts is a single slice shared and reused across every node
+// checked and every call, doing that same in-place clear would corrupt it
+// permanently after the first match — this calls pseudoElemDecls twice
+// against two different elements matching the same rule to confirm the
+// second call still sees an intact selector.
+func TestPseudoElemDeclsDoesNotMutateSharedCachedParts(t *testing.T) {
+	rules, err := parseCSS(`p::before { content: "> "; }`)
+	if err != nil {
+		t.Fatalf("parseCSS() error = %v", err)
+	}
+	r := &Renderer{rules: rules}
+
+	doc, err := html.Parse(strings.NewReader(`<p id="a">one</p><p id="b">two</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	var a, b *html.Node
+	var find func(*html.Node)
+	find = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "p" {
+			switch nodeAttr(n, "id") {
+			case "a":
+				a = n
+			case "b":
+				b = n
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			find(c)
+		}
+	}
+	find(doc)
+	if a == nil || b == nil {
+		t.Fatal("both <p> elements not found in parsed doc")
+	}
+
+	for i, n := range []*html.Node{a, b} {
+		got := r.pseudoElemDecls(n, "before")
+		if got["content"] != `"> "` {
+			t.Errorf("call %d: pseudoElemDecls(%s)[\"content\"] = %q, want %q — rule.parts likely corrupted by a previous call", i, nodeAttr(n, "id"), got["content"], `"> "`)
+		}
+	}
+	if rules[0].parts[len(rules[0].parts)-1].pseudoElem != "before" {
+		t.Errorf("rules[0].parts' pseudoElem = %q after matching, want unchanged %q — the shared cached slice was mutated", rules[0].parts[len(rules[0].parts)-1].pseudoElem, "before")
 	}
 }
 

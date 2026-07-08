@@ -57,6 +57,30 @@ type Document struct {
 	// display:block at all (e.g. <input>, which never has this ambiguity —
 	// see focusCursorPos).
 	contentOffsets map[*html.Node]int
+
+	// cachedRenderer and cachedRules memoize the parts of a Render call that
+	// are invariant across the Document's whole lifetime, so a host driving
+	// repeated renders in a tight loop (e.g. Loop.paint on every keystroke)
+	// doesn't re-lex the UA stylesheet + Options.CSS and re-run
+	// colorprofile.Detect (an os.Environ scan) on every single frame, the
+	// way calling New(d.opts) fresh each time used to. This is safe without
+	// any locking or invalidation logic because nothing in Document's public
+	// API can change what these two values would resolve to a second time:
+	// there is no setter for Options.CSS/IgnoreDocumentCSS/Profile/
+	// NoOSC8Links/MaxBlankLines/StripHiddenInline after ParseDocument, and
+	// no API to add/remove a <style> element or edit one's text content (see
+	// contentOffsets above for the same "the DOM's element-mutation surface
+	// is attribute-only" reasoning) — so cachedRules (r.rules plus any
+	// <style>-element rules, via documentRules) never goes stale either.
+	// Only Options.Width/Height (SetSize) and scrollOffsets change per
+	// render; Render refreshes cachedRenderer's copies of those directly
+	// rather than invalidating the cache. Like every other Document field,
+	// this assumes the existing single-goroutine-mutates-Document contract
+	// (see CLAUDE.md's "no locking in the interactive layer" invariant) — it
+	// is not safe to call Render concurrently on the same Document, but
+	// nothing in Document ever has been.
+	cachedRenderer *Renderer
+	cachedRules    []rule
 }
 
 // scrollViewport records a scroll container's visible content-area geometry
@@ -88,12 +112,19 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 // the tree and re-renders in a loop always has Rects matching what it just
 // displayed.
 func (d *Document) Render() (string, error) {
-	r, err := New(d.opts)
-	if err != nil {
-		return "", err
+	if d.cachedRenderer == nil {
+		r, err := New(d.opts)
+		if err != nil {
+			return "", err
+		}
+		d.cachedRenderer = r
+		d.cachedRules = r.documentRules(d.doc)
 	}
+	r := d.cachedRenderer
+	r.width = d.opts.Width
+	r.height = d.opts.Height
 	r.scrollOffsets = d.scrollOffsets
-	out, state := r.renderTree(d.doc)
+	out, state := r.renderTree(d.doc, d.cachedRules)
 	d.positions = state.positions
 	d.scrollOffsets = state.scrollOffsets
 	d.scrollViewport = state.scrollViewport

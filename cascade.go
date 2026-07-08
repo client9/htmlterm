@@ -77,9 +77,8 @@ func (r *Renderer) directDecls(n *html.Node) map[string]string {
 	}
 	var matches []match
 	for _, rl := range r.rules {
-		parts := parseSelector(rl.selector)
-		if matchSelector(n, parts) {
-			matches = append(matches, match{specificity(parts), rl.decls})
+		if matchSelector(n, rl.parts) {
+			matches = append(matches, match{specificity(rl.parts), rl.decls})
 		}
 	}
 	sort.SliceStable(matches, func(i, j int) bool { return matches[i].spec.less(matches[j].spec) })
@@ -110,15 +109,18 @@ func (r *Renderer) pseudoElemDecls(n *html.Node, which string) map[string]string
 	}
 	var matches []match
 	for _, rl := range r.rules {
-		parts := parseSelector(rl.selector)
-		if len(parts) == 0 {
+		if len(rl.parts) == 0 || rl.parts[len(rl.parts)-1].pseudoElem != which {
 			continue
 		}
-		last := &parts[len(parts)-1]
-		if last.pseudoElem != which {
-			continue
-		}
-		last.pseudoElem = ""
+		// matchSelector needs a real element in every part's pseudoElem
+		// slot (matchPart rejects any part with one set — pseudo-elements
+		// aren't real DOM nodes), so the trailing ::before/::after marker
+		// must be cleared before matching. rl.parts is the shared, cached
+		// parse of this rule's selector (reused across every node checked
+		// and every render — see rule's doc comment), so this copies rather
+		// than mutating it in place the way the pre-caching code used to.
+		parts := append([]selectorPart(nil), rl.parts...)
+		parts[len(parts)-1].pseudoElem = ""
 		if matchSelector(n, parts) {
 			matches = append(matches, match{specificity(parts), rl.decls})
 		}

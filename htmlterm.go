@@ -159,8 +159,32 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
-	out, _ := r.renderTree(doc)
+	out, _ := r.renderTree(doc, r.documentRules(doc))
 	return out, nil
+}
+
+// documentRules resolves the final rule set to render doc with: r.rules (the
+// UA stylesheet plus Options.CSS, already parsed once in New) plus any rules
+// found in doc's own <style> elements, unless IgnoreDocumentCSS is set. This
+// is a plain function of (r.rules, r.ignoreDocumentCSS, doc) with no side
+// effects, so callers that already know doc's <style> content can't have
+// changed since a previous call (Document.Render, since there is no public
+// API to mutate a <style> element's text or add/remove elements — see
+// Document's contentOffsets doc comment for the same reasoning applied
+// elsewhere) can cache its result across calls instead of re-extracting and
+// re-parsing every time.
+func (r *Renderer) documentRules(doc *html.Node) []rule {
+	if r.ignoreDocumentCSS {
+		return r.rules
+	}
+	extra := extractStyleRules(doc)
+	if len(extra) == 0 {
+		return r.rules
+	}
+	combined := make([]rule, len(r.rules)+len(extra))
+	copy(combined, r.rules)
+	copy(combined[len(r.rules):], extra)
+	return combined
 }
 
 // renderState bundles renderTree's supplementary, per-frame outputs beyond
@@ -181,16 +205,19 @@ type renderState struct {
 	contentOffsets map[*html.Node]int
 }
 
-// renderTree renders an already-parsed document node, building fresh
-// per-document scratch state (resolved CSS rules, counters) from r's
-// configuration, the same way Render does after parsing — so it can be
-// reused against a tree that didn't come from a fresh html.Parse call (see
-// Document.Render). Nothing here can actually fail — parsing (the only
-// failure mode) already happened before this is called — so there's no
-// error return to thread through.
-func (r *Renderer) renderTree(doc *html.Node) (string, renderState) {
+// renderTree renders an already-parsed document node against the given,
+// already-final rule set (see documentRules — this doesn't extract/combine
+// <style> rules itself, so a caller with a cached final set, like
+// Document.Render, can skip re-extracting them on every call), building
+// fresh per-document scratch state (counters) from r's configuration, the
+// same way Render does after parsing — so it can be reused against a tree
+// that didn't come from a fresh html.Parse call (see Document.Render).
+// Nothing here can actually fail — parsing (the only failure mode) already
+// happened before this is called — so there's no error return to thread
+// through.
+func (r *Renderer) renderTree(doc *html.Node, rules []rule) (string, renderState) {
 	rr := &Renderer{
-		rules:             r.rules,
+		rules:             rules,
 		width:             r.width,
 		height:            r.height,
 		profile:           r.profile,
@@ -199,14 +226,6 @@ func (r *Renderer) renderTree(doc *html.Node) (string, renderState) {
 		maxBlankLines:     r.maxBlankLines,
 		stripHiddenInline: r.stripHiddenInline,
 		scrollOffsets:     r.scrollOffsets,
-	}
-	if !r.ignoreDocumentCSS {
-		if extra := extractStyleRules(doc); len(extra) > 0 {
-			combined := make([]rule, len(r.rules)+len(extra))
-			copy(combined, r.rules)
-			copy(combined[len(r.rules):], extra)
-			rr.rules = combined
-		}
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.quoteDepth = 0

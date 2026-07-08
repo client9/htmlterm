@@ -11,6 +11,19 @@ import (
 type rule struct {
 	selector string
 	decls    map[string]string
+	// parts is selector, already parsed once at construction time (here,
+	// the only place a rule is ever built) rather than being re-parsed by
+	// every matchSelector attempt in cascade.go's directDecls/
+	// pseudoElemDecls — those used to call parseSelector(rl.selector) fresh
+	// for every rule against every node checked, an O(nodes × rules)
+	// re-parse repeated on every single render. rule values are never
+	// mutated after construction, so parts is safe to share/reuse read-only
+	// across concurrent Renderer.Render calls (see Renderer's doc comment)
+	// and across every Document.Render call for the document's lifetime —
+	// pseudoElemDecls, which needs to temporarily clear the last part's
+	// pseudoElem to match against a real element, copies parts rather than
+	// mutating this shared slice in place.
+	parts []selectorPart
 }
 
 // parseCSS parses a CSS stylesheet into a list of rules using the raw lexer.
@@ -51,7 +64,7 @@ func parseCSS(src string) ([]rule, error) {
 		if sel != "" && curDecls != nil {
 			for _, s := range strings.Split(sel, ",") {
 				if s = strings.TrimSpace(s); s != "" {
-					rules = append(rules, rule{selector: s, decls: copyDecls(curDecls)})
+					rules = append(rules, rule{selector: s, decls: copyDecls(curDecls), parts: parseSelector(s)})
 				}
 			}
 		}

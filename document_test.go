@@ -543,6 +543,124 @@ func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
 	}
 }
 
+// TestDocumentRenderCachesRulesButStillReflectsMutations is a regression
+// suite for the CSS-rule-set/selector caching Document.Render does now:
+// Options.CSS/<style> rules (and each rule's parsed selector) are parsed
+// once and reused across every Render call for the document's lifetime
+// (rather than re-lexed and every selector re-parsed on every single call)
+// — safe specifically because there is no public API to add/remove a
+// <style> element, edit one's text, or change Options.CSS/IgnoreDocumentCSS
+// after ParseDocument. What every one of these still must do correctly is
+// re-*match* the cached, unchanged rule set against a node's *current*
+// attributes on every render, since attributes (class, style=, checked,
+// disabled, ...) are exactly what the public API can mutate.
+func TestDocumentRenderCachesRulesButStillReflectsMutations(t *testing.T) {
+	t.Run("class attribute mutation changes which cached rule matches", func(t *testing.T) {
+		doc, err := htmlterm.ParseDocument(`<style>p.hot { text-transform: uppercase; }</style><p id="p">hi</p>`, htmlterm.Options{Width: 40})
+		if err != nil {
+			t.Fatalf("ParseDocument: %v", err)
+		}
+		before, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if before != "hi\n\n" {
+			t.Fatalf("Render() before mutation = %q, want %q", before, "hi\n\n")
+		}
+		doc.GetElementByID("p").SetAttribute("class", "hot")
+		after, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render (after mutation): %v", err)
+		}
+		if after != "HI\n\n" {
+			t.Fatalf("Render() after class mutation = %q, want %q", after, "HI\n\n")
+		}
+	})
+
+	t.Run("inline style= mutation still applies on top of cached stylesheet rules", func(t *testing.T) {
+		doc, err := htmlterm.ParseDocument(`<style>p { text-transform: uppercase; }</style><p id="p">hi</p>`, htmlterm.Options{Width: 40})
+		if err != nil {
+			t.Fatalf("ParseDocument: %v", err)
+		}
+		if _, err := doc.Render(); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		doc.GetElementByID("p").SetAttribute("style", "text-transform: lowercase")
+		after, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render (after mutation): %v", err)
+		}
+		if after != "hi\n\n" {
+			t.Fatalf("Render() after inline style mutation = %q, want %q (inline style should win over the cached stylesheet rule)", after, "hi\n\n")
+		}
+	})
+
+	t.Run("checked mutation changes which cached :checked rule matches", func(t *testing.T) {
+		doc, err := htmlterm.ParseDocument(`<style>input:checked { display: none; }</style><input type="checkbox" id="cb">`, htmlterm.Options{Width: 40})
+		if err != nil {
+			t.Fatalf("ParseDocument: %v", err)
+		}
+		before, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		if before == "" {
+			t.Fatal("Render() before check = \"\", want a visible checkbox")
+		}
+		doc.GetElementByID("cb").SetChecked(true)
+		after, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render (after mutation): %v", err)
+		}
+		if after != "" {
+			t.Errorf("Render() after SetChecked(true) = %q, want \"\" (hidden by the cached :checked rule)", after)
+		}
+	})
+
+	t.Run("Width/Height changes via SetSize are never cached stale", func(t *testing.T) {
+		doc, err := htmlterm.ParseDocument(`<div>hello world this is a test</div>`, htmlterm.Options{Width: 40})
+		if err != nil {
+			t.Fatalf("ParseDocument: %v", err)
+		}
+		if _, err := doc.Render(); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		doc.SetSize(10, htmlterm.SizeAutomatic)
+		after, err := doc.Render()
+		if err != nil {
+			t.Fatalf("Render (after resize): %v", err)
+		}
+		want := "hello\nworld this\nis a test\n"
+		if after != want {
+			t.Errorf("Render() after SetSize(10, ...) = %q, want %q", after, want)
+		}
+	})
+
+	t.Run("repeated renders with no mutation are stable, including ::before pseudo-elements on multiple nodes sharing one cached rule", func(t *testing.T) {
+		// Two elements matching the same "p::before" rule in one render pass
+		// (and again across repeated Render calls) is the regression case
+		// for cascade.go's pseudoElemDecls: it clears the cached rule's
+		// trailing pseudoElem marker to match a real element, and must copy
+		// rather than mutate the shared, cached rl.parts slice — otherwise
+		// the first match corrupts it for the second element (in the same
+		// pass) or the next Render call.
+		doc, err := htmlterm.ParseDocument(`<style>p::before { content: "> "; }</style><p id="a">one</p><p id="b">two</p>`, htmlterm.Options{Width: 40})
+		if err != nil {
+			t.Fatalf("ParseDocument: %v", err)
+		}
+		want := "> one\n\n> two\n\n"
+		for i := 0; i < 3; i++ {
+			got, err := doc.Render()
+			if err != nil {
+				t.Fatalf("Render() call %d: %v", i, err)
+			}
+			if got != want {
+				t.Fatalf("Render() call %d = %q, want %q", i, got, want)
+			}
+		}
+	})
+}
+
 func TestDocumentSetSizeAndSize(t *testing.T) {
 	doc, err := htmlterm.ParseDocument(`<p>hi</p>`, htmlterm.Options{Width: 40})
 	if err != nil {
