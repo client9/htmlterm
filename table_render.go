@@ -21,6 +21,12 @@ type tableCell struct {
 	paddingBottom int
 	verticalAlign string
 	lines         []string
+	// positions holds this cell's own trackable descendants' Rects, relative
+	// to cells[i].lines[0] (row 0, col 0) — i.e. after padding-top has been
+	// folded in below, but before this cell is placed into a row/table. See
+	// renderTableRow/renderTable for how these get shifted into the table's
+	// own coordinate space.
+	positions map[*html.Node]Rect
 }
 
 // collectColDecls scans direct <colgroup> children of a <table> node and returns
@@ -209,7 +215,7 @@ func estimateColumnWidths(cols []colConstraints, contentWidth int, fullWidth boo
 // availWidth is the width available at the table's rendering context (the
 // full renderer width at the top level, or the containing cell's content
 // width for a nested table).
-func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
+func (r *Renderer) renderTable(n *html.Node, availWidth int) (string, map[*html.Node]Rect) {
 	var headers []tableCell
 	var rows [][]tableCell
 	var captionText string
@@ -387,7 +393,7 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 		}
 	}
 	if numCols == 0 {
-		return ""
+		return "", nil
 	}
 
 	cols := buildTableColumns(headers, rows, numCols)
@@ -423,32 +429,56 @@ func (r *Renderer) renderTable(n *html.Node, availWidth int) string {
 
 	captionSide := tableDecls["caption-side"]
 	var out strings.Builder
+	// rowOffset tracks how many lines have been written to out so far, so
+	// each row's own (0-based) position map can be shifted into the table's
+	// coordinate space as it's appended — the same incremental
+	// shift-and-merge every other box-producing call site uses (see
+	// wraptoken.go's mergePositions doc comment), just driven by line counts
+	// instead of a box's width/height since out is a plain strings.Builder,
+	// not a box.
+	var positions map[*html.Node]Rect
+	rowOffset := 0
 	if captionText != "" && captionSide != "bottom" {
 		// Center caption over the table width (default: top), including padding.
 		out.WriteString(centerText(captionText, tableW) + "\n")
+		rowOffset++
 	}
 	out.WriteString(drawHBorder(borderWidths, ts.top, ts.color, r.profile))
+	rowOffset++
 	for i := 0; i < tablePT; i++ {
 		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
+		rowOffset++
 	}
 	if len(headers) > 0 {
-		out.WriteString(renderTableRow(headers, widths, numCols, ts, r.profile, tablePL, tablePR))
+		rowStr, rowPos := renderTableRow(headers, widths, numCols, ts, r.profile, tablePL, tablePR)
+		out.WriteString(rowStr)
+		positions = mergePositions(positions, rowPos, rowOffset, 0)
+		rowOffset += strings.Count(rowStr, "\n")
 		out.WriteString(drawHBorder(borderWidths, ts.header, ts.color, r.profile))
+		rowOffset++
 	}
 	for i, row := range rows {
 		if i > 0 {
 			out.WriteString(drawHBorder(borderWidths, ts.rowSep, ts.color, r.profile))
+			rowOffset++
 		}
-		out.WriteString(renderTableRow(row, widths, numCols, ts, r.profile, tablePL, tablePR))
+		rowStr, rowPos := renderTableRow(row, widths, numCols, ts, r.profile, tablePL, tablePR)
+		out.WriteString(rowStr)
+		positions = mergePositions(positions, rowPos, rowOffset, 0)
+		rowOffset += strings.Count(rowStr, "\n")
 	}
 	for i := 0; i < tablePB; i++ {
 		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
+		rowOffset++
 	}
 	out.WriteString(drawHBorder(borderWidths, ts.bottom, ts.color, r.profile))
 	if captionText != "" && captionSide == "bottom" {
 		out.WriteString(centerText(captionText, tableW) + "\n")
 	}
-	return wrapTableMargin(out.String(), tableML, tableMR)
+	if len(positions) > 0 && tableML > 0 {
+		positions = mergePositions(nil, positions, 0, tableML)
+	}
+	return wrapTableMargin(out.String(), tableML, tableMR), positions
 }
 
 // nbsp is U+00A0 (non-breaking space). A real &nbsp; HTML entity decodes to
@@ -525,25 +555,39 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 			break
 		}
 		_, _, contentW := clampCellPadding(widths[i], cells[i].paddingLeft, cells[i].paddingRight)
+		var b box
+		var positions map[*html.Node]Rect
 		if cells[i].noWrap {
 			// Not wrapped, so a plain trailing space from source text (e.g.
 			// "<td>hi </td>") won't get naturally dropped by tokenization the
 			// way wrapping does — trim it explicitly, per line, matching
-			// plainInlineText's historical role here.
-			flat := plainInlineText(tokensToString(cells[i].tokens))
-			for _, line := range strings.Split(strings.TrimSuffix(flat, "\n"), "\n") {
-				cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
+			// plainInlineText's historical role here. naturalWidthCap (see
+			// wraptoken.go) keeps this the token-domain equivalent of the old
+			// flatten-to-string path — only structural brk/box breaks start a
+			// new line, no width-driven wrapping — while still going through
+			// wordWrapTokens so cells[i].tokens' own node positions are
+			// produced instead of discarded.
+			b, positions = wordWrapTokens(cells[i].tokens, naturalWidthCap, "", 0)
+			for j, line := range b.lines {
+				b.lines[j] = strings.TrimRight(line, " ")
 			}
 		} else {
-			b, _ := wordWrapTokens(cells[i].tokens, contentW, "break-word", 0)
-			cells[i].lines = append(cells[i].lines, b.lines...)
+			b, positions = wordWrapTokens(cells[i].tokens, contentW, "break-word", 0)
+		}
+		for _, line := range b.lines {
+			cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
 		}
 		if len(cells[i].lines) == 0 {
 			cells[i].lines = []string{""}
+		} else {
+			cells[i].positions = positions
 		}
 		if pt := cells[i].paddingTop; pt > 0 {
 			blank := make([]string, pt, pt+len(cells[i].lines))
 			cells[i].lines = append(blank, cells[i].lines...)
+			if len(cells[i].positions) > 0 {
+				cells[i].positions = mergePositions(nil, cells[i].positions, pt, 0)
+			}
 		}
 		if pb := cells[i].paddingBottom; pb > 0 {
 			cells[i].lines = append(cells[i].lines, make([]string, pb)...)
@@ -551,7 +595,7 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 	}
 }
 
-func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle, p colorprofile.Profile, boxPL, boxPR int) string {
+func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle, p colorprofile.Profile, boxPL, boxPR int) (string, map[*html.Node]Rect) {
 	height := 1
 	for i := 0; i < numCols && i < len(cells); i++ {
 		if h := len(cells[i].lines); h > height {
@@ -601,7 +645,34 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 		sb.WriteString(paint(ts.right))
 		rowLines = append(rowLines, sb.String())
 	}
-	return strings.Join(rowLines, "\n") + "\n"
+
+	// Column start offsets are row-invariant (every line has the same
+	// left border/boxPL/separator/column-width layout), so this pass over
+	// columns — computing where each cell's content begins and shifting its
+	// own local position map by (verticalAlignOffset, contentCol) — only
+	// needs to run once, not once per lineIdx.
+	var positions map[*html.Node]Rect
+	colStart := runeLen(ts.left) + boxPL
+	for i := 0; i < numCols; i++ {
+		if i > 0 {
+			colStart += runeLen(ts.sep)
+		}
+		if i < len(cells) && len(cells[i].positions) > 0 {
+			pl, _, _ := clampCellPadding(widths[i], cells[i].paddingLeft, cells[i].paddingRight)
+			offset := 0
+			switch cells[i].verticalAlign {
+			case "bottom":
+				offset = height - len(cells[i].lines)
+			case "middle":
+				offset = (height - len(cells[i].lines)) / 2
+			}
+			positions = mergePositions(positions, cells[i].positions, offset, colStart+pl)
+		}
+		if i < len(widths) {
+			colStart += widths[i]
+		}
+	}
+	return strings.Join(rowLines, "\n") + "\n", positions
 }
 
 // blankBoxRow draws one bordered but content-free row (left border + blank

@@ -86,24 +86,16 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 		}
 	}
 
-	// pushBox appends a box token followed by one mandatory trailing brk,
-	// after first ensuring at least n breaks precede it (n==0 means "just
-	// make sure something separates it from any preceding content" — the
+	// pushBoxDirect appends a box token (plus its own descendants'
+	// subPositions, if any) followed by one mandatory trailing brk, after
+	// first ensuring at least n breaks precede it (n==0 means "just make
+	// sure something separates it from any preceding content" — the
 	// token-domain replacement for cappedWriter's "ensure newline before"/
 	// margin-top checks). This is how block children, tables, and lists all
-	// force their own line regardless of their own rendered height.
-	pushBox := func(content string, minBreaksBefore int, node *html.Node) {
-		if hasContent(tokens) {
-			tokens = ensureBreaks(tokens, minBreaksBefore+1)
-		}
-		bx := newBox(strings.TrimSuffix(content, "\n"))
-		tokens = append(tokens, wrapToken{box: &bx, node: node})
-		tokens = append(tokens, wrapToken{brk: true})
-	}
-	// pushBoxDirect is pushBox for a caller that already has a box (a block
-	// child, via renderBlockContentBox) rather than a string — going through
-	// pushBox's string signature would silently drop bx.pre and subPositions,
-	// since box.join()/newBox has no pre-tagging or position concept.
+	// force their own line regardless of their own rendered height, while
+	// still carrying any trackable descendants' positions along (see
+	// wraptoken.go's Rect doc comment) rather than flattening to a string
+	// first and losing them.
 	pushBoxDirect := func(bx box, subPositions map[*html.Node]Rect, minBreaksBefore int, node *html.Node) {
 		if hasContent(tokens) {
 			tokens = ensureBreaks(tokens, minBreaksBefore+1)
@@ -150,24 +142,27 @@ func (r *Renderer) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWid
 					if r.nestedTableWidthSet {
 						tableWidth = r.nestedTableWidth
 					}
-					tableContent := r.renderTable(c, tableWidth)
+					tableContent, tablePositions := r.renderTable(c, tableWidth)
+					bx := newBox(strings.TrimSuffix(tableContent, "\n"))
 					if childDecls["visibility"] == "hidden" {
-						tableContent = blankVisibleContent(tableContent)
+						bx = blankVisibleContentBox(bx)
 					}
-					pushBox(tableContent, 0, c)
+					pushBoxDirect(bx, tablePositions, 0, c)
 				} else {
 					savedDepth := r.quoteDepth
-					tableContent := r.renderBlockContent(c, childDecls, availWidth)
+					bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
 					if childDecls["visibility"] == "hidden" {
 						r.quoteDepth = savedDepth
-						tableContent = blankVisibleContent(tableContent)
+						bx = blankVisibleContentBox(bx)
 					}
-					pushBox(tableContent, 0, c)
+					pushBoxDirect(bx, subPositions, 0, c)
 				}
 				continue
 			}
 			if c.Data == "ul" || c.Data == "ol" || c.Data == "menu" {
-				pushBox(r.renderList(c, c.Data == "ol", availWidth), 0, c)
+				listContent, listPositions := r.renderList(c, c.Data == "ol", availWidth)
+				bx := newBox(strings.TrimSuffix(listContent, "\n"))
+				pushBoxDirect(bx, listPositions, 0, c)
 				continue
 			}
 			display := childDecls["display"]

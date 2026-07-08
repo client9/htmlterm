@@ -187,16 +187,9 @@ func parseMargin(s string) int {
 	return n
 }
 
-// renderBlockContent renders the styled, bordered, and margined content of a
-// block element. Thin shim over renderBlockContentBox for callers not yet
-// migrated to box.
-func (r *Renderer) renderBlockContent(n *html.Node, decls map[string]string, availWidth int) string {
-	b, _ := r.renderBlockContentBox(n, decls, availWidth)
-	return b.join()
-}
-
-// renderBlockContentBox is renderBlockContent's box-based core. It preserves
-// the exact operation order of the original string implementation (border
+// renderBlockContentBox renders the styled, bordered, and margined content of
+// a block element. It preserves the exact operation order of the original
+// string implementation (border
 // resolution → margin/padding resolution → clampCellPadding → inline content
 // → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
 // height padding → text-indent → vertical padding → horizontal padding →

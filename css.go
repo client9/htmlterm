@@ -337,6 +337,9 @@ func consumeCSSQuotedToken(s string, i int) int {
 	i++
 	for i < len(s) {
 		if s[i] == '\\' {
+			if i+1 >= len(s) {
+				return len(s)
+			}
 			i += 2
 			continue
 		}

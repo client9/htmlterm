@@ -96,7 +96,7 @@ func (l *Loop) addTimer(st *timerState, src <-chan time.Time) TimerHandle {
 // on an already-closed channel, which would otherwise panic this
 // goroutine.
 func (l *Loop) postTimerFire(id timerID) {
-	defer func() { recover() }()
+	defer func() { _ = recover() }()
 	ev := &timerFireEvent{id: id}
 	ev.SetEventNow()
 	l.screen.EventQ() <- ev

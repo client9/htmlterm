@@ -165,6 +165,10 @@ func parseCounterFnArgs(args string) (name, sep, style string) {
 		j := 1
 		for j < len(rest) {
 			if rest[j] == '\\' {
+				if j+1 >= len(rest) {
+					j = len(rest)
+					break
+				}
 				j += 2
 				continue
 			}
@@ -227,6 +231,10 @@ func consumeQuotedToken(s string) (value, rest string, ok bool) {
 	i := 1
 	for i < len(s) {
 		if s[i] == '\\' {
+			if i+1 >= len(s) {
+				i = len(s)
+				break
+			}
 			i += 2
 			continue
 		}

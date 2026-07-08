@@ -113,8 +113,9 @@ func (r *Renderer) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrap
 			switch n.Data {
 			case "table":
 				if isTableLayoutDisplay(decls["display"]) {
-					bx := newBox(strings.TrimSuffix(r.renderTable(n, r.width), "\n"))
-					tokens = append(tokens, wrapToken{box: &bx, node: n})
+					tableContent, tablePositions := r.renderTable(n, r.width)
+					bx := newBox(strings.TrimSuffix(tableContent, "\n"))
+					tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: tablePositions})
 					tokens = append(tokens, wrapToken{brk: true})
 				} else {
 					tokens = r.renderRootDisplayTokens(tokens, n)
@@ -124,8 +125,9 @@ func (r *Renderer) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrap
 				if mt := parseMargin(decls["margin-top"]); mt > 0 && hasContent(tokens) {
 					tokens = ensureBreaks(tokens, mt+1)
 				}
-				bx := newBox(strings.TrimSuffix(r.renderList(n, ordered, r.width), "\n"))
-				tokens = append(tokens, wrapToken{box: &bx, node: n})
+				listContent, listPositions := r.renderList(n, ordered, r.width)
+				bx := newBox(strings.TrimSuffix(listContent, "\n"))
+				tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: listPositions})
 				tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
 			case "br":
 				tokens = append(tokens, wrapToken{brk: true})

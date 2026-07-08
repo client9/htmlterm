@@ -9,7 +9,12 @@ import (
 )
 
 // renderList renders <ul> or <ol> with word-wrapped items and hanging indent.
-func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string {
+// The returned position map holds every trackable descendant found inside an
+// <li> (or a nested list), relative to the returned string's own (0,0)
+// origin — the same incremental shift-and-merge convention every other
+// box-producing function in this package follows (see wraptoken.go's
+// mergePositions doc comment).
+func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) (string, map[*html.Node]Rect) {
 	decls := r.resolveDecls(n)
 
 	indent := 0
@@ -97,9 +102,13 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 	}
 
 	var sb strings.Builder
+	var positions map[*html.Node]Rect
+	outRow := 0
+	hangCol := ansiVisibleLen(hangStr)
 
 	if pt := parseMargin(decls["padding-top"]); pt > 0 {
 		sb.WriteString(strings.Repeat("\n", pt))
+		outRow += pt
 	}
 
 	itemIdx := start - 1
@@ -108,9 +117,13 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 			continue
 		}
 		if c.Data == "ol" || c.Data == "ul" || c.Data == "menu" {
-			nested := r.renderList(c, c.Data == "ol", contentWidth)
+			nested, nestedPositions := r.renderList(c, c.Data == "ol", contentWidth)
+			if len(nestedPositions) > 0 {
+				positions = mergePositions(positions, nestedPositions, outRow, hangCol)
+			}
 			for _, line := range strings.Split(strings.TrimSuffix(nested, "\n"), "\n") {
 				sb.WriteString(hangStr + line + "\n")
+				outRow++
 			}
 			continue
 		}
@@ -136,7 +149,8 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 		// (wrap once via renderInline at contentWidth, split on "\n", then
 		// wrap the first line again narrower and string-concatenate the
 		// prefix on front).
-		body, _ := wordWrapTokens(tokens, contentWidth, "", firstLineWidth)
+		body, itemPositions := wordWrapTokens(tokens, contentWidth, "", firstLineWidth)
+		itemStartRow := outRow
 		for i, line := range body.lines {
 			switch {
 			case i == 0:
@@ -149,13 +163,29 @@ func (r *Renderer) renderList(n *html.Node, ordered bool, availWidth int) string
 			default:
 				sb.WriteString(hangStr + line + "\n")
 			}
+			outRow++
+		}
+		if len(itemPositions) > 0 {
+			firstLineCol := ansiVisibleLen(indentStr + prefix)
+			if positions == nil {
+				positions = make(map[*html.Node]Rect, len(itemPositions))
+			}
+			for node, rect := range itemPositions {
+				col := hangCol
+				if rect.Row == 0 {
+					col = firstLineCol
+				}
+				rect.Row += itemStartRow
+				rect.Col += col
+				positions[node] = rect
+			}
 		}
 	}
 	if pb := parseMargin(decls["padding-bottom"]); pb > 0 {
 		sb.WriteString(strings.Repeat("\n", pb))
 	}
 
-	return sb.String()
+	return sb.String(), positions
 }
 
 // listStyleCustomString returns the unquoted string if style is a CSS quoted
