@@ -57,6 +57,16 @@ func TestIsHiddenInline(t *testing.T) {
 		{"height zero without overflow hidden", "height: 0px", false},
 		{"overflow hidden without zero height", "overflow: hidden", false},
 		{"height nonzero with overflow hidden", "height: 10px; overflow: hidden", false},
+		// !important-qualified values: regression coverage for
+		// stripImportant (css.go) — the "hidden preheader" trick this
+		// file's own doc comment names as the motivating case for
+		// StripHiddenInline uses !important specifically to defeat webmail
+		// CSS resets, so isHiddenInline must still recognize these.
+		{"display none important with space", "display: none !important", true},
+		{"display none important no space", "display:none!important", true},
+		{"display none important uppercase", "display: none !IMPORTANT", true},
+		{"visibility hidden important", "visibility: hidden !important", true},
+		{"opacity zero important", "opacity: 0 !important", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -34,7 +34,7 @@ func parseCSS(src string) ([]rule, error) {
 
 	commitDecl := func() {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
-		val := strings.TrimSpace(valBuf.String())
+		val := stripImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" && curDecls != nil {
 			for k, v := range expandShorthand(prop, val) {
 				curDecls[k] = v
@@ -122,7 +122,7 @@ func parseInlineDecls(src string) map[string]string {
 
 	commit := func() {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
-		val := strings.TrimSpace(valBuf.String())
+		val := stripImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" {
 			for k, v := range expandShorthand(prop, val) {
 				result[k] = v
@@ -163,6 +163,25 @@ func parseInlineDecls(src string) map[string]string {
 	}
 	commit()
 	return result
+}
+
+// stripImportant removes a trailing "!important" priority flag (case-
+// insensitive) from a parsed CSS declaration value. htmlterm's cascade has
+// no !important-priority concept (cascade.go resolves purely by source
+// order/specificity), so the value is treated exactly as if "!important"
+// were never written, rather than left attached to the value string — which
+// silently broke every exact-string check against that value anywhere in
+// the package (e.g. strip.go's isHiddenInline never recognizing
+// "display:none !important" as hidden — the motivating "hidden preheader"
+// case its own doc comment names — and parseCSSColor failing to recognize
+// "red !important" as a color at all).
+func stripImportant(val string) string {
+	trimmed := strings.TrimRight(val, " \t\n")
+	const suffix = "!important"
+	if len(trimmed) >= len(suffix) && strings.EqualFold(trimmed[len(trimmed)-len(suffix):], suffix) {
+		return strings.TrimSpace(trimmed[:len(trimmed)-len(suffix)])
+	}
+	return val
 }
 
 func copyDecls(m map[string]string) map[string]string {

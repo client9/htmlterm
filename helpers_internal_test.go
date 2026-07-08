@@ -288,6 +288,52 @@ td/* comment */{ white-space: normal; }`)
 	}
 }
 
+// TestStripImportant covers stripImportant directly, and TestParseCSSStripsImportant/
+// TestParseInlineDeclsStripsImportant below cover it through both of its
+// call sites (parseCSS and parseInlineDecls) — regression coverage for a bug
+// where "!important" was left attached to every declaration's parsed value
+// (e.g. "none !important" instead of "none"), silently breaking any
+// exact-string comparison against that value throughout the package, not
+// just strip.go's isHiddenInline.
+func TestStripImportant(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"none", "none"},
+		{"none !important", "none"},
+		{"none!important", "none"},
+		{"none !IMPORTANT", "none"},
+		{"none !ImPoRtAnT", "none"},
+		{"  none  !important  ", "none"},
+		{"", ""},
+		{"important", "important"}, // no leading "!" — not a priority flag
+	}
+	for _, tc := range tests {
+		if got := stripImportant(tc.in); got != tc.want {
+			t.Errorf("stripImportant(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseCSSStripsImportant(t *testing.T) {
+	rules, err := parseCSS(`p { display: none !important; color: red; }`)
+	if err != nil {
+		t.Fatalf("parseCSS() error = %v", err)
+	}
+	want := []rule{
+		{selector: "p", decls: map[string]string{"display": "none", "color": "red"}},
+	}
+	if !reflect.DeepEqual(rules, want) {
+		t.Fatalf("parseCSS() = %#v, want %#v", rules, want)
+	}
+}
+
+func TestParseInlineDeclsStripsImportant(t *testing.T) {
+	got := parseInlineDecls(`display: none !important; color: red`)
+	want := map[string]string{"display": "none", "color": "red"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseInlineDecls() = %#v, want %#v", got, want)
+	}
+}
+
 // TestConsumeCSSQuotedTokenTrailingBackslashDoesNotPanic guards against a
 // regression where a quoted CSS token ending in an unescaped, unterminated
 // backslash (e.g. from style="list-style: 'a\") overshot the string's length
