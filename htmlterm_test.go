@@ -328,6 +328,25 @@ func TestNoscriptDoesNotCorruptOuterCounters(t *testing.T) {
 	})
 }
 
+// TestMalformedQuotedCSSDoesNotPanic guards against a regression where a
+// quoted CSS token ending in a trailing, unescaped backslash — e.g. from a
+// style= attribute crafted by untrusted input — overshot the source
+// string's length while scanning the backslash escape, causing a slice
+// bounds panic instead of just failing to parse the malformed value. A
+// panic here would crash the whole renderer on untrusted HTML, which is
+// this package's core use case.
+func TestMalformedQuotedCSSDoesNotPanic(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<li style="list-style: 'a\">x</li>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("got=%q", got)
+}
+
 func TestBareText(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "bare text in html element", html: `<html>Hello World</html>`, want: "Hello World"},

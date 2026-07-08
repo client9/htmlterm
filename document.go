@@ -382,6 +382,12 @@ func (d *Document) DispatchKey(key string) bool {
 		}
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
+	case key == "Enter" && strings.ToLower(target.Data) == "textarea":
+		// A <textarea> is multi-line, so Enter inserts a newline instead of
+		// submitting — matching HTML's implicit-submit-on-Enter behavior,
+		// which only applies to single-line text fields (isTextEntry's other
+		// members) and submit controls, not <textarea>.
+		setAttr(target, "value", nodeAttr(target, "value")+"\n")
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "")

@@ -347,6 +347,62 @@ func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	}
 }
 
+func TestDocumentRectFormControlInsideListItem(t *testing.T) {
+	// Regression test: renderList used to discard the position map
+	// wordWrapTokens returned for each <li>'s content, so a trackable
+	// element (e.g. an <input>) nested inside a list item silently never
+	// got a Rect, unlike the same element wrapped in a plain <div>/<label>.
+	doc, err := htmlterm.ParseDocument(`<ul><li><input type="checkbox" id="cb"></li></ul>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("cb"))
+	if !ok {
+		t.Fatalf("Rect() ok = false, want true (rendered: %q)", out)
+	}
+	want := htmlterm.Rect{Row: 0, Col: 6, Width: 1, Height: 1} // "  • ☑" — checkbox after "  • " prefix
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+}
+
+func TestDocumentRectFormControlInsideTableCell(t *testing.T) {
+	// Regression test: fillTableCellLines used to discard the position map
+	// wordWrapTokens returned for each cell's content (and the noWrap path
+	// flattened to a string before any wrapping box existed at all), so a
+	// trackable element nested inside a <td>/<th> silently never got a
+	// Rect, breaking hit-testing/click dispatch for a common pattern (a
+	// form control inside a table).
+	doc, err := htmlterm.ParseDocument(`<table><tr><td><input type="checkbox" id="cb"></td></tr></table>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rect, ok := doc.Rect(doc.GetElementByID("cb"))
+	if !ok {
+		t.Fatalf("Rect() ok = false, want true (rendered: %q)", out)
+	}
+	want := htmlterm.Rect{Row: 1, Col: 1, Width: 1, Height: 1} // "│☑│" — checkbox inside the border
+	if rect != want {
+		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
+	}
+
+	// The whole point of a correct Rect: DispatchClick can actually reach
+	// the control.
+	doc.DispatchClick(rect.Row, rect.Col)
+	cb := doc.GetElementByID("cb")
+	if !cb.Checked() {
+		t.Error("DispatchClick at the checkbox's Rect did not toggle it")
+	}
+}
+
 func TestDocumentRectRootLevelInlineBlock(t *testing.T) {
 	// A root-level, single-line inline-block element (no embedded "\n")
 	// must still be tracked — regression test for a bug where render.go's

@@ -288,6 +288,44 @@ td/* comment */{ white-space: normal; }`)
 	}
 }
 
+// TestConsumeCSSQuotedTokenTrailingBackslashDoesNotPanic guards against a
+// regression where a quoted CSS token ending in an unescaped, unterminated
+// backslash (e.g. from style="list-style: 'a\") overshot the string's length
+// while scanning the "\\" escape, causing splitCSSComponentValues' later
+// s[start:i] slice to panic. consumeCSSQuotedToken must clamp to len(s)
+// instead.
+func TestConsumeCSSQuotedTokenTrailingBackslashDoesNotPanic(t *testing.T) {
+	s := `'a\`
+	i := consumeCSSQuotedToken(s, 0)
+	if i > len(s) {
+		t.Fatalf("consumeCSSQuotedToken returned index %d beyond len(s)=%d", i, len(s))
+	}
+	_ = s[:i] // must not panic
+}
+
+// TestConsumeQuotedTokenTrailingBackslashDoesNotPanic is consumeQuotedToken's
+// (counter.go, used by parseQuotes for the CSS quotes property) equivalent of
+// the consumeCSSQuotedToken regression above.
+func TestConsumeQuotedTokenTrailingBackslashDoesNotPanic(t *testing.T) {
+	value, rest, ok := consumeQuotedToken(`'a\`)
+	if !ok {
+		t.Fatalf("consumeQuotedToken ok = false, want true")
+	}
+	t.Logf("value=%q rest=%q", value, rest)
+}
+
+// TestParseCounterFnArgsTrailingBackslashDoesNotPanic is parseCounterFnArgs'
+// (counter.go, used for content: counters(name, sep, style)) equivalent of
+// the consumeCSSQuotedToken regression above — the sep argument's quoted
+// string scan had the same unbounded backslash-escape jump.
+func TestParseCounterFnArgsTrailingBackslashDoesNotPanic(t *testing.T) {
+	name, sep, style := parseCounterFnArgs(`x, "a\`)
+	if name != "x" {
+		t.Errorf("name = %q, want %q", name, "x")
+	}
+	t.Logf("sep=%q style=%q", sep, style)
+}
+
 func TestMergeInlineStyleTextDecoration(t *testing.T) {
 	base := mergeInlineStyle(inlineStyle{}, map[string]string{"text-decoration": "underline line-through"})
 	if !base.underline || !base.strike {

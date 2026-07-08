@@ -206,6 +206,33 @@ func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
 	}
 }
 
+func TestDispatchClickDisabledCheckboxDoesNotToggle(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="checkbox" id="cb" disabled>`)
+	cb := doc.GetElementByID("cb")
+	rect, _ := doc.Rect(cb)
+
+	doc.DispatchClick(rect.Row, rect.Col)
+	if cb.Checked() {
+		t.Error("disabled checkbox toggled on click, want no-op")
+	}
+}
+
+func TestDispatchClickDisabledSubmitButtonDoesNotSubmit(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><button id="go" disabled>Go</button></form>`)
+	form := doc.GetElementByID("f")
+	btn := doc.GetElementByID("go")
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	rect, _ := doc.Rect(btn)
+	doc.DispatchClick(rect.Row, rect.Col)
+
+	if submitted {
+		t.Error("clicking a disabled submit button fired submit, want no-op")
+	}
+}
+
 func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"></form>`)
 	form := doc.GetElementByID("f")
@@ -231,6 +258,28 @@ func TestDispatchKeyEnterOutsideFormDoesNotSubmit(t *testing.T) {
 	// anything; nothing to assert beyond "doesn't blow up".
 	if !doc.DispatchKey("Enter") {
 		t.Error("DispatchKey(Enter) returned false with a focused element")
+	}
+}
+
+func TestDispatchKeyEnterOnTextareaInsertsNewlineInsteadOfSubmitting(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><textarea id="ta"></textarea></form>`)
+	form := doc.GetElementByID("f")
+	ta := doc.GetElementByID("ta")
+	doc.Focus(ta)
+
+	submitted := false
+	doc.AddEventListener(form, "submit", false, func(e *htmlterm.Event) { submitted = true })
+
+	doc.DispatchKey("Enter")
+	doc.DispatchKey("a")
+	doc.DispatchKey("Enter")
+	doc.DispatchKey("b")
+
+	if submitted {
+		t.Error("Enter in a <textarea> fired submit, want a newline inserted instead")
+	}
+	if want := "\na\nb"; ta.Value() != want {
+		t.Errorf("textarea value = %q, want %q", ta.Value(), want)
 	}
 }
 
