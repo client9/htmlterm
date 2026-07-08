@@ -1,35 +1,46 @@
 package htmlterm
 
 import (
-	"io"
-	"os"
 	"testing"
 	"time"
 )
 
 // newTestLoop returns a Loop suitable for exercising timer.go directly,
 // without ever calling Run — none of SetInterval/SetTimeout/ClearInterval/
-// ClearTimeout/handleTimerFire touch l.doc, l.in, or l.out, so a nil
-// Document and unused in/out are fine here.
-func newTestLoop() *Loop {
-	return NewLoop(nil, os.Stdin, io.Discard)
+// ClearTimeout/handleTimerFire touch l.doc, so a nil Document is fine
+// here. Backed by a real vt.MockTerm-driven Screen (see
+// cellbridge_test.go's newTestScreen), since addTimer sends events onto
+// l.screen's EventQ rather than a channel of its own.
+func newTestLoop(t *testing.T) *Loop {
+	t.Helper()
+	scr, _ := newTestScreen(t, 20, 5) // already Init'd, with Fini registered via t.Cleanup
+	return newLoopWithScreen(nil, scr)
 }
 
-// recvFire waits up to 1s for a fire on l.timerCh, failing the test on
-// timeout instead of hanging forever if the timer mechanism is broken.
-func recvFire(t *testing.T, l *Loop) timerFire {
+// recvFire waits up to 1s for a *timerFireEvent on l.screen's EventQ,
+// skipping over any other event kind that arrives first (e.g. Screen.Init
+// posts an initial *tcell.EventResize to report starting dimensions,
+// which a real Run loop would simply handle and move past) — failing the
+// test on overall timeout instead of hanging forever if the timer
+// mechanism is broken.
+func recvFire(t *testing.T, l *Loop) timerID {
 	t.Helper()
-	select {
-	case fire := <-l.timerCh:
-		return fire
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for a timer fire")
-		return timerFire{}
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case ev := <-l.screen.EventQ():
+			if fire, ok := ev.(*timerFireEvent); ok {
+				return fire.id
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for a timer fire")
+			return 0
+		}
 	}
 }
 
 func TestSetIntervalRepeats(t *testing.T) {
-	l := newTestLoop()
+	l := newTestLoop(t)
 	count := 0
 	h := l.SetInterval(5*time.Millisecond, func() { count++ })
 	defer l.ClearInterval(h)
@@ -46,7 +57,7 @@ func TestSetIntervalRepeats(t *testing.T) {
 }
 
 func TestSetTimeoutFiresOnce(t *testing.T) {
-	l := newTestLoop()
+	l := newTestLoop(t)
 	count := 0
 	h := l.SetTimeout(5*time.Millisecond, func() { count++ })
 
@@ -61,19 +72,17 @@ func TestSetTimeoutFiresOnce(t *testing.T) {
 }
 
 func TestClearTimerDropsStaleFire(t *testing.T) {
-	l := newTestLoop()
+	l := newTestLoop(t)
 	fired := false
 	h := l.SetInterval(time.Hour, func() { fired = true }) // long enough it never fires on its own
 
-	// Simulate a fire already having been forwarded (in flight on l.timerCh)
-	// at the moment Clear runs — l.timerCh is unbuffered, so this send
-	// blocks until read below, meaning ClearInterval is guaranteed to run
-	// first regardless of goroutine scheduling.
-	go func() { l.timerCh <- timerFire(h) }()
+	// Simulate a fire already sitting on the event queue at the moment
+	// ClearInterval runs.
+	l.postTimerFire(h.id)
 
 	l.ClearInterval(h)
-	fire := <-l.timerCh
-	l.handleTimerFire(fire)
+	id := recvFire(t, l)
+	l.handleTimerFire(id)
 
 	if fired {
 		t.Fatal("callback ran for a timer canceled before its fire was processed")
@@ -84,7 +93,7 @@ func TestClearTimerDropsStaleFire(t *testing.T) {
 }
 
 func TestClearTimeoutCancelsBeforeFiring(t *testing.T) {
-	l := newTestLoop()
+	l := newTestLoop(t)
 	fired := false
 	h := l.SetTimeout(time.Hour, func() { fired = true })
 

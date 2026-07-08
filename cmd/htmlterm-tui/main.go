@@ -109,7 +109,11 @@ func run() int {
 		result.ClassList().Add("visible")
 	})
 
-	loop := htmlterm.NewLoop(doc, os.Stdin, os.Stdout)
+	loop, err := htmlterm.NewLoop(doc)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "htmlterm-tui: %v\n", err)
+		return 1
+	}
 
 	spinner := doc.GetElementByID("spinner")
 	spinnerFrame := 0

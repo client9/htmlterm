@@ -1,6 +1,10 @@
 package htmlterm
 
-import "time"
+import (
+	"time"
+
+	"github.com/gdamore/tcell/v3"
+)
 
 // timerID identifies one registered timer within a Loop, for ClearInterval/
 // ClearTimeout — mirroring listenerID's role for event listeners (event.go).
@@ -14,11 +18,16 @@ type TimerHandle struct {
 	id timerID
 }
 
-// timerFire is what a timer's forwarding goroutine sends on Loop.timerCh
-// when its ticker/timer fires — just enough to look the timer back up in
-// Loop.timers; the callback itself runs on Run's goroutine, not the
-// forwarding goroutine, so it's safe to mutate the Document from it.
-type timerFire struct {
+// timerFireEvent is posted onto Loop's tcell.Screen event queue (via
+// Screen.PostEvent) when a registered timer's ticker/timer fires — just
+// enough to look the timer back up in Loop.timers. Embedding
+// tcell.EventTime satisfies tcell.Event's When() requirement for free.
+// Delivered through the same PollEvent loop as keyboard/mouse/resize
+// events (tcell_loop.go), rather than a separate channel Run has to select
+// on; the callback itself still runs on Run's own goroutine, so it's safe
+// to mutate the Document from it.
+type timerFireEvent struct {
+	tcell.EventTime
 	id timerID
 }
 
@@ -53,12 +62,11 @@ func (l *Loop) SetTimeout(d time.Duration, fn func()) TimerHandle {
 }
 
 // addTimer registers st under a fresh id and starts its forwarding
-// goroutine, which relays every receive off src as a timerFire{id} on
-// l.timerCh until done is closed. src is ticker.C or timer.C — time.Ticker's
-// channel already carries a 1-tick buffer and drops ticks that aren't read
-// promptly, so a consumer running behind naturally coalesces rather than
-// building an unbounded backlog; no extra buffering is needed on l.timerCh
-// itself.
+// goroutine, which relays every receive off src as a timerFireEvent sent
+// on l.screen's event queue (Screen.EventQ) until done is closed. src is
+// ticker.C or timer.C — time.Ticker's channel already carries a 1-tick
+// buffer and drops ticks that aren't read promptly, so a consumer running
+// behind naturally coalesces rather than building an unbounded backlog.
 func (l *Loop) addTimer(st *timerState, src <-chan time.Time) TimerHandle {
 	l.nextTimerID++
 	id := l.nextTimerID
@@ -68,11 +76,7 @@ func (l *Loop) addTimer(st *timerState, src <-chan time.Time) TimerHandle {
 		for {
 			select {
 			case <-src:
-				select {
-				case l.timerCh <- timerFire{id: id}:
-				case <-st.done:
-					return
-				}
+				l.postTimerFire(id)
 			case <-st.done:
 				return
 			}
@@ -80,6 +84,22 @@ func (l *Loop) addTimer(st *timerState, src <-chan time.Time) TimerHandle {
 	}()
 
 	return TimerHandle{id: id}
+}
+
+// postTimerFire sends a timerFireEvent for id onto l.screen's event queue.
+// EventQ's own doc comment says the channel stays open until Fini() and
+// that callers "must not write to this channel after Fini() is called" —
+// Run stops every outstanding timer (closing its done channel) before
+// calling Fini (see Run's deferred stopAllTimers), but that only narrows
+// the race, since a tick can still be selected concurrently with a
+// deferred close; recover guards the remaining window where a send lands
+// on an already-closed channel, which would otherwise panic this
+// goroutine.
+func (l *Loop) postTimerFire(id timerID) {
+	defer func() { recover() }()
+	ev := &timerFireEvent{id: id}
+	ev.SetEventNow()
+	l.screen.EventQ() <- ev
 }
 
 // ClearInterval cancels a timer previously registered via SetInterval. It is
@@ -95,6 +115,15 @@ func (l *Loop) ClearInterval(h TimerHandle) {
 // with ClearInterval — see there.
 func (l *Loop) ClearTimeout(h TimerHandle) {
 	l.clearTimer(h.id)
+}
+
+// stopAllTimers cancels every still-registered timer — called by Run
+// (tcell_loop.go) before Screen.Fini, so no timer's forwarding goroutine
+// is left trying to send to Screen.EventQ after the screen tears it down.
+func (l *Loop) stopAllTimers() {
+	for id := range l.timers {
+		l.clearTimer(id)
+	}
 }
 
 // clearTimer removes id from l.timers and stops its forwarding goroutine and
@@ -117,18 +146,18 @@ func (l *Loop) clearTimer(id timerID) {
 	}
 }
 
-// handleTimerFire runs the callback for a received timerFire, unless its
-// timer was canceled between being sent and being received here (in which
-// case its id is no longer in l.timers and this is a silent no-op). A
-// one-shot SetTimeout timer is removed from l.timers after firing, matching
-// JS's setTimeout running at most once.
-func (l *Loop) handleTimerFire(fire timerFire) {
-	st, ok := l.timers[fire.id]
+// handleTimerFire runs the callback for a received timerFireEvent's id,
+// unless its timer was canceled between being posted and being received
+// here (in which case id is no longer in l.timers and this is a silent
+// no-op). A one-shot SetTimeout timer is removed from l.timers after
+// firing, matching JS's setTimeout running at most once.
+func (l *Loop) handleTimerFire(id timerID) {
+	st, ok := l.timers[id]
 	if !ok {
 		return
 	}
 	if st.once {
-		delete(l.timers, fire.id)
+		delete(l.timers, id)
 	}
 	st.fn()
 }
