@@ -399,9 +399,42 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 		blank := strings.Repeat(" ", innerW)
 		if heightLines > 0 {
 			// Fixed height takes priority over min/max.
-			if len(lines) > heightLines && (ov == "hidden" || ov == "clip") {
-				lines = lines[:heightLines]
-			} else {
+			switch ov {
+			case "hidden", "clip":
+				if len(lines) > heightLines {
+					lines = lines[:heightLines]
+				} else {
+					for len(lines) < heightLines {
+						lines = append(lines, blank)
+					}
+				}
+			case "scroll", "auto":
+				// A scrollable container's clip must also shift its
+				// descendants' recorded positions by -offset (mirroring
+				// mergePositions' existing shift-on-placement primitive), so
+				// a scrolled-off descendant's Rect lands outside the visible
+				// range instead of the pre-scroll range — kept, not deleted,
+				// matching a scrolled-off real DOM element's
+				// getBoundingClientRect(). r.liveScrollOffsets is this
+				// frame's freshly rebuilt scroll-offset map (see
+				// SCROLLING.md); r.scrollOffsets is nil for a plain
+				// Renderer.Render call (no persistent Document to read a
+				// prior offset from), so offset is simply 0 there.
+				offset := r.scrollOffsets[n]
+				maxOffset := max(0, len(lines)-heightLines)
+				offset = min(max(offset, 0), maxOffset)
+				if r.liveScrollOffsets == nil {
+					r.liveScrollOffsets = map[*html.Node]int{}
+				}
+				r.liveScrollOffsets[n] = offset
+				if len(lines) > heightLines {
+					lines = lines[offset : offset+heightLines]
+					positions = mergePositions(nil, positions, -offset, 0)
+				}
+				for len(lines) < heightLines {
+					lines = append(lines, blank)
+				}
+			default:
 				for len(lines) < heightLines {
 					lines = append(lines, blank)
 				}
@@ -518,6 +551,18 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	}
 	colShift := pl + runeLen(bl.char) + ml
 	positions = mergePositions(nil, positions, rowShift, colShift)
+	if heightLines > 0 && (ov == "scroll" || ov == "auto") {
+		// Rect (assigned by whichever caller embeds this box as a token) is
+		// the full CSS border box, which — unlike heightLines — includes any
+		// border/padding rows added above; DispatchKey's PageUp/PageDown and
+		// Focus's scrollIntoView both need the actual content-box viewport
+		// height and the row offset from this box's own top to its first
+		// visible content row, which only rowShift/heightLines here capture.
+		if r.liveScrollViewport == nil {
+			r.liveScrollViewport = map[*html.Node]scrollViewport{}
+		}
+		r.liveScrollViewport[n] = scrollViewport{height: heightLines, topOffset: rowShift}
+	}
 	return b, positions
 }
 

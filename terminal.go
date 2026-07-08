@@ -21,6 +21,15 @@ func disableMouse() string {
 	return ansi.ResetMode(mouseModes...)
 }
 
+// showCursor/hideCursor return the DECTCEM escape sequences toggling the
+// terminal's real cursor visibility — paint (loop.go) hides it whenever
+// focusCursorPos has nowhere meaningful to put it (nothing focused, or the
+// focused element currently scrolled out of view — see
+// Document.ScrollVisible), rather than leaving it at whatever incidental
+// position the last full frame write happened to end on.
+func showCursor() string { return ansi.ShowCursor }
+func hideCursor() string { return ansi.HideCursor }
+
 // enterRawMode puts fd into raw mode (via golang.org/x/term) and returns a
 // restore func that undoes it. Raw mode disables ISIG, so the terminal will
 // not deliver Ctrl-C as SIGINT while active — Loop.Run watches for the raw

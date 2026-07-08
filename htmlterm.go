@@ -59,6 +59,19 @@ type Renderer struct {
 	quoteDepth          int                            // tracks open-quote nesting depth
 	nestedTableWidth    int                            // width hint for a table nested inside a cell currently being sized
 	nestedTableWidthSet bool                           // whether nestedTableWidth is active
+
+	// scrollOffsets holds the previous frame's per-element vertical scroll
+	// offsets (Document.scrollOffsets, read-only from this Renderer's
+	// perspective) — nil for a plain Renderer.Render call, which has no
+	// persistent Document to remember offsets across calls. liveScrollOffsets
+	// accumulates this frame's offsets (clamped, one entry per element that
+	// actually took the scroll/auto+resolved-height branch in
+	// renderBlockContentBox) — rebuilt fresh every render rather than mutating
+	// scrollOffsets in place, so an element that stops being a scroll
+	// container doesn't leave a stale entry behind. See SCROLLING.md.
+	scrollOffsets      map[*html.Node]int
+	liveScrollOffsets  map[*html.Node]int
+	liveScrollViewport map[*html.Node]scrollViewport
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -135,7 +148,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
-	out, _ := r.renderTree(doc)
+	out, _, _, _ := r.renderTree(doc)
 	return out, nil
 }
 
@@ -150,8 +163,12 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 // uses this to power Document.Rect; Render just discards it, keeping its
 // existing contract exactly. Nothing here can actually fail — parsing (the
 // only failure mode) already happened before this is called — so there's no
-// error return to thread through.
-func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
+// error return to thread through. The third and fourth return values are
+// this frame's freshly built scroll-offset and scroll-viewport maps (see the
+// Renderer.scrollOffsets/liveScrollOffsets/liveScrollViewport doc comment) —
+// Document.Render installs them as the new Document.scrollOffsets/
+// scrollViewport; Render discards both, same as the position map.
+func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[*html.Node]int, map[*html.Node]scrollViewport) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
@@ -161,6 +178,7 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
 		noOSC8Links:       r.noOSC8Links,
 		maxBlankLines:     r.maxBlankLines,
 		stripHiddenInline: r.stripHiddenInline,
+		scrollOffsets:     r.scrollOffsets,
 	}
 	if !r.ignoreDocumentCSS {
 		if extra := extractStyleRules(doc); len(extra) > 0 {
@@ -212,5 +230,5 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect) {
 	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
 	// normalize it to a plain space in the final string, since terminals
 	// don't distinguish breaking from non-breaking spaces.
-	return strings.ReplaceAll(out, nbsp, " "), positions
+	return strings.ReplaceAll(out, nbsp, " "), positions, rr.liveScrollOffsets, rr.liveScrollViewport
 }

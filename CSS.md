@@ -310,7 +310,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements, including `td` and `th`. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping; set it on a cell or ancestor to get single-line truncation (see `text-overflow`) instead of multi-line wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
 
 #### `overflow`
-`visible` | `hidden` | `clip`. Controls whether content that exceeds an explicit `width` is clipped. Default `visible`: text overflows the box. `hidden` and `clip` both truncate each line to the content width. **Requires an explicit `width`**; without one the element already fills the available width. `text-overflow` controls the truncation marker. Not inherited.
+`visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. Default `visible`: text overflows the box. `hidden` and `clip` truncate each line to the content width (**requires an explicit `width`**; without one the element already fills the available width) and truncate excess lines when an explicit `height` is also set. `scroll` and `auto` (treated identically — there is no separate scrollbar-presence distinction) instead make a vertically-clipped element with an explicit `height` a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Document.Focus` auto-scrolls it into view). `scroll`/`auto` only take effect with an explicit `height` (not `min-height`/`max-height` alone); `text-overflow` controls the truncation marker. Not inherited. See `SCROLLING.md`.
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.
@@ -695,7 +695,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Pseudo-classes and pseudo-elements
 - Multi-value `border-top`/`border-bottom` shorthand (e.g. `border-top: 1px solid red`) —
   use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
-- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none`
-- `flex`, `grid`, or positioned layout
+- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none` — not yet implemented, not a permanent boundary; see `SCROLLING.md`'s "Flexbox" section for the planned design direction
+- `flex`, `grid`, or positioned layout — same as above
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-spacing` / cell padding (column separator is always a single character)

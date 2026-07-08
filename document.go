@@ -27,6 +27,37 @@ type Document struct {
 	listeners      map[*html.Node][]listenerEntry
 	nextListenerID listenerID
 	focused        *html.Node
+
+	// scrollOffsets holds the current vertical scroll offset for every
+	// element that was an overflow:scroll|auto container with a resolved
+	// height as of the most recent Render call — rebuilt fresh on every
+	// Render (see Renderer.liveScrollOffsets), so a node's presence as a key
+	// here is itself the answer to "is this a scroll container right now"
+	// (see nearestScrollable). Always non-nil (initialized by ParseDocument)
+	// so render-time writes into the shared map never hit a nil map.
+	scrollOffsets map[*html.Node]int
+
+	// scrollViewport holds each scroll container's resolved content-box
+	// viewport geometry as of the most recent Render call — see the
+	// scrollViewport type doc comment for why Rect alone (the CSS border
+	// box) isn't enough for this. Internal only (no public getter): used by
+	// DispatchKey's PageUp/PageDown and scrollIntoView. Rebuilt fresh every
+	// Render, same as scrollOffsets, so it's never stale about which nodes
+	// are current scroll containers.
+	scrollViewport map[*html.Node]scrollViewport
+}
+
+// scrollViewport records a scroll container's visible content-area geometry
+// — the resolved content-box height (heightLines, e.g. from CSS height) and
+// the row offset from the container's own Rect.Row down to its first visible
+// content row (padding-top plus one more if a border-top rule was drawn).
+// Rect itself is the full CSS border box (see Rect's doc comment), which
+// includes those same border/padding rows, so it can't be used directly to
+// find the viewport's actual height or top row — this is computed
+// separately, alongside the scroll offset itself, in block.go.
+type scrollViewport struct {
+	height    int
+	topOffset int
 }
 
 // ParseDocument parses htmlStr and returns a Document backed by the
@@ -36,7 +67,7 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	return &Document{doc: doc, opts: opts}, nil
+	return &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}}, nil
 }
 
 // Render renders the document's current tree to a styled terminal string,
@@ -49,8 +80,11 @@ func (d *Document) Render() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, positions := r.renderTree(d.doc)
+	r.scrollOffsets = d.scrollOffsets
+	out, positions, scrollOffsets, scrollViewport := r.renderTree(d.doc)
 	d.positions = positions
+	d.scrollOffsets = scrollOffsets
+	d.scrollViewport = scrollViewport
 	return out, nil
 }
 
@@ -102,6 +136,45 @@ func (d *Document) Rect(el *Element) (Rect, bool) {
 	}
 	rect, ok := d.positions[el.node]
 	return rect, ok
+}
+
+// ScrollTop returns el's current vertical scroll offset (in lines), and
+// whether el was a scroll container (overflow:scroll|auto with a resolved
+// height) as of the most recent Render call — mirroring the DOM's
+// element.scrollTop. ok is false if el is nil or isn't a scroll container.
+func (d *Document) ScrollTop(el *Element) (int, bool) {
+	if el == nil {
+		return 0, false
+	}
+	offset, ok := d.scrollOffsets[el.node]
+	return offset, ok
+}
+
+// SetScrollTop sets el's vertical scroll offset directly (e.g. to jump to
+// the top of a pane, or restore a previously saved position). The value is
+// clamped to the valid range on the next Render call, the same way
+// DispatchWheel/DispatchKey-driven scrolling is; it has no effect if el
+// isn't (or hasn't yet been rendered as) a scroll container.
+func (d *Document) SetScrollTop(el *Element, offset int) {
+	if el == nil {
+		return
+	}
+	d.scrollOffsets[el.node] = offset
+}
+
+// nearestScrollable returns the nearest ancestor of n (inclusive) that was a
+// scroll container (overflow:scroll|auto with a resolved height) as of the
+// most recent Render call, or nil if none was. A node's presence as a key in
+// d.scrollOffsets, rebuilt fresh every Render, is itself the answer to "is
+// this a scroll container right now" — see Renderer.liveScrollOffsets.
+func (d *Document) nearestScrollable(n *html.Node) *html.Node {
+	chain := ancestorChain(n)
+	for i := len(chain) - 1; i >= 0; i-- {
+		if _, ok := d.scrollOffsets[chain[i]]; ok {
+			return chain[i]
+		}
+	}
+	return nil
 }
 
 // nodeDepth counts n's ancestors up to (but not including) the document
@@ -159,6 +232,34 @@ func (d *Document) DispatchClick(row, col int) bool {
 			d.dispatch(form, "submit", "")
 		}
 	}
+	return true
+}
+
+// wheelScrollLines is how many lines one wheel notch scrolls — matching
+// typical terminal/browser wheel step size. decodeSGRMouse (input.go)
+// reports one unit per notch; this is where that gets turned into a line
+// count.
+const wheelScrollLines = 3
+
+// DispatchWheel hit-tests (row, col) against the position map from the most
+// recent Render call, then scrolls the nearest scrollable ancestor (an
+// element that was an overflow:scroll|auto container with a resolved height
+// as of that Render call — see nearestScrollable) by delta wheel notches.
+// The new offset is unclamped here; it's clamped to the valid range on the
+// next Render call (see block.go's overflow gate), the same "Document holds
+// the possibly-stale value, Renderer clamps it next frame" pattern Rect's
+// staleness already follows. Returns false if no element was hit or it has
+// no scrollable ancestor.
+func (d *Document) DispatchWheel(row, col, delta int) bool {
+	target := d.elementAt(row, col)
+	if target == nil {
+		return false
+	}
+	scrollable := d.nearestScrollable(target)
+	if scrollable == nil {
+		return false
+	}
+	d.scrollOffsets[scrollable] += delta * wheelScrollLines
 	return true
 }
 
@@ -279,6 +380,25 @@ func (d *Document) DispatchKey(key string) bool {
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "")
 		}
+	case key == "PageUp" || key == "PageDown":
+		if scrollable := d.nearestScrollable(target); scrollable != nil {
+			step := 1
+			if vp, ok := d.scrollViewport[scrollable]; ok && vp.height > 0 {
+				step = vp.height
+			}
+			if key == "PageUp" {
+				step = -step
+			}
+			d.scrollOffsets[scrollable] += step
+		}
+	case key == "ArrowUp" || key == "ArrowDown":
+		if scrollable := d.nearestScrollable(target); scrollable != nil {
+			step := 1
+			if key == "ArrowUp" {
+				step = -1
+			}
+			d.scrollOffsets[scrollable] += step
+		}
 	default:
 		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
 			setAttr(target, "value", nodeAttr(target, "value")+key)
@@ -312,10 +432,11 @@ func (d *Document) clearRadioSiblings(target *html.Node) {
 	walk(scope)
 }
 
-// isFocusable reports whether n is a tab-stoppable form control: an <input>
-// other than type="hidden", a <button>, a <textarea>, or a <select>, and not
-// carrying a disabled attribute.
-func isFocusable(n *html.Node) bool {
+// isFormFocusable reports whether n is a tab-stoppable form control: an
+// <input> other than type="hidden", a <button>, a <textarea>, or a
+// <select>, and not carrying a disabled attribute. See Document.isFocusable
+// for the additional scroll-container case this alone doesn't cover.
+func isFormFocusable(n *html.Node) bool {
 	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
 		return false
 	}
@@ -328,12 +449,49 @@ func isFocusable(n *html.Node) bool {
 	return false
 }
 
+// isFocusable reports whether n is a tab-stoppable element: either a form
+// control (isFormFocusable), or — mirroring real browsers' keyboard-
+// accessible scroll containers — an overflow:scroll|auto element with a
+// resolved height (a key in d.scrollOffsets as of the most recent Render
+// call; see nearestScrollable) that has no focusable descendant of its own.
+// The scroll-container case exists so a scrollable region with no button/
+// input inside it is still Tab-reachable for keyboard-driven scrolling
+// (DispatchKey's PageUp/PageDown/ArrowUp/ArrowDown); a container that
+// already has a focusable descendant is reached through that descendant
+// instead, so it isn't also made its own redundant tab stop. Always false
+// for the scroll-container case before the first Render (d.scrollOffsets is
+// empty then, same staleness as Rect/ScrollVisible).
+func (d *Document) isFocusable(n *html.Node) bool {
+	if isFormFocusable(n) {
+		return true
+	}
+	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
+		return false
+	}
+	if _, isScrollContainer := d.scrollOffsets[n]; !isScrollContainer {
+		return false
+	}
+	return !d.hasFocusableDescendant(n)
+}
+
+// hasFocusableDescendant reports whether n has any descendant (excluding n
+// itself) that isFocusable considers a tab stop — see isFocusable's
+// scroll-container case.
+func (d *Document) hasFocusableDescendant(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if d.isFocusable(c) || d.hasFocusableDescendant(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // focusableList returns every focusable element in document order.
 func (d *Document) focusableList() []*html.Node {
 	var out []*html.Node
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
-		if isFocusable(n) {
+		if d.isFocusable(n) {
 			out = append(out, n)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -350,7 +508,7 @@ func (d *Document) focusableList() []*html.Node {
 // and newly focused elements. Returns false, making no change, if el is nil
 // or not focusable (see isFocusable).
 func (d *Document) Focus(el *Element) bool {
-	if el == nil || !isFocusable(el.node) {
+	if el == nil || !d.isFocusable(el.node) {
 		return false
 	}
 	if d.focused == el.node {
@@ -363,7 +521,90 @@ func (d *Document) Focus(el *Element) bool {
 		removeAttr(prev, focusAttr)
 		d.dispatch(prev, "blur", "")
 	}
+	d.scrollIntoView(el.node)
 	d.dispatch(el.node, "focus", "")
+	return true
+}
+
+// scrollIntoView adjusts every scrollable ancestor of n (see
+// nearestScrollable, walked here via ancestorChain since more than one
+// nested scrollable ancestor may need adjusting) so n's previous-frame Rect
+// falls within that ancestor's own previous-frame visible range — mirroring
+// a real browser auto-scrolling a newly focused control into view. One-frame
+// stale by construction (n's/the ancestor's Rects are only as fresh as the
+// last Render call, the same staleness Rect itself already documents), and a
+// no-op before the first Render (d.positions is nil).
+func (d *Document) scrollIntoView(n *html.Node) {
+	elRect, ok := d.positions[n]
+	if !ok {
+		return
+	}
+	for _, anc := range ancestorChain(n) {
+		offset, isScrollable := d.scrollOffsets[anc]
+		if !isScrollable {
+			continue
+		}
+		ancRect, ok := d.positions[anc]
+		if !ok {
+			continue
+		}
+		vp := d.scrollViewport[anc]
+		contentTop := ancRect.Row + vp.topOffset
+		relTop := elRect.Row - contentTop
+		relBottom := relTop + elRect.Height - 1
+		switch {
+		case relTop < 0:
+			offset += relTop
+		case relBottom >= vp.height:
+			offset += relBottom - vp.height + 1
+		default:
+			continue
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		d.scrollOffsets[anc] = offset
+	}
+}
+
+// ScrollVisible reports whether el's Rect, as of the most recent Render
+// call, currently falls at least partly within the visible content range of
+// every scrollable ancestor it has. Rect itself is never clipped or hidden
+// for a scrolled-off element (matching a real scrolled-off DOM element's
+// getBoundingClientRect() — see Rect's doc comment), so a host placing its
+// own UI (e.g. Loop's terminal cursor, via focusCursorPos) on top of an
+// element's Rect needs this to know whether that position is actually
+// visible right now, rather than off-screen inside a container that has
+// since scrolled past it (e.g. via DispatchWheel/DispatchKey scrolling a
+// pane out from under a focused control it contains). True for an element
+// with no scrollable ancestor, or before the first Render.
+func (d *Document) ScrollVisible(el *Element) bool {
+	if el == nil {
+		return true
+	}
+	rect, ok := d.positions[el.node]
+	if !ok {
+		return true
+	}
+	for _, anc := range ancestorChain(el.node) {
+		if anc == el.node {
+			continue
+		}
+		vp, isScrollable := d.scrollViewport[anc]
+		if !isScrollable {
+			continue
+		}
+		ancRect, ok := d.positions[anc]
+		if !ok {
+			continue
+		}
+		contentTop := ancRect.Row + vp.topOffset
+		relTop := rect.Row - contentTop
+		relBottom := relTop + rect.Height - 1
+		if relBottom < 0 || relTop >= vp.height {
+			return false
+		}
+	}
 	return true
 }
 

@@ -12,16 +12,21 @@ type eventKind int
 const (
 	keyEvent eventKind = iota
 	clickEvent
+	wheelEvent
 )
 
-// inputEvent is decodeEvent's result: either a keyEvent (key holds a
-// DispatchKey-shaped string) or a clickEvent (row/col are 0-indexed,
-// terminal-viewport-absolute — Loop.Run translates them into a Document's
-// own coordinate space before calling DispatchClick).
+// inputEvent is decodeEvent's result: a keyEvent (key holds a
+// DispatchKey-shaped string), a clickEvent, or a wheelEvent (row/col are
+// 0-indexed, terminal-viewport-absolute for both — Loop.Run translates them
+// into a Document's own coordinate space before calling
+// DispatchClick/DispatchWheel). delta is set for a wheelEvent: -1 for one
+// notch up, +1 for one notch down — the "how many lines per notch" policy
+// lives in Document.DispatchWheel, not here.
 type inputEvent struct {
 	kind     eventKind
 	key      string
 	row, col int
+	delta    int
 }
 
 // decodeEvent reads one logical input event off r: a control key, a
@@ -118,11 +123,14 @@ func decodeEscape(r *bufio.Reader) (inputEvent, error) {
 
 // decodeSGRMouse parses the body of an SGR mouse report (everything after
 // "\x1b[<") of the form "Cb;Cx;Cy" followed by a terminating 'M' (press) or
-// 'm' (release): "\x1b[<Cb;Cx;Cyf" — https://vt100.net/docs/vt510-rm/SGR.
-// Only a left-button press (Cb's low 2 bits == 0, terminator 'M') produces a
-// clickEvent; releases, drags, other buttons, and wheel events are consumed
-// but reported back as a (non-click) keyEvent with an empty key, which the
-// caller (Loop.Run) simply ignores — a deliberate v1 simplification.
+// 'm' (release): "\x1b[<Cb;Cx;Cyf" — https://vt100.net/docs/vt510-rm/SGR. A
+// left-button press (Cb's low 2 bits == 0, terminator 'M') produces a
+// clickEvent; a wheel report (Cb's 0x40 bit set — direction is Cb's low bit,
+// 0 for up/1 for down) produces a wheelEvent regardless of terminator, since
+// xterm-style wheel reports are always sent as a "press" ('M'). Everything
+// else (releases, drags, other buttons) is consumed but reported back as a
+// (non-click, non-wheel) keyEvent with an empty key, which the caller
+// (Loop.Run) simply ignores — a deliberate v1 simplification.
 func decodeSGRMouse(r *bufio.Reader) (inputEvent, error) {
 	var body strings.Builder
 	var terminator byte
@@ -147,6 +155,14 @@ func decodeSGRMouse(r *bufio.Reader) (inputEvent, error) {
 	cy, err3 := strconv.Atoi(parts[2])
 	if err1 != nil || err2 != nil || err3 != nil {
 		return inputEvent{kind: keyEvent}, nil
+	}
+
+	if cb&0x40 != 0 {
+		delta := 1
+		if cb&0x1 == 0 {
+			delta = -1
+		}
+		return inputEvent{kind: wheelEvent, row: cy - 1, col: cx - 1, delta: delta}, nil
 	}
 
 	isLeftButton := cb&0x3 == 0 && cb&0x20 == 0 // low 2 bits 0 (left), motion bit (0x20) clear

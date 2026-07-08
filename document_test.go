@@ -509,3 +509,389 @@ func TestDocumentElementIsStableHandle(t *testing.T) {
 		t.Fatal("DocumentElement() should consistently resolve to the same node across calls")
 	}
 }
+
+func TestScrollOverflowAutoSlicesContent(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:3;overflow:auto">line1<br>line2<br>line3<br>line4<br>line5</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line3") || strings.Contains(got, "line4") {
+		t.Fatalf("initial render (offset 0) = %q, want line1-line3 visible, not line4/5", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if top, ok := doc.ScrollTop(pane); !ok || top != 0 {
+		t.Errorf("ScrollTop(pane) after first render = (%d, %v), want (0, true)", top, ok)
+	}
+
+	doc.SetScrollTop(pane, 100) // beyond max; must clamp on next Render
+	out, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got = stripANSI(out)
+	if !strings.Contains(got, "line3") || !strings.Contains(got, "line5") || strings.Contains(got, "line1") {
+		t.Fatalf("render after over-scrolling = %q, want line3-line5 visible (clamped), not line1", got)
+	}
+	if top, ok := doc.ScrollTop(pane); !ok || top != 2 {
+		t.Errorf("ScrollTop(pane) after clamp = (%d, %v), want (2, true) [max offset = 5-3]", top, ok)
+	}
+}
+
+func TestScrollTopStaleWhenOverflowRemoved(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:3;overflow:auto">line1<br>line2<br>line3<br>line4<br>line5</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	doc.SetScrollTop(pane, 1)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, ok := doc.ScrollTop(pane); !ok {
+		t.Fatal("ScrollTop(pane) ok = false while overflow:auto is still set, want true")
+	}
+
+	pane.SetAttribute("style", "height:3") // drop overflow:auto
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if _, ok := doc.ScrollTop(pane); ok {
+		t.Error("ScrollTop(pane) ok = true after overflow:auto removed, want false (stale entry pruned)")
+	}
+}
+
+func TestDispatchWheelScrollsNearestScrollableAncestor(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto"><span id="inner">line1<br>line2<br>line3<br>line4</span></div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	rect, ok := doc.Rect(pane)
+	if !ok {
+		t.Fatal("Rect(pane) ok = false, want true")
+	}
+
+	if got := doc.DispatchWheel(rect.Row, rect.Col, 1); !got {
+		t.Fatal("DispatchWheel over pane = false, want true")
+	}
+	if top, ok := doc.ScrollTop(pane); !ok || top <= 0 {
+		t.Errorf("ScrollTop(pane) after wheel-down = (%d, %v), want a positive offset", top, ok)
+	}
+
+	if got := doc.DispatchWheel(9999, 9999, 1); got {
+		t.Error("DispatchWheel at an unhit coordinate = true, want false")
+	}
+}
+
+func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto">line1<br>line2<br>line3<br>line4<br><button id="btn">Go</button></div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	btn := doc.GetElementByID("btn")
+	if !doc.Focus(btn) {
+		t.Fatal("Focus(btn) = false, want true")
+	}
+	// Focus's own scroll-into-view already jumped the pane to make btn
+	// visible; reset to the top so ArrowDown/PageDown below have room to
+	// move (this test is about DispatchKey's own scrolling, not Focus's).
+	pane := doc.GetElementByID("pane")
+	doc.SetScrollTop(pane, 0)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	before, _ := doc.ScrollTop(pane)
+	if before != 0 {
+		t.Fatalf("ScrollTop(pane) after reset = %d, want 0", before)
+	}
+
+	doc.DispatchKey("ArrowDown")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	afterArrow, _ := doc.ScrollTop(pane)
+	if afterArrow <= before {
+		t.Errorf("ScrollTop(pane) after ArrowDown = %d, want > %d", afterArrow, before)
+	}
+
+	doc.DispatchKey("PageDown")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	afterPage, _ := doc.ScrollTop(pane)
+	if afterPage <= afterArrow {
+		t.Errorf("ScrollTop(pane) after PageDown = %d, want > %d", afterPage, afterArrow)
+	}
+
+	doc.DispatchKey("PageUp")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	afterPageUp, _ := doc.ScrollTop(pane)
+	if afterPageUp >= afterPage {
+		t.Errorf("ScrollTop(pane) after PageUp = %d, want < %d", afterPageUp, afterPage)
+	}
+}
+
+func TestFocusScrollsIntoView(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto">line1<br>line2<br>line3<br>line4<br><button id="btn">Go</button></div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if top, ok := doc.ScrollTop(pane); !ok || top != 0 {
+		t.Fatalf("ScrollTop(pane) before focus = (%d, %v), want (0, true)", top, ok)
+	}
+
+	btn := doc.GetElementByID("btn")
+	doc.Focus(btn)
+	if top, ok := doc.ScrollTop(pane); !ok || top == 0 {
+		t.Errorf("ScrollTop(pane) after focusing an off-screen button = (%d, %v), want a positive offset", top, ok)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(stripANSI(out), "Go") {
+		t.Errorf("render after focusing btn = %q, want btn scrolled into view", out)
+	}
+}
+
+// TestFocusScrollsIntoViewWithBorderAndPadding pins a real bug caught by
+// driving cmd/htmlterm-tui in a live pty (tmux): scrollIntoView must use the
+// container's resolved content-box viewport (Document.scrollViewport), not
+// its Rect (the CSS border box, which also includes border/padding rows) —
+// using Rect directly under-scrolled by exactly the border+padding row
+// count whenever a scroll container had either set.
+func TestFocusScrollsIntoViewWithBorderAndPadding(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto;border-style:normal;padding-top:1">` +
+		`line1<br>line2<br>line3<br>line4<br><button id="btn">Go</button></div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	btn := doc.GetElementByID("btn")
+	doc.Focus(btn)
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(stripANSI(out), "Go") {
+		t.Errorf("render after focusing btn (bordered/padded pane) = %q, want btn scrolled into view", out)
+	}
+}
+
+// TestScrollVisibleTracksScrollPosition pins the fix for a real bug caught
+// interactively (driving cmd/htmlterm-tui in a live pty): scrolling a pane
+// via DispatchKey/DispatchWheel while focus stays on a control inside it
+// left Loop's terminal cursor parked at that control's stale, now
+// off-screen Rect — visibly drifting away from (and past the edge of) the
+// pane instead of tracking what's actually visible. ScrollVisible is what
+// focusCursorPos (loop.go) now checks before placing the cursor there.
+func TestScrollVisibleTracksScrollPosition(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto"><button id="btn">Go</button><br>line2<br>line3<br>line4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	btn := doc.GetElementByID("btn")
+	if !doc.ScrollVisible(btn) {
+		t.Fatal("ScrollVisible(btn) at offset 0 = false, want true (btn is the pane's first line)")
+	}
+
+	doc.SetScrollTop(pane, 2) // max offset (4 lines - height 2); scrolls btn off the top
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if doc.ScrollVisible(btn) {
+		t.Error("ScrollVisible(btn) after scrolling it off the top = true, want false")
+	}
+
+	doc.SetScrollTop(pane, 0)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !doc.ScrollVisible(btn) {
+		t.Error("ScrollVisible(btn) after scrolling back to offset 0 = false, want true")
+	}
+}
+
+func TestScrollShiftsDescendantPositions(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto">line1<br><input id="inp" value="x"><br>line3<br>line4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	inp := doc.GetElementByID("inp")
+
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	paneRect, ok := doc.Rect(pane)
+	if !ok {
+		t.Fatal("Rect(pane) ok = false, want true")
+	}
+	inpRect, ok := doc.Rect(inp)
+	if !ok {
+		t.Fatal("Rect(inp) ok = false, want true")
+	}
+	if got := inpRect.Row - paneRect.Row; got != 1 {
+		t.Fatalf("input's row relative to pane at offset 0 = %d, want 1", got)
+	}
+
+	doc.SetScrollTop(pane, 2)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	paneRect2, ok := doc.Rect(pane)
+	if !ok {
+		t.Fatal("Rect(pane) ok = false after scroll, want true")
+	}
+	inpRect2, ok := doc.Rect(inp)
+	if !ok {
+		t.Fatal("Rect(inp) ok = false after scroll, want true (kept, not deleted, even though scrolled out of view)")
+	}
+	if got := inpRect2.Row - paneRect2.Row; got != -1 {
+		t.Errorf("input's row relative to pane at offset 2 = %d, want -1 (scrolled above the visible range)", got)
+	}
+}
+
+func TestNestedScrollableRegions(t *testing.T) {
+	htmlStr := `<div id="outer" style="height:2;overflow:auto">` +
+		`o1<br>` +
+		`<div id="inner" style="height:2;overflow:auto">i1<br>i2<br>i3<br>i4</div><br>` +
+		`o3<br>o4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	outer := doc.GetElementByID("outer")
+	inner := doc.GetElementByID("inner")
+	if _, ok := doc.ScrollTop(outer); !ok {
+		t.Fatal("ScrollTop(outer) ok = false, want true")
+	}
+	if _, ok := doc.ScrollTop(inner); !ok {
+		t.Fatal("ScrollTop(inner) ok = false, want true (nested scroll container tracked independently)")
+	}
+
+	doc.SetScrollTop(inner, 2)
+	doc.SetScrollTop(outer, 1)
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render after scrolling both nested containers: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "i3") || strings.Contains(got, "i1") {
+		t.Errorf("render with inner scrolled to offset 2 = %q, want i3 visible, not i1", got)
+	}
+}
+
+// TestScrollContainerWithoutFocusableChildIsFocusable mirrors real browsers'
+// keyboard-accessible scroll containers: a scrollable region with no
+// button/input inside it would otherwise be unreachable via Tab, leaving
+// keyboard users no way to scroll it (mouse wheel would still work, but
+// that's not a keyboard-accessible story).
+func TestScrollContainerWithoutFocusableChildIsFocusable(t *testing.T) {
+	htmlStr := `<p>before</p><div id="pane" style="height:2;overflow:auto">line1<br>line2<br>line3<br>line4</div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	next := doc.FocusNext()
+	if next == nil || next.ID() != "pane" {
+		id := ""
+		if next != nil {
+			id = next.ID()
+		}
+		t.Fatalf("FocusNext() landed on id=%q, want %q (the childless scroll container itself)", id, "pane")
+	}
+
+	pane := doc.GetElementByID("pane")
+	before, ok := doc.ScrollTop(pane)
+	if !ok {
+		t.Fatal("ScrollTop(pane) ok = false, want true")
+	}
+	doc.DispatchKey("ArrowDown")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	after, _ := doc.ScrollTop(pane)
+	if after <= before {
+		t.Errorf("ScrollTop(pane) after ArrowDown while pane itself is focused = %d, want > %d", after, before)
+	}
+}
+
+// TestScrollContainerWithFocusableChildIsNotDoubleTabStop ensures a scroll
+// container that already has a reachable focusable descendant (e.g. the
+// outer log pane in cmd/htmlterm-tui, which has a button) isn't *also* made
+// its own separate tab stop — Tab should reach it via that descendant only.
+func TestScrollContainerWithFocusableChildIsNotDoubleTabStop(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow:auto">line1<br><button id="btn">Go</button></div>`
+	doc, err := htmlterm.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "btn" {
+		id := ""
+		if first != nil {
+			id = first.ID()
+		}
+		t.Fatalf("FocusNext() landed on id=%q, want %q", id, "btn")
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "btn" {
+		id := ""
+		if second != nil {
+			id = second.ID()
+		}
+		t.Fatalf("second FocusNext() (wrapping around, only 1 focusable element) landed on id=%q, want %q again", id, "btn")
+	}
+}

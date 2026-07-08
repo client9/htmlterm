@@ -12,6 +12,13 @@
 // width (via Loop's SIGWINCH handling — see loop.go's applyTerminalSize),
 // while the document's height is left unconstrained rather than
 // clipped/padded to the terminal's row count.
+//
+// Below the paragraph is a scrollable log pane (overflow:auto with an
+// explicit height — see SCROLLING.md), with a second, nested scrollable
+// pane inside it demonstrating that nested overflow:auto regions need no
+// special handling. Scroll either with the mouse wheel over it, or Tab to
+// the button inside (focus auto-scrolls it into view — Document.Focus's
+// scrollIntoView), then use PageUp/PageDown/ArrowUp/ArrowDown.
 package main
 
 import (
@@ -52,6 +59,14 @@ aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
 nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
 reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
 pariatur.</p>
+<div id="log" style="height:6;overflow:auto;border-style:normal;padding-left:1;margin-top:1">
+Log line 1<br>Log line 2<br>Log line 3<br>Log line 4<br>Log line 5<br>
+<div id="nested" style="height:3;overflow:auto;border-style:normal;margin-top:1;margin-bottom:1">
+Nested 1<br>Nested 2<br>Nested 3<br>Nested 4<br>Nested 5<br>Nested 6
+</div>
+Log line 6<br>Log line 7<br>Log line 8<br>Log line 9<br>Log line 10<br>
+<button id="logbtn">Jump target (Tab here)</button>
+</div>
 `
 
 // spinnerFrames cycles a decorative Braille spinner, driven by

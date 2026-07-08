@@ -103,6 +103,10 @@ func (l *Loop) Run() error {
 		return err
 	}
 	defer func() { _, _ = io.WriteString(l.out, disableMouse()) }()
+	// paint (below) may have hidden the real cursor (DECTCEM) if the last
+	// frame had nothing focused/visible to place it on; guarantee it's left
+	// visible for the user's shell on any exit path, same as disableMouse.
+	defer func() { _, _ = io.WriteString(l.out, showCursor()) }()
 
 	r := bufio.NewReader(l.in)
 
@@ -166,6 +170,8 @@ func (l *Loop) Run() error {
 				l.doc.DispatchKey(ev.key)
 			case ev.kind == clickEvent:
 				l.doc.DispatchClick(ev.row-originRow, ev.col)
+			case ev.kind == wheelEvent:
+				l.doc.DispatchWheel(ev.row-originRow, ev.col, ev.delta)
 			default:
 				continue // an ignored mouse report (release, drag, other button)
 			}
@@ -221,13 +227,18 @@ func (l *Loop) applyTerminalSize() {
 }
 
 // paint renders doc, redraws it at the document's fixed screen position
-// (originRow, column 0), and — if an element is focused — leaves the
-// terminal's real cursor sitting on it, so the user can see which control is
-// active rather than the cursor being parked wherever the frame happened to
-// end. Uses absolute cursor positioning (CUP, "\x1b[{row};{col}H") anchored
-// at originRow throughout, rather than tracking a relative "move up by the
-// previous frame's line count": that only needs one reference point instead
-// of bookkeeping how far the cursor drifted since the last paint (e.g. from
+// (originRow, column 0), and — if an element is focused and currently
+// visible (Document.ScrollVisible) — leaves the terminal's real cursor
+// sitting on it, so the user can see which control is active rather than
+// the cursor being parked wherever the frame happened to end. When there's
+// nowhere meaningful to put it (nothing focused, or the focused element is
+// scrolled out of view inside a pane — see focusCursorPos), the cursor is
+// explicitly hidden (DECTCEM) rather than left at that incidental position,
+// which a user would otherwise have no way to make sense of. Uses absolute
+// cursor positioning (CUP, "\x1b[{row};{col}H") anchored at originRow
+// throughout, rather than tracking a relative "move up by the previous
+// frame's line count": that only needs one reference point instead of
+// bookkeeping how far the cursor drifted since the last paint (e.g. from
 // resting on a focused field partway through the frame, not at the bottom).
 func (l *Loop) paint(originRow int) error {
 	frame, err := l.doc.Render()
@@ -243,10 +254,16 @@ func (l *Loop) paint(originRow int) error {
 	if err := writeFrame(l.out, frame); err != nil {
 		return err
 	}
-	if row, col, ok := focusCursorPos(l.doc, originRow); ok {
-		return cup(l.out, row, col)
+	row, col, ok := focusCursorPos(l.doc, originRow)
+	if !ok {
+		_, err := io.WriteString(l.out, hideCursor())
+		return err
 	}
-	return nil
+	if err := cup(l.out, row, col); err != nil {
+		return err
+	}
+	_, err = io.WriteString(l.out, showCursor())
+	return err
 }
 
 // cup moves the terminal's cursor to the given 0-indexed row/col via CUP.
@@ -261,11 +278,19 @@ func cup(w io.Writer, row, col int) error {
 // input/textarea it lands just past the end of the current value (an
 // insertion-point approximation, clamped inside the element's own box, e.g.
 // "[value]"); for any other focusable element (checkbox, radio, button) it
-// lands on the box's first column. ok is false if nothing is focused or the
-// focused element has no recorded Rect.
+// lands on the box's first column. ok is false if nothing is focused, the
+// focused element has no recorded Rect, or it's currently scrolled out of
+// view by one of its scrollable ancestors (Document.ScrollVisible) — without
+// this check, scrolling a pane via DispatchWheel/DispatchKey while focus
+// stays on a control inside it would otherwise leave the real cursor parked
+// at that control's stale, now off-screen (or even overlapping unrelated
+// content) position instead of tracking what's actually visible.
 func focusCursorPos(doc *Document, originRow int) (row, col int, ok bool) {
 	el := doc.FocusedElement()
 	if el == nil {
+		return 0, 0, false
+	}
+	if !doc.ScrollVisible(el) {
 		return 0, 0, false
 	}
 	rect, ok := doc.Rect(el)
