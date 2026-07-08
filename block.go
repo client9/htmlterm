@@ -581,6 +581,10 @@ func (r *Renderer) renderBlockContentBox(n *html.Node, decls map[string]string, 
 	}
 	colShift := pl + runeLen(bl.char) + ml
 	positions = mergePositions(nil, positions, rowShift, colShift)
+	if r.liveContentOffsets == nil {
+		r.liveContentOffsets = map[*html.Node]int{}
+	}
+	r.liveContentOffsets[n] = rowShift
 	if heightLines > 0 && (ovY == "scroll" || ovY == "auto") {
 		// Rect (assigned by whichever caller embeds this box as a token) is
 		// the full CSS border box, which — unlike heightLines — includes any

@@ -45,6 +45,18 @@ type Document struct {
 	// Render, same as scrollOffsets, so it's never stale about which nodes
 	// are current scroll containers.
 	scrollViewport map[*html.Node]scrollViewport
+
+	// contentOffsets holds, for every block element rendered as of the most
+	// recent Render call, the row shift from that element's own Rect.Row
+	// (its full CSS border box) down to its first actual content row — see
+	// Renderer.liveContentOffsets. Internal only (no public getter): used by
+	// tcell_loop.go's focusCursorPos to place a multi-line <textarea>'s
+	// cursor on the right visual row. Rebuilt fresh every Render, same as
+	// scrollOffsets/scrollViewport. Absent for an element with no border/
+	// padding rows above its content (offset 0), or one that isn't
+	// display:block at all (e.g. <input>, which never has this ambiguity —
+	// see focusCursorPos).
+	contentOffsets map[*html.Node]int
 }
 
 // scrollViewport records a scroll container's visible content-area geometry
@@ -81,10 +93,11 @@ func (d *Document) Render() (string, error) {
 		return "", err
 	}
 	r.scrollOffsets = d.scrollOffsets
-	out, positions, scrollOffsets, scrollViewport := r.renderTree(d.doc)
+	out, positions, scrollOffsets, scrollViewport, contentOffsets := r.renderTree(d.doc)
 	d.positions = positions
 	d.scrollOffsets = scrollOffsets
 	d.scrollViewport = scrollViewport
+	d.contentOffsets = contentOffsets
 	return out, nil
 }
 

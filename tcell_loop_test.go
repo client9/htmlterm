@@ -84,3 +84,106 @@ func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
 		t.Errorf("Run returned error: %v", runErr)
 	}
 }
+
+// TestFocusCursorPosMultiLineTextarea is a regression test for a bug where
+// focusCursorPos computed a focused <textarea>'s cursor row/column from its
+// whole value's total rune count with no awareness of embedded newlines,
+// always landing on the box's first row (rect.Row) regardless of how many
+// lines had actually been typed — and, once fixed to split on "\n", a second
+// bug where the row wasn't shifted past the textarea's own border-top/
+// padding-top rows (Document.contentOffsets), landing one row short of the
+// last line for the default bordered <textarea>.
+func TestFocusCursorPosMultiLineTextarea(t *testing.T) {
+	doc, err := ParseDocument(`<textarea id="ta" style="width:20" value="line one
+line two
+line three"></textarea>`, Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("ta")
+	doc.Focus(el)
+
+	rect, ok := doc.Rect(el)
+	if !ok {
+		t.Fatalf("textarea has no recorded Rect")
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	// Default UA textarea styling draws a border on every side, so content
+	// starts one row below rect.Row: row 0 border, row 1 "line one", row 2
+	// "line two", row 3 "line three" (the cursor's expected row).
+	if wantRow := rect.Row + 3; row != wantRow {
+		t.Errorf("row = %d, want %d (rect=%+v)", row, wantRow, rect)
+	}
+	if wantCol := rect.Col + len("line three"); col != wantCol {
+		t.Errorf("col = %d, want %d (end of last line)", col, wantCol)
+	}
+}
+
+// TestFocusCursorPosTextareaWithoutBorderOrPadding checks that
+// focusCursorPos's row math generalizes to a <textarea> with its default
+// border/padding stripped via CSS, rather than hardcoding an assumption
+// about the UA stylesheet's default border-style.
+func TestFocusCursorPosTextareaWithoutBorderOrPadding(t *testing.T) {
+	doc, err := ParseDocument(`<textarea id="ta" style="border-style:none;padding:0;width:20" value="a
+b"></textarea>`, Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("ta")
+	doc.Focus(el)
+
+	rect, ok := doc.Rect(el)
+	if !ok {
+		t.Fatalf("textarea has no recorded Rect")
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	if wantRow := rect.Row + 1; row != wantRow {
+		t.Errorf("row = %d, want %d (rect=%+v)", row, wantRow, rect)
+	}
+	if wantCol := rect.Col + len("b"); col != wantCol {
+		t.Errorf("col = %d, want %d", col, wantCol)
+	}
+}
+
+// TestFocusCursorPosSingleLineInputUnaffected pins that a single-line text
+// input (no embedded newlines, and never display:block so it never has a
+// contentOffsets entry) still uses the simple rect.Row/whole-value-length
+// placement, unaffected by the <textarea> multi-line handling above.
+func TestFocusCursorPosSingleLineInputUnaffected(t *testing.T) {
+	doc, err := ParseDocument(`<input type="text" id="in" value="hello">`, Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("in")
+	doc.Focus(el)
+
+	rect, ok := doc.Rect(el)
+	if !ok {
+		t.Fatalf("input has no recorded Rect")
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	if row != rect.Row {
+		t.Errorf("row = %d, want %d", row, rect.Row)
+	}
+	if wantCol := rect.Col + len("hello"); col != wantCol {
+		t.Errorf("col = %d, want %d", col, wantCol)
+	}
+}

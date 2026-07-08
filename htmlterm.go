@@ -72,6 +72,17 @@ type Renderer struct {
 	scrollOffsets      map[*html.Node]int
 	liveScrollOffsets  map[*html.Node]int
 	liveScrollViewport map[*html.Node]scrollViewport
+
+	// liveContentOffsets generalizes liveScrollViewport's topOffset (the row
+	// shift from a block element's own border-box top down to its first
+	// content row — border-top plus padding-top, see renderBlockContentBox's
+	// rowShift) to every block element, not just scroll containers: one
+	// entry per node that went through renderBlockContentBox, rebuilt fresh
+	// every render. tcell_loop.go's focusCursorPos is the motivating
+	// consumer — placing a multi-line <textarea>'s cursor needs to know
+	// where its content actually starts within its own Rect (the full
+	// border box), which Rect alone can't say (see Rect's own doc comment).
+	liveContentOffsets map[*html.Node]int
 }
 
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
@@ -148,7 +159,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
-	out, _, _, _ := r.renderTree(doc)
+	out, _, _, _, _ := r.renderTree(doc)
 	return out, nil
 }
 
@@ -167,8 +178,11 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 // this frame's freshly built scroll-offset and scroll-viewport maps (see the
 // Renderer.scrollOffsets/liveScrollOffsets/liveScrollViewport doc comment) —
 // Document.Render installs them as the new Document.scrollOffsets/
-// scrollViewport; Render discards both, same as the position map.
-func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[*html.Node]int, map[*html.Node]scrollViewport) {
+// scrollViewport; Render discards both, same as the position map. The fifth
+// return value is this frame's content-offset map (see
+// Renderer.liveContentOffsets), similarly installed by Document.Render and
+// discarded by Render.
+func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[*html.Node]int, map[*html.Node]scrollViewport, map[*html.Node]int) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
@@ -248,5 +262,5 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[
 	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
 	// normalize it to a plain space in the final string, since terminals
 	// don't distinguish breaking from non-breaking spaces.
-	return strings.ReplaceAll(out, nbsp, " "), positions, rr.liveScrollOffsets, rr.liveScrollViewport
+	return strings.ReplaceAll(out, nbsp, " "), positions, rr.liveScrollOffsets, rr.liveScrollViewport, rr.liveContentOffsets
 }

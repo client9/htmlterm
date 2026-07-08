@@ -1,6 +1,7 @@
 package htmlterm
 
 import (
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v3"
@@ -221,12 +222,37 @@ func focusCursorPos(doc *Document) (row, col int, ok bool) {
 	if !ok {
 		return 0, 0, false
 	}
-	col = rect.Col
+	row, col = rect.Row, rect.Col
 	if isTextEntry(el.node) {
-		col = rect.Col + utf8.RuneCountInString(el.Value())
+		value := el.Value()
+		// A <textarea>'s value can span multiple lines (DispatchKey's Enter
+		// default action appends "\n" — see document.go), and every
+		// dispatched edit only ever appends at the end, so the insertion
+		// point is always the end of the last "\n"-delimited line: advance
+		// row by the number of embedded newlines, and measure column from
+		// that last line alone rather than the whole value's total rune
+		// count. This doesn't account for a single line getting further
+		// wrapped by its own width (wordWrapTokens, block.go) — an accepted
+		// narrower approximation gap than not handling embedded newlines at
+		// all.
+		if strings.ToLower(el.node.Data) == "textarea" {
+			// doc.contentOffsets (see its doc comment) is the row shift from
+			// rect.Row down to this textarea's own first content row —
+			// border-top plus padding-top — needed here because Rect alone
+			// is the full border box (see Rect's doc comment) and can't say
+			// where content actually starts within it.
+			lines := strings.Split(value, "\n")
+			row = rect.Row + doc.contentOffsets[el.node] + len(lines) - 1
+			col = rect.Col + utf8.RuneCountInString(lines[len(lines)-1])
+			if maxRow := rect.Row + rect.Height - 1; row > maxRow {
+				row = maxRow
+			}
+		} else {
+			col = rect.Col + utf8.RuneCountInString(value)
+		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {
 			col = maxCol
 		}
 	}
-	return rect.Row, col, true
+	return row, col, true
 }
