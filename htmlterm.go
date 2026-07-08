@@ -159,30 +159,36 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	if r.stripHiddenInline {
 		stripHiddenInline(doc)
 	}
-	out, _, _, _, _ := r.renderTree(doc)
+	out, _ := r.renderTree(doc)
 	return out, nil
+}
+
+// renderState bundles renderTree's supplementary, per-frame outputs beyond
+// the rendered string itself: the fully resolved (absolute, document-
+// coordinate) position map — the "propagated incrementally, one level at a
+// time" mechanism from RENDERING.md's Position tracking section, resolved
+// once the walk reaches this, the document root — plus the freshly built
+// scroll-offset, scroll-viewport, and content-offset maps (see
+// Renderer.scrollOffsets/liveScrollOffsets/liveScrollViewport/
+// liveContentOffsets). Document.Render installs every field of this as the
+// new Document state (positions/scrollOffsets/scrollViewport/
+// contentOffsets); Render discards the whole bundle in one place instead of
+// four separate blank identifiers.
+type renderState struct {
+	positions      map[*html.Node]Rect
+	scrollOffsets  map[*html.Node]int
+	scrollViewport map[*html.Node]scrollViewport
+	contentOffsets map[*html.Node]int
 }
 
 // renderTree renders an already-parsed document node, building fresh
 // per-document scratch state (resolved CSS rules, counters) from r's
 // configuration, the same way Render does after parsing — so it can be
 // reused against a tree that didn't come from a fresh html.Parse call (see
-// Document.Render). It also returns the fully resolved (absolute,
-// document-coordinate) position map — the "propagated incrementally, one
-// level at a time" mechanism from RENDERING.md's Position tracking section,
-// resolved once the walk reaches this, the document root. Document.Render
-// uses this to power Document.Rect; Render just discards it, keeping its
-// existing contract exactly. Nothing here can actually fail — parsing (the
-// only failure mode) already happened before this is called — so there's no
-// error return to thread through. The third and fourth return values are
-// this frame's freshly built scroll-offset and scroll-viewport maps (see the
-// Renderer.scrollOffsets/liveScrollOffsets/liveScrollViewport doc comment) —
-// Document.Render installs them as the new Document.scrollOffsets/
-// scrollViewport; Render discards both, same as the position map. The fifth
-// return value is this frame's content-offset map (see
-// Renderer.liveContentOffsets), similarly installed by Document.Render and
-// discarded by Render.
-func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[*html.Node]int, map[*html.Node]scrollViewport, map[*html.Node]int) {
+// Document.Render). Nothing here can actually fail — parsing (the only
+// failure mode) already happened before this is called — so there's no
+// error return to thread through.
+func (r *Renderer) renderTree(doc *html.Node) (string, renderState) {
 	rr := &Renderer{
 		rules:             r.rules,
 		width:             r.width,
@@ -262,5 +268,10 @@ func (r *Renderer) renderTree(doc *html.Node) (string, map[*html.Node]Rect, map[
 	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
 	// normalize it to a plain space in the final string, since terminals
 	// don't distinguish breaking from non-breaking spaces.
-	return strings.ReplaceAll(out, nbsp, " "), positions, rr.liveScrollOffsets, rr.liveScrollViewport, rr.liveContentOffsets
+	return strings.ReplaceAll(out, nbsp, " "), renderState{
+		positions:      positions,
+		scrollOffsets:  rr.liveScrollOffsets,
+		scrollViewport: rr.liveScrollViewport,
+		contentOffsets: rr.liveContentOffsets,
+	}
 }

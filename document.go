@@ -93,11 +93,11 @@ func (d *Document) Render() (string, error) {
 		return "", err
 	}
 	r.scrollOffsets = d.scrollOffsets
-	out, positions, scrollOffsets, scrollViewport, contentOffsets := r.renderTree(d.doc)
-	d.positions = positions
-	d.scrollOffsets = scrollOffsets
-	d.scrollViewport = scrollViewport
-	d.contentOffsets = contentOffsets
+	out, state := r.renderTree(d.doc)
+	d.positions = state.positions
+	d.scrollOffsets = state.scrollOffsets
+	d.scrollViewport = state.scrollViewport
+	d.contentOffsets = state.contentOffsets
 	return out, nil
 }
 
