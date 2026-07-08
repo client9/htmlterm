@@ -81,6 +81,7 @@ The public API is intentionally small:
 type Options struct {
     CSS               string               // additional stylesheet layered above built-in UA defaults
     Width             int                  // terminal column count; affects wrapping, tables, percentage widths
+    Height            int                  // content-box line count the whole document is clipped/padded to; see "Sizing and resize" below
     IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
     Profile           colorprofile.Profile // color profile; zero value auto-detects from environment
     NoOSC8Links       bool                 // if true, OSC 8 hyperlink sequences are not emitted for <a> elements
@@ -157,7 +158,31 @@ fmt.Print(out)
 - **Events** — `Document.AddEventListener(el, type, capture, fn)` / `RemoveEventListener`, with `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`, dispatched through capture → target → bubble phases. `Document.DispatchClick(row, col)` and `DispatchKey(key)` hit-test/route input and run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter).
 - **Focus and hit-testing** — `Document.Focus`/`Blur`/`FocusNext`/`FocusPrev` manage a `:focus`-matching focused element; `Document.Rect(el)` returns an element's on-screen position and size (the CSS border box), recorded for free as a byproduct of rendering — useful for translating real mouse coordinates into `DispatchClick` calls.
 - **Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with sensible terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `<select>` is not yet supported (no dropdown-rendering concept exists).
-- **`Loop`** (`NewLoop`, `Loop.Run`) drives a `Document` against a real terminal: raw mode, SGR mouse reporting, keyboard/mouse decoding into `DispatchClick`/`DispatchKey` calls, and repaint after every event. `Loop.SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout` mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. See [`cmd/htmlterm-tui`](./cmd/htmlterm-tui) for a complete runnable example (form + spinner + clock), and `INTERACTIVE.md`/`REPAINT.md` for the full design history, including known gaps (no `<select>` dropdown, no terminal resize handling, no line-level diff repaint yet — every paint currently redraws the whole frame).
+- **`Loop`** (`NewLoop`, `Loop.Run`) drives a `Document` against a real terminal: raw mode, SGR mouse reporting, keyboard/mouse decoding into `DispatchClick`/`DispatchKey` calls, and repaint after every event, timer fire, or terminal resize. `Loop.SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout` mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. See [`cmd/htmlterm-tui`](./cmd/htmlterm-tui) for a complete runnable example (form + spinner + clock + a long paragraph that reflows live as you resize the terminal), and `INTERACTIVE.md`/`REPAINT.md` for the full design history, including known gaps (no `<select>` dropdown, no line-level diff repaint yet — every paint currently redraws the whole frame).
+
+### Sizing and resize
+
+`Options.Width`/`Options.Height` accept either a concrete count or one of two sentinels:
+
+- `htmlterm.SizeNatural` (`-1`, `Height` only) — don't constrain height at all; the document renders at whatever line count its content needs, with no clipping or padding. There's no equivalent for `Width`: wrapping always needs a concrete column count.
+- `htmlterm.SizeAutomatic` (`0`, the zero value for both fields) — track the terminal's current size for that dimension. Plain `Renderer`/`Document` usage has no terminal to query, so it's inert there (behaves like `SizeNatural`); `Loop` is what actually resolves it, once at startup and again on every resize, via `Document.SetSize`.
+
+A `Document` driven by `Loop` with `Width: htmlterm.SizeAutomatic` therefore always renders at the terminal's current column count, live: resizing the terminal sends `SIGWINCH`, which `Loop.Run` catches, re-queries the size, calls `Document.SetSize`, dispatches a `"resize"` event on `doc.DocumentElement()` (there's no separate window-level concept in this package, so the document root doubles as that event's target), and repaints. A host with no automatic axis still receives `"resize"` — useful for a host doing its own multi-pane layout (several `Document`s composited outside of any single `Loop`) that wants to react to a physical resize itself, e.g. by calling `Document.SetSize` on each pane with a recomputed size:
+
+```go
+doc, _ := htmlterm.ParseDocument(html, htmlterm.Options{
+    Width:  htmlterm.SizeAutomatic, // track terminal width live
+    Height: htmlterm.SizeNatural,   // never clip/pad height
+})
+loop := htmlterm.NewLoop(doc, os.Stdin, os.Stdout)
+doc.AddEventListener(doc.DocumentElement(), "resize", false, func(e *htmlterm.Event) {
+    w, h := doc.Size() // the size Loop just resolved and installed
+    log.Printf("resized to %dx%d", w, h)
+})
+loop.Run()
+```
+
+`Document.SetSize(width, height)`/`Size() (width, height int)` also work outside `Loop`, for a host driving its own resize logic. `Options.Height`'s clip/pad is a plain viewport constraint, not CSS: unlike a per-element `height` (which only truncates when paired with `overflow: hidden`/`clip`), a positive `Height` always both pads short content with blank lines and truncates tall content — the behavior a non-scrolling terminal viewport needs. `SIGWINCH` handling ties this to POSIX-like platforms; see [Notes](#notes).
 
 ## CLI
 
@@ -200,4 +225,4 @@ make vuln     # govulncheck ./...
 - Unsupported HTML and CSS are ignored rather than treated as errors.
 - Table cells default to `white-space: nowrap` and `text-overflow: ellipsis`.
 - Blockquote, emphasis, strong text, links, and several semantic HTML elements have built-in default styling.
-- The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`) and hasn't been verified on Windows.
+- The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`) and hasn't been verified on Windows. `Loop`'s automatic resize tracking specifically requires `syscall.SIGWINCH`, which doesn't exist on Windows at all — this is a compile-time constraint there, not just an unverified one.
