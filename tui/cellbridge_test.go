@@ -29,6 +29,7 @@ func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 func newTestScreen(t *testing.T, cols, rows int) (tcell.Screen, vt.MockTerm) {
 	t.Helper()
 	t.Setenv("NO_COLOR", "")
+	t.Setenv("COLORTERM", "truecolor")
 	mt := vt.NewMockTerm(vt.MockOptColors(1 << 24)) // full truecolor, so RGB spans round-trip exactly
 	mt.SetSize(vt.Coord{X: vt.Col(cols), Y: vt.Row(rows)})
 	scr, err := tcell.NewTerminfoScreenFromTty(mt)
