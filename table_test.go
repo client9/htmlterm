@@ -220,6 +220,23 @@ func TestTableBorderCSS(t *testing.T) {
 	})
 }
 
+func TestTableBorderEdgeShorthand(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "border-top literal glyph on a table", css: `table { border-top: "═"; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "┌═══┬═══┐\n│A  │B  │\n└───┴───┘\n"},
+		{name: "border-top shorthand style-only picks that preset's top glyph", css: `table { border-top: double; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "┌═══┬═══┐\n│A  │B  │\n└───┴───┘\n"},
+		{name: "border-top shorthand width-style-color drops width", css: `table { border-top: 1px double red; }`, html: `<table><tr><td width="3">A</td></tr></table>`, want: "┌═══┐\n│A  │\n└───┘\n"},
+		{name: "border-top:none on a solid table removes just the top edge (regression parity with block's fix)", css: `table { border-style: solid; border-top: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "│A  │B  │\n└───┴───┘\n"},
+		{name: "border-top shorthand resurrects a top edge on a preset with none by default", css: `table { border-style: markdown; border-top: solid; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "───\n|H  |\n|───|\n|A  |\n"},
+		{name: "internal separator fill reuses border-top's overridden fill", css: `table { border-top: double; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌═══┐\n│H  │\n├═══┤\n│A  │\n└───┘\n"},
+		{name: "border-top-mid overrides the outer top T-junction", css: `table { border-top-mid: 'v'; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "┌───v───┐\n│A  │B  │\n└───┴───┘\n"},
+		{name: "border-bottom-mid overrides the outer bottom T-junction", css: `table { border-bottom-mid: '^'; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "┌───┬───┐\n│A  │B  │\n└───^───┘\n"},
+		{name: "border-left-mid overrides the header/row-separator left junction", css: `table { border-left-mid: 'L'; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\nL───┤\n│A  │\n└───┘\n"},
+		{name: "border-right-mid overrides the header/row-separator right junction", css: `table { border-right-mid: 'R'; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\n├───R\n│A  │\n└───┘\n"},
+		{name: "border-center overrides the header/row-separator cross junction", css: `table { border-center: '+'; }`, html: `<table><tr><th width="3">H</th><th width="3">I</th></tr><tr><td width="3">A</td><td width="3">B</td></tr></table>`, want: "┌───┬───┐\n│H  │I  │\n├───+───┤\n│A  │B  │\n└───┴───┘\n"},
+		{name: "table outer corners can be overridden independently", css: `table { border-top-left-corner: '1'; border-top-right-corner: '2'; border-bottom-left-corner: '3'; border-bottom-right-corner: '4'; }`, html: `<table><tr><td width="3">A</td></tr></table>`, want: "1───2\n│A  │\n3───4\n"},
+	})
+}
+
 func TestTableBorderStyles(t *testing.T) {
 	oneCol := func(style string) string {
 		return `<table style="border-style:` + style + `"><tr><th width="3">H</th></tr><tr><td>A</td></tr></table>`

@@ -443,7 +443,7 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 		out.WriteString(centerText(captionText, tableW) + "\n")
 		rowOffset++
 	}
-	out.WriteString(drawHBorder(borderWidths, ts.top, ts.color, r.profile))
+	out.WriteString(drawHBorder(borderWidths, ts.top, colorOrFallback(ts.topColor, ts.color), r.profile))
 	rowOffset++
 	for i := 0; i < tablePT; i++ {
 		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
@@ -471,7 +471,7 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
 		rowOffset++
 	}
-	out.WriteString(drawHBorder(borderWidths, ts.bottom, ts.color, r.profile))
+	out.WriteString(drawHBorder(borderWidths, ts.bottom, colorOrFallback(ts.bottomColor, ts.color), r.profile))
 	if captionText != "" && captionSide == "bottom" {
 		out.WriteString(centerText(captionText, tableW) + "\n")
 	}
@@ -602,17 +602,19 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 			height = h
 		}
 	}
-	paint := makePainter(ts.color, p)
+	paintLeft := makePainter(colorOrFallback(ts.leftColor, ts.color), p)
+	paintSep := makePainter(ts.color, p)
+	paintRight := makePainter(colorOrFallback(ts.rightColor, ts.color), p)
 	rowLines := make([]string, 0, height)
 	for lineIdx := 0; lineIdx < height; lineIdx++ {
 		var sb strings.Builder
-		sb.WriteString(paint(ts.left))
+		sb.WriteString(paintLeft(ts.left))
 		if boxPL > 0 {
 			sb.WriteString(strings.Repeat(" ", boxPL))
 		}
 		for i := 0; i < numCols; i++ {
 			if i > 0 {
-				sb.WriteString(paint(ts.sep))
+				sb.WriteString(paintSep(ts.sep))
 			}
 			var c tableCell
 			if i < len(cells) {
@@ -642,7 +644,7 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 		if boxPR > 0 {
 			sb.WriteString(strings.Repeat(" ", boxPR))
 		}
-		sb.WriteString(paint(ts.right))
+		sb.WriteString(paintRight(ts.right))
 		rowLines = append(rowLines, sb.String())
 	}
 
@@ -680,7 +682,8 @@ func renderTableRow(cells []tableCell, widths []int, numCols int, ts tableStyle,
 // <table>: unlike margin, CSS padding sits inside the border box, so these
 // rows must still carry the left/right border characters.
 func blankBoxRow(widths []int, numCols int, ts tableStyle, p colorprofile.Profile, boxPL, boxPR int) string {
-	paint := makePainter(ts.color, p)
+	paintLeft := makePainter(colorOrFallback(ts.leftColor, ts.color), p)
+	paintRight := makePainter(colorOrFallback(ts.rightColor, ts.color), p)
 	interior := sum(widths) + (numCols-1)*runeLen(ts.sep) + boxPL + boxPR
-	return paint(ts.left) + strings.Repeat(" ", interior) + paint(ts.right) + "\n"
+	return paintLeft(ts.left) + strings.Repeat(" ", interior) + paintRight(ts.right) + "\n"
 }

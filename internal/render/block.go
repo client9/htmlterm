@@ -195,20 +195,10 @@ func parseMargin(s string) int {
 // height padding → text-indent → vertical padding → horizontal padding →
 // borders → top/bottom rules → margins → visibility:hidden blanking, last).
 func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
-	blChar, blPresent := resolveBorderEdgeChar(decls["border-left"], func(ts tableStyle) string { return ts.left })
-	brChar, brPresent := resolveBorderEdgeChar(decls["border-right"], func(ts tableStyle) string { return ts.right })
-	btChar, btPresent := resolveBorderEdgeChar(decls["border-top"], func(ts tableStyle) string {
-		if ts.top != nil {
-			return ts.top.fill
-		}
-		return ""
-	})
-	bbChar, bbPresent := resolveBorderEdgeChar(decls["border-bottom"], func(ts tableStyle) string {
-		if ts.bottom != nil {
-			return ts.bottom.fill
-		}
-		return ""
-	})
+	blChar, blPresent := resolveBorderEdgeChar(decls["border-left"], edgeGlyphLeft)
+	brChar, brPresent := resolveBorderEdgeChar(decls["border-right"], edgeGlyphRight)
+	btChar, btPresent := resolveBorderEdgeChar(decls["border-top"], edgeGlyphTop)
+	bbChar, bbPresent := resolveBorderEdgeChar(decls["border-bottom"], edgeGlyphBottom)
 	bl := blockBorder{char: blChar, color: decls["border-left-color"]}
 	br := blockBorder{char: brChar, color: decls["border-right-color"]}
 	bt := blockBorder{char: btChar, color: decls["border-top-color"]}

@@ -146,7 +146,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `tr` | Table row; first `<tr>` containing `<th>` is the header |
 | `th`, `td` | Table cells |
 | `div` | Generic block container (default: `display: block`; no other UA styles) |
-| `section`, `article`, `aside`, `header`, `footer`, `main`, `nav` | HTML5 sectioning elements; all default to `display: block` with no other UA styles. Style freely with CSS. |
+| `section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search` | HTML5 sectioning elements; all default to `display: block` with no other UA styles. Style freely with CSS. |
 | `form` | Generic block container for form controls (default: `display: block`; no other UA styles). |
 | `fieldset` | Groups related form controls in a bordered box (default: `display: block; border-style: solid; padding: 1; margin-bottom: 1`). |
 | `legend` | Caption for the nearest `<fieldset>` (default: `display: block; font-weight: bold`), rendered as its own line at the top of the fieldset's content — a simplified terminal approximation, not browsers' border-straddling placement. |
@@ -164,7 +164,7 @@ These apply to any matched element and control text rendering.
 `normal` / `none` values explicitly cancel an inherited value.
 
 #### `display`
-`block` | `inline` | `inline-block` | `table` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements default to `block`; all others default to `inline`.
+`block` | `inline` | `inline-block` | `table` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements (`section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search`) default to `block`; all others default to `inline`.
 
 To treat table markup as a simple linear document flow, opt out of the table renderer:
 
@@ -664,18 +664,60 @@ with the properties below.
 | `standard` | No outer frame, no column separators, `─` header underline, space between columns |
 | `hidden` / `none` | No borders; space between columns |
 
+### `border-top`, `border-right`, `border-bottom`, `border-left`
+
+Same two-form grammar as the identically-named [block element properties](#border-left-border-right-border-top-border-bottom):
+a quoted string is a literal glyph override for that outer edge; a bareword
+value is the standard CSS shorthand (`<style>`, `<style> <color>`, or
+`<width> <style> <color>`, width ignored), where `<style>` is a
+[`border-style`](#border-style) preset name and only that one edge's glyph
+is taken from it. `none` (bareword, or a value that resolves to no glyph)
+removes that edge's line entirely, corners included.
+
+```css
+table { border-top: "═"; }              /* literal glyph */
+table { border-top: double; }           /* double preset's top glyph only - rest of the table stays whatever border-style set */
+table { border-top: 1px double red; }   /* same glyph, red; "1px" ignored */
+table { border-style: markdown; border-top: solid; }  /* adds a top edge markdown doesn't have by default */
+```
+
+For `border-left`/`border-right` specifically, resolving to no glyph (`none`)
+also clears that side's corner and header/row-separator junction glyphs on
+every line — "no left border" means the whole left frame, not just the
+plain vertical divider in data rows.
+
+Internal separator lines (the header divider and between-row dividers) always
+reuse `border-top`'s resolved fill character rather than having their own —
+every built-in preset already keeps these identical, and a table with two
+different dash styles isn't a realistic use case.
+
+### `border-top-mid`, `border-bottom-mid`, `border-left-mid`, `border-right-mid`, `border-center`
+`"<string>"` | `'<string>'`. Literal-glyph-only (no shorthand grammar — these
+have no real-CSS analog to converge toward, the same reasoning as block's
+`border-*-corner` properties). Override the junction characters a preset
+normally supplies:
+
+| Property | Position |
+|----------|----------|
+| `border-top-mid` | T-junction where a column separator meets the outer top border (e.g. `┬`) |
+| `border-bottom-mid` | T-junction where a column separator meets the outer bottom border (e.g. `┴`) |
+| `border-left-mid` | T-junction where the header divider or a row divider meets the left edge (e.g. `├`) — header and row dividers always share this glyph, so one property covers both |
+| `border-right-mid` | T-junction where the header divider or a row divider meets the right edge (e.g. `┤`) — same header/row sharing |
+| `border-center` | Cross-junction at internal column/row intersections (e.g. `┼`) — same header/row sharing |
+
+Not inherited.
+
+### `border-top-left-corner`, `border-top-right-corner`, `border-bottom-left-corner`, `border-bottom-right-corner`
+`"<string>"` | `'<string>'`. Literal-glyph-only override for one outer corner
+(e.g. `┌`), identical model to the block element properties of the same
+name. Not inherited.
+
 ### Edge toggles
 
-Each property accepts `none` to disable that edge, or any other value to
-enable it. The four outer edges also suppress the corresponding corner
-characters on horizontal separator lines.
+Each of these accepts `none` to disable, or any other value to enable.
 
 | Property | Controls |
 |----------|---------|
-| `border-top: none` | Outer top border line |
-| `border-bottom: none` | Outer bottom border line |
-| `border-left: none` | Outer left edge on all rows and separator lines |
-| `border-right: none` | Outer right edge on all rows and separator lines |
 | `border-header: none` | Separator line between header and data rows |
 | `border-columns: none` | Vertical separator between columns |
 | `border-rows: solid` | Horizontal separator between every data row (off by default) |
@@ -684,7 +726,8 @@ characters on horizontal separator lines.
 
 | Property | Example | Notes |
 |----------|---------|-------|
-| `border-color` | `border-color: #555566` | ANSI color applied to all border characters |
+| `border-color` | `border-color: #555566` | ANSI color fallback for any border character without its own edge-specific override below. Applied directly (no fallback available) to internal separator lines, which have no per-edge color property. |
+| `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `border-top-color: #ff0000` | Per-edge override, same as the identically-named block element properties. Falls back to `border-color` when unset. |
 
 ### `caption-side`
 

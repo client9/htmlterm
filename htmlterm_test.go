@@ -336,6 +336,43 @@ func TestBorderEdgeShorthand(t *testing.T) {
 	}
 }
 
+func TestTableBorderEdgeColor(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<table style="border-top-color:#ff0000; border-left-color:#00ff00; border-right-color:#0000ff; border-bottom-color:#ffff00"><tr><td width="3">A</td></tr></table>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("border-top-color did not color the top edge red: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;0;255;0m") {
+		t.Fatalf("border-left-color did not color the left edge green: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;0;0;255m") {
+		t.Fatalf("border-right-color did not color the right edge blue: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;255;0m") {
+		t.Fatalf("border-bottom-color did not color the bottom edge yellow: %q", got)
+	}
+	if stripANSI(got) != "┌───┐\n│A  │\n└───┘\n" {
+		t.Fatalf("table per-edge color changed the box shape: %q", stripANSI(got))
+	}
+
+	got, err = r.Render(`<table style="border-color:#888888; border-top-color:#ff0000"><tr><td width="3">A</td></tr></table>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("border-top-color did not override the uniform border-color for the top edge: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;136;136;136m") {
+		t.Fatalf("border-color did not remain the fallback for edges without their own override: %q", got)
+	}
+}
+
 // TestStyledTrailingSpaceStaysInsideANSISpan guards against a regression of
 // the bug found via cmd/htmlterm-tui: a styled run's trailing space used to
 // be pushed outside its ANSI span (appendTextSegment, inline.go) so that
