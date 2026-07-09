@@ -708,6 +708,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 ## What Is Not Supported
 
 - `px`, `em`, `rem`, `vw`, `vh`, and other CSS units (ignored; use bare integers or `ch`)
+- CSS math functions: `calc()`, `min()`, `max()`, `clamp()`
 - CSS variables (`--my-var`)
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, or any other at-rules
