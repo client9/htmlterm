@@ -202,6 +202,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 // uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
 const uaCSS = `
 table                   { display: table; }
+[hidden], [aria-hidden=true] { display: none; }
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside, hgroup, search { display: block; }
 dl, dt, dd, figure, figcaption  { display: block; }
 address, details, summary, caption, noscript { display: block; }

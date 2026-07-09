@@ -545,6 +545,25 @@ func TestDisplay_None(t *testing.T) {
 	})
 }
 
+func TestDisplay_BlockSectioningElements(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "hgroup is block", html: `<hgroup>group</hgroup>`, want: "group\n"},
+		{name: "search is block", html: `<search>search</search>`, want: "search\n"},
+		{name: "hgroup followed by p", html: `<hgroup>Title</hgroup><p>Body</p>`, want: "Title\nBody\n\n"},
+	})
+}
+
+func TestGlobalHiddenAttributes(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "hidden attribute hides element", html: `<p>visible</p><p hidden>hidden</p><p>after</p>`, want: "visible\n\nafter\n\n"},
+		{name: "hidden attribute hides element with children", html: `<div hidden><p>a</p><p>b</p></div><p>after</p>`, want: "after\n\n"},
+		{name: "aria-hidden=true hides element", html: `<p>visible</p><p aria-hidden="true">hidden</p><p>after</p>`, want: "visible\n\nafter\n\n"},
+		{name: "aria-hidden=false does not hide element", html: `<p>a</p><p aria-hidden="false">b</p><p>c</p>`, want: "a\n\nb\n\nc\n\n"},
+		{name: "hidden attribute hides inline element", html: `<p>before <span hidden>hidden</span> after</p>`, want: "before after\n\n"},
+		{name: "hidden can be overridden by more specific CSS", css: `.force-show { display: block !important; }`, html: `<p>a</p><p hidden class="force-show">b</p>`, want: "a\n\nb\n\n"},
+	})
+}
+
 func TestDisplay_InlineBlock(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "inline-block with fixed width pads content", html: `<p><span style="display:inline-block; width:8">hi</span>end</p>`, want: "hi      end\n\n"},

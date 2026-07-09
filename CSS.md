@@ -158,6 +158,16 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 
 ---
 
+## Global Attributes
+
+The UA stylesheet provides `[hidden] { display: none; }` and
+`[aria-hidden=true] { display: none; }`, so the boolean HTML `hidden`
+attribute and an explicit `aria-hidden="true"` both hide an element and all
+its children — same effect as setting `display: none` directly. Either can be
+overridden by a more specific rule (e.g. `[hidden] { display: block !important; }`).
+
+---
+
 ## CSS Properties — Inline / Block Elements
 
 These apply to any matched element and control text rendering.
