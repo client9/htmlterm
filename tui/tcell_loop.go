@@ -30,6 +30,8 @@ type Loop struct {
 
 	timers      map[timerID]*timerState
 	nextTimerID timerID
+
+	quit bool
 }
 
 // NewLoop returns a Loop backed by a new tcell.Screen for the process's
@@ -126,11 +128,29 @@ func (l *Loop) Run() error {
 			continue // an event kind we don't act on (focus, paste, etc.)
 		}
 
+		if l.quit {
+			return nil
+		}
+
 		if err := l.paint(); err != nil {
 			return err
 		}
 	}
 	return nil // EventQ closed (screen finalized from elsewhere)
+}
+
+// Quit requests that Run return after the event currently being handled
+// finishes — the programmatic equivalent of the user pressing Ctrl-C. Like
+// SetInterval/SetTimeout callbacks, it's meant to be called from Run's own
+// goroutine (e.g. from inside a Document event listener reacting to a "quit"
+// command typed into the app), matching the package's single-goroutine-
+// mutates-everything contract (see CLAUDE.md's "no locking in the
+// interactive layer" invariant) — there is no synchronization on the quit
+// flag. Skips the final repaint (same as the existing Ctrl-C path) since the
+// screen is about to be torn down anyway. A no-op if Run has already
+// returned or hasn't started.
+func (l *Loop) Quit() {
+	l.quit = true
 }
 
 // keyName maps a tcell.EventKey to htmlterm's existing DispatchKey

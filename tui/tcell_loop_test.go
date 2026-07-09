@@ -88,6 +88,46 @@ func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
 	}
 }
 
+// TestLoopQuit drives a real Loop.Run and asserts that a "quit" event
+// listener calling Loop.Quit() (the programmatic equivalent of Ctrl-C, added
+// so a host app can implement its own typed quit command) makes Run return,
+// without requiring the raw Ctrl-C key sequence.
+func TestLoopQuit(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="cmd">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	cmd := doc.GetElementByID("cmd")
+	doc.Focus(cmd)
+
+	scr, mt := newUninitScreen(t, 40, 5)
+	loop := newLoopWithScreen(doc, scr)
+
+	doc.AddEventListener(cmd, "keydown", false, func(e *document.Event) {
+		if e.Key == "q" {
+			loop.Quit()
+		}
+	})
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var runErr error
+	go func() {
+		defer wg.Done()
+		runErr = loop.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+
+	mt.KeyTap(vt.KeyQ)
+	mt.Drain()
+	wg.Wait()
+
+	if runErr != nil {
+		t.Errorf("Run returned error: %v", runErr)
+	}
+}
+
 // TestFocusCursorPosMultiLineTextarea is a regression test for a bug where
 // focusCursorPos computed a focused <textarea>'s cursor row/column from its
 // whole value's total rune count with no awareness of embedded newlines,
