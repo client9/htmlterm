@@ -651,9 +651,12 @@ real CSS) — a `<button>` or `<span>` child lays out exactly like a `<div>`
 child would.
 
 #### `flex-direction`
-`row` (default) | `column`. `row` places items left to right (main axis =
-columns, cross axis = lines); `column` stacks items top to bottom (main axis
-= lines, cross axis = columns). Not inherited.
+`row` (default) | `row-reverse` | `column` | `column-reverse`. `row` places
+items left to right (main axis = columns, cross axis = lines); `column`
+stacks items top to bottom (main axis = lines, cross axis = columns).
+`row-reverse`/`column-reverse` lay out the same axis in the opposite visual
+direction — `order` (below) is resolved first, then the reversed direction
+flips that whole sequence, matching real CSS. Not inherited.
 
 #### `justify-content`
 `flex-start` (default) | `flex-end` | `center` | `space-between` |
@@ -675,7 +678,27 @@ direction (cross axis = horizontal), `stretch` fills the container's full
 width (the default for any block-level child); `flex-start`/`center`/
 `flex-end` instead size the item to its own `width` or natural content width
 and align it within the container. `baseline` is not supported (falls back
-to `flex-start`). Not inherited.
+to `flex-start`). Set on the container; an individual item can override it
+with `align-self`. Not inherited.
+
+#### `align-self`
+`auto` (default) | `stretch` | `flex-start` | `center` | `flex-end`. Set on
+a flex item to override the container's `align-items` for that one item;
+`auto` (or leaving it unset) defers to the container. Same value vocabulary
+and per-direction meaning as `align-items` above. Not inherited.
+
+#### `order`
+`<integer>` (default `0`). Set on a flex item to change its position in
+layout order independent of its position in the document: items are
+laid out sorted by ascending `order`, with document order as the tiebreak
+among equal values. Applied before `row-reverse`/`column-reverse` flips the
+sequence, matching real CSS. Not inherited.
+
+```css
+/* visually swap two items without touching the markup */
+.first  { order: 2; }
+.second { order: 1; }
+```
 
 #### `gap`, `row-gap`, `column-gap`
 `gap` is shorthand for `row-gap`/`column-gap`: one value sets both, two set
@@ -729,11 +752,6 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
 - **`flex-wrap`** — items never wrap to multiple lines; a `row` that doesn't
   fit simply overflows.
 - **`align-content`** — meaningless without wrapping.
-- **`align-self`** — no per-item cross-axis override; every item follows the
-  container's `align-items`.
-- **`order`** — items always lay out in source order.
-- **`row-reverse` / `column-reverse`** — not recognized (falls back to
-  `row`/`column`).
 - **`flex-shrink`** — parsed but never applied; see above.
 - **Main-axis distribution in `column` direction** — `flex-grow` and
   `justify-content` require an explicit main-axis (height) size to
@@ -973,7 +991,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Pseudo-classes and pseudo-elements
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
-- `flex-wrap`, `align-content`, `align-self`, `order`, `row-reverse`/`column-reverse`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
+- `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-spacing` / cell padding (column separator is always a single character)

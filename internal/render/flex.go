@@ -1,6 +1,7 @@
 package render
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -8,12 +9,12 @@ import (
 )
 
 // This file implements htmlterm's CSS flexbox subset: display:flex/
-// inline-flex, flex-direction:row|column, justify-content, align-items,
-// gap/row-gap/column-gap, and flex-grow (flex-basis resolves the item's
-// starting main-axis size before growth is distributed). See CSS.md's
-// "Flexbox" section for the exact supported subset and its documented
-// non-goals (flex-wrap, align-content, align-self, order, row-reverse/
-// column-reverse, flex-shrink, baseline alignment).
+// inline-flex, flex-direction:row|row-reverse|column|column-reverse,
+// justify-content, align-items, align-self, order, gap/row-gap/column-gap,
+// and flex-grow (flex-basis resolves the item's starting main-axis size
+// before growth is distributed). See CSS.md's "Flexbox" section for the
+// exact supported subset and its documented non-goals (flex-wrap,
+// align-content, flex-shrink, baseline alignment).
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -21,11 +22,55 @@ type flexItem struct {
 	node  *html.Node
 	decls map[string]string
 	grow  float64
+	order int
+}
+
+// itemAlign resolves align-self's fallback to the container's align-items:
+// "auto" (the property's real default) and unset both mean "defer to the
+// container," matching CSS's own align-self semantics.
+func itemAlign(it flexItem, containerAlign string) string {
+	if v := it.decls["align-self"]; v != "" && v != "auto" {
+		return v
+	}
+	return containerAlign
+}
+
+// reverseFlexItems returns items in reverse order, for row-reverse/
+// column-reverse — applied after order-based sorting, matching CSS's own
+// "order determines position, then the reverse direction flips the whole
+// sequence" behavior.
+func reverseFlexItems(items []flexItem) []flexItem {
+	out := make([]flexItem, len(items))
+	for i, it := range items {
+		out[len(items)-1-i] = it
+	}
+	return out
 }
 
 // isFlexDisplay reports whether display is one of the flex container values.
 func isFlexDisplay(display string) bool {
 	return display == "flex" || display == "inline-flex"
+}
+
+// parseFlexDirection resolves flex-direction into (isColumn, reverse).
+// row-reverse/column-reverse are recognized by their "-reverse" suffix;
+// anything else (including an unset/invalid value) falls back to row,
+// matching flex-direction's own default.
+func parseFlexDirection(decls map[string]string) (isColumn, reverse bool) {
+	direction := decls["flex-direction"]
+	return strings.HasPrefix(direction, "column"), strings.HasSuffix(direction, "-reverse")
+}
+
+// layoutFlex dispatches to layoutFlexRow/layoutFlexColumn per decls'
+// flex-direction — the single call site every renderFlexContentBox/
+// renderInlineFlexContent/measureNaturalWidth entry point shares, so
+// direction parsing can't drift between them.
+func (r *Engine) layoutFlex(n *html.Node, decls map[string]string, innerW int) (box, map[*html.Node]Rect) {
+	isColumn, reverse := parseFlexDirection(decls)
+	if isColumn {
+		return r.layoutFlexColumn(n, decls, innerW, reverse)
+	}
+	return r.layoutFlexRow(n, decls, innerW, reverse)
 }
 
 // parseFlexGrow parses flex-grow (default 0; negative values are invalid per
@@ -36,6 +81,16 @@ func parseFlexGrow(decls map[string]string) float64 {
 		return 0
 	}
 	return f
+}
+
+// parseOrder parses the CSS order property (default 0; invalid values fall
+// back to 0 rather than erroring).
+func parseOrder(decls map[string]string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(decls["order"]))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // parseGapLen parses row-gap/column-gap as an absolute rune count. Percentage
@@ -52,7 +107,11 @@ func parseGapLen(v string) int {
 // collectFlexItems gathers n's direct element children that participate in
 // flex layout: text nodes directly inside a flex container are not rendered
 // (wrap loose text in a <span> to include it — see CSS.md), and any child
-// with display:none is skipped, matching normal flow.
+// with display:none is skipped, matching normal flow. Items are stable-sorted
+// by the CSS order property (default 0), preserving document order among
+// ties — row-reverse/column-reverse (reverseFlexItems) is applied on top of
+// this order-sorted sequence by the caller, matching CSS's own layering of
+// the two.
 func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 	var items []flexItem
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -63,8 +122,9 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 		if decls["display"] == "none" {
 			continue
 		}
-		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls)})
+		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), order: parseOrder(decls)})
 	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].order < items[j].order })
 	return items
 }
 
@@ -98,13 +158,9 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 		// its result to the full width it's given (matching a block-level
 		// flex container's normal CSS behavior), which would make every
 		// width:auto nested flex container measure as "however wide cap
-		// is" instead of its own natural content width. layoutFlexRow/
-		// layoutFlexColumn are the unpadded layout passes underneath it.
-		if strings.HasPrefix(it.decls["flex-direction"], "column") {
-			b, _ = r.layoutFlexColumn(it.node, it.decls, cap)
-		} else {
-			b, _ = r.layoutFlexRow(it.node, it.decls, cap)
-		}
+		// is" instead of its own natural content width. layoutFlex is the
+		// unpadded layout pass underneath it.
+		b, _ = r.layoutFlex(it.node, it.decls, cap)
 	} else {
 		b, _ = r.renderBlockContentBox(it.node, it.decls, cap)
 	}
@@ -231,10 +287,15 @@ func padBoxVertical(b box, height, topOffset int) box {
 	return box{lines: lines, width: b.width}
 }
 
-// layoutFlexRow lays out items left to right: main axis (flex-grow/
-// justify-content) is horizontal, cross axis (align-items) is vertical.
-func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int) (box, map[*html.Node]Rect) {
+// layoutFlexRow lays out items left to right (or right to left when reverse
+// is set, for flex-direction:row-reverse): main axis (flex-grow/
+// justify-content) is horizontal, cross axis (align-items/align-self) is
+// vertical.
+func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int, reverse bool) (box, map[*html.Node]Rect) {
 	items := r.collectFlexItems(n)
+	if reverse {
+		items = reverseFlexItems(items)
+	}
 	if len(items) == 0 {
 		return box{lines: []string{""}}, nil
 	}
@@ -296,7 +357,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	positions := map[*html.Node]Rect{}
 	colStart := leadPad
 	for i, it := range items {
-		offset := crossOffset(align, height, len(itemBoxes[i].lines))
+		offset := crossOffset(itemAlign(it, align), height, len(itemBoxes[i].lines))
 		padded := padBoxVertical(itemBoxes[i], height, offset)
 		for li := range rowLines {
 			rowLines[li] += padded.lines[li]
@@ -321,13 +382,18 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 }
 
 // layoutFlexColumn lays out items top to bottom: cross axis (align-items) is
-// horizontal. There is no main-axis (vertical) distribution pass in this v1
-// — flex-grow and justify-content only matter once a container has an
-// explicit main-axis size to grow/distribute into, and this engine has no
-// notion of an explicit flex-container height yet; items simply stack with
-// row-gap between them (flex-start main-axis behavior). See CSS.md.
-func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW int) (box, map[*html.Node]Rect) {
+// horizontal (align-items/align-self). There is no main-axis (vertical)
+// distribution pass in this v1 — flex-grow and justify-content only matter
+// once a container has an explicit main-axis size to grow/distribute into,
+// and this engine has no notion of an explicit flex-container height yet;
+// items simply stack with row-gap between them (flex-start main-axis
+// behavior). reverse stacks bottom to top, for flex-direction:
+// column-reverse. See CSS.md.
+func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW int, reverse bool) (box, map[*html.Node]Rect) {
 	items := r.collectFlexItems(n)
+	if reverse {
+		items = reverseFlexItems(items)
+	}
 	if len(items) == 0 {
 		return box{lines: []string{""}}, nil
 	}
@@ -344,13 +410,14 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 				row++
 			}
 		}
+		itAlign := itemAlign(it, align)
 		w := innerW
-		if align != "" && align != "stretch" {
+		if itAlign != "" && itAlign != "stretch" {
 			w = r.resolveCrossWidth(it, innerW)
 		}
 		b, pos := r.renderFlexItemBox(it, max(1, w))
 		colOffset := 0
-		switch align {
+		switch itAlign {
 		case "center":
 			colOffset = max(0, (innerW-b.width)/2)
 		case "flex-end":
@@ -404,13 +471,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		innerW = 1
 	}
 
-	var content box
-	var positions map[*html.Node]Rect
-	if strings.HasPrefix(decls["flex-direction"], "column") {
-		content, positions = r.layoutFlexColumn(n, decls, innerW)
-	} else {
-		content, positions = r.layoutFlexRow(n, decls, innerW)
-	}
+	content, positions := r.layoutFlex(n, decls, innerW)
 	// A block-level flex container fills its available width by default,
 	// same as any other block box — pad any leftover columns after the last
 	// item/row (a row narrower than innerW, or a column item narrower than
@@ -500,11 +561,6 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 // accepted rationale) — its own position is tracked by the caller boxing
 // this string, but individual descendants inside it are not.
 func (r *Engine) renderInlineFlexContent(n *html.Node, decls map[string]string, availWidth int) string {
-	var b box
-	if strings.HasPrefix(decls["flex-direction"], "column") {
-		b, _ = r.layoutFlexColumn(n, decls, availWidth)
-	} else {
-		b, _ = r.layoutFlexRow(n, decls, availWidth)
-	}
+	b, _ := r.layoutFlex(n, decls, availWidth)
 	return b.join()
 }

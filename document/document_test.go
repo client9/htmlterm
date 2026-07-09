@@ -356,6 +356,37 @@ func TestDocumentRectFlexItems(t *testing.T) {
 	}
 }
 
+func TestDocumentRectFlexItemsWithOrder(t *testing.T) {
+	// order re-sequences items for layout purposes only — each item's Rect
+	// still has to key correctly back to its own *html.Node afterward, not
+	// whichever node happens to occupy that slot post-sort.
+	doc, err := document.ParseDocument(
+		`<div style="display:flex;width:100%"><div id="a" style="order:2">a</div><div id="b" style="order:1">b</div></div>`,
+		htmlterm.Options{Width: 10},
+	)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectA, ok := doc.Rect(doc.GetElementByID("a"))
+	if !ok {
+		t.Fatal("Rect(a) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 0, Col: 1, Width: 1, Height: 1}); rectA != want {
+		t.Errorf("Rect(a) = %+v, want %+v (rendered: %q)", rectA, want, out)
+	}
+	rectB, ok := doc.Rect(doc.GetElementByID("b"))
+	if !ok {
+		t.Fatal("Rect(b) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 0, Col: 0, Width: 1, Height: 1}); rectB != want {
+		t.Errorf("Rect(b) = %+v, want %+v (rendered: %q)", rectB, want, out)
+	}
+}
+
 func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	// The realistic pattern this feature exists for: an <input> wrapped in
 	// a <label>, a plain inline (non-inline-block, non-anchor) element —
