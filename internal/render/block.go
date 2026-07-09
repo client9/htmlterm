@@ -195,24 +195,38 @@ func parseMargin(s string) int {
 // height padding → text-indent → vertical padding → horizontal padding →
 // borders → top/bottom rules → margins → visibility:hidden blanking, last).
 func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
-	bl := blockBorder{char: parseCSSString(decls["border-left"]), color: decls["border-left-color"]}
-	br := blockBorder{char: parseCSSString(decls["border-right"]), color: decls["border-right-color"]}
-	bt := blockBorder{char: parseCSSString(decls["border-top"]), color: decls["border-top-color"]}
-	bb := blockBorder{char: parseCSSString(decls["border-bottom"]), color: decls["border-bottom-color"]}
+	blChar, blPresent := resolveBorderEdgeChar(decls["border-left"], func(ts tableStyle) string { return ts.left })
+	brChar, brPresent := resolveBorderEdgeChar(decls["border-right"], func(ts tableStyle) string { return ts.right })
+	btChar, btPresent := resolveBorderEdgeChar(decls["border-top"], func(ts tableStyle) string {
+		if ts.top != nil {
+			return ts.top.fill
+		}
+		return ""
+	})
+	bbChar, bbPresent := resolveBorderEdgeChar(decls["border-bottom"], func(ts tableStyle) string {
+		if ts.bottom != nil {
+			return ts.bottom.fill
+		}
+		return ""
+	})
+	bl := blockBorder{char: blChar, color: decls["border-left-color"]}
+	br := blockBorder{char: brChar, color: decls["border-right-color"]}
+	bt := blockBorder{char: btChar, color: decls["border-top-color"]}
+	bb := blockBorder{char: bbChar, color: decls["border-bottom-color"]}
 	tlCorner := parseCSSString(decls["border-top-left-corner"])
 	trCorner := parseCSSString(decls["border-top-right-corner"])
 	blCorner := parseCSSString(decls["border-bottom-left-corner"])
 	brCorner := parseCSSString(decls["border-bottom-right-corner"])
 	if styleVal := decls["border-style"]; styleVal != "" {
 		if ts, ok := namedTableStyle(styleVal); ok {
-			if bl.char == "" {
+			if !blPresent {
 				bl.char = ts.left
 			}
-			if br.char == "" {
+			if !brPresent {
 				br.char = ts.right
 			}
 			if ts.top != nil {
-				if bt.char == "" {
+				if !btPresent {
 					bt.char = ts.top.fill
 				}
 				if tlCorner == "" {
@@ -223,7 +237,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				}
 			}
 			if ts.bottom != nil {
-				if bb.char == "" {
+				if !bbPresent {
 					bb.char = ts.bottom.fill
 				}
 				if blCorner == "" {
@@ -683,6 +697,44 @@ func blankVisibleContentBox(b box) box {
 		lines[i] = blankLineVisible(line)
 	}
 	return box{lines: lines, width: linesWidth(lines)}
+}
+
+// isQuotedCSSValue reports whether v (after trimming) is a CSS quoted
+// string token - the disambiguator resolveBorderEdgeChar uses between a
+// literal border glyph (border-top: "═") and the standard border-edge
+// shorthand grammar (border-top: solid red).
+func isQuotedCSSValue(v string) bool {
+	v = strings.TrimSpace(v)
+	if len(v) < 2 {
+		return false
+	}
+	return (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')
+}
+
+// resolveBorderEdgeChar parses one of border-top/border-right/border-bottom/
+// border-left's raw declared value. A quoted string is this engine's
+// literal-glyph form and is unquoted via parseCSSString unchanged. Anything
+// else has already passed through expandShorthand (css.go) as the standard
+// CSS border-edge shorthand grammar, which leaves just a bare style keyword
+// here - its width and color tokens, if any, were already split into
+// border-*-color there - so glyph picks that preset's character for this
+// specific edge (e.g. top.fill for border-top, left for border-left).
+// present reports whether the declaration existed at all, even when it
+// resolves to an empty character (an explicit "none"/"hidden" style) -
+// callers must not let the border-style backfill override an edge that was
+// deliberately cleared.
+func resolveBorderEdgeChar(raw string, glyph func(tableStyle) string) (char string, present bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if isQuotedCSSValue(raw) {
+		return parseCSSString(raw), true
+	}
+	if ts, ok := namedTableStyle(raw); ok {
+		return glyph(ts), true
+	}
+	return "", false
 }
 
 // parseCSSString unquotes a CSS quoted string token (e.g. `"│"` → `│`).

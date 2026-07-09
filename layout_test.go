@@ -19,6 +19,12 @@ func TestBorderStyleOnBlocks(t *testing.T) {
 		{name: "border shorthand with style and color strips clean to box shape", html: `<div style="border: solid red; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
 		{name: "border shorthand with width style color ignores width", html: `<div style="border: 1px solid red; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
 		{name: "border shorthand two-value width-style form is unsupported and no-ops", html: `<div style="border: 2px solid; width:100%">hi</div>`, width: 8, want: "hi      \n"},
+		{name: "border-top shorthand style-only picks that preset's top glyph, other edges untouched", html: `<div style="width:100%; border-style:solid; border-top:double">hi</div>`, width: 8, want: "┌══════┐\n│hi    │\n└──────┘\n"},
+		{name: "border-top shorthand width-style-color drops width and colors just the top edge", html: `<div style="width:100%; border-top: 1px solid red">hi</div>`, width: 10, want: "──────────\nhi        \n"},
+		{name: "border-top:none suppresses just the top edge even with border-style set (regression: used to be silently overridden by the preset)", html: `<div style="width:100%; border-style:solid; border-top:none">hi</div>`, width: 8, want: "│hi    │\n└──────┘\n"},
+		{name: "border-left shorthand style-only derives left glyph from a different preset than border-style", html: `<div style="width:8; border-left: rounded">hi</div>`, want: "│hi     \n"},
+		{name: "border-top literal quoted glyph still works after adding shorthand grammar", html: `<div style="width:100%; border-style:solid; border-top:'═'; width:100%">hi</div>`, width: 8, want: "┌══════┐\n│hi    │\n└──────┘\n"},
+		{name: "border-top shorthand two-value width-style form (no color) is unsupported and no-ops, falling back to border-style", html: `<div style="width:100%; border-top: 1px solid; border-style:rounded">hi</div>`, width: 8, want: "╭──────╮\n│hi    │\n╰──────╯\n"},
 	})
 }
 

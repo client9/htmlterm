@@ -472,17 +472,24 @@ itself — draw a thicker border with `border-style: thick` or a custom
 purely so real-world CSS (e.g. copy-pasted `border: 1px solid red`, split
 into its longhands) doesn't need to be edited before use. Not inherited.
 
-#### `border-left`
-`"<string>"` | `'<string>'` | `none`. Quoted character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
+#### `border-left`, `border-right`, `border-top`, `border-bottom`
+Each accepts **two different forms**, dispatched on whether the value is quoted:
 
-#### `border-right`
-`"<string>"` | `'<string>'` | `none`. Quoted character(s) appended to every rendered line of a block element. Not inherited.
+| Form | Example | Meaning |
+|------|---------|---------|
+| Quoted string | `border-left: "▌"` | This engine's literal-glyph form (predates the shorthand below, and remains the primary way to use box-drawing characters that have no CSS style-keyword equivalent). The exact character(s) prepended/appended (for `-left`/`-right`) or repeated as the horizontal-rule fill (for `-top`/`-bottom`). `none` (unquoted) or unset = no border. |
+| Bareword, standard CSS shorthand grammar | `border-left: solid red` | `<style>`, `<style> <color>`, or `<width> <style> <color>` (`<width>` ignored) — the same positional grammar as the [`border`](#border) shorthand, just resolved to *this one edge's* glyph from the named preset (e.g. `top.fill` for `border-top`, `left`/`right` for `border-left`/`border-right`) instead of the whole box. `<style>` is one of the [`border-style`](#border-style) preset names. An explicit `border-top: none` clears just that edge, even when `border-style` is also set on the same element (this used to be silently overridden by the preset — no longer). |
 
-#### `border-top`
-`"<string>"` | `'<string>'` | `none`. Quoted fill character repeated across the full block width (minus margins) to draw a horizontal rule above the content. Not inherited.
+```css
+div { border-top: "═"; }              /* literal glyph, unchanged from before */
+div { border-top: double; }           /* double preset's top glyph, no color change */
+div { border-top: double red; }       /* double preset's top glyph, red */
+div { border-top: 1px double red; }   /* same; "1px" is ignored */
+div { border-style: solid; border-top: none; }  /* solid box with the top edge removed */
+```
 
-#### `border-bottom`
-`"<string>"` | `'<string>'` | `none`. Quoted fill character repeated across the full block width (minus margins) to draw a horizontal rule below the content. Not inherited.
+As with [`border`](#border), the two-value `<width> <style>` form (no color) has
+no positional color slot and is silently dropped. Not inherited.
 
 #### `border-left-color`
 Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the left border character. Not inherited.
@@ -763,8 +770,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, or any other at-rules
 - Pseudo-classes and pseudo-elements
-- Multi-value `border-top`/`border-bottom` shorthand (e.g. `border-top: 1px solid red`) —
-  use a quoted fill character (e.g. `border-top: "─"`) and `border-top-color` for color
+- The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none` — not yet implemented, not a permanent boundary; see `SCROLLING.md`'s "Flexbox" section for the planned design direction
 - `flex`, `grid`, or positioned layout — same as above
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`

@@ -316,6 +316,40 @@ func expandShorthand(prop, val string) map[string]string {
 			"border-bottom-color": sides[2],
 			"border-left-color":   sides[3],
 		}
+	case "border-top", "border-right", "border-bottom", "border-left":
+		// Bareword vs. quoted string is the dispatch: a quoted string is
+		// this engine's non-standard "literal border glyph" form (e.g.
+		// border-top: "═") and is passed through completely unchanged -
+		// internal/render/block.go still parses it as a literal character,
+		// and internal/render/table.go still reads a bare "none" value
+		// directly (untouched here, since a single unquoted token is
+		// returned as-is below). A bareword value is instead the standard
+		// CSS border-edge shorthand grammar - <style>, <style> <color>, or
+		// <width> <style> <color> (width dropped) - split out exactly like
+		// the "border" shorthand above; block.go resolves the style token
+		// to a glyph via the same named preset border-style uses, picked
+		// for that specific edge.
+		trimmed := strings.TrimSpace(val)
+		if isCSSQuotedStringToken(trimmed) {
+			return map[string]string{prop: val}
+		}
+		tokens := splitCSSComponentValues(val)
+		var styleTok, colorTok string
+		switch len(tokens) {
+		case 1:
+			styleTok = tokens[0]
+		case 2:
+			styleTok, colorTok = tokens[0], tokens[1]
+		case 3:
+			styleTok, colorTok = tokens[1], tokens[2]
+		default:
+			return map[string]string{prop: val}
+		}
+		result := map[string]string{prop: styleTok}
+		if colorTok != "" {
+			result[prop+"-color"] = colorTok
+		}
+		return result
 	case "overflow":
 		tokens := strings.Fields(val)
 		switch len(tokens) {

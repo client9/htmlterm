@@ -28,6 +28,37 @@ func TestParseCounterFnArgsTrailingBackslashDoesNotPanic(t *testing.T) {
 	t.Logf("sep=%q style=%q", sep, style)
 }
 
+func TestResolveBorderEdgeChar(t *testing.T) {
+	topGlyph := func(ts tableStyle) string {
+		if ts.top != nil {
+			return ts.top.fill
+		}
+		return ""
+	}
+
+	tests := []struct {
+		name     string
+		raw      string
+		wantChar string
+		wantOK   bool
+	}{
+		{name: "unset", raw: "", wantChar: "", wantOK: false},
+		{name: "quoted literal glyph", raw: `"═"`, wantChar: "═", wantOK: true},
+		{name: "single-quoted literal glyph", raw: `'▌'`, wantChar: "▌", wantOK: true},
+		{name: "bareword style keyword resolves via the edge's glyph func", raw: "double", wantChar: "═", wantOK: true},
+		{name: "bareword none is present but empty - must not be backfilled by border-style", raw: "none", wantChar: "", wantOK: true},
+		{name: "unrecognized bareword falls through to border-style backfill", raw: "not-a-style", wantChar: "", wantOK: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			char, ok := resolveBorderEdgeChar(tc.raw, topGlyph)
+			if char != tc.wantChar || ok != tc.wantOK {
+				t.Fatalf("resolveBorderEdgeChar(%q) = (%q, %v), want (%q, %v)", tc.raw, char, ok, tc.wantChar, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestMergeInlineStyleTextDecoration(t *testing.T) {
 	base := mergeInlineStyle(inlineStyle{}, map[string]string{"text-decoration": "underline line-through"})
 	if !base.underline || !base.strike {

@@ -82,6 +82,14 @@ func TestExpandShorthand(t *testing.T) {
 			"border-style": "solid", "border-color": "rgb(255 0 0)", "border-top-color": "rgb(255 0 0)", "border-right-color": "rgb(255 0 0)", "border-bottom-color": "rgb(255 0 0)", "border-left-color": "rgb(255 0 0)",
 		}},
 		{name: "border invalid arity falls back", prop: "border", val: "1px solid red extra", want: map[string]string{"border": "1px solid red extra"}},
+		{name: "border-top quoted literal glyph passes through unchanged", prop: "border-top", val: `"═"`, want: map[string]string{"border-top": `"═"`}},
+		{name: "border-top bareword none passes through unchanged for table.go's literal check", prop: "border-top", val: "none", want: map[string]string{"border-top": "none"}},
+		{name: "border-top one value is style only", prop: "border-top", val: "solid", want: map[string]string{"border-top": "solid"}},
+		{name: "border-top two values are style then color", prop: "border-top", val: "solid red", want: map[string]string{"border-top": "solid", "border-top-color": "red"}},
+		{name: "border-top three values ignore leading width", prop: "border-top", val: "1px solid red", want: map[string]string{"border-top": "solid", "border-top-color": "red"}},
+		{name: "border-left functional color is not split on internal spaces", prop: "border-left", val: "solid rgb(255 0 0)", want: map[string]string{"border-left": "solid", "border-left-color": "rgb(255 0 0)"}},
+		{name: "border-right invalid arity falls back", prop: "border-right", val: "1px solid red extra", want: map[string]string{"border-right": "1px solid red extra"}},
+		{name: "border-bottom one value is style only", prop: "border-bottom", val: "double", want: map[string]string{"border-bottom": "double"}},
 	}
 
 	for _, tc := range tests {
