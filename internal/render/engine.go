@@ -234,10 +234,10 @@ img::before             { content: attr(alt); }
 abbr[title]::after      { content: " (" attr(title) ")"; }
 hr                      { display: block; border-top: "─"; }
 form                    { display: block; }
-fieldset                { display: block; border-style: normal; padding: 1; margin-bottom: 1; }
+fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
 legend                  { display: block; font-weight: bold; }
 input, button           { display: inline-block; }
-textarea                { display: block; border-style: normal; padding-left: 1; padding-right: 1; }
+textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }
 `

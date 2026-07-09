@@ -81,7 +81,7 @@ func TestTable(t *testing.T) {
 		{name: "comment before table border style none is ignored", css: `/* table, tr, td { display: block; } */ table { border-style: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, width: 40, want: "A  B \n"},
 		{name: "normal border style: single header and data row", html: `<table><tr><th width="3">H1</th><th width="4">H2</th></tr><tr><td>A</td><td>Long</td></tr></table>`, width: 40, want: "┌───┬────┐\n│H1 │H2  │\n├───┼────┤\n│A  │Long│\n└───┴────┘\n"},
 		{name: "table width:100% expands flexible column", css: `table { width: 100%; border-style: hidden; }`, html: `<table><tr><td width="5">fixed</td><td>flex</td></tr></table>`, width: 20, want: "fixed flex          \n"},
-		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},
+		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: solid; border-left: none; }`, html: `<table><tr><td width="3">A</td><td width="3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},
 		{name: "table width percent overrides html width attribute", html: `<table style="border-style:hidden"><tr><td width="8" style="width:50%">abc</td><td>xy</td></tr></table>`, width: 20, want: "abc       xy\n"},
 		{name: "table min-width and max-width influence flexible columns", html: `<table style="border-style:hidden; width:100%"><tr><td style="min-width:6">a</td><td style="max-width:4">bb</td></tr></table>`, width: 16, want: "a           bb  \n"},
 		{name: "later row can define additional columns", html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`, want: "A  \nB C\n"},
@@ -113,7 +113,7 @@ func TestNestedTablesInCells(t *testing.T) {
 		t.Fatalf("nested table did not render as table:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
 	}
 
-	got = render(`table { border-style: normal; }`, `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	got = render(`table { border-style: solid; }`, `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
 	if got != "┌─┐\n│x│\n└─┘\n" {
 		t.Fatalf("nested table did not apply table CSS:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
 	}
@@ -211,12 +211,12 @@ func TestTableVerticalAlign(t *testing.T) {
 
 func TestTableBorderCSS(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "border-rows solid adds separators between data rows", css: `table { border-style: normal; border-rows: solid; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n├───┤\n│B  │\n└───┘\n"},
-		{name: "border-header none suppresses header divider", css: `table { border-style: normal; border-header: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\n│A  │\n└───┘\n"},
-		{name: "border-columns none removes cell separators in rows", css: `table { border-style: normal; border-columns: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, want: "┌──┬──┐\n│A B │\n└──┴──┘\n"},
-		{name: "border-rows none on a table that had row separators enabled", css: `table { border-style: normal; border-rows: solid; border-rows: none; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n│B  │\n└───┘\n"},
-		{name: "border-left none removes left outer edge and corners", css: `table { border-style: normal; border-left: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "───┐\nH  │\n───┤\nA  │\n───┘\n"},
-		{name: "border-right none removes right outer edge and corners", css: `table { border-style: normal; border-right: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───\n│H  \n├───\n│A  \n└───\n"},
+		{name: "border-rows solid adds separators between data rows", css: `table { border-style: solid; border-rows: solid; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n├───┤\n│B  │\n└───┘\n"},
+		{name: "border-header none suppresses header divider", css: `table { border-style: solid; border-header: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───┐\n│H  │\n│A  │\n└───┘\n"},
+		{name: "border-columns none removes cell separators in rows", css: `table { border-style: solid; border-columns: none; }`, html: `<table><tr><td width="2">A</td><td width="2">B</td></tr></table>`, want: "┌──┬──┐\n│A B │\n└──┴──┘\n"},
+		{name: "border-rows none on a table that had row separators enabled", css: `table { border-style: solid; border-rows: solid; border-rows: none; }`, html: `<table><tr><td width="3">A</td></tr><tr><td width="3">B</td></tr></table>`, want: "┌───┐\n│A  │\n│B  │\n└───┘\n"},
+		{name: "border-left none removes left outer edge and corners", css: `table { border-style: solid; border-left: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "───┐\nH  │\n───┤\nA  │\n───┘\n"},
+		{name: "border-right none removes right outer edge and corners", css: `table { border-style: solid; border-right: none; }`, html: `<table><tr><th width="3">H</th></tr><tr><td width="3">A</td></tr></table>`, want: "┌───\n│H  \n├───\n│A  \n└───\n"},
 	})
 }
 

@@ -505,7 +505,7 @@ func wrapTableMargin(s string, ml, mr int) string {
 }
 
 func namedTableStyleDefault() tableStyle {
-	ts, _ := namedTableStyle("normal")
+	ts, _ := namedTableStyle("solid")
 	return ts
 }
 

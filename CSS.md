@@ -148,12 +148,12 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `div` | Generic block container (default: `display: block`; no other UA styles) |
 | `section`, `article`, `aside`, `header`, `footer`, `main`, `nav` | HTML5 sectioning elements; all default to `display: block` with no other UA styles. Style freely with CSS. |
 | `form` | Generic block container for form controls (default: `display: block`; no other UA styles). |
-| `fieldset` | Groups related form controls in a bordered box (default: `display: block; border-style: normal; padding: 1; margin-bottom: 1`). |
+| `fieldset` | Groups related form controls in a bordered box (default: `display: block; border-style: solid; padding: 1; margin-bottom: 1`). |
 | `legend` | Caption for the nearest `<fieldset>` (default: `display: block; font-weight: bold`), rendered as its own line at the top of the fieldset's content — a simplified terminal approximation, not browsers' border-straddling placement. |
 | `label` | Inline by default (no UA rule); place its associated control inside it (e.g. `<label>Name: <input type="text"></label>`) to have them flow on one line. |
 | `input` | Void element; content is synthesized from attributes, not children (default: `display: inline-block`). `type="checkbox"` → `☐`/`☑` based on the `checked` attribute; `type="radio"` → `○`/`●`; `type="submit"`/`"reset"`/`"button"` → `[ Label ]` using `value` (falling back to "Submit"/"Reset"/"Button"); `type="hidden"` → nothing; every other type (including the default, unset type) → `[value]`, falling back to `[placeholder]` when `value` is absent. `Element.Value()`/`SetValue()`/`Checked()`/`SetChecked()` read and write the exact attributes this renders from. |
 | `button` | Renders its children normally, wrapped in brackets via the UA stylesheet's `button::before { content: "[ "; }` / `button::after { content: " ]"; }` (default: `display: inline-block`). |
-| `textarea` | Multi-line bordered box (default: `display: block; border-style: normal; padding-left: 1; padding-right: 1`). Shows the `value` attribute if set (matching `Element.Value()`/`SetValue()`); otherwise falls back to its child text, with one leading newline right after the opening tag ignored, per the HTML spec's default-value rule. |
+| `textarea` | Multi-line bordered box (default: `display: block; border-style: solid; padding-left: 1; padding-right: 1`). Shows the `value` attribute if set (matching `Element.Value()`/`SetValue()`); otherwise falls back to its child text, with one leading newline right after the opening tag ignored, per the HTML spec's default-value rule. |
 | `select` | Not yet implemented — falls through to generic inline dispatch. |
 
 ---
@@ -436,7 +436,7 @@ blockquote::after  { content: close-quote; }
 The UA stylesheet defines `q::before { content: open-quote; }` and `q::after { content: close-quote; }`, so `<q>` elements are quoted automatically using the inherited `quotes` value.
 
 #### `border-style`
-`normal` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
+`solid` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
 
 #### `border-left`
 `"<string>"` | `'<string>'` | `none`. Quoted character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
@@ -599,7 +599,7 @@ with the properties below.
 
 | Value | Appearance |
 |-------|-----------|
-| `normal` | `┌─┬─┐ │ │ ├─┼─┤ └─┴─┘` (default) |
+| `solid` | `┌─┬─┐ │ │ ├─┼─┤ └─┴─┘` (default) |
 | `rounded` | `╭─┬─╮ │ │ ├─┼─┤ ╰─┴─╯` |
 | `thick` | `┏━┳━┓ ┃ ┃ ┣━╋━┫ ┗━┻━┛` |
 | `double` | `╔═╦═╗ ║ ║ ╠═╬═╣ ╚═╩═╝` |

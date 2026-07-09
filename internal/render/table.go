@@ -34,7 +34,7 @@ type tableStyle struct {
 // namedTableStyle returns the preset for a given border-style value.
 func namedTableStyle(name string) (tableStyle, bool) {
 	switch name {
-	case "normal":
+	case "solid":
 		return tableStyle{
 			top:    &hBorder{"┌", "─", "┬", "┐"},
 			header: &hBorder{"├", "─", "┼", "┤"},
@@ -83,7 +83,7 @@ func namedTableStyle(name string) (tableStyle, bool) {
 // applyTableCSSToStyle applies border-* CSS declarations from a <table> element
 // to ts, returning the modified style. Supported properties:
 //
-//	border-style: normal | rounded | thick | double | markdown | standard | hidden | none
+//	border-style: solid | rounded | thick | double | markdown | standard | hidden | none
 //	border-top/bottom/left/right: none  (disables that outer edge)
 //	border-columns: none                (removes column separator)
 //	border-rows: solid                  (enables row separators)

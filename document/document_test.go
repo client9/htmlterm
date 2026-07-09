@@ -492,7 +492,7 @@ func TestDocumentRectRowShiftsForPaddingAndBorder(t *testing.T) {
 	// padding-top and a top border rule both prepend rows before the
 	// content's own wrapped position — verifies renderBlockContentBox's
 	// row-shift calculation (pt, plus one more if a top rule is drawn).
-	doc, err := document.ParseDocument(`<div id="d" style="border-style:normal; padding-top:2; width:100%">hi</div>`, htmlterm.Options{Width: 10})
+	doc, err := document.ParseDocument(`<div id="d" style="border-style:solid; padding-top:2; width:100%">hi</div>`, htmlterm.Options{Width: 10})
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestFocusScrollsIntoView(t *testing.T) {
 // using Rect directly under-scrolled by exactly the border+padding row
 // count whenever a scroll container had either set.
 func TestFocusScrollsIntoViewWithBorderAndPadding(t *testing.T) {
-	htmlStr := `<div id="pane" style="height:2;overflow:auto;border-style:normal;padding-top:1">` +
+	htmlStr := `<div id="pane" style="height:2;overflow:auto;border-style:solid;padding-top:1">` +
 		`line1<br>line2<br>line3<br>line4<br><button id="btn">Go</button></div>`
 	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
 	if err != nil {

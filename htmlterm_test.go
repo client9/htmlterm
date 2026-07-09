@@ -846,7 +846,7 @@ func TestBlockBorderNoneVariants(t *testing.T) {
 		// border-bottom: none disables bottom border
 		{name: "border-bottom none disables", html: `<p style="border-bottom:none">hello</p>`, want: "hello\n\n"},
 		// border-style with border-color propagates color to all four sides (ANSI stripped; box chars visible)
-		{name: "border-style normal with border-color", html: `<p style="width:100%; border-style:normal; border-color:#888888">hi</p>`, width: 12, want: "┌──────────┐\n│hi        │\n└──────────┘\n\n"},
+		{name: "border-style solid with border-color", html: `<p style="width:100%; border-style:solid; border-color:#888888">hi</p>`, width: 12, want: "┌──────────┐\n│hi        │\n└──────────┘\n\n"},
 	})
 }
 
@@ -1025,7 +1025,7 @@ func TestNewHTMLElements(t *testing.T) {
 			name:  "table caption centered when table is wider",
 			html:  `<table><caption>Hi</caption><tr><th style="width:10">Col</th></tr></table>`,
 			width: 40,
-			// width=10 col, border-style:normal: overhead=│+│=2, tableW=12
+			// width=10 col, border-style:solid: overhead=│+│=2, tableW=12
 			// "Hi"(2) centered in 12: 5 left + "Hi" + 5 right
 			want: "     Hi     \n┌──────────┐\n│Col       │\n├──────────┤\n└──────────┘\n",
 		},

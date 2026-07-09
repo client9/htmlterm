@@ -65,9 +65,9 @@ aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
 nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
 reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla
 pariatur.</p>
-<div id="log" style="height:6;overflow-y:scroll;border-style:normal;padding-left:1;margin-top:1">
+<div id="log" style="height:6;overflow-y:scroll;border-style:solid;padding-left:1;margin-top:1">
 Log line 1<br>Log line 2<br>Log line 3<br>Log line 4<br>Log line 5<br>
-<div id="nested" style="height:3;overflow:auto;border-style:normal;margin-top:1;margin-bottom:1">
+<div id="nested" style="height:3;overflow:auto;border-style:solid;margin-top:1;margin-bottom:1">
 Nested 1<br>Nested 2<br>Nested 3<br>Nested 4<br>Nested 5<br>Nested 6
 </div>
 Log line 6<br>Log line 7<br>Log line 8<br>Log line 9<br>Log line 10<br>
