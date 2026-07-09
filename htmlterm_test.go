@@ -564,6 +564,59 @@ func TestGlobalHiddenAttributes(t *testing.T) {
 	})
 }
 
+func TestDisplay_Contents(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "root-level contents splices block children into flow", html: `<div style="display:contents"><p>one</p><p>two</p></div>`, want: "one\n\ntwo\n"},
+		{name: "root-level contents with plain inline content", html: `<span style="display:contents">hello</span>`, want: "hello"},
+		{name: "nested contents splices inline text with surrounding siblings", html: `<p>before <span style="display:contents">middle</span> after</p>`, want: "before middle after\n\n"},
+		{name: "nested contents does not force its own line break", html: `<p>a<span style="display:contents">b</span>c</p>`, want: "abc\n\n"},
+		{name: "contents child that is itself block still forces its own line", html: `<span style="display:contents"><div>block one</div><div>block two</div></span>`, want: "block one\nblock two"},
+		{name: "contents inside a block container splices children into that container", html: `<div><span style="display:contents"><p>one</p><p>two</p></span></div>`, want: "one\n\ntwo\n"},
+		{name: "contents element's own margin/padding/border is ignored", html: `<span style="display:contents; margin-left:4; padding-left:4; border-left:'|'">text</span>`, want: "text"},
+		{name: "display:none on a contents child still hides it", html: `<span style="display:contents"><p>a</p><p style="display:none">b</p><p>c</p></span>`, want: "a\n\nc\n"},
+		{name: "contents on a table cell child does not error", html: `<table><tr><td><span style="display:contents">x</span></td></tr></table>`, want: "┌─┐\n│x│\n└─┘\n"},
+	})
+}
+
+func TestDisplay_ContentsInheritedStyleOnly(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// color is inherited: a display:contents element's own color still
+	// reaches its spliced-in text children.
+	got, err := r.Render(`<p>before <span style="display:contents; color:#ff0000">red</span> after</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("display:contents did not inherit color to children: %q", got)
+	}
+	if stripANSI(got) != "before red after\n\n" {
+		t.Fatalf("display:contents changed text output: %q", stripANSI(got))
+	}
+
+	// background-color is not inherited: since a display:contents element
+	// generates no box, its own background-color must not leak onto its
+	// children (unlike a plain inline span, which does apply it).
+	got, err = r.Render(`<span style="display:contents; background-color:#ffff00">bg</span>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "\x1b[48;2;255;255;0m") {
+		t.Fatalf("display:contents leaked its own background-color onto children: %q", got)
+	}
+
+	got, err = r.Render(`<span style="background-color:#ffff00">bg</span>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[48;2;255;255;0m") {
+		t.Fatalf("plain inline span lost its own background-color: %q", got)
+	}
+}
+
 func TestDisplay_InlineBlock(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "inline-block with fixed width pads content", html: `<p><span style="display:inline-block; width:8">hi</span>end</p>`, want: "hi      end\n\n"},

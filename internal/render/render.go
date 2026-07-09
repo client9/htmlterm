@@ -204,6 +204,21 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			bx := newBox(inner)
 			tokens = append(tokens, wrapToken{box: &bx, node: n})
 		}
+	case "contents":
+		// No box, no hyperlink wrap, regardless of n.Data — n's children
+		// splice directly into the root token stream as if they were root
+		// siblings themselves. Mirrors inline.go's nested "contents" case.
+		acc := mergeContentsInlineStyle(inlineStyle{}, decls)
+		savedDepth := r.quoteDepth
+		childTokens := r.renderInlineAccTokens(n, acc, r.width)
+		if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
+			childTokens = childTokens[:len(childTokens)-1]
+		}
+		if decls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
+			childTokens = blankVisibleContentTokens(childTokens)
+		}
+		tokens = append(tokens, childTokens...)
 	default:
 		if n.Data == "a" {
 			// <a> stays string-based, matching inline.go's nested "default"

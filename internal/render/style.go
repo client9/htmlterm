@@ -74,6 +74,25 @@ func extractInlineStyle(decls map[string]string) inlineStyle {
 	return mergeInlineStyle(inlineStyle{}, decls)
 }
 
+// mergeContentsInlineStyle is mergeInlineStyle for a display:contents
+// element: since the element generates no box of its own, a directly-set
+// background-color (not an inherited property) has nothing to render onto
+// and must not leak onto the spliced-in children. Every other inlineStyle
+// field (fg/opacity/bold/italic/underline/strike) mirrors a CSS property
+// that CSS.md lists as inherited, so those still propagate normally.
+func mergeContentsInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
+	if _, ok := decls["background-color"]; !ok {
+		return mergeInlineStyle(base, decls)
+	}
+	filtered := make(map[string]string, len(decls))
+	for k, v := range decls {
+		if k != "background-color" {
+			filtered[k] = v
+		}
+	}
+	return mergeInlineStyle(base, filtered)
+}
+
 // mergeInlineStyle overlays the visual text properties from decls onto base.
 func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 	s := base

@@ -176,6 +176,25 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				}
 				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
 				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+			case "contents":
+				// The element generates no box of its own (no margin/
+				// padding/border/background, no forced line break); its
+				// children are spliced directly into this level's stream as
+				// if they were direct children of n, same as the plain
+				// inline "default" case below, but skipping that case's
+				// inline-block/<a> box-generating special-cases entirely -
+				// contents never gets its own box or hyperlink wrap.
+				childAcc := mergeContentsInlineStyle(acc, childDecls)
+				savedDepth := r.quoteDepth
+				childTokens := r.renderInlineAccTokens(c, childAcc, availWidth)
+				if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
+					childTokens = childTokens[:len(childTokens)-1]
+				}
+				if childDecls["visibility"] == "hidden" {
+					r.quoteDepth = savedDepth
+					childTokens = blankVisibleContentTokens(childTokens)
+				}
+				tokens = append(tokens, childTokens...)
 			default:
 				if display == "inline-block" || c.Data == "a" {
 					// inline-block (including <input>, always inline-block

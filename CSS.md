@@ -174,7 +174,29 @@ These apply to any matched element and control text rendering.
 `normal` / `none` values explicitly cancel an inherited value.
 
 #### `display`
-`block` | `inline` | `inline-block` | `table` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements (`section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search`) default to `block`; all others default to `inline`.
+`block` | `inline` | `inline-block` | `table` | `contents` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `contents` makes the element itself generate no box at all — see below. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements (`section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search`) default to `block`; all others default to `inline`.
+
+**`display: contents`** is for semantic wrappers that should be invisible to
+layout: the element generates no box of its own — no margin, padding,
+border, background, and no forced line break either before or after it —
+and its children are spliced directly into the surrounding flow exactly as
+if they were direct children of the `contents` element's own parent. A
+child that is itself `display: block` (or a table/list) still gets its own
+line, since that comes from the child's own display value, not from the
+wrapper. Only genuinely inherited properties set on the `contents` element
+(see [Inheritance](#inheritance) — `color`, `font-weight`, `font-style`,
+`text-decoration`, etc.) still reach its children; non-inherited properties
+such as `background-color`, `border`, `margin`, `padding`, and `width` have
+no effect, since there is no box left to apply them to.
+
+```css
+/* dl-like structure, one shared background: */
+.row { display: contents; }
+```
+```html
+<div class="row" style="color: red"><span>label</span><span>value</span></div>
+<!-- renders as "labelvalue" in red — the wrapping <div> contributes no box -->
+```
 
 To treat table markup as a simple linear document flow, opt out of the table renderer:
 
@@ -824,7 +846,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `@font-face`, `@keyframes`, or any other at-rules
 - Pseudo-classes and pseudo-elements
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
-- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, and `none` — not yet implemented, not a permanent boundary; see `SCROLLING.md`'s "Flexbox" section for the planned design direction
+- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, `contents`, and `none` — not yet implemented, not a permanent boundary; see `SCROLLING.md`'s "Flexbox" section for the planned design direction
 - `flex`, `grid`, or positioned layout — same as above
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-spacing` / cell padding (column separator is always a single character)
