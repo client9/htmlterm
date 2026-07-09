@@ -35,12 +35,20 @@ func newUninitScreen(t *testing.T, cols, rows int) (tcell.Screen, vt.MockTerm) {
 // own dispatch behavior (event_test.go) is unchanged and not re-tested
 // here.
 func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
-	doc, err := document.ParseDocument(`<input type="text" id="name"><input type="checkbox" id="cb">`, htmlterm.Options{Width: 40})
+	doc, err := document.ParseDocument(`<div><input type="text" id="name"></div><div><input type="checkbox" id="cb"></div>`, htmlterm.Options{Width: 40})
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	name := doc.GetElementByID("name")
 	doc.Focus(name)
+	cb := doc.GetElementByID("cb")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("initial Render: %v", err)
+	}
+	rect, ok := doc.Rect(cb)
+	if !ok {
+		t.Fatalf("checkbox has no recorded Rect")
+	}
 
 	scr, mt := newUninitScreen(t, 40, 5)
 	loop := newLoopWithScreen(doc, scr)
@@ -59,24 +67,11 @@ func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
 	mt.Drain()
 	time.Sleep(25 * time.Millisecond)
 
-	if got := name.Value(); got != "a" {
-		t.Errorf("after typing 'a', name value = %q, want %q", got, "a")
-	}
-
-	cb := doc.GetElementByID("cb")
-	rect, ok := doc.Rect(cb)
-	if !ok {
-		t.Fatalf("checkbox has no recorded Rect")
-	}
 	pos := vt.Coord{X: vt.Col(rect.Col), Y: vt.Row(rect.Row)}
 	mt.MouseEvent(vt.MouseEvent{Position: pos, Button: vt.Button1, Down: true})
 	mt.MouseEvent(vt.MouseEvent{Position: pos, Button: vt.NoButton, Down: false})
 	mt.Drain()
 	time.Sleep(25 * time.Millisecond)
-
-	if !cb.Checked() {
-		t.Errorf("checkbox not checked after simulated click")
-	}
 
 	mt.KeyTap(vt.KeyLCtrl, vt.KeyC)
 	mt.Drain()
@@ -84,6 +79,12 @@ func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
 
 	if runErr != nil {
 		t.Errorf("Run returned error: %v", runErr)
+	}
+	if got := name.Value(); got != "a" {
+		t.Errorf("after typing 'a', name value = %q, want %q", got, "a")
+	}
+	if !cb.Checked() {
+		t.Errorf("checkbox not checked after simulated click")
 	}
 }
 
