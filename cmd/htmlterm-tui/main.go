@@ -31,6 +31,8 @@ import (
 	"time"
 
 	"github.com/client9/htmlterm"
+	"github.com/client9/htmlterm/document"
+	"github.com/client9/htmlterm/tui"
 )
 
 const formHTML = `
@@ -83,7 +85,7 @@ func main() {
 }
 
 func run() int {
-	doc, err := htmlterm.ParseDocument(formHTML, htmlterm.Options{
+	doc, err := document.ParseDocument(formHTML, htmlterm.Options{
 		Width:  htmlterm.SizeAutomatic,
 		Height: htmlterm.SizeNatural,
 	})
@@ -99,7 +101,7 @@ func run() int {
 	subscribe := doc.GetElementByID("subscribe")
 	result := doc.GetElementByID("result")
 
-	doc.AddEventListener(doc.GetElementByID("myform"), "submit", false, func(e *htmlterm.Event) {
+	doc.AddEventListener(doc.GetElementByID("myform"), "submit", false, func(e *document.Event) {
 		subscribed := "no"
 		if subscribe.Checked() {
 			subscribed = "yes"
@@ -109,7 +111,7 @@ func run() int {
 		result.ClassList().Add("visible")
 	})
 
-	loop, err := htmlterm.NewLoop(doc)
+	loop, err := tui.NewLoop(doc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "htmlterm-tui: %v\n", err)
 		return 1

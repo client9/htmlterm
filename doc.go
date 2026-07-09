@@ -13,7 +13,7 @@
 //
 // htmlterm is not a browser sandbox or a general-purpose HTML sanitizer. It
 // renders to terminal output, where control sequences can affect display state
-// or create misleading hyperlinks. Document-provided text, CSS string content,
+// or create misleading hyperlinks. Input-provided text, CSS string content,
 // generated attribute content, custom markers, and hyperlink URLs are sanitized
 // before output. Renderer-generated ANSI styling and OSC 8 wrappers may still
 // be emitted intentionally.

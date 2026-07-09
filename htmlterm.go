@@ -1,12 +1,8 @@
 package htmlterm
 
 import (
-	"fmt"
-	"os"
-	"strings"
-
 	"github.com/charmbracelet/colorprofile"
-	"golang.org/x/net/html"
+	"github.com/client9/htmlterm/internal/render"
 )
 
 // SizeAutomatic is the zero value for Options.Width/Options.Height: track the
@@ -47,250 +43,33 @@ type Options struct {
 // A Renderer can be reused for multiple Render calls, including concurrent
 // calls. Per-document state is built fresh for each render.
 type Renderer struct {
-	rules               []rule
-	width               int
-	height              int
-	profile             colorprofile.Profile
-	ignoreDocumentCSS   bool
-	noOSC8Links         bool
-	maxBlankLines       int
-	stripHiddenInline   bool
-	counterMap          map[*html.Node]counterSnapshot // built fresh per Render call
-	quoteDepth          int                            // tracks open-quote nesting depth
-	nestedTableWidth    int                            // width hint for a table nested inside a cell currently being sized
-	nestedTableWidthSet bool                           // whether nestedTableWidth is active
-
-	// scrollOffsets holds the previous frame's per-element vertical scroll
-	// offsets (Document.scrollOffsets, read-only from this Renderer's
-	// perspective) — nil for a plain Renderer.Render call, which has no
-	// persistent Document to remember offsets across calls. liveScrollOffsets
-	// accumulates this frame's offsets (clamped, one entry per element that
-	// actually took the scroll/auto+resolved-height branch in
-	// renderBlockContentBox) — rebuilt fresh every render rather than mutating
-	// scrollOffsets in place, so an element that stops being a scroll
-	// container doesn't leave a stale entry behind. See SCROLLING.md.
-	scrollOffsets      map[*html.Node]int
-	liveScrollOffsets  map[*html.Node]int
-	liveScrollViewport map[*html.Node]scrollViewport
-
-	// liveContentOffsets generalizes liveScrollViewport's topOffset (the row
-	// shift from a block element's own border-box top down to its first
-	// content row — border-top plus padding-top, see renderBlockContentBox's
-	// rowShift) to every block element, not just scroll containers: one
-	// entry per node that went through renderBlockContentBox, rebuilt fresh
-	// every render. tcell_loop.go's focusCursorPos is the motivating
-	// consumer — placing a multi-line <textarea>'s cursor needs to know
-	// where its content actually starts within its own Rect (the full
-	// border box), which Rect alone can't say (see Rect's own doc comment).
-	liveContentOffsets map[*html.Node]int
+	engine *render.Engine
 }
-
-// uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
-const uaCSS = `
-table                   { display: table; }
-p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside { display: block; }
-dl, dt, dd, figure, figcaption  { display: block; }
-address, details, summary, caption, noscript { display: block; }
-address  { font-style: italic; }
-summary  { font-weight: bold; }
-caption  { text-align: center; }
-p                       { margin-bottom: 1; }
-h1, h2, h3, h4, h5, h6 { font-weight: bold; }
-th                      { font-weight: bold; }
-dt                      { font-weight: bold; }
-strong, b               { font-weight: bold; }
-em, i, dfn              { font-style: italic; }
-samp, var, cite, figcaption { font-style: italic; }
-a                       { text-decoration: underline; }
-u, ins                  { text-decoration: underline; }
-pre                     { white-space: pre; }
-ul, ol, menu            { padding-left: 4; }
-dd                      { padding-left: 4; }
-dl                      { margin-bottom: 1; }
-blockquote              { border-left: "│"; border-left-color: #555555; padding-left: 1; padding-right: 2; }
-s, del                  { text-decoration: line-through; }
-kbd                     { font-weight: bold; }
-mark                    { background-color: #cc9900; color: #000000; }
-small                   { color: #888888; }
-sup                     { text-transform: superscript; }
-sub                     { text-transform: subscript; }
-q::before               { content: open-quote; }
-q::after                { content: close-quote; }
-img::before             { content: attr(alt); }
-abbr[title]::after      { content: " (" attr(title) ")"; }
-hr                      { display: block; border-top: "─"; }
-form                    { display: block; }
-fieldset                { display: block; border-style: normal; padding: 1; margin-bottom: 1; }
-legend                  { display: block; font-weight: bold; }
-input, button           { display: inline-block; }
-textarea                { display: block; border-style: normal; padding-left: 1; padding-right: 1; }
-button::before          { content: "[ "; }
-button::after           { content: " ]"; }
-`
 
 // New parses opts.CSS and returns a Renderer.
 func New(opts Options) (*Renderer, error) {
-	rules, err := parseCSS(uaCSS + opts.CSS)
+	engine, err := render.New(renderOptions(opts))
 	if err != nil {
-		return nil, fmt.Errorf("htmlterm: %w", err)
+		return nil, err
 	}
-	profile := opts.Profile
-	if profile == 0 {
-		profile = colorprofile.Detect(os.Stdout, os.Environ())
-	}
-	return &Renderer{
-		rules:             rules,
-		width:             opts.Width,
-		height:            opts.Height,
-		profile:           profile,
-		ignoreDocumentCSS: opts.IgnoreDocumentCSS,
-		noOSC8Links:       opts.NoOSC8Links,
-		maxBlankLines:     opts.MaxBlankLines,
-		stripHiddenInline: opts.StripHiddenInline,
-	}, nil
+	return &Renderer{engine: engine}, nil
 }
 
 // Render parses htmlStr and returns a styled terminal string.
 func (r *Renderer) Render(htmlStr string) (string, error) {
-	doc, err := html.Parse(strings.NewReader(htmlStr))
-	if err != nil {
-		return "", fmt.Errorf("htmlterm: %w", err)
-	}
-	if r.stripHiddenInline {
-		stripHiddenInline(doc)
-	}
-	out, _ := r.renderTree(doc, r.documentRules(doc))
-	return out, nil
+	result, err := r.engine.RenderHTML(htmlStr)
+	return result.Output, err
 }
 
-// documentRules resolves the final rule set to render doc with: r.rules (the
-// UA stylesheet plus Options.CSS, already parsed once in New) plus any rules
-// found in doc's own <style> elements, unless IgnoreDocumentCSS is set. This
-// is a plain function of (r.rules, r.ignoreDocumentCSS, doc) with no side
-// effects, so callers that already know doc's <style> content can't have
-// changed since a previous call (Document.Render, since there is no public
-// API to mutate a <style> element's text or add/remove elements — see
-// Document's contentOffsets doc comment for the same reasoning applied
-// elsewhere) can cache its result across calls instead of re-extracting and
-// re-parsing every time.
-func (r *Renderer) documentRules(doc *html.Node) []rule {
-	if r.ignoreDocumentCSS {
-		return r.rules
-	}
-	extra := extractStyleRules(doc)
-	if len(extra) == 0 {
-		return r.rules
-	}
-	combined := make([]rule, len(r.rules)+len(extra))
-	copy(combined, r.rules)
-	copy(combined[len(r.rules):], extra)
-	return combined
-}
-
-// renderState bundles renderTree's supplementary, per-frame outputs beyond
-// the rendered string itself: the fully resolved (absolute, document-
-// coordinate) position map — the "propagated incrementally, one level at a
-// time" mechanism from RENDERING.md's Position tracking section, resolved
-// once the walk reaches this, the document root — plus the freshly built
-// scroll-offset, scroll-viewport, and content-offset maps (see
-// Renderer.scrollOffsets/liveScrollOffsets/liveScrollViewport/
-// liveContentOffsets). Document.Render installs every field of this as the
-// new Document state (positions/scrollOffsets/scrollViewport/
-// contentOffsets); Render discards the whole bundle in one place instead of
-// four separate blank identifiers.
-type renderState struct {
-	positions      map[*html.Node]Rect
-	scrollOffsets  map[*html.Node]int
-	scrollViewport map[*html.Node]scrollViewport
-	contentOffsets map[*html.Node]int
-}
-
-// renderTree renders an already-parsed document node against the given,
-// already-final rule set (see documentRules — this doesn't extract/combine
-// <style> rules itself, so a caller with a cached final set, like
-// Document.Render, can skip re-extracting them on every call), building
-// fresh per-document scratch state (counters) from r's configuration, the
-// same way Render does after parsing — so it can be reused against a tree
-// that didn't come from a fresh html.Parse call (see Document.Render).
-// Nothing here can actually fail — parsing (the only failure mode) already
-// happened before this is called — so there's no error return to thread
-// through.
-func (r *Renderer) renderTree(doc *html.Node, rules []rule) (string, renderState) {
-	rr := &Renderer{
-		rules:             rules,
-		width:             r.width,
-		height:            r.height,
-		profile:           r.profile,
-		ignoreDocumentCSS: r.ignoreDocumentCSS,
-		noOSC8Links:       r.noOSC8Links,
-		maxBlankLines:     r.maxBlankLines,
-		stripHiddenInline: r.stripHiddenInline,
-		scrollOffsets:     r.scrollOffsets,
-	}
-	rr.counterMap = rr.buildCounterMap(doc)
-	rr.quoteDepth = 0
-	tokens := rr.renderRootTokens(doc)
-	// A trailing brk means the document's last content ended with a
-	// structural writeNewline/margin call — the root's own terminating "\n"
-	// that box.join()'s "no trailing newline" convention doesn't otherwise
-	// produce (that convention exists for boxes embedded into a parent, not
-	// the document itself). Bare inline root content (e.g. "<span>hi</span>"
-	// with nothing else) ends in no brk and gets no trailing newline,
-	// matching that this has always rendered as "hi", not "hi\n".
-	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
-	b, positions := wordWrapTokens(tokens, rr.width, "", 0)
-	lines, rowRemap := capBlankRuns(b.lines, b.pre, rr.maxBlankLines)
-	if rr.maxBlankLines > 0 && len(positions) > 0 {
-		remapped := make(map[*html.Node]Rect, len(positions))
-		for n, rect := range positions {
-			if rect.Row >= 0 && rect.Row < len(rowRemap) {
-				rect.Row = rowRemap[rect.Row]
-			}
-			remapped[n] = rect
-		}
-		positions = remapped
-	}
-	// rr.height <= 0 covers both SizeNatural (-1, explicitly unconstrained)
-	// and an unresolved SizeAutomatic (0) — outside of Loop there's no
-	// terminal to resolve automatic sizing against, so it's inert here,
-	// same as natural. Unlike a per-element "height" (block.go), the root
-	// has no paired "overflow" declaration to gate clipping on: a fixed root
-	// height is a viewport constraint from the host, not CSS, so it always
-	// both pads short content and truncates tall content — what a
-	// non-scrolling terminal viewport needs (see forceHeight, box.go).
-	if rr.height > 0 {
-		lines = forceHeight(lines, rr.height)
-		// forceHeight truncates to the first rr.height rows (box.go), so any
-		// position past that row no longer corresponds to anything actually
-		// rendered — drop it, the same way the capBlankRuns remap above keeps
-		// positions in sync with removed rows instead of leaving Document.Rect
-		// pointing at content that isn't on screen (which previously let a
-		// focused/hit-tested element below the fold report a valid Rect —
-		// and Loop's full-screen model always sets rr.height to the real
-		// terminal height, so any document taller than the terminal hit this
-		// whenever focus landed below the fold).
-		if len(positions) > 0 {
-			visible := make(map[*html.Node]Rect, len(positions))
-			for n, rect := range positions {
-				if rect.Row >= 0 && rect.Row < rr.height {
-					visible[n] = rect
-				}
-			}
-			positions = visible
-		}
-	}
-	out := strings.Join(lines, "\n")
-	if trailingNewline {
-		out += "\n"
-	}
-	// A real &nbsp; HTML entity survives rendering as a distinct character
-	// (normalizeWhiteSpace/plainInlineText only touch plain ASCII space);
-	// normalize it to a plain space in the final string, since terminals
-	// don't distinguish breaking from non-breaking spaces.
-	return strings.ReplaceAll(out, nbsp, " "), renderState{
-		positions:      positions,
-		scrollOffsets:  rr.liveScrollOffsets,
-		scrollViewport: rr.liveScrollViewport,
-		contentOffsets: rr.liveContentOffsets,
+func renderOptions(opts Options) render.Options {
+	return render.Options{
+		CSS:               opts.CSS,
+		Width:             opts.Width,
+		Height:            opts.Height,
+		IgnoreDocumentCSS: opts.IgnoreDocumentCSS,
+		Profile:           opts.Profile,
+		NoOSC8Links:       opts.NoOSC8Links,
+		MaxBlankLines:     opts.MaxBlankLines,
+		StripHiddenInline: opts.StripHiddenInline,
 	}
 }
