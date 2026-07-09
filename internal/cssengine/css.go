@@ -263,6 +263,34 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-bottom": sides[2],
 			prop + "-left":   sides[3],
 		}
+	case "border":
+		// Positional, not type-detected like expandBackgroundShorthand: our
+		// border-style vocabulary includes "thick", which collides with real
+		// CSS's border-width keyword of the same name, so classifying tokens
+		// by content ("is this a style keyword?") is ambiguous for
+		// "border: thick solid red". Position is not: slot 0 in a 3-token
+		// value is always the (ignored) width, so "thick solid red" still
+		// resolves correctly regardless of the collision. The one gap this
+		// leaves is the 2-token "<width> <style>" form (no color, e.g.
+		// "border: 2px solid"), which has no positional slot and is silently
+		// dropped like any other unrecognized value - documented in CSS.md.
+		tokens := splitCSSComponentValues(val)
+		var styleTok, colorTok string
+		switch len(tokens) {
+		case 1:
+			styleTok = tokens[0]
+		case 2:
+			styleTok, colorTok = tokens[0], tokens[1]
+		case 3:
+			styleTok, colorTok = tokens[1], tokens[2]
+		default:
+			return map[string]string{prop: val}
+		}
+		result := map[string]string{"border-style": styleTok}
+		if colorTok != "" {
+			maps.Copy(result, expandShorthand("border-color", colorTok))
+		}
+		return result
 	case "border-color":
 		tokens := splitCSSComponentValues(val)
 		switch len(tokens) {

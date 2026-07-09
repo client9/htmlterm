@@ -68,6 +68,20 @@ func TestExpandShorthand(t *testing.T) {
 			"border-color": "rgb(255 0 0)", "border-top-color": "rgb(255 0 0)", "border-right-color": "rgb(255 0 0)", "border-bottom-color": "rgb(255 0 0)", "border-left-color": "rgb(255 0 0)",
 		}},
 		{name: "border-color invalid arity falls back", prop: "border-color", val: "red blue green yellow purple", want: map[string]string{"border-color": "red blue green yellow purple"}},
+		{name: "border one value is style only", prop: "border", val: "solid", want: map[string]string{"border-style": "solid"}},
+		{name: "border two values are style then color", prop: "border", val: "solid red", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border three values ignore leading width", prop: "border", val: "1px solid red", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border three values with keyword width matching a style name still resolves positionally", prop: "border", val: "thick solid red", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border functional color is not split on internal spaces", prop: "border", val: "solid rgb(255 0 0)", want: map[string]string{
+			"border-style": "solid", "border-color": "rgb(255 0 0)", "border-top-color": "rgb(255 0 0)", "border-right-color": "rgb(255 0 0)", "border-bottom-color": "rgb(255 0 0)", "border-left-color": "rgb(255 0 0)",
+		}},
+		{name: "border invalid arity falls back", prop: "border", val: "1px solid red extra", want: map[string]string{"border": "1px solid red extra"}},
 	}
 
 	for _, tc := range tests {

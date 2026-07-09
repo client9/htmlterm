@@ -15,6 +15,10 @@ func TestBorderStyleOnBlocks(t *testing.T) {
 		{name: "individual border-left overrides preset char", html: `<div style="border-style:solid; border-left:'▌'; width:100%">hi</div>`, width: 8, want: "┌──────┐\n▌hi    │\n└──────┘\n"},
 		{name: "border-style via CSS class", css: `.box { border-style: rounded; width: 100%; }`, html: `<div class="box">ok</div>`, width: 8, want: "╭──────╮\n│ok    │\n╰──────╯\n"},
 		{name: "border-width and per-edge widths are accepted no-ops", html: `<div style="border-style:solid; border-width:2px; border-top-width:1px; border-right-width:1px; border-bottom-width:1px; border-left-width:1px; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
+		{name: "border shorthand with style only", html: `<div style="border: rounded; width:100%">hi</div>`, width: 8, want: "╭──────╮\n│hi    │\n╰──────╯\n"},
+		{name: "border shorthand with style and color strips clean to box shape", html: `<div style="border: solid red; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
+		{name: "border shorthand with width style color ignores width", html: `<div style="border: 1px solid red; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
+		{name: "border shorthand two-value width-style form is unsupported and no-ops", html: `<div style="border: 2px solid; width:100%">hi</div>`, width: 8, want: "hi      \n"},
 	})
 }
 

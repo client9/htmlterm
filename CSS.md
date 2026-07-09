@@ -435,6 +435,32 @@ blockquote::after  { content: close-quote; }
 
 The UA stylesheet defines `q::before { content: open-quote; }` and `q::after { content: close-quote; }`, so `<q>` elements are quoted automatically using the inherited `quotes` value.
 
+#### `border`
+Shorthand for `border-style` plus `border-color` on the whole box (all four
+edges uniformly — there is no per-edge form of this shorthand; use the
+individual `border-top`/`border-right`/`border-bottom`/`border-left` and
+`border-*-color` longhands for that). Values are matched **positionally**,
+not by type, since this engine's `border-style` vocabulary includes `thick`,
+which collides with real CSS's `thick` border-width keyword — positional
+matching resolves `border: thick solid red` correctly regardless.
+
+| Values | Meaning |
+|--------|---------|
+| `<style>` | `border-style: <style>` |
+| `<style> <color>` | `border-style: <style>; border-color: <color>` |
+| `<width> <style> <color>` | `<width>` ignored; `border-style: <style>; border-color: <color>` |
+
+```css
+div { border: solid red; }        /* border-style: solid; border-color: red; */
+div { border: 1px solid red; }    /* same; "1px" is ignored */
+```
+
+**Not supported: the two-value `<width> <style>` form** (e.g. `border: 2px
+solid;`, no color) — with no positional color slot to detect its absence,
+this is indistinguishable from the two-value `<style> <color>` form and is
+silently dropped like any other unrecognized value. Set `border-style`
+directly instead. Not inherited.
+
 #### `border-style`
 `solid` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
 
