@@ -176,14 +176,31 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
-	case "inline-block":
+	case "flex":
+		if mt := parseMargin(decls["margin-top"]); mt > 0 && hasContent(tokens) {
+			tokens = ensureBreaks(tokens, mt+1)
+		}
+		savedDepth := r.quoteDepth
+		bx, subPositions := r.renderFlexContentBox(n, decls, r.width)
+		if decls["visibility"] == "hidden" {
+			r.quoteDepth = savedDepth
+			bx = blankVisibleContentBox(bx)
+		}
+		bx = r.wrapHyperlinkBox(href, bx)
+		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
+		tokens = append(tokens, wrapToken{brk: true})
+		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
+	case "inline-block", "inline-flex":
 		acc := extractInlineStyle(decls)
 		savedDepth := r.quoteDepth
 		var inner string
-		if n.Data == "input" {
+		switch {
+		case n.Data == "input":
 			// <input> has no children — see inline.go's nested case for why.
 			inner = inputDisplayText(n)
-		} else {
+		case decls["display"] == "inline-flex":
+			inner = r.renderInlineFlexContent(n, decls, r.width)
+		default:
 			inner = r.renderInlineAcc(n, acc, r.width)
 		}
 		if colWidth, constrained := resolveWidthConstraints(decls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {

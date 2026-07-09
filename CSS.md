@@ -192,7 +192,7 @@ These apply to any matched element and control text rendering.
 `normal` / `none` values explicitly cancel an inherited value.
 
 #### `display`
-`block` | `inline` | `inline-block` | `table` | `contents` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `table` uses htmlterm's table renderer when set on a `<table>` element. `contents` makes the element itself generate no box at all — see below. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements (`section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search`) default to `block`; all others default to `inline`.
+`block` | `inline` | `inline-block` | `flex` | `inline-flex` | `table` | `contents` | `none`. Controls layout. `block` emits a newline after content and respects `margin-top`/`margin-bottom`. `inline` renders with no newline. `inline-block` is like `inline` but respects `width`. `flex`/`inline-flex` lay out direct element children as a flex container — see [Flexbox](#flexbox) below. `table` uses htmlterm's table renderer when set on a `<table>` element. `contents` makes the element itself generate no box at all — see below. `none` hides the element and all its children. Not inherited. Defaults: `table` defaults to `table`; `p`, `h1`–`h6`, `blockquote`, `pre`, `div`, and common HTML5 sectioning elements (`section`, `article`, `aside`, `header`, `footer`, `main`, `nav`, `hgroup`, `search`) default to `block`; all others default to `inline`.
 
 **`display: contents`** is for semantic wrappers that should be invisible to
 layout: the element generates no box of its own — no margin, padding,
@@ -636,6 +636,114 @@ produces a two-digit-wide column for items 9 and 10).
 
 ---
 
+## Flexbox
+
+`display: flex` and `display: inline-flex` lay out an element's direct
+element children as flex items. This is a deliberately small subset aimed at
+simple single-row and single-column layouts, not full CSS Flexbox — see "Not
+supported" below for the gaps.
+
+Text nodes directly inside a flex container are not rendered as flex items
+(wrap loose text in a `<span>` to include it); a child with `display: none`
+is skipped, same as normal flow. Every other direct element child is
+blockified into a flex item regardless of its own `display` value (matching
+real CSS) — a `<button>` or `<span>` child lays out exactly like a `<div>`
+child would.
+
+#### `flex-direction`
+`row` (default) | `column`. `row` places items left to right (main axis =
+columns, cross axis = lines); `column` stacks items top to bottom (main axis
+= lines, cross axis = columns). Not inherited.
+
+#### `justify-content`
+`flex-start` (default) | `flex-end` | `center` | `space-between` |
+`space-around`. Distributes leftover main-axis space among items — only
+meaningful in `row` direction: `column` direction has no explicit
+main-axis (height) distribution pass in this subset (see "Not supported"),
+so `justify-content` has no effect there. "Leftover space" is whatever's left
+after `flex-grow` has already absorbed what it can — if any item can grow,
+`justify-content` typically has nothing left to distribute. Not inherited.
+
+#### `align-items`
+`stretch` (default) | `flex-start` | `center` | `flex-end`. Aligns items on
+the cross axis. In `row` direction (cross axis = vertical), `stretch` and
+`flex-start` both align content to the top of the row — this engine has no
+way to stretch text content itself, so `stretch` is approximated by padding
+a shorter item with blank lines up to the row's tallest item, which is
+visually equivalent to a real stretched box with blank interior. In `column`
+direction (cross axis = horizontal), `stretch` fills the container's full
+width (the default for any block-level child); `flex-start`/`center`/
+`flex-end` instead size the item to its own `width` or natural content width
+and align it within the container. `baseline` is not supported (falls back
+to `flex-start`). Not inherited.
+
+#### `gap`, `row-gap`, `column-gap`
+`gap` is shorthand for `row-gap`/`column-gap`: one value sets both, two set
+`row-gap` then `column-gap`. `column-gap` inserts blank columns between items
+in `row` direction; `row-gap` inserts blank lines between items in `column`
+direction (a container's cross-axis gap property has no effect — there's
+only ever one row/column of items in this subset). Absolute rune counts only
+(e.g. `gap: 2`); percentage gaps are not supported. Not inherited.
+
+#### `flex-grow`
+`<number>` (default `0`). In `row` direction, distributes leftover main-axis
+space (after every item's `flex-basis` is resolved) proportionally by
+weight. In `column` direction it currently has no effect (see "Not
+supported"). Negative values are treated as `0`. Not inherited.
+
+#### `flex-basis`
+`auto` (default) | `<integer>` | `<N%>`. An item's starting main-axis size in
+`row` direction, before `flex-grow` distributes any leftover space. `auto`
+falls back to the item's own `width` if set, else its measured natural
+content width. Percentages resolve against the container's content width.
+Has no effect in `column` direction (main-axis sizing there is just each
+item's natural block height). Not inherited.
+
+#### `flex-shrink`
+`<number>` (default `1`). Parsed (including via the `flex` shorthand) but
+**not applied** — items are never shrunk below their resolved `flex-basis`;
+a `row` whose items overflow the container's width is simply allowed to
+overflow. Not inherited.
+
+#### `flex`
+Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
+
+| Value | Expansion |
+|-------|-----------|
+| `none` | `flex-grow: 0; flex-shrink: 0; flex-basis: auto` |
+| `auto` | `flex-grow: 1; flex-shrink: 1; flex-basis: auto` |
+| `initial` | `flex-grow: 0; flex-shrink: 1; flex-basis: auto` |
+| `<number>` | `flex-grow: <number>; flex-shrink: 1; flex-basis: 0` (the common `flex: 1` equal-growth pattern) |
+| `<number> <number>` | grow, shrink; `flex-basis: 0` |
+| `<number> <basis>` | grow, `flex-basis: <basis>`; `flex-shrink: 1` |
+| `<number> <number> <basis>` | grow, shrink, basis |
+
+```css
+/* three equal-width columns that fill the row */
+.row { display: flex; width: 100%; gap: 1; }
+.col { flex: 1; }
+```
+
+#### Not supported
+
+- **`flex-wrap`** — items never wrap to multiple lines; a `row` that doesn't
+  fit simply overflows.
+- **`align-content`** — meaningless without wrapping.
+- **`align-self`** — no per-item cross-axis override; every item follows the
+  container's `align-items`.
+- **`order`** — items always lay out in source order.
+- **`row-reverse` / `column-reverse`** — not recognized (falls back to
+  `row`/`column`).
+- **`flex-shrink`** — parsed but never applied; see above.
+- **Main-axis distribution in `column` direction** — `flex-grow` and
+  `justify-content` require an explicit main-axis (height) size to
+  distribute into, and this engine has no notion of an explicit flex
+  container height; `column`-direction items simply stack with `row-gap`
+  between them.
+- **`baseline`** alignment — falls back to `flex-start`.
+
+---
+
 ## Size Values
 
 Wherever one of these sizing declarations is accepted (`width`, `min-width`,
@@ -864,7 +972,8 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `@font-face`, `@keyframes`, or any other at-rules
 - Pseudo-classes and pseudo-elements
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
-- `display: flex`, `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `table`, `contents`, and `none` — not yet implemented, not a permanent boundary; see `SCROLLING.md`'s "Flexbox" section for the planned design direction
-- `flex`, `grid`, or positioned layout — same as above
+- `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
+- `flex-wrap`, `align-content`, `align-self`, `order`, `row-reverse`/`column-reverse`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
+- `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-spacing` / cell padding (column separator is always a single character)

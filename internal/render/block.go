@@ -187,26 +187,23 @@ func parseMargin(s string) int {
 	return n
 }
 
-// renderBlockContentBox renders the styled, bordered, and margined content of
-// a block element. It preserves the exact operation order of the original
-// string implementation (border
-// resolution → margin/padding resolution → clampCellPadding → inline content
-// → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
-// height padding → text-indent → vertical padding → horizontal padding →
-// borders → top/bottom rules → margins → visibility:hidden blanking, last).
-func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
+// resolveBoxBorders resolves the four border edges (glyph, color) and corner
+// overrides for a block-level box from decls — shared by renderBlockContentBox
+// and renderFlexContentBox (flex.go) so both box models pick up
+// border-style/border-*-color/border-*-corner consistently.
+func resolveBoxBorders(decls map[string]string) (bl, br, bt, bb blockBorder, tlCorner, trCorner, blCorner, brCorner string) {
 	blChar, blPresent := resolveBorderEdgeChar(decls["border-left"], edgeGlyphLeft)
 	brChar, brPresent := resolveBorderEdgeChar(decls["border-right"], edgeGlyphRight)
 	btChar, btPresent := resolveBorderEdgeChar(decls["border-top"], edgeGlyphTop)
 	bbChar, bbPresent := resolveBorderEdgeChar(decls["border-bottom"], edgeGlyphBottom)
-	bl := blockBorder{char: blChar, color: decls["border-left-color"]}
-	br := blockBorder{char: brChar, color: decls["border-right-color"]}
-	bt := blockBorder{char: btChar, color: decls["border-top-color"]}
-	bb := blockBorder{char: bbChar, color: decls["border-bottom-color"]}
-	tlCorner := parseCSSString(decls["border-top-left-corner"])
-	trCorner := parseCSSString(decls["border-top-right-corner"])
-	blCorner := parseCSSString(decls["border-bottom-left-corner"])
-	brCorner := parseCSSString(decls["border-bottom-right-corner"])
+	bl = blockBorder{char: blChar, color: decls["border-left-color"]}
+	br = blockBorder{char: brChar, color: decls["border-right-color"]}
+	bt = blockBorder{char: btChar, color: decls["border-top-color"]}
+	bb = blockBorder{char: bbChar, color: decls["border-bottom-color"]}
+	tlCorner = parseCSSString(decls["border-top-left-corner"])
+	trCorner = parseCSSString(decls["border-top-right-corner"])
+	blCorner = parseCSSString(decls["border-bottom-left-corner"])
+	brCorner = parseCSSString(decls["border-bottom-right-corner"])
 	if styleVal := decls["border-style"]; styleVal != "" {
 		if ts, ok := namedTableStyle(styleVal); ok {
 			if !blPresent {
@@ -253,6 +250,18 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			}
 		}
 	}
+	return bl, br, bt, bb, tlCorner, trCorner, blCorner, brCorner
+}
+
+// renderBlockContentBox renders the styled, bordered, and margined content of
+// a block element. It preserves the exact operation order of the original
+// string implementation (border
+// resolution → margin/padding resolution → clampCellPadding → inline content
+// → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
+// height padding → text-indent → vertical padding → horizontal padding →
+// borders → top/bottom rules → margins → visibility:hidden blanking, last).
+func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
+	bl, br, bt, bb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(decls)
 	ml, mlAuto := resolveMarginSide(decls["margin-left"], availWidth)
 	mr, mrAuto := resolveMarginSide(decls["margin-right"], availWidth)
 	pl := parsePaddingLen(decls["padding-left"])
@@ -661,7 +670,8 @@ func (r *Engine) firstContentIsInline(n *html.Node) bool {
 			continue
 		}
 		if c.Type == html.ElementNode {
-			return r.resolveDecls(c)["display"] != "block"
+			display := r.resolveDecls(c)["display"]
+			return display != "block" && display != "flex"
 		}
 	}
 	return false

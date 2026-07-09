@@ -90,6 +90,18 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "border-left functional color is not split on internal spaces", prop: "border-left", val: "solid rgb(255 0 0)", want: map[string]string{"border-left": "solid", "border-left-color": "rgb(255 0 0)"}},
 		{name: "border-right invalid arity falls back", prop: "border-right", val: "1px solid red extra", want: map[string]string{"border-right": "1px solid red extra"}},
 		{name: "border-bottom one value is style only", prop: "border-bottom", val: "double", want: map[string]string{"border-bottom": "double"}},
+		{name: "gap one value sets both axes", prop: "gap", val: "2", want: map[string]string{"row-gap": "2", "column-gap": "2"}},
+		{name: "gap two values set row then column", prop: "gap", val: "1 2", want: map[string]string{"row-gap": "1", "column-gap": "2"}},
+		{name: "gap invalid arity falls back", prop: "gap", val: "1 2 3", want: map[string]string{"gap": "1 2 3"}},
+		{name: "flex none sets no grow no shrink auto basis", prop: "flex", val: "none", want: map[string]string{"flex-grow": "0", "flex-shrink": "0", "flex-basis": "auto"}},
+		{name: "flex auto sets grow and shrink to 1 with auto basis", prop: "flex", val: "auto", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}},
+		{name: "flex initial sets no grow, shrink 1, auto basis", prop: "flex", val: "initial", want: map[string]string{"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto"}},
+		{name: "flex single number sets grow with zero basis", prop: "flex", val: "2", want: map[string]string{"flex-grow": "2", "flex-shrink": "1", "flex-basis": "0"}},
+		{name: "flex single basis value with no number", prop: "flex", val: "30%", want: map[string]string{"flex-basis": "30%"}},
+		{name: "flex two numbers are grow then shrink with zero basis", prop: "flex", val: "1 2", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "0"}},
+		{name: "flex number then basis defaults shrink to 1", prop: "flex", val: "1 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
+		{name: "flex three values are grow shrink basis", prop: "flex", val: "1 2 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
+		{name: "flex invalid arity falls back", prop: "flex", val: "1 2 3 4", want: map[string]string{"flex": "1 2 3 4"}},
 	}
 
 	for _, tc := range tests {

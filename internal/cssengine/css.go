@@ -3,6 +3,7 @@ package cssengine
 import (
 	"io"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/mazznoer/csscolorparser"
@@ -364,6 +365,18 @@ func expandShorthand(prop, val string) map[string]string {
 		return expandListStyleShorthand(val)
 	case "background":
 		return expandBackgroundShorthand(val)
+	case "gap":
+		tokens := strings.Fields(val)
+		switch len(tokens) {
+		case 1:
+			return map[string]string{"row-gap": tokens[0], "column-gap": tokens[0]}
+		case 2:
+			return map[string]string{"row-gap": tokens[0], "column-gap": tokens[1]}
+		default:
+			return map[string]string{prop: val}
+		}
+	case "flex":
+		return expandFlexShorthand(val)
 	case "margin-block-start":
 		return map[string]string{"margin-top": val}
 	case "margin-block-end":
@@ -392,6 +405,48 @@ func expandBackgroundShorthand(val string) map[string]string {
 		}
 	}
 	return map[string]string{}
+}
+
+// expandFlexShorthand expands the `flex` shorthand into flex-grow,
+// flex-shrink, and flex-basis longhands, per the CSS grammar: `none` (0 0
+// auto), `auto` (1 1 auto), a single number (that number's flex-grow, with
+// flex-shrink 1 and flex-basis 0 — the common `flex: 1` equal-growth
+// pattern), a number followed by a second number (grow shrink, basis 0), a
+// number followed by a non-numeric token (grow basis, shrink 1), or the full
+// three-token grow/shrink/basis form. flex-shrink is expanded like any other
+// longhand but htmlterm's renderer does not yet apply it (items are never
+// shrunk below their resolved basis) — see CSS.md's Flexbox section.
+func expandFlexShorthand(val string) map[string]string {
+	tokens := strings.Fields(val)
+	switch strings.ToLower(val) {
+	case "none":
+		return map[string]string{"flex-grow": "0", "flex-shrink": "0", "flex-basis": "auto"}
+	case "auto":
+		return map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}
+	case "initial":
+		return map[string]string{"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto"}
+	}
+	switch len(tokens) {
+	case 1:
+		if isCSSNumberToken(tokens[0]) {
+			return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": "0"}
+		}
+		return map[string]string{"flex-basis": tokens[0]}
+	case 2:
+		if isCSSNumberToken(tokens[1]) {
+			return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": "0"}
+		}
+		return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": tokens[1]}
+	case 3:
+		return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": tokens[2]}
+	default:
+		return map[string]string{"flex": val}
+	}
+}
+
+func isCSSNumberToken(s string) bool {
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
 }
 
 func expandListStyleShorthand(val string) map[string]string {

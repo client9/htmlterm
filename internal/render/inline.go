@@ -176,6 +176,15 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				}
 				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
 				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+			case "flex":
+				savedDepth := r.quoteDepth
+				bx, subPositions := r.renderFlexContentBox(c, childDecls, availWidth)
+				if childDecls["visibility"] == "hidden" {
+					r.quoteDepth = savedDepth
+					bx = blankVisibleContentBox(bx)
+				}
+				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
+				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
 			case "contents":
 				// The element generates no box of its own (no margin/
 				// padding/border/background, no forced line break); its
@@ -196,26 +205,30 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				}
 				tokens = append(tokens, childTokens...)
 			default:
-				if display == "inline-block" || c.Data == "a" {
+				if display == "inline-block" || display == "inline-flex" || c.Data == "a" {
 					// inline-block (including <input>, always inline-block
-					// per the UA stylesheet) and <a> stay string-based: an
-					// inline-block's content is deliberately one atomic
-					// unit regardless of what's inside it, and a hyperlink
-					// needs whole-string OSC8 wrapping — neither is worth
-					// the complexity of a token-level equivalent given
-					// how rarely either wraps further trackable
-					// descendants (e.g. a second form control) in
-					// practice. This is an accepted position-tracking gap
-					// for that specific, uncommon combination.
+					// per the UA stylesheet), inline-flex, and <a> stay
+					// string-based: an inline-block/inline-flex's content is
+					// deliberately one atomic unit regardless of what's
+					// inside it, and a hyperlink needs whole-string OSC8
+					// wrapping — neither is worth the complexity of a
+					// token-level equivalent given how rarely either wraps
+					// further trackable descendants (e.g. a second form
+					// control) in practice. This is an accepted
+					// position-tracking gap for that specific, uncommon
+					// combination.
 					childAcc := mergeInlineStyle(acc, childDecls)
 					savedDepth := r.quoteDepth
 					var inner string
-					if c.Data == "input" {
+					switch {
+					case c.Data == "input":
 						// <input> has no children — its visual content is
 						// synthesized from attributes (type/value/placeholder/
 						// checked), not rendered from child nodes.
 						inner = inputDisplayText(c)
-					} else {
+					case display == "inline-flex":
+						inner = r.renderInlineFlexContent(c, childDecls, availWidth)
+					default:
 						// TrimSuffix (at most one "\n"): a nested recursive
 						// call whose own last child was block-ish (e.g. an
 						// implicit <tbody> wrapping <tr>) can end in a
@@ -228,7 +241,7 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 						// real trailing blank line (e.g. from padding-bottom).
 						inner = strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
 					}
-					if display == "inline-block" {
+					if display == "inline-block" || display == "inline-flex" {
 						if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
 							inner = padLinesToWidth(inner, colWidth)
 						}
@@ -243,7 +256,7 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 					switch {
 					case inner == "":
 						// nothing to add
-					case display == "inline-block" || strings.Contains(inner, "\n"):
+					case display == "inline-block" || display == "inline-flex" || strings.Contains(inner, "\n"):
 						bx := newBox(inner)
 						tokens = append(tokens, wrapToken{box: &bx, node: c})
 					default:

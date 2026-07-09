@@ -325,6 +325,37 @@ func TestDocumentRectBlockElement(t *testing.T) {
 	}
 }
 
+func TestDocumentRectFlexItems(t *testing.T) {
+	// Flex items are laid out via internal/render's own row-composition pass
+	// (not wordWrapTokens), so each item's own Rect has to be recorded
+	// explicitly by that pass — this pins that it actually is.
+	doc, err := document.ParseDocument(
+		`<div style="display:flex;width:100%;gap:2"><button id="a">A</button><button id="b">B</button></div>`,
+		htmlterm.Options{Width: 20},
+	)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	rectA, ok := doc.Rect(doc.GetElementByID("a"))
+	if !ok {
+		t.Fatal("Rect(a) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 0, Col: 0, Width: 5, Height: 1}); rectA != want { // "[ A ]"
+		t.Errorf("Rect(a) = %+v, want %+v (rendered: %q)", rectA, want, out)
+	}
+	rectB, ok := doc.Rect(doc.GetElementByID("b"))
+	if !ok {
+		t.Fatal("Rect(b) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 0, Col: 7, Width: 5, Height: 1}); rectB != want { // gap:2 after "[ A ]"
+		t.Errorf("Rect(b) = %+v, want %+v (rendered: %q)", rectB, want, out)
+	}
+}
+
 func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	// The realistic pattern this feature exists for: an <input> wrapped in
 	// a <label>, a plain inline (non-inline-block, non-anchor) element —
