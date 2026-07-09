@@ -3,8 +3,9 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
-	"github.com/client9/htmlterm"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -46,8 +47,9 @@ func paintLines(screen tcell.Screen, lines []string) {
 
 // writeANSILine decodes one already-rendered ANSI line into cells starting
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
-// walks left to right — reusing htmlterm.ConsumeANSI to tokenize each
-// escape sequence, the same way htmlterm's own ansiCarry does. Column position advances by
+// walks left to right — reusing x/ansi's decoder (consumeANSI, below) to
+// tokenize each escape sequence, the same way htmlterm's own ansiCarry
+// does internally. Column position advances by
 // exactly one per visible rune, matching ansiVisibleLen/wordWrapTokens'
 // existing (width-1-per-rune) column accounting: htmlterm's layout engine
 // does not currently measure double-width East Asian/emoji characters as
@@ -68,7 +70,7 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	i := 0
 	for i < len(runes) && col < width {
 		if runes[i] == '\x1b' {
-			end := htmlterm.ConsumeANSI(runes, i)
+			end := consumeANSI(runes, i)
 			applySequence(&state, string(runes[i:end]), nextLinkID)
 			i = end
 			continue
@@ -80,6 +82,24 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	for ; col < width; col++ {
 		screen.SetContent(col, row, ' ', nil, tcell.StyleDefault)
 	}
+}
+
+// consumeANSI returns the index just past the escape sequence starting at
+// runes[i] (runes[i] must be '\x1b'), delegating to x/ansi's decoder rather
+// than hand-rolling CSI/OSC recognition — the same approach internal/render
+// takes for its own copy of this helper. runes[i:] is re-encoded to a string
+// because the decoder works in bytes, and the consumed byte count is
+// converted back to a rune count since writeANSILine indexes into a []rune.
+func consumeANSI(runes []rune, i int) int {
+	if i >= len(runes) || runes[i] != '\x1b' {
+		return i + 1
+	}
+	s := string(runes[i:])
+	_, _, n, _ := ansi.DecodeSequence(s, ansi.NormalState, nil)
+	if n <= 0 {
+		return i + 1
+	}
+	return i + utf8.RuneCountInString(s[:n])
 }
 
 // applySequence classifies one fully-extracted escape sequence (as produced

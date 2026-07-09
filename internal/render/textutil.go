@@ -209,7 +209,7 @@ func (c ansiCarry) openSeq() string {
 }
 
 // apply classifies one fully-extracted escape sequence (as produced by
-// ConsumeANSI) and updates the carry: an SGR sequence (CSI ... 'm') with
+// consumeANSI) and updates the carry: an SGR sequence (CSI ... 'm') with
 // empty/"0" params clears the active SGR span, any other SGR sequence
 // replaces it; an OSC8 sequence with an empty URI clears the active
 // hyperlink span, any other OSC8 sequence replaces it. Anything else is
@@ -241,7 +241,7 @@ func (c *ansiCarry) apply(seq string) {
 }
 
 // scan walks s in order, updating the carry for every escape sequence it
-// contains (reusing ConsumeANSI's recognizer).
+// contains (reusing consumeANSI's recognizer).
 func (c *ansiCarry) scan(s string) {
 	if !strings.ContainsRune(s, '\x1b') {
 		return
@@ -250,7 +250,7 @@ func (c *ansiCarry) scan(s string) {
 	i := 0
 	for i < len(runes) {
 		if runes[i] == '\x1b' {
-			end := ConsumeANSI(runes, i)
+			end := consumeANSI(runes, i)
 			c.apply(string(runes[i:end]))
 			i = end
 			continue
@@ -289,7 +289,7 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 	for i < len(runes) {
 		ch := runes[i]
 		if ch == '\x1b' {
-			j := ConsumeANSI(runes, i)
+			j := consumeANSI(runes, i)
 			seq := string(runes[i:j])
 			cur.WriteString(seq)
 			carry.apply(seq)
@@ -350,7 +350,7 @@ func spliceColumns(line string, col, width int, replacement string) string {
 	// closed cleanly right before replacement.
 	for i < len(runes) && visCol < col {
 		if runes[i] == '\x1b' {
-			j := ConsumeANSI(runes, i)
+			j := consumeANSI(runes, i)
 			seq := string(runes[i:j])
 			out.WriteString(seq)
 			carry.apply(seq)
@@ -378,7 +378,7 @@ func spliceColumns(line string, col, width int, replacement string) string {
 	skipEnd := col + width
 	for i < len(runes) && visCol < skipEnd {
 		if runes[i] == '\x1b' {
-			j := ConsumeANSI(runes, i)
+			j := consumeANSI(runes, i)
 			carry.apply(string(runes[i:j]))
 			i = j
 			continue
@@ -583,7 +583,7 @@ func trimOneTrailingVisibleSpace(s string) (trimmed string, ok bool) {
 	lastVisible := -1
 	for i := 0; i < len(runes); {
 		if runes[i] == '\x1b' {
-			i = ConsumeANSI(runes, i)
+			i = consumeANSI(runes, i)
 			continue
 		}
 		lastVisible = i
@@ -622,7 +622,7 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 	i := 0
 	for i < len(runes) && visible < width {
 		if runes[i] == '\x1b' {
-			next := ConsumeANSI(runes, i)
+			next := consumeANSI(runes, i)
 			b.WriteString(string(runes[i:next]))
 			i = next
 			continue
@@ -636,58 +636,31 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 			i++
 			continue
 		}
-		next := ConsumeANSI(runes, i)
+		next := consumeANSI(runes, i)
 		b.WriteString(string(runes[i:next]))
 		i = next
 	}
 	return b.String()
 }
 
-// ConsumeANSI returns the index just past the escape sequence starting at
-// runes[i] (runes[i] must be '\x1b'), recognizing CSI ("\x1b[...letter") and
-// OSC ("\x1b]...BEL or ST") forms — the same recognizer every ANSI-aware
-// helper in this package (wordWrapANSI, ansiVisibleLen, stripANSI, the
-// ansiCarry state machine) tokenizes escape sequences with. Exported so a
-// consumer decoding htmlterm's own rendered ANSI output back into another
-// representation (e.g. tui's cell-bridge, painting cells into a
-// tcell.Screen) can tokenize with the exact same rules the renderer used to
-// produce it, rather than maintaining a second, potentially drifting
-// implementation.
-func ConsumeANSI(runes []rune, i int) int {
+// consumeANSI returns the index just past the escape sequence starting at
+// runes[i] (runes[i] must be '\x1b') — the same recognizer every ANSI-aware
+// helper in this package (wordWrapANSI, ansiVisibleLen, the ansiCarry state
+// machine) tokenizes escape sequences with. Delegates to x/ansi's decoder
+// rather than hand-rolling CSI/OSC recognition a second time; runes[i:] is
+// re-encoded to a string because the decoder works in bytes, and the
+// consumed byte count is converted back to a rune count since every caller
+// here indexes into a []rune.
+func consumeANSI(runes []rune, i int) int {
 	if i >= len(runes) || runes[i] != '\x1b' {
 		return i + 1
 	}
-	i++
-	if i >= len(runes) {
-		return i
+	s := string(runes[i:])
+	_, _, n, _ := ansi.DecodeSequence(s, ansi.NormalState, nil)
+	if n <= 0 {
+		return i + 1
 	}
-	next := runes[i]
-	i++
-	switch next {
-	case '[':
-		for i < len(runes) && (runes[i] < 0x40 || runes[i] > 0x7e) {
-			i++
-		}
-		if i < len(runes) {
-			i++
-		}
-	case ']':
-		prev := next
-		for i < len(runes) {
-			ch := runes[i]
-			i++
-			if (prev == '\x1b' && ch == '\\') || ch == '\a' {
-				break
-			}
-			prev = ch
-		}
-	default:
-		for i < len(runes) && next < 0x40 {
-			next = runes[i]
-			i++
-		}
-	}
-	return i
+	return i + utf8.RuneCountInString(s[:n])
 }
 
 func plainInlineText(s string) string {
