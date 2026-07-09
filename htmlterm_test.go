@@ -125,6 +125,27 @@ func TestIgnoreDocumentCSS(t *testing.T) {
 	}
 }
 
+func TestOptionsStylesheets(t *testing.T) {
+	// Cascade order is CSS then Stylesheets in order, same as a page
+	// stylesheet followed by however many <link> sheets it loads — later
+	// same-specificity declarations win.
+	r, err := htmlterm.New(htmlterm.Options{
+		Width:       40,
+		CSS:         `p { text-transform: uppercase; }`,
+		Stylesheets: []string{`p { text-transform: none; }`, `p { text-transform: capitalize; }`},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p>hi there</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "Hi There\n\n"; stripANSI(got) != want {
+		t.Errorf("Stylesheets order not respected: got %q, want %q", stripANSI(got), want)
+	}
+}
+
 func TestStripHiddenInline(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{
 		Width:             40,

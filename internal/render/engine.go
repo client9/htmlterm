@@ -14,6 +14,7 @@ import (
 // type is converted to this type by the root package facade.
 type Options struct {
 	CSS               string
+	Stylesheets       []string
 	Width             int
 	Height            int
 	IgnoreDocumentCSS bool
@@ -71,11 +72,36 @@ type Result struct {
 	ContentOffsets map[*html.Node]int
 }
 
-// New parses opts.CSS and returns a reusable render engine.
+// New parses opts.CSS/opts.Stylesheets and returns a reusable render engine.
+//
+// Cascade order (lowest priority first): the built-in default stylesheet
+// (DefaultStylesheet), opts.CSS, then each of opts.Stylesheets in order —
+// mirroring how a page's own stylesheet is followed by however many <link>
+// sheets it loads. Document <style> elements and inline style= attributes
+// are layered on top of all of these at render time (see DocumentRules and
+// cssengine.Cascade).
 func New(opts Options) (*Engine, error) {
-	rules, err := cssengine.ParseStylesheet(uaCSS + opts.CSS)
-	if err != nil {
-		return nil, fmt.Errorf("htmlterm: %w", err)
+	var rules []cssengine.Rule
+	addSheet := func(label, src string) error {
+		parsed, err := cssengine.ParseStylesheet(src)
+		if err != nil {
+			return fmt.Errorf("htmlterm: %s: %w", label, err)
+		}
+		rules = append(rules, parsed...)
+		return nil
+	}
+	if err := addSheet("default stylesheet", DefaultStylesheet); err != nil {
+		return nil, err
+	}
+	if opts.CSS != "" {
+		if err := addSheet("Options.CSS", opts.CSS); err != nil {
+			return nil, err
+		}
+	}
+	for i, sheet := range opts.Stylesheets {
+		if err := addSheet(fmt.Sprintf("Options.Stylesheets[%d]", i), sheet); err != nil {
+			return nil, err
+		}
 	}
 	profile := opts.Profile
 	if profile == 0 {
@@ -199,8 +225,10 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	}
 }
 
-// uaCSS is the built-in default stylesheet (lowest priority — user CSS overrides it).
-const uaCSS = `
+// DefaultStylesheet is the built-in default stylesheet (lowest priority —
+// Options.CSS and Options.Stylesheets are layered above it). Re-exported by
+// the root package as htmlterm.DefaultStylesheet.
+const DefaultStylesheet = `
 table                   { display: table; }
 [hidden], [aria-hidden=true] { display: none; }
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside, hgroup, search { display: block; }

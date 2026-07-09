@@ -107,6 +107,7 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 func renderOptions(opts Options) render.Options {
 	return render.Options{
 		CSS:               opts.CSS,
+		Stylesheets:       opts.Stylesheets,
 		Width:             opts.Width,
 		Height:            opts.Height,
 		IgnoreDocumentCSS: opts.IgnoreDocumentCSS,

@@ -79,7 +79,8 @@ The public API is intentionally small:
 
 ```go
 type Options struct {
-    CSS               string               // additional stylesheet layered above built-in UA defaults
+    CSS               string               // additional stylesheet layered above built-in defaults (htmlterm.DefaultStylesheet)
+    Stylesheets       []string             // additional stylesheets, layered above CSS in order, like a page's own <link> stylesheets
     Width             int                  // terminal column count; affects wrapping, tables, percentage widths
     Height            int                  // content-box line count the whole document is clipped/padded to; see "Sizing and resize" below
     IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
@@ -117,14 +118,23 @@ with either setting.
 
 Styles are applied in this order, lowest to highest priority:
 
-1. Built-in user-agent stylesheet
+1. Built-in default stylesheet (`htmlterm.DefaultStylesheet`)
 2. `Options.CSS`
-3. `<style>` elements in the HTML
-4. Inline `style=""` attributes
+3. `Options.Stylesheets`, in order
+4. `<style>` elements in the HTML
+5. Inline `style=""` attributes
 
-Steps 3 and 4 are both suppressed by `Options.IgnoreDocumentCSS`.
+Steps 4 and 5 are both suppressed by `Options.IgnoreDocumentCSS`.
 
 Higher specificity wins within a given layer; later rules win on ties.
+
+`Options.Stylesheets` exists for callers assembling several independent
+stylesheets (e.g. loaded from separate files or `go:embed` entries) that
+should cascade in a fixed order, the way a page's own stylesheet is followed
+by however many `<link>` sheets it loads — `Options.CSS` remains the place
+for a single combined stylesheet. `htmlterm.DefaultStylesheet` is exported so
+callers can inspect or diff their own stylesheet against the built-in
+baseline.
 
 ## Interactive documents
 

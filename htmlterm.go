@@ -26,9 +26,15 @@ const SizeAutomatic = 0
 // here the way it is for height.
 const SizeNatural = -1
 
+// DefaultStylesheet is the built-in default stylesheet applied before
+// Options.CSS and Options.Stylesheets. It is exposed so callers can inspect
+// or diff against it when writing overrides.
+const DefaultStylesheet = render.DefaultStylesheet
+
 // Options configures a Renderer.
 type Options struct {
-	CSS               string               // additional stylesheet layered above built-in UA defaults
+	CSS               string               // additional stylesheet layered above built-in defaults (DefaultStylesheet)
+	Stylesheets       []string             // additional stylesheets, layered above CSS in order, similar to a page's own <link> stylesheets
 	Width             int                  // terminal column count; affects wrapping, tables, percentage widths
 	Height            int                  // content-box line count the whole document is clipped/padded to; zero value is SizeAutomatic (see there); SizeNatural (-1) leaves it unconstrained
 	IgnoreDocumentCSS bool                 // if true, <style> elements and style= attributes in HTML are ignored
@@ -64,6 +70,7 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 func renderOptions(opts Options) render.Options {
 	return render.Options{
 		CSS:               opts.CSS,
+		Stylesheets:       opts.Stylesheets,
 		Width:             opts.Width,
 		Height:            opts.Height,
 		IgnoreDocumentCSS: opts.IgnoreDocumentCSS,
