@@ -260,6 +260,34 @@ func TestBackgroundShorthandColor(t *testing.T) {
 	}
 }
 
+func TestBorderColorShorthandOnBlock(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 12, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<div style="width:100%; border-style:solid; border-color:#ff0000">hi</div>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("border-color shorthand did not color block border: %q", got)
+	}
+	if stripANSI(got) != "┌──────────┐\n│hi        │\n└──────────┘\n" {
+		t.Fatalf("border-color shorthand changed box shape: %q", stripANSI(got))
+	}
+
+	got, err = r.Render(`<div style="width:100%; border-top:'─'; border-right:'│'; border-bottom:'─'; border-left:'│'; border-color: #ff0000 #00ff00">hi</div>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\x1b[38;2;255;0;0m") {
+		t.Fatalf("border-color two-value shorthand did not color top/bottom red: %q", got)
+	}
+	if !strings.Contains(got, "\x1b[38;2;0;255;0m") {
+		t.Fatalf("border-color two-value shorthand did not color left/right green: %q", got)
+	}
+}
+
 // TestStyledTrailingSpaceStaysInsideANSISpan guards against a regression of
 // the bug found via cmd/htmlterm-tui: a styled run's trailing space used to
 // be pushed outside its ANSI span (appendTextSegment, inline.go) so that

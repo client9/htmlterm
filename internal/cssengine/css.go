@@ -263,6 +263,31 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-bottom": sides[2],
 			prop + "-left":   sides[3],
 		}
+	case "border-color":
+		tokens := splitCSSComponentValues(val)
+		switch len(tokens) {
+		case 1:
+			sides = [4]string{tokens[0], tokens[0], tokens[0], tokens[0]}
+		case 2:
+			sides = [4]string{tokens[0], tokens[1], tokens[0], tokens[1]}
+		case 3:
+			sides = [4]string{tokens[0], tokens[1], tokens[2], tokens[1]}
+		case 4:
+			sides = [4]string{tokens[0], tokens[1], tokens[2], tokens[3]}
+		default:
+			return map[string]string{prop: val}
+		}
+		// The bare "border-color" key is preserved (rather than only emitting
+		// the four per-edge longhands) because internal/render/table.go reads
+		// it directly as a single uniform color for the whole table frame,
+		// which has no per-edge border concept the way block elements do.
+		return map[string]string{
+			prop:                  val,
+			"border-top-color":    sides[0],
+			"border-right-color":  sides[1],
+			"border-bottom-color": sides[2],
+			"border-left-color":   sides[3],
+		}
 	case "overflow":
 		tokens := strings.Fields(val)
 		switch len(tokens) {

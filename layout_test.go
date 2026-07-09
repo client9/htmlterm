@@ -14,6 +14,7 @@ func TestBorderStyleOnBlocks(t *testing.T) {
 		{name: "individual border-top overrides preset fill but keeps corners", html: `<div style="border-style:solid; border-top:'═'; width:100%">hi</div>`, width: 8, want: "┌══════┐\n│hi    │\n└──────┘\n"},
 		{name: "individual border-left overrides preset char", html: `<div style="border-style:solid; border-left:'▌'; width:100%">hi</div>`, width: 8, want: "┌──────┐\n▌hi    │\n└──────┘\n"},
 		{name: "border-style via CSS class", css: `.box { border-style: rounded; width: 100%; }`, html: `<div class="box">ok</div>`, width: 8, want: "╭──────╮\n│ok    │\n╰──────╯\n"},
+		{name: "border-width and per-edge widths are accepted no-ops", html: `<div style="border-style:solid; border-width:2px; border-top-width:1px; border-right-width:1px; border-bottom-width:1px; border-left-width:1px; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
 	})
 }
 

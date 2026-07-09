@@ -438,6 +438,14 @@ The UA stylesheet defines `q::before { content: open-quote; }` and `q::after { c
 #### `border-style`
 `solid` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
 
+#### `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width`
+Accepted (parsed without error) and always a no-op. Terminal box-drawing
+characters have no notion of a line-thickness distinct from the character
+itself — draw a thicker border with `border-style: thick` or a custom
+`border-top`/`border-left`/etc. character instead. These properties exist
+purely so real-world CSS (e.g. copy-pasted `border: 1px solid red`, split
+into its longhands) doesn't need to be edited before use. Not inherited.
+
 #### `border-left`
 `"<string>"` | `'<string>'` | `none`. Quoted character(s) prepended to every rendered line of a block element. `none` or unset = no border. Not inherited.
 
@@ -461,6 +469,22 @@ Any CSS color value (see [Color Values](#color-values)). ANSI color applied to t
 
 #### `border-bottom-color`
 Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the bottom border rule. Not inherited.
+
+#### `border-color`
+One to four color values using CSS shorthand order (like `margin`/`padding`).
+Expands to `border-top-color`, `border-right-color`, `border-bottom-color`,
+and `border-left-color`.
+
+| Values | Expansion |
+|--------|-----------|
+| `A` | all sides = `A` |
+| `A B` | top/bottom = `A`, right/left = `B` |
+| `A B C` | top = `A`, right/left = `B`, bottom = `C` |
+| `A B C D` | top = `A`, right = `B`, bottom = `C`, left = `D` |
+
+The single-value form (`border-color: #555555`) also doubles as the `<table>`
+border-color property described in [CSS Properties — Table Borders](#css-properties--table-borders),
+which colors the whole table frame uniformly rather than per edge. Not inherited.
 
 #### `border-top-left-corner`
 `"<string>"` | `'<string>'`. Quoted character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
@@ -705,7 +729,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 
 ---
 
-## What Is Not Supported
+## What Is Not Implemented
 
 - `px`, `em`, `rem`, `vw`, `vh`, and other CSS units (ignored; use bare integers or `ch`)
 - CSS math functions: `calc()`, `min()`, `max()`, `clamp()`

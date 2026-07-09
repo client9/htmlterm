@@ -55,6 +55,19 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "overflow one value sets both axes", prop: "overflow", val: "auto", want: map[string]string{"overflow-x": "auto", "overflow-y": "auto"}},
 		{name: "overflow two values set x then y", prop: "overflow", val: "hidden scroll", want: map[string]string{"overflow-x": "hidden", "overflow-y": "scroll"}},
 		{name: "overflow invalid arity falls back", prop: "overflow", val: "hidden scroll auto", want: map[string]string{"overflow": "hidden scroll auto"}},
+		{name: "border-color one value", prop: "border-color", val: "red", want: map[string]string{
+			"border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border-color two values", prop: "border-color", val: "red blue", want: map[string]string{
+			"border-color": "red blue", "border-top-color": "red", "border-right-color": "blue", "border-bottom-color": "red", "border-left-color": "blue",
+		}},
+		{name: "border-color four values", prop: "border-color", val: "red blue green yellow", want: map[string]string{
+			"border-color": "red blue green yellow", "border-top-color": "red", "border-right-color": "blue", "border-bottom-color": "green", "border-left-color": "yellow",
+		}},
+		{name: "border-color functional color is not split on internal spaces", prop: "border-color", val: "rgb(255 0 0)", want: map[string]string{
+			"border-color": "rgb(255 0 0)", "border-top-color": "rgb(255 0 0)", "border-right-color": "rgb(255 0 0)", "border-bottom-color": "rgb(255 0 0)", "border-left-color": "rgb(255 0 0)",
+		}},
+		{name: "border-color invalid arity falls back", prop: "border-color", val: "red blue green yellow purple", want: map[string]string{"border-color": "red blue green yellow purple"}},
 	}
 
 	for _, tc := range tests {
