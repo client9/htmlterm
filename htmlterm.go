@@ -61,6 +61,17 @@ func (r *Renderer) Render(htmlStr string) (string, error) {
 	return result.Output, err
 }
 
+// ConsumeANSI returns the index just past the escape sequence starting at
+// runes[i] (runes[i] must be '\x1b'), recognizing the CSI and OSC forms
+// htmlterm's own renderer emits. Exported so a consumer decoding htmlterm's
+// rendered ANSI output back into another representation (e.g. tui's
+// cell-bridge, painting cells into a tcell.Screen) can tokenize with the
+// exact same rules the renderer used to produce it, rather than maintaining
+// a second, potentially drifting implementation.
+func ConsumeANSI(runes []rune, i int) int {
+	return render.ConsumeANSI(runes, i)
+}
+
 func renderOptions(opts Options) render.Options {
 	return render.Options{
 		CSS:               opts.CSS,

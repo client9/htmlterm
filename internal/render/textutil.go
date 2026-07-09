@@ -569,43 +569,7 @@ func rawContent(n *html.Node) string {
 
 // stripANSI removes CSI and OSC terminal escape sequences while preserving content.
 func stripANSI(s string) string {
-	var b strings.Builder
-	inEsc := false
-	inCSI := false
-	inOSC := false
-	prev := rune(0)
-	for _, ch := range s {
-		switch {
-		case inOSC:
-			if (prev == '\x1b' && ch == '\\') || ch == '\a' {
-				inOSC = false
-			}
-			prev = ch
-		case inCSI:
-			if ch >= 0x40 && ch <= 0x7e {
-				inCSI = false
-			}
-		case inEsc:
-			switch {
-			case ch == '[':
-				inCSI = true
-				inEsc = false
-			case ch == ']':
-				inOSC = true
-				inEsc = false
-			case ch >= 0x40 && ch <= 0x7e:
-				inEsc = false
-			}
-			prev = ch
-		case ch == '\x1b':
-			inEsc = true
-			prev = ch
-		default:
-			b.WriteRune(ch)
-			prev = ch
-		}
-	}
-	return b.String()
+	return ansi.Strip(s)
 }
 
 // trimOneTrailingVisibleSpace removes s's last visible (non-ANSI-escape)

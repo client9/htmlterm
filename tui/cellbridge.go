@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/client9/htmlterm/internal/render"
+	"github.com/client9/htmlterm"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -46,7 +46,7 @@ func paintLines(screen tcell.Screen, lines []string) {
 
 // writeANSILine decodes one already-rendered ANSI line into cells starting
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
-// walks left to right — reusing render.ConsumeANSI to tokenize each
+// walks left to right — reusing htmlterm.ConsumeANSI to tokenize each
 // escape sequence, the same way htmlterm's own ansiCarry does. Column position advances by
 // exactly one per visible rune, matching ansiVisibleLen/wordWrapTokens'
 // existing (width-1-per-rune) column accounting: htmlterm's layout engine
@@ -68,7 +68,7 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	i := 0
 	for i < len(runes) && col < width {
 		if runes[i] == '\x1b' {
-			end := render.ConsumeANSI(runes, i)
+			end := htmlterm.ConsumeANSI(runes, i)
 			applySequence(&state, string(runes[i:end]), nextLinkID)
 			i = end
 			continue
