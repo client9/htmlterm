@@ -779,6 +779,71 @@ func (d *Document) FocusPrev() *Element {
 	return &Element{node: prev}
 }
 
+// SetInnerHTML parses htmlStr as an HTML fragment (parsed in el's own
+// context, the same rule ParseFragment uses — e.g. a fragment containing
+// bare <tr>s needs el to itself be a <table>/<tbody> for the fragment parser
+// to accept them) and replaces el's children with the result, discarding
+// el's previous children entirely. This is the mechanism for injecting
+// structural, host-controlled content — a freshly-fetched envelope table, a
+// rendered email body — into a container that a Loop is actively driving,
+// without needing to replace the Document itself (Loop holds one Document
+// pointer for its whole run; there is no document-swap API, so a container
+// declared once up front and refreshed via SetInnerHTML is the supported
+// pattern for content that changes shape, as opposed to attribute-driven
+// mutation for content that doesn't — see INTERACTIVE.md's ImportHTML note,
+// which this supersedes).
+//
+// The fragment must not itself contain <style> elements: Document caches its
+// resolved stylesheet rules once, from the tree ParseDocument first saw (see
+// cachedRules), and SetInnerHTML does not invalidate that cache — a
+// <style>-bearing fragment would silently have no effect on the cascade.
+// Page-level CSS belongs in Options.CSS/Stylesheets, set once at
+// ParseDocument time; SetInnerHTML is for markup, not styling.
+//
+// If the currently focused element is inside the replaced subtree, focus is
+// silently cleared (no "blur" dispatched — the element is gone, not
+// blurred) rather than left dangling on a detached node. Any event listeners
+// registered on now-detached descendants become unreachable (the same
+// listener-leak behavior a real DOM has when you drop a subtree without
+// removeEventListener) — call RemoveEventListener first if that matters.
+// scrollOffsets/scrollViewport/contentOffsets need no such cleanup: all
+// three are rebuilt wholesale on the next Render, so stale entries for
+// removed nodes are simply dropped rather than lingering (see their own doc
+// comments on Document).
+func (d *Document) SetInnerHTML(el *Element, htmlStr string) error {
+	if el == nil {
+		return fmt.Errorf("htmlterm: SetInnerHTML on nil element")
+	}
+	nodes, err := html.ParseFragment(strings.NewReader(htmlStr), el.node)
+	if err != nil {
+		return fmt.Errorf("htmlterm: %w", err)
+	}
+	for c := el.node.FirstChild; c != nil; {
+		next := c.NextSibling
+		el.node.RemoveChild(c)
+		c = next
+	}
+	for _, n := range nodes {
+		el.node.AppendChild(n)
+	}
+	if d.focused != nil && !isDescendant(d.doc, d.focused) {
+		d.focused = nil
+	}
+	return nil
+}
+
+// isDescendant reports whether n is root or a descendant of root, by walking
+// up n's parent chain — used by SetInnerHTML to detect a focused node that
+// just got cut out of the tree.
+func isDescendant(root, n *html.Node) bool {
+	for cur := n; cur != nil; cur = cur.Parent {
+		if cur == root {
+			return true
+		}
+	}
+	return false
+}
+
 // GetElementByID returns the first element in document order whose id
 // attribute equals id, or nil if none matches.
 func (d *Document) GetElementByID(id string) *Element {

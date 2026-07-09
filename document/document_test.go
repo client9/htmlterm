@@ -1255,3 +1255,105 @@ func TestOverflowYScrollGutterDroppedWhenNoRoom(t *testing.T) {
 		t.Errorf("render with width:1 = %q, want real content (a, b) preserved, not corrupted", got)
 	}
 }
+
+func TestSetInnerHTMLReplacesChildren(t *testing.T) {
+	htmlStr := `<div id="list"><p>stale</p></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	list := doc.GetElementByID("list")
+	if list == nil {
+		t.Fatal("GetElementByID(\"list\") = nil")
+	}
+
+	if err := doc.SetInnerHTML(list, `<p>fresh</p><p>content</p>`); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.Contains(got, "stale") {
+		t.Errorf("Render() = %q, still contains replaced content %q", got, "stale")
+	}
+	if !strings.Contains(got, "fresh") || !strings.Contains(got, "content") {
+		t.Errorf("Render() = %q, want new content (fresh, content)", got)
+	}
+}
+
+func TestSetInnerHTMLTableFragmentInTableContext(t *testing.T) {
+	htmlStr := `<table id="tbl"></table>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	tbl := doc.GetElementByID("tbl")
+	if err := doc.SetInnerHTML(tbl, `<tr><td>a</td><td>b</td></tr>`); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "a") || !strings.Contains(got, "b") {
+		t.Errorf("Render() = %q, want table cells a, b", got)
+	}
+}
+
+func TestSetInnerHTMLClearsFocusOnRemovedDescendant(t *testing.T) {
+	htmlStr := `<div id="pane"><input id="name" type="text"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	input := doc.GetElementByID("name")
+	if !doc.Focus(input) {
+		t.Fatal("Focus(input) = false, want true")
+	}
+	if doc.FocusedElement() == nil {
+		t.Fatal("FocusedElement() = nil after Focus, want input")
+	}
+
+	if err := doc.SetInnerHTML(pane, `<p>replaced</p>`); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+
+	if doc.FocusedElement() != nil {
+		t.Error("FocusedElement() != nil after focused element's container was replaced, want nil")
+	}
+}
+
+func TestSetInnerHTMLPreservesFocusOutsideReplacedSubtree(t *testing.T) {
+	htmlStr := `<div id="pane"><p>old</p></div><input id="name" type="text">`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	input := doc.GetElementByID("name")
+	doc.Focus(input)
+
+	if err := doc.SetInnerHTML(pane, `<p>new</p>`); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "name" {
+		t.Errorf("FocusedElement() after unrelated SetInnerHTML = %v, want \"name\" to remain focused", got)
+	}
+}
+
+func TestSetInnerHTMLNilElement(t *testing.T) {
+	doc, err := document.ParseDocument(`<div></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if err := doc.SetInnerHTML(nil, `<p>x</p>`); err == nil {
+		t.Error("SetInnerHTML(nil, ...) = nil error, want error")
+	}
+}
