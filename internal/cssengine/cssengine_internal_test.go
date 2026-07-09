@@ -456,6 +456,157 @@ func TestParseAttrSelOperators(t *testing.T) {
 	}
 }
 
+func TestStructuralPseudoClasses(t *testing.T) {
+	doc, err := html.Parse(strings.NewReader(`
+		<ul id="list">
+			<li id="a">a</li>
+			<li id="b">b</li>
+			<li id="c">c</li>
+			<li id="d">d</li>
+			<li id="e">e</li>
+		</ul>
+		<div id="mixed">
+			<span id="s1">x</span>
+			<p id="p1">y</p>
+			<span id="s2">z</span>
+			<p id="p2">w</p>
+		</div>
+		<div id="lonely"><i id="only">solo</i></div>
+		<div id="e1"></div>
+		<div id="e2"> </div>
+		<div id="e3"><!-- comment --></div>
+		<div id="e4">x</div>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	find := func(id string) *html.Node { return findElementByID(doc, id) }
+
+	tests := []struct {
+		sel  string
+		id   string
+		want bool
+	}{
+		{"li:nth-child(2n+1)", "a", true},
+		{"li:nth-child(2n+1)", "b", false},
+		{"li:nth-child(2n+1)", "e", true},
+		{"li:nth-child(-n+2)", "a", true},
+		{"li:nth-child(-n+2)", "b", true},
+		{"li:nth-child(-n+2)", "c", false},
+		{"li:nth-child(3)", "c", true},
+		{"li:nth-child(3)", "b", false},
+		{"li:nth-last-child(1)", "e", true},
+		{"li:nth-last-child(1)", "d", false},
+		{"li:nth-last-child(odd)", "e", true},
+		{"span:nth-of-type(2)", "s2", true},
+		{"span:nth-of-type(2)", "s1", false},
+		{"p:nth-last-of-type(1)", "p2", true},
+		{"p:nth-last-of-type(1)", "p1", false},
+		{"span:first-of-type", "s1", true},
+		{"span:first-of-type", "s2", false},
+		{"p:last-of-type", "p2", true},
+		{"p:last-of-type", "p1", false},
+		{"i:only-of-type", "only", true},
+		{"i:only-child", "only", true},
+		{"span:only-child", "s1", false},
+		{"div:empty", "e1", true},
+		{"div:empty", "e2", false},
+		{"div:empty", "e3", true},
+		{"div:empty", "e4", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sel+"/"+tc.id, func(t *testing.T) {
+			n := find(tc.id)
+			if n == nil {
+				t.Fatalf("element #%s not found", tc.id)
+			}
+			parts := parseSelector(tc.sel)
+			if got := matchSelector(n, parts, ""); got != tc.want {
+				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGeneralSiblingCombinator(t *testing.T) {
+	doc, err := html.Parse(strings.NewReader(`
+		<div id="root">
+			<h2 id="h1">intro</h2>
+			<p id="p1">a</p>
+			<span id="s1">b</span>
+			<p id="p2">c</p>
+		</div>
+		<div id="other">
+			<p id="p3">d</p>
+		</div>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	find := func(id string) *html.Node { return findElementByID(doc, id) }
+
+	tests := []struct {
+		sel  string
+		id   string
+		want bool
+	}{
+		// h2 ~ p matches any later <p> sibling of an <h2>, not just the
+		// immediately adjacent one.
+		{"h2 ~ p", "p1", true},
+		{"h2 ~ p", "p2", true},
+		{"h2 ~ p", "s1", false},
+		// No preceding <h2> sibling in the "other" subtree.
+		{"h2 ~ p", "p3", false},
+		// + only matches the immediately following sibling.
+		{"h2 + p", "p1", true},
+		{"h2 + p", "p2", false},
+		// Combinators compose: match a <p> preceded by a <span> which is
+		// itself preceded (anywhere) by an <h2>.
+		{"h2 ~ span ~ p", "p2", true},
+		{"h2 ~ span ~ p", "p1", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sel+"/"+tc.id, func(t *testing.T) {
+			n := find(tc.id)
+			if n == nil {
+				t.Fatalf("element #%s not found", tc.id)
+			}
+			parts := parseSelector(tc.sel)
+			if got := matchSelector(n, parts, ""); got != tc.want {
+				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseNth(t *testing.T) {
+	tests := []struct {
+		in     string
+		wantA  int
+		wantB  int
+		wantOK bool
+	}{
+		{"odd", 2, 1, true},
+		{"even", 2, 0, true},
+		{"3", 0, 3, true},
+		{"-3", 0, -3, true},
+		{"2n", 2, 0, true},
+		{"2n+1", 2, 1, true},
+		{"2n-1", 2, -1, true},
+		{"-n+3", -1, 3, true},
+		{"n", 1, 0, true},
+		{"n+3", 1, 3, true},
+		{"", 0, 0, false},
+		{"bogus", 0, 0, false},
+	}
+	for _, tc := range tests {
+		a, b, ok := parseNth(tc.in)
+		if a != tc.wantA || b != tc.wantB || ok != tc.wantOK {
+			t.Errorf("parseNth(%q) = (%d, %d, %v), want (%d, %d, %v)", tc.in, a, b, ok, tc.wantA, tc.wantB, tc.wantOK)
+		}
+	}
+}
+
 func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
 	tests := []struct {
 		sel  string

@@ -1,6 +1,7 @@
 package cssengine
 
 import (
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -14,6 +15,7 @@ const (
 	descendant combinator = iota // space: any ancestor
 	child                        // >: immediate parent only
 	adjacent                     // +: immediate preceding sibling
+	general                      // ~: any preceding sibling
 )
 
 // attrOp is the match operator in an attribute selector.
@@ -107,16 +109,35 @@ func parseSelector(sel string) []selectorPart {
 			}
 			continue
 		}
+		if sel[i] == '~' {
+			combo = general
+			i++
+			for i < n && isCSSSpace(sel[i]) {
+				i++
+			}
+			continue
+		}
 		start := i
-		for i < n && !isCSSSpace(sel[i]) && sel[i] != '>' && sel[i] != '+' {
-			if sel[i] == '[' {
+		for i < n && !isCSSSpace(sel[i]) && sel[i] != '>' && sel[i] != '+' && sel[i] != '~' {
+			switch sel[i] {
+			case '[':
 				for i < n && sel[i] != ']' {
 					i++
 				}
 				if i < n {
 					i++
 				}
-			} else {
+			case '(':
+				// Functional pseudo-class argument, e.g. :nth-child(2n+1) —
+				// consume through the matching ')' so '+' and whitespace in
+				// an An+B expression don't get mistaken for a combinator.
+				for i < n && sel[i] != ')' {
+					i++
+				}
+				if i < n {
+					i++
+				}
+			default:
 				i++
 			}
 		}
@@ -370,32 +391,39 @@ func matchPseudo(n *html.Node, pseudo, focusAttr string) bool {
 	if n.Parent == nil {
 		return false
 	}
+	if arg, ok := pseudoArg(pseudo, "nth-child("); ok {
+		a, b, ok := parseNth(arg)
+		return ok && matchesNth(siblingIndex(n, false), a, b)
+	}
+	if arg, ok := pseudoArg(pseudo, "nth-last-child("); ok {
+		a, b, ok := parseNth(arg)
+		return ok && matchesNth(siblingIndex(n, true), a, b)
+	}
+	if arg, ok := pseudoArg(pseudo, "nth-of-type("); ok {
+		a, b, ok := parseNth(arg)
+		return ok && matchesNth(siblingIndexOfType(n, false), a, b)
+	}
+	if arg, ok := pseudoArg(pseudo, "nth-last-of-type("); ok {
+		a, b, ok := parseNth(arg)
+		return ok && matchesNth(siblingIndexOfType(n, true), a, b)
+	}
 	switch pseudo {
 	case "root":
 		return n.Parent.Type == html.DocumentNode
 	case "first-child":
-		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
-			if s.Type == html.ElementNode {
-				return s == n
-			}
-		}
+		return siblingIndex(n, false) == 1
 	case "last-child":
-		for s := n.Parent.LastChild; s != nil; s = s.PrevSibling {
-			if s.Type == html.ElementNode {
-				return s == n
-			}
-		}
-	case "nth-child(odd)", "nth-child(even)":
-		wantOdd := pseudo == "nth-child(odd)"
-		idx := 0
-		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
-			if s.Type == html.ElementNode {
-				idx++
-				if s == n {
-					return (idx%2 == 1) == wantOdd
-				}
-			}
-		}
+		return siblingIndex(n, true) == 1
+	case "only-child":
+		return siblingIndex(n, false) == 1 && siblingIndex(n, true) == 1
+	case "first-of-type":
+		return siblingIndexOfType(n, false) == 1
+	case "last-of-type":
+		return siblingIndexOfType(n, true) == 1
+	case "only-of-type":
+		return siblingIndexOfType(n, false) == 1 && siblingIndexOfType(n, true) == 1
+	case "empty":
+		return isEmpty(n)
 	case "checked":
 		return nodeHasAttr(n, "checked")
 	case "disabled":
@@ -406,6 +434,145 @@ func matchPseudo(n *html.Node, pseudo, focusAttr string) bool {
 		return focusAttr != "" && nodeHasAttr(n, focusAttr)
 	}
 	return false
+}
+
+// pseudoArg reports whether pseudo is a functional pseudo-class named by
+// prefix (e.g. "nth-child(") and, if so, returns its argument with
+// surrounding whitespace trimmed.
+func pseudoArg(pseudo, prefix string) (arg string, ok bool) {
+	if !strings.HasPrefix(pseudo, prefix) || !strings.HasSuffix(pseudo, ")") {
+		return "", false
+	}
+	return strings.TrimSpace(pseudo[len(prefix) : len(pseudo)-1]), true
+}
+
+// siblingIndex returns n's 1-based position among its parent's element
+// children, counting from the end when fromEnd is true.
+func siblingIndex(n *html.Node, fromEnd bool) int {
+	idx := 0
+	if fromEnd {
+		for s := n.Parent.LastChild; s != nil; s = s.PrevSibling {
+			if s.Type == html.ElementNode {
+				idx++
+				if s == n {
+					return idx
+				}
+			}
+		}
+	} else {
+		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode {
+				idx++
+				if s == n {
+					return idx
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// siblingIndexOfType is siblingIndex restricted to element siblings that
+// share n's tag name, per :nth-of-type/:first-of-type/etc semantics.
+func siblingIndexOfType(n *html.Node, fromEnd bool) int {
+	idx := 0
+	if fromEnd {
+		for s := n.Parent.LastChild; s != nil; s = s.PrevSibling {
+			if s.Type == html.ElementNode && s.Data == n.Data {
+				idx++
+				if s == n {
+					return idx
+				}
+			}
+		}
+	} else {
+		for s := n.Parent.FirstChild; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode && s.Data == n.Data {
+				idx++
+				if s == n {
+					return idx
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// isEmpty reports whether n has no element children and no non-empty text
+// children, per :empty's spec ("only element nodes and content nodes ...
+// whose data length is not zero" count against emptiness; comments and
+// other node types don't).
+func isEmpty(n *html.Node) bool {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		switch c.Type {
+		case html.ElementNode:
+			return false
+		case html.TextNode:
+			if c.Data != "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// parseNth parses a CSS An+B micro-syntax argument (e.g. "odd", "even",
+// "3", "2n", "2n+1", "-n+3") into its a/b coefficients. ok is false if arg
+// is not a valid An+B expression.
+func parseNth(arg string) (a, b int, ok bool) {
+	s := strings.ToLower(strings.ReplaceAll(arg, " ", ""))
+	switch s {
+	case "odd":
+		return 2, 1, true
+	case "even":
+		return 2, 0, true
+	case "":
+		return 0, 0, false
+	}
+	aPart, bPart, found := strings.Cut(s, "n")
+	if !found {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, 0, false
+		}
+		return 0, n, true
+	}
+	switch aPart {
+	case "", "+":
+		a = 1
+	case "-":
+		a = -1
+	default:
+		n, err := strconv.Atoi(aPart)
+		if err != nil {
+			return 0, 0, false
+		}
+		a = n
+	}
+	if bPart != "" {
+		n, err := strconv.Atoi(bPart)
+		if err != nil {
+			return 0, 0, false
+		}
+		b = n
+	}
+	return a, b, true
+}
+
+// matchesNth reports whether 1-based position idx satisfies the An+B
+// formula, i.e. whether idx = a*k + b for some integer k >= 0.
+func matchesNth(idx, a, b int) bool {
+	if idx <= 0 {
+		return false
+	}
+	diff := idx - b
+	if a == 0 {
+		return diff == 0
+	}
+	if diff%a != 0 {
+		return false
+	}
+	return diff/a >= 0
 }
 
 // matchAttr reports whether n satisfies a single attribute selector condition.
@@ -479,6 +646,20 @@ func matchSelector(n *html.Node, parts []selectorPart, focusAttr string) bool {
 			}
 			curNode = prev
 			cur = prev.Parent
+		case general:
+			// Find any preceding element sibling of curNode that matches.
+			var match *html.Node
+			for s := curNode.PrevSibling; s != nil; s = s.PrevSibling {
+				if s.Type == html.ElementNode && matchPart(s, parts[i], focusAttr) {
+					match = s
+					break
+				}
+			}
+			if match == nil {
+				return false
+			}
+			curNode = match
+			cur = match.Parent
 		default:
 			found := false
 			for ; cur != nil; cur = cur.Parent {

@@ -29,6 +29,7 @@ that is recognized. Anything not listed here is silently ignored.
 | Pseudo-class | `:root { }`, `li:first-child { }`, `tr:nth-child(odd) { }` |
 | Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }` |
 | Adjacent sibling (`+`) | `h2 + p { }` |
+| General sibling (`~`) | `h2 ~ p { }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
 
 **Specificity** follows CSS rules: ID = 100, class / pseudo-class / attribute = 10,
@@ -46,17 +47,24 @@ Attribute](#inline-style-attribute) for how `!important` interacts with inline
 styles.
 
 **Supported pseudo-classes:** `:root`, `:first-child`, `:last-child`,
-`:nth-child(odd)`, `:nth-child(even)`, `:not(<simple-selector>)`, `:checked`,
+`:only-child`, `:first-of-type`, `:last-of-type`, `:only-of-type`, `:empty`,
+`:nth-child(<An+B>)`, `:nth-last-child(<An+B>)`, `:nth-of-type(<An+B>)`,
+`:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`, `:checked`,
 `:disabled`, `:required`, `:focus`. `:root` matches the document element
-(`html` for parsed HTML documents/fragments). Full `An+B` expressions are not
-supported. `:not()` accepts a single compound selector (element, universal
-selector, class, id, attribute, or combinations thereof) as its argument;
-nested combinators inside `:not()` are not supported. `:checked`/`:disabled`/
-`:required` match the real HTML `checked`/`disabled`/`required` attributes'
-presence. `:focus` matches whichever element `Document.Focus` (see the
-package godoc's events section) most recently marked focused; it has no
-meaning against `Renderer.Render`'s one-shot rendering, only against a live
-`Document`.
+(`html` for parsed HTML documents/fragments). The `:nth-*` family accepts the
+full CSS `An+B` micro-syntax (`odd`, `even`, `3`, `2n`, `2n+1`, `-n+3`, etc.),
+matched against sibling position (`:nth-child`/`:nth-last-child`) or position
+among same-tag siblings (`:nth-of-type`/`:nth-last-of-type`); counting is
+1-based, and `:nth-last-*` counts from the last sibling. `:empty` matches an
+element with no children other than possibly comments — a text node
+(including whitespace-only) or any element child disqualifies it. `:not()`
+accepts a single compound selector (element, universal selector, class, id,
+attribute, or combinations thereof) as its argument; nested combinators
+inside `:not()` are not supported. `:checked`/`:disabled`/`:required` match
+the real HTML `checked`/`disabled`/`required` attributes' presence. `:focus`
+matches whichever element `Document.Focus` (see the package godoc's events
+section) most recently marked focused; it has no meaning against
+`Renderer.Render`'s one-shot rendering, only against a live `Document`.
 
 **Supported pseudo-elements:** `::before`, `::after`, and `::marker` (all also accepted
 with a single colon). `::before`/`::after` inject inline text at the start or end of an
@@ -72,7 +80,7 @@ or value followed by `-`), `[attr^=val]` (prefix), `[attr$=val]` (suffix), and
 `[attr*=val]` (substring).
 
 **Not supported:** `:hover`, `:active`, and other pseudo-classes beyond those
-listed above; general sibling (`~`) combinator.
+listed above.
 
 ---
 
