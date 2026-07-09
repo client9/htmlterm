@@ -83,42 +83,196 @@ td/* comment */{ white-space: normal; }`)
 		t.Fatalf("ParseStylesheet() error = %v", err)
 	}
 	want := []Rule{
-		{selector: "table", decls: map[string]string{"border-style": "none"}},
-		{selector: "td", decls: map[string]string{"white-space": "normal"}},
+		{selector: "table", decls: map[string]declValue{"border-style": {value: "none"}}},
+		{selector: "td", decls: map[string]declValue{"white-space": {value: "normal"}}},
 	}
 	if got := stripRuleParts(rules); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseStylesheet() = %#v, want %#v", got, want)
 	}
 }
 
-func TestStripImportant(t *testing.T) {
-	tests := []struct{ in, want string }{
-		{"none", "none"},
-		{"none !important", "none"},
-		{"none!important", "none"},
-		{"none !IMPORTANT", "none"},
-		{"none !ImPoRtAnT", "none"},
-		{"  none  !important  ", "none"},
-		{"", ""},
-		{"important", "important"},
+func TestSplitImportant(t *testing.T) {
+	tests := []struct {
+		in            string
+		wantVal       string
+		wantImportant bool
+	}{
+		{"none", "none", false},
+		{"none !important", "none", true},
+		{"none!important", "none", true},
+		{"none !IMPORTANT", "none", true},
+		{"none !ImPoRtAnT", "none", true},
+		{"  none  !important  ", "none", true},
+		{"", "", false},
+		{"important", "important", false},
 	}
 	for _, tc := range tests {
-		if got := stripImportant(tc.in); got != tc.want {
-			t.Errorf("stripImportant(%q) = %q, want %q", tc.in, got, tc.want)
+		gotVal, gotImportant := splitImportant(tc.in)
+		if gotVal != tc.wantVal || gotImportant != tc.wantImportant {
+			t.Errorf("splitImportant(%q) = (%q, %v), want (%q, %v)", tc.in, gotVal, gotImportant, tc.wantVal, tc.wantImportant)
 		}
 	}
 }
 
-func TestParseCSSStripsImportant(t *testing.T) {
+func TestParseCSSTracksImportant(t *testing.T) {
 	rules, err := ParseStylesheet(`p { display: none !important; color: red; }`)
 	if err != nil {
 		t.Fatalf("ParseStylesheet() error = %v", err)
 	}
 	want := []Rule{
-		{selector: "p", decls: map[string]string{"display": "none", "color": "red"}},
+		{selector: "p", decls: map[string]declValue{
+			"display": {value: "none", important: true},
+			"color":   {value: "red"},
+		}},
 	}
 	if got := stripRuleParts(rules); !reflect.DeepEqual(got, want) {
 		t.Fatalf("ParseStylesheet() = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseCSSImportantThroughShorthand(t *testing.T) {
+	rules, err := ParseStylesheet(`p { margin: 1 2 !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("ParseStylesheet() returned %d rules, want 1", len(rules))
+	}
+	for _, prop := range []string{"margin-top", "margin-right", "margin-bottom", "margin-left"} {
+		if dv := rules[0].decls[prop]; !dv.important {
+			t.Errorf("decls[%q].important = false, want true (decls: %#v)", prop, rules[0].decls)
+		}
+	}
+}
+
+// findElementByID returns the first element node with the given id attribute
+// under n (including n itself), or nil if none is found.
+func findElementByID(n *html.Node, id string) *html.Node {
+	if n.Type == html.ElementNode && nodeAttr(n, "id") == id {
+		return n
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if found := findElementByID(c, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func TestCascadeImportantOverridesHigherSpecificityNormal(t *testing.T) {
+	rules, err := ParseStylesheet(`#a { color: blue; } p { color: red !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Direct(n)
+	if got["color"] != "red" {
+		t.Fatalf(`Direct()["color"] = %q, want "red" (!important on lower-specificity rule should win)`, got["color"])
+	}
+}
+
+func TestCascadeImportantRespectsSpecificityAmongImportantRules(t *testing.T) {
+	// #a is declared first and p second, so a naive "last write wins" merge
+	// would pick p's value; specificity must still be honored within the
+	// important tier.
+	rules, err := ParseStylesheet(`#a { color: blue !important; } p { color: red !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Direct(n)
+	if got["color"] != "blue" {
+		t.Fatalf(`Direct()["color"] = %q, want "blue" (higher-specificity !important rule should win)`, got["color"])
+	}
+}
+
+func TestCascadeStylesheetImportantBeatsInlineNormal(t *testing.T) {
+	rules, err := ParseStylesheet(`p { color: red !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a" style="color: blue">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Direct(n)
+	if got["color"] != "red" {
+		t.Fatalf(`Direct()["color"] = %q, want "red" (stylesheet !important should beat non-important inline style)`, got["color"])
+	}
+}
+
+func TestCascadeInlineImportantBeatsStylesheetImportant(t *testing.T) {
+	rules, err := ParseStylesheet(`p { color: red !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a" style="color: blue !important">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Direct(n)
+	if got["color"] != "blue" {
+		t.Fatalf(`Direct()["color"] = %q, want "blue" (!important inline style should beat !important stylesheet rule)`, got["color"])
+	}
+}
+
+func TestCascadeIgnoreInlineSkipsImportantInline(t *testing.T) {
+	rules, err := ParseStylesheet(`p { color: red; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a" style="color: blue !important">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules, IgnoreInline: true}.Direct(n)
+	if got["color"] != "red" {
+		t.Fatalf(`Direct()["color"] = %q, want "red" (IgnoreInline should skip inline style regardless of !important)`, got["color"])
+	}
+}
+
+func TestCascadePseudoElementImportant(t *testing.T) {
+	rules, err := ParseStylesheet(`#a::before { content: "low"; } p::before { content: "high" !important; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p id="a">x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.PseudoElement(n, "before")
+	if got["content"] != `"high"` {
+		t.Fatalf(`PseudoElement()["content"] = %q, want %q (!important should win for pseudo-elements too)`, got["content"], `"high"`)
 	}
 }
 
@@ -193,7 +347,7 @@ func TestParseCSSCommaAndShorthand(t *testing.T) {
 		if r.selector != "p" && r.selector != "div" {
 			t.Fatalf("unexpected selector %q", r.selector)
 		}
-		if r.decls["margin-left"] != "2" || r.decls["padding-bottom"] != "3" {
+		if r.decls["margin-left"].value != "2" || r.decls["padding-bottom"].value != "3" {
 			t.Fatalf("unexpected decls for %q: %#v", r.selector, r.decls)
 		}
 	}
@@ -220,8 +374,8 @@ func TestParseCSSLogicalSpacingAliases(t *testing.T) {
 		"padding-left":   "3ch",
 	}
 	for k, v := range want {
-		if decls[k] != v {
-			t.Fatalf("decls[%q] = %q, want %q; decls: %#v", k, decls[k], v, decls)
+		if decls[k].value != v {
+			t.Fatalf("decls[%q] = %q, want %q; decls: %#v", k, decls[k].value, v, decls)
 		}
 	}
 }

@@ -35,6 +35,16 @@ that is recognized. Anything not listed here is silently ignored.
 element / pseudo-element = 1, universal selector = 0. Higher specificity wins;
 equal specificity last-write wins.
 
+**`!important`** on a declaration (e.g. `color: red !important;`) lifts it into
+a separate, higher-priority tier that always wins over any normal declaration,
+regardless of specificity. Specificity (and last-write-wins for ties) still
+applies *within* the `!important` tier, so an `!important` declaration with
+higher specificity beats another `!important` declaration with lower
+specificity. `!important` applies per declaration, not per rule, so a single
+rule may mix `!important` and normal declarations. See also [Inline `style`
+Attribute](#inline-style-attribute) for how `!important` interacts with inline
+styles.
+
 **Supported pseudo-classes:** `:root`, `:first-child`, `:last-child`,
 `:nth-child(odd)`, `:nth-child(even)`, `:not(<simple-selector>)`, `:checked`,
 `:disabled`, `:required`, `:focus`. `:root` matches the document element
@@ -651,7 +661,11 @@ styles win over all stylesheet rules (same cascade position as in standard CSS).
 <td style="color: #ff9e64; max-width: 40%">
 ```
 
-The same property names and value forms apply as in the stylesheet.
+The same property names and value forms apply as in the stylesheet, including
+`!important`. A normal (non-`!important`) inline declaration wins over any
+normal stylesheet rule but loses to an `!important` stylesheet rule; an
+`!important` inline declaration wins over everything, including `!important`
+stylesheet rules.
 
 ---
 
@@ -695,7 +709,6 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 
 - `px`, `em`, `rem`, `vw`, `vh`, and other CSS units (ignored; use bare integers or `ch`)
 - CSS variables (`--my-var`)
-- `!important`
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, or any other at-rules
 - Pseudo-classes and pseudo-elements

@@ -2,6 +2,7 @@ package cssengine
 
 import (
 	"io"
+	"maps"
 	"strings"
 
 	"github.com/mazznoer/csscolorparser"
@@ -9,12 +10,21 @@ import (
 	"github.com/tdewolff/parse/v2/css"
 )
 
+// declValue is a single parsed declaration value plus its !important flag.
+// Importance is tracked per declaration (not per rule) because a single rule
+// can mix important and normal declarations, e.g.
+// `div { color: red !important; background: blue; }`.
+type declValue struct {
+	value     string
+	important bool
+}
+
 // Rule is one parsed CSS ruleset for one selector. Comma-separated selector
 // groups are expanded into one Rule per selector so cascade matching can work
 // against an already-parsed selector without reparsing on every node.
 type Rule struct {
 	selector string
-	decls    map[string]string
+	decls    map[string]declValue
 	// parts is selector, already parsed once at construction time (here,
 	// the only place a rule is ever built) rather than being re-parsed by
 	// every Match attempt in cascade.go's Direct/PseudoElement paths. Those
@@ -46,15 +56,15 @@ func ParseStylesheet(src string) ([]Rule, error) {
 	var selBuf strings.Builder
 	var propBuf strings.Builder
 	var valBuf strings.Builder
-	var curDecls map[string]string
+	var curDecls map[string]declValue
 	inValue := false
 
 	commitDecl := func() {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
-		val := stripImportant(strings.TrimSpace(valBuf.String()))
+		val, important := splitImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" && curDecls != nil {
 			for k, v := range expandShorthand(prop, val) {
-				curDecls[k] = v
+				curDecls[k] = declValue{value: v, important: important}
 			}
 		}
 		propBuf.Reset()
@@ -92,7 +102,7 @@ func ParseStylesheet(src string) ([]Rule, error) {
 			case css.CommentToken:
 				continue
 			case css.LeftBraceToken:
-				curDecls = make(map[string]string)
+				curDecls = make(map[string]declValue)
 				state = inDeclarations
 				inValue = false
 			default:
@@ -130,19 +140,35 @@ func ParseStylesheet(src string) ([]Rule, error) {
 }
 
 // ParseDeclarations parses a CSS declaration list (the value of a style=""
-// attribute) into a property→value map. No selectors or braces expected.
+// attribute) into a property→value map, discarding any !important flags.
+// Its only caller outside this package (internal/render/strip.go's hidden-
+// inline check) only needs bare values; cascade.go's inline-style handling,
+// which needs importance to merge correctly, calls
+// parseDeclarationsWithImportance directly instead.
 func ParseDeclarations(src string) map[string]string {
+	parsed := parseDeclarationsWithImportance(src)
+	result := make(map[string]string, len(parsed))
+	for k, v := range parsed {
+		result[k] = v.value
+	}
+	return result
+}
+
+// parseDeclarationsWithImportance is ParseDeclarations' implementation,
+// preserving each declaration's !important flag. No selectors or braces
+// expected.
+func parseDeclarationsWithImportance(src string) map[string]declValue {
 	l := css.NewLexer(parse.NewInputString(src))
-	result := make(map[string]string)
+	result := make(map[string]declValue)
 	var propBuf, valBuf strings.Builder
 	inValue := false
 
 	commit := func() {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
-		val := stripImportant(strings.TrimSpace(valBuf.String()))
+		val, important := splitImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" {
 			for k, v := range expandShorthand(prop, val) {
-				result[k] = v
+				result[k] = declValue{value: v, important: important}
 			}
 		}
 		propBuf.Reset()
@@ -182,30 +208,27 @@ func ParseDeclarations(src string) map[string]string {
 	return result
 }
 
-// stripImportant removes a trailing "!important" priority flag (case-
-// insensitive) from a parsed CSS declaration value. htmlterm's cascade has
-// no !important-priority concept (cascade.go resolves purely by source
-// order/specificity), so the value is treated exactly as if "!important"
-// were never written, rather than left attached to the value string — which
-// silently broke every exact-string check against that value anywhere in
-// the package (e.g. strip.go's isHiddenInline never recognizing
-// "display:none !important" as hidden — the motivating "hidden preheader"
-// case its own doc comment names — and parseCSSColor failing to recognize
-// "red !important" as a color at all).
-func stripImportant(val string) string {
+// splitImportant splits a trailing "!important" priority flag (case-
+// insensitive) off a parsed CSS declaration value, reporting it separately
+// rather than discarding it — the value is otherwise treated exactly as if
+// "!important" were never written, so callers that only care about the bare
+// value (e.g. strip.go's isHiddenInline recognizing "display:none
+// !important" as hidden, or parseCSSColor recognizing "red !important" as a
+// color) don't need to special-case the suffix themselves. cascade.go uses
+// the reported flag to give !important declarations cascade priority over
+// normal ones.
+func splitImportant(val string) (value string, important bool) {
 	trimmed := strings.TrimRight(val, " \t\n")
 	const suffix = "!important"
 	if len(trimmed) >= len(suffix) && strings.EqualFold(trimmed[len(trimmed)-len(suffix):], suffix) {
-		return strings.TrimSpace(trimmed[:len(trimmed)-len(suffix)])
+		return strings.TrimSpace(trimmed[:len(trimmed)-len(suffix)]), true
 	}
-	return val
+	return val, false
 }
 
-func copyDecls(m map[string]string) map[string]string {
-	cp := make(map[string]string, len(m))
-	for k, v := range m {
-		cp[k] = v
-	}
+func copyDecls(m map[string]declValue) map[string]declValue {
+	cp := make(map[string]declValue, len(m))
+	maps.Copy(cp, m)
 	return cp
 }
 

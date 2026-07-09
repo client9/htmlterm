@@ -71,3 +71,12 @@ func TestSelectors(t *testing.T) {
 			want: "DIRECT\n\nnested\n"},
 	})
 }
+
+func TestImportant(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "!important overrides a higher-specificity normal rule", css: `#x { text-transform: none; } p { text-transform: uppercase !important; }`, html: `<p id="x">mix</p>`, want: "MIX\n\n"},
+		{name: "specificity still resolves ties among !important rules", css: `p { text-transform: uppercase !important; } #x { text-transform: none !important; }`, html: `<p id="x">MiX</p>`, want: "MiX\n\n"},
+		{name: "!important on a stylesheet rule beats a non-important inline style", css: `p { text-transform: uppercase !important; }`, html: `<p style="text-transform: none">mix</p>`, want: "MIX\n\n"},
+		{name: "!important inline style beats an !important stylesheet rule", css: `p { text-transform: none !important; }`, html: `<p style="text-transform: uppercase !important">mix</p>`, want: "MIX\n\n"},
+	})
+}
