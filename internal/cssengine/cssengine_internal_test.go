@@ -617,10 +617,67 @@ func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
 		{sel: "*::before", want: specificityScore{elements: 1}},
 		{sel: ":root", want: specificityScore{classes: 1}},
 		{sel: ":not(*)", want: specificityScore{}},
+		{sel: ":is(#a, .b)", want: specificityScore{ids: 1}},
+		{sel: ":is(.a, .b)", want: specificityScore{classes: 1}},
+		{sel: ":is(p, span)", want: specificityScore{elements: 1}},
+		{sel: ":where(#a, .b)", want: specificityScore{}},
+		{sel: "p:where(.a)", want: specificityScore{elements: 1}},
 	}
 	for _, tc := range tests {
 		if got := specificity(parseSelector(tc.sel)); got != tc.want {
 			t.Fatalf("specificity(%q) = %#v, want %#v", tc.sel, got, tc.want)
 		}
+	}
+}
+
+func TestIsWherePseudoClasses(t *testing.T) {
+	doc, err := html.Parse(strings.NewReader(`
+		<header id="h">head</header>
+		<footer id="f">foot</footer>
+		<p id="p1" class="warn">a</p>
+		<p id="p2">b</p>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	find := func(id string) *html.Node { return findElementByID(doc, id) }
+
+	tests := []struct {
+		sel  string
+		id   string
+		want bool
+	}{
+		{":is(header, footer)", "h", true},
+		{":is(header, footer)", "f", true},
+		{":is(header, footer)", "p1", false},
+		{":where(header, footer)", "h", true},
+		{":where(header, footer)", "p1", false},
+		{"p:is(.warn, #p2)", "p1", true},
+		{"p:is(.warn, #p2)", "p2", true},
+		{"p:where(.warn, #p2)", "p1", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.sel+"/"+tc.id, func(t *testing.T) {
+			n := find(tc.id)
+			if n == nil {
+				t.Fatalf("element #%s not found", tc.id)
+			}
+			parts := parseSelector(tc.sel)
+			if got := matchSelector(n, parts, ""); got != tc.want {
+				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
+			}
+		})
+	}
+
+	// :where() always contributes zero specificity, even with a
+	// high-specificity argument, so a plain element selector can still
+	// override it via later source order / normal cascade rules; the
+	// specificity itself must literally be zero.
+	if got := specificity(parseSelector(":where(#a.b.c)")); got != (specificityScore{}) {
+		t.Fatalf("specificity(%q) = %#v, want zero", ":where(#a.b.c)", got)
+	}
+	// :is() takes the specificity of its most specific argument.
+	if got := specificity(parseSelector(":is(.a, #b, span)")); got != (specificityScore{ids: 1}) {
+		t.Fatalf("specificity(%q) = %#v, want {ids:1}", ":is(.a, #b, span)", got)
 	}
 }

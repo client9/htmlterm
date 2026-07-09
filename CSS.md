@@ -49,7 +49,8 @@ styles.
 **Supported pseudo-classes:** `:root`, `:first-child`, `:last-child`,
 `:only-child`, `:first-of-type`, `:last-of-type`, `:only-of-type`, `:empty`,
 `:nth-child(<An+B>)`, `:nth-last-child(<An+B>)`, `:nth-of-type(<An+B>)`,
-`:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`, `:checked`,
+`:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`,
+`:is(<selector-list>)`, `:where(<selector-list>)`, `:checked`,
 `:disabled`, `:required`, `:focus`. `:root` matches the document element
 (`html` for parsed HTML documents/fragments). The `:nth-*` family accepts the
 full CSS `An+B` micro-syntax (`odd`, `even`, `3`, `2n`, `2n+1`, `-n+3`, etc.),
@@ -60,7 +61,16 @@ element with no children other than possibly comments — a text node
 (including whitespace-only) or any element child disqualifies it. `:not()`
 accepts a single compound selector (element, universal selector, class, id,
 attribute, or combinations thereof) as its argument; nested combinators
-inside `:not()` are not supported. `:checked`/`:disabled`/`:required` match
+inside `:not()` are not supported. `:is()` and `:where()` accept a
+comma-separated list of compound selectors (same restriction as `:not()` —
+no nested combinators) and match if the element matches any selector in the
+list, e.g. `:is(header, footer) p` or `p:where(.warn, #important)`. The two
+are matching-equivalent; they differ only in specificity: `:is()` takes on
+the specificity of its most specific argument (so `:is(#a, .b)` counts as an
+ID selector), while `:where()` always contributes zero specificity
+regardless of its argument — useful for writing override-friendly base
+rules, e.g. in a user stylesheet layered under `Options.Stylesheets`.
+`:checked`/`:disabled`/`:required` match
 the real HTML `checked`/`disabled`/`required` attributes' presence. `:focus`
 matches whichever element `Document.Focus` (see the package godoc's events
 section) most recently marked focused; it has no meaning against

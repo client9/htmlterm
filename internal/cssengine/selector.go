@@ -324,19 +324,90 @@ func specificity(parts []selectorPart) specificityScore {
 		s.classes += len(p.classes)
 		s.classes += len(p.attrs)
 		for _, ps := range p.pseudos {
-			if strings.HasPrefix(ps, "not(") && strings.HasSuffix(ps, ")") {
-				inner := ps[4 : len(ps)-1]
-				inner = strings.TrimSpace(inner)
+			switch {
+			case strings.HasPrefix(ps, "not(") && strings.HasSuffix(ps, ")"):
+				inner := strings.TrimSpace(ps[4 : len(ps)-1])
 				innerSpec := specificity([]selectorPart{parseSimpleSelector(inner)})
 				s.ids += innerSpec.ids
 				s.classes += innerSpec.classes
 				s.elements += innerSpec.elements
-			} else {
+			case strings.HasPrefix(ps, "is(") && strings.HasSuffix(ps, ")"):
+				inner := strings.TrimSpace(ps[3 : len(ps)-1])
+				innerSpec := selectorListMaxSpecificity(inner)
+				s.ids += innerSpec.ids
+				s.classes += innerSpec.classes
+				s.elements += innerSpec.elements
+			case strings.HasPrefix(ps, "where(") && strings.HasSuffix(ps, ")"):
+				// :where() always contributes zero specificity, regardless
+				// of its argument — that's its entire reason to exist.
+			default:
 				s.classes++
 			}
 		}
 	}
 	return s
+}
+
+// matchesAnyCompound reports whether n matches any compound selector in a
+// comma-separated selector list, as used by :is()/:where().
+func matchesAnyCompound(n *html.Node, list string, focusAttr string) bool {
+	for _, item := range splitSelectorList(list) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if matchPart(n, parseSimpleSelector(item), focusAttr) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitSelectorList splits a selector-list argument (as passed to
+// :is()/:where()) on top-level commas, i.e. commas not nested inside
+// [attr] or :pseudo(...) — a comma inside an attribute value's quotes or a
+// pseudo-class argument must not split the list.
+func splitSelectorList(s string) []string {
+	var parts []string
+	depth := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
+}
+
+// selectorListMaxSpecificity returns the highest specificity among the
+// compound selectors in a comma-separated list, per :is()'s "most specific
+// selector in its argument" rule.
+func selectorListMaxSpecificity(list string) specificityScore {
+	var max specificityScore
+	first := true
+	for _, item := range splitSelectorList(list) {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		sc := specificity([]selectorPart{parseSimpleSelector(item)})
+		if first || max.less(sc) {
+			max = sc
+			first = false
+		}
+	}
+	return max
 }
 
 // matchPart reports whether node n satisfies all simple-selector conditions in p.
@@ -386,6 +457,18 @@ func matchPseudo(n *html.Node, pseudo, focusAttr string) bool {
 		inner = strings.TrimSpace(inner)
 		p := parseSimpleSelector(inner)
 		return !matchPart(n, p, focusAttr)
+	}
+	// :is(<selector-list>) / :where(<selector-list>) — matches n if it
+	// matches any compound selector in a comma-separated list. The two are
+	// matching-equivalent; they differ only in specificity contribution
+	// (see specificity()), where :where() always contributes zero. Like
+	// :not(), each list item is a single compound selector — nested
+	// combinators are not supported.
+	if arg, ok := pseudoArg(pseudo, "is("); ok {
+		return matchesAnyCompound(n, arg, focusAttr)
+	}
+	if arg, ok := pseudoArg(pseudo, "where("); ok {
+		return matchesAnyCompound(n, arg, focusAttr)
 	}
 
 	if n.Parent == nil {
