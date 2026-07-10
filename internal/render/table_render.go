@@ -68,16 +68,6 @@ func (r *Engine) collectColDecls(table *html.Node) []map[string]string {
 				span = s
 			}
 			colDecls := r.directDecls(col)
-			// Also handle width HTML attribute on <col>.
-			if colDecls == nil {
-				colDecls = map[string]string{}
-			}
-			if _, hasW := colDecls["width"]; !hasW {
-				if w := nodeAttr(col, "width"); w != "" {
-					colDecls = copyMap(colDecls)
-					colDecls["width"] = w
-				}
-			}
 			// Merge: colgroup is the base, col overrides.
 			merged := colDecls
 			if len(cgDecls) > 0 {
@@ -95,14 +85,6 @@ func (r *Engine) collectColDecls(table *html.Node) []map[string]string {
 		}
 	}
 	return result
-}
-
-func copyMap(m map[string]string) map[string]string {
-	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
-	return out
 }
 
 // preScanTableColumns walks a table's rows gathering column count and the
@@ -149,7 +131,7 @@ func (r *Engine) preScanTableColumns(n *html.Node, colDecls []map[string]string)
 					if ci >= len(cols) {
 						cols = append(cols, make([]colConstraints, ci+1-len(cols))...)
 					}
-					dc := r.cellConstraints(td, tdDecls)
+					dc := r.cellConstraints(tdDecls)
 					if cols[ci].fixed == 0 && dc.fixed > 0 {
 						cols[ci].fixed = dc.fixed
 					}
@@ -360,7 +342,7 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 						tokens:        cellTokens,
 						textAlign:     tdDecls["text-align"],
 						cellStyle:     extractInlineStyle(tdDecls),
-						constraints:   r.cellConstraints(td, tdDecls),
+						constraints:   r.cellConstraints(tdDecls),
 						textOverflow:  textOverflowSuffix(tdDecls["text-overflow"]),
 						noWrap:        tdDecls["white-space"] == "nowrap",
 						paddingLeft:   pl,
@@ -574,8 +556,16 @@ func fillTableCellLines(cells []tableCell, widths []int, numCols int) {
 		} else {
 			b, positions = wordWrapTokens(cells[i].tokens, contentW, "break-word", 0)
 		}
+		// text-overflow only applies in nowrap mode (CSS.md: "Ignored when
+		// white-space: normal"); a wrapped line that still overflows contentW
+		// despite word-wrap (an unbreakable embedded box, e.g.) is clipped
+		// with no marker, just to keep the column boundary intact.
+		suffix := ""
+		if cells[i].noWrap {
+			suffix = cells[i].textOverflow
+		}
 		for _, line := range b.lines {
-			cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, cells[i].textOverflow))
+			cells[i].lines = append(cells[i].lines, truncateToWidth(line, contentW, suffix))
 		}
 		if len(cells[i].lines) == 0 {
 			cells[i].lines = []string{""}

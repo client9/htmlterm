@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
-	"golang.org/x/net/html"
 )
 
 // hBorder describes one horizontal separator line drawn between rows.
@@ -318,15 +317,15 @@ func parseSizeVal(s string) (abs int, pct float64, ok bool) {
 	return
 }
 
-// cellConstraints extracts layout constraints from a <th> or <td> node using
-// already-resolved declarations. The node is still needed for the HTML width attribute.
-func (r *Engine) cellConstraints(n *html.Node, decls map[string]string) colConstraints {
+// cellConstraints extracts layout constraints from a <th> or <td> node's
+// already-resolved declarations. The legacy HTML width attribute is
+// deliberately not consulted: in real-world markup (especially HTML email)
+// it's almost always a pixel value, and there's no reliable way to convert
+// pixels to terminal columns — treating it as a char count (as this engine
+// used to) forces columns to absurd widths. Use CSS width (e.g. "10ch") for
+// an unambiguous fixed character width.
+func (r *Engine) cellConstraints(decls map[string]string) colConstraints {
 	var c colConstraints
-	// HTML width attribute: always an absolute char count.
-	if w, err := strconv.Atoi(nodeAttr(n, "width")); err == nil && w > 0 {
-		c.fixed = w
-	}
-	// CSS width: may be absolute or percentage (overrides HTML attribute).
 	if v, ok := decls["width"]; ok {
 		if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {

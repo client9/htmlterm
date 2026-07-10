@@ -397,19 +397,6 @@ func TestSpliceColumns(t *testing.T) {
 	})
 }
 
-func TestCopyMapNonEmpty(t *testing.T) {
-	src := map[string]string{"color": "red", "font-weight": "bold"}
-	dst := copyMap(src)
-	if !reflect.DeepEqual(dst, src) {
-		t.Errorf("copyMap(%v) = %v, want same", src, dst)
-	}
-	// Mutation isolation
-	dst["color"] = "blue"
-	if src["color"] != "red" {
-		t.Errorf("copyMap result shares storage with source")
-	}
-}
-
 func TestParseCSSContentStringNoOOBPanic(t *testing.T) {
 	r := &Engine{}
 	// Quoted string whose last byte is a backslash (malformed CSS): must not panic.

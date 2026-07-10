@@ -362,7 +362,7 @@ func TestTableBorderEdgeColor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.Render(`<table style="border-top-color:#ff0000; border-left-color:#00ff00; border-right-color:#0000ff; border-bottom-color:#ffff00"><tr><td width="3">A</td></tr></table>`)
+	got, err := r.Render(`<table style="border-top-color:#ff0000; border-left-color:#00ff00; border-right-color:#0000ff; border-bottom-color:#ffff00"><tr><td style="width:3">A</td></tr></table>`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestTableBorderEdgeColor(t *testing.T) {
 		t.Fatalf("table per-edge color changed the box shape: %q", stripANSI(got))
 	}
 
-	got, err = r.Render(`<table style="border-color:#888888; border-top-color:#ff0000"><tr><td width="3">A</td></tr></table>`)
+	got, err = r.Render(`<table style="border-color:#888888; border-top-color:#ff0000"><tr><td style="width:3">A</td></tr></table>`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,7 +720,7 @@ func TestColGroup(t *testing.T) {
 	runCases(t, []renderCase{
 		{
 			name:  "col width-attr sets fixed column width",
-			html:  `<table style="border-style:none"><colgroup><col width="6"><col width="4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
+			html:  `<table style="border-style:none"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
 			width: 40,
 			want:  "Name   Age \nAlice  30  \n",
 		},
@@ -1225,7 +1225,7 @@ func TestNewHTMLElements(t *testing.T) {
 		// template
 		{name: "template emits nothing at top level", html: `before<template><p>hidden</p></template>after`, want: "beforeafter"},
 		{name: "template emits nothing in inline content", html: `<p>before<template><span>hidden</span></template>after</p>`, want: "beforeafter\n\n"},
-		{name: "template emits nothing in table cells", html: `<table style="border-style:hidden"><tr><td width="11">before<template>hidden</template>after</td></tr></table>`, want: "beforeafter\n"},
+		{name: "template emits nothing in table cells", html: `<table style="border-style:hidden"><tr><td style="width:11">before<template>hidden</template>after</td></tr></table>`, want: "beforeafter\n"},
 		{name: "template style is inert", html: `<template><style>p { display: none; }</style></template><p>visible</p>`, want: "visible\n\n"},
 		{name: "template counters are inert", css: `body { counter-reset: n; } p { counter-increment: n; } p::before { content: counter(n) ". "; }`, html: `<p>a</p><template><p>hidden</p></template><p>b</p>`, want: "1. a\n\n2. b\n\n"},
 

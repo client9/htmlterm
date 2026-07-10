@@ -159,7 +159,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `table` | See table section below. Defaults to `display: table`; set `display: block` with block `tr`/`td` rules to linearize table markup as ordinary document flow. |
 | `caption` | Table caption (default: `display: block; text-align: center`). Rendered above the table, centered over the full table width. |
 | `colgroup` | Column group; direct child of `<table>`. A `span` attribute (default 1) applies the group's own `style=` across that many columns when no `<col>` children are present. Style via `style=` or CSS selectors. |
-| `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS. A `width` HTML attribute is treated as an absolute char count. Cell-level declarations take priority over `<col>` declarations. |
+| `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS; the legacy `width` HTML attribute is ignored (see [Cell Sizing](#css-properties--cell-sizing-th-td) below). Cell-level declarations take priority over `<col>` declarations. |
 | `thead`, `tbody`, `tfoot` | Transparent wrappers inside `<table>` |
 | `tr` | Table row; first `<tr>` containing `<th>` is the header |
 | `th`, `td` | Table cells |
@@ -783,8 +783,10 @@ minus the sum of all separator characters.
 
 ## CSS Properties — Cell Sizing (`th`, `td`)
 
-The `width` HTML attribute on `<th>`/`<td>` is equivalent to CSS `width`
-(always absolute). CSS `width` with a `%` value overrides the HTML attribute.
+The legacy `width` HTML attribute on `<th>`/`<td>` is ignored — in real-world
+markup (especially HTML email) it's almost always a pixel value, and there's
+no reliable way to convert pixels to terminal columns. Use CSS `width`
+instead (`width: 14` for a fixed character count, or `width: 25%`).
 
 | Property | Example | Notes |
 |----------|---------|-------|

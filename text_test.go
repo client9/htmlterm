@@ -54,8 +54,8 @@ func TestTextTransform(t *testing.T) {
 		{name: "child inline element overrides inherited transform", html: `<p style="text-transform:uppercase">hello <span style="text-transform:lowercase">WORLD</span></p>`, want: "HELLO world\n\n"},
 		{name: "none cancels inherited transform on inline child", html: `<p style="text-transform:uppercase">BEFORE <span style="text-transform:none">none</span> AFTER</p>`, want: "BEFORE none AFTER\n\n"},
 		{name: "via CSS class", css: `.shout { text-transform: uppercase; }`, html: `<p class="shout">hello</p>`, want: "HELLO\n\n"},
-		{name: "table cell uppercase", html: `<table style="border-style:hidden"><tr><td style="text-transform:uppercase" width="5">hello</td></tr></table>`, want: "HELLO\n"},
-		{name: "table cell capitalize", html: `<table style="border-style:hidden"><tr><td style="text-transform:capitalize" width="11">hello world</td></tr></table>`, want: "Hello World\n"},
+		{name: "table cell uppercase", html: `<table style="border-style:hidden"><tr><td style="text-transform:uppercase;width:5">hello</td></tr></table>`, want: "HELLO\n"},
+		{name: "table cell capitalize", html: `<table style="border-style:hidden"><tr><td style="text-transform:capitalize;width:11">hello world</td></tr></table>`, want: "Hello World\n"},
 		{name: "superscript digits", html: `<p style="text-transform:superscript">0123456789</p>`, want: "⁰¹²³⁴⁵⁶⁷⁸⁹\n\n"},
 		{name: "superscript letters", html: `<p style="text-transform:superscript">abcdefghijklmnoprstuvwxyz</p>`, want: "ᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐⁿᵒᵖʳˢᵗᵘᵛʷˣʸᶻ\n\n"},
 		{name: "superscript symbols", html: `<p style="text-transform:superscript">+-=()</p>`, want: "⁺⁻⁼⁽⁾\n\n"},
@@ -76,7 +76,7 @@ func TestFontVariant(t *testing.T) {
 		{name: "normal is a no-op", html: `<p style="font-variant:normal">hello world</p>`, want: "hello world\n\n"},
 		{name: "small-caps via class", css: `.sc { font-variant: small-caps; }`, html: `<p class="sc">hello world</p>`, want: "HELLO WORLD\n\n"},
 		{name: "text-transform overrides small-caps", html: `<p style="font-variant:small-caps;text-transform:lowercase">HELLO</p>`, want: "hello\n\n"},
-		{name: "small-caps in table cell", html: `<table style="border-style:hidden"><tr><td style="font-variant:small-caps" width="5">hello</td></tr></table>`, want: "HELLO\n"},
+		{name: "small-caps in table cell", html: `<table style="border-style:hidden"><tr><td style="font-variant:small-caps;width:5">hello</td></tr></table>`, want: "HELLO\n"},
 	})
 }
 
