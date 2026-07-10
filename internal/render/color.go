@@ -19,6 +19,13 @@ func parseCSSColor(s string) color.Color {
 	if err != nil {
 		return nil
 	}
+	// Fully transparent colors (the "transparent" keyword, or an explicit
+	// zero alpha channel) have nothing to render onto a terminal cell, which
+	// has no compositing model - treat them as unset rather than opaque
+	// black, which is what a bare RGB{0,0,0} would otherwise produce.
+	if _, _, _, a := c.RGBA(); a == 0 {
+		return nil
+	}
 	return c
 }
 

@@ -87,6 +87,15 @@ func TestParseCSSColor(t *testing.T) {
 		{in: "#gg0000", wantNil: true},  // invalid hex digit
 		{in: "#12345", wantNil: true},   // wrong hex length (5 digits)
 		{in: "#1234567", wantNil: true}, // wrong hex length (7 digits)
+
+		// fully transparent → nil (a terminal cell has no compositing
+		// model, so treat as unset rather than opaque black)
+		{in: "transparent", wantNil: true},
+		{in: "rgba(0,0,0,0)", wantNil: true},
+		{in: "rgba(255,0,0,0)", wantNil: true},
+		{in: "hsla(0,100%,50%,0)", wantNil: true},
+		{in: "#ff000000", wantNil: true}, // #RRGGBBAA with zero alpha
+		{in: "#f000", wantNil: true},     // #RGBA with zero alpha
 	}
 
 	for _, tc := range tests {
