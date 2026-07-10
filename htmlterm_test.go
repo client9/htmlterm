@@ -437,6 +437,31 @@ func TestBlockBoundaryTrailingSpaceTrimIsANSISafe(t *testing.T) {
 	}
 }
 
+// TestTransparentBackgroundColorIsNoOp guards against background-color:
+// transparent being parsed as opaque black (csscolorparser resolves
+// "transparent" to rgba(0,0,0,0), and RGB-only style.go code used to render
+// that as a black background since it never looked at the alpha channel).
+// Messy HTML (e.g. email markup) sets background-color: transparent to mean
+// "no background here", which on a terminal with no compositing model should
+// be a no-op, not opaque black.
+func TestTransparentBackgroundColorIsNoOp(t *testing.T) {
+	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<p style="background-color: transparent;">Hello World</p>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "\x1b[") {
+		t.Fatalf("background-color:transparent emitted an ANSI escape: %q", got)
+	}
+	want := "Hello World\n\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
 func TestOSCHyperlinkSanitizesHref(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {

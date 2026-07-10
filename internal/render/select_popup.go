@@ -85,10 +85,33 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	if count <= 0 {
 		return lines, positions
 	}
+	// The "▸" marker follows the highlighted option (set by document's
+	// moveSelectHighlight as the user arrows through the popup, separate
+	// from "selected" — see selectHighlightAttr's doc comment for why
+	// browsing shouldn't move the committed value). Fall back to "selected"
+	// when no option carries the highlight attr at all — a popup opened by
+	// setting selectOpenAttr directly in markup, with no live
+	// openSelectPopup call behind it, never gets one.
+	highlightAttr := e.selectHighlightAttr
+	anyHighlighted := false
+	if highlightAttr != "" {
+		for _, opt := range options {
+			if nodeHasAttr(opt, highlightAttr) {
+				anyHighlighted = true
+				break
+			}
+		}
+	}
 	for i := range count {
 		opt := options[i]
 		prefix := "  "
-		if nodeHasAttr(opt, "selected") {
+		marked := false
+		if anyHighlighted {
+			marked = nodeHasAttr(opt, highlightAttr)
+		} else {
+			marked = nodeHasAttr(opt, "selected")
+		}
+		if marked {
 			prefix = marker
 		}
 		content := padPlainToWidth(prefix+labels[i], width)

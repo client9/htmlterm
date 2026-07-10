@@ -197,12 +197,16 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		switch {
 		case n.Data == "input":
 			// <input> has no children — see inline.go's nested case for why.
-			inner = inputDisplayText(n)
+			// acc.render applies the element's own resolved style (e.g.
+			// :focus background-color) to the synthesized box text, same as
+			// the default branch does via renderInlineAcc for ordinary
+			// inline content.
+			inner = acc.render(inputDisplayText(n), r.profile)
 		case n.Data == "select":
 			// <select>'s closed-state content is synthesized from its
 			// <option> children, not rendered as ordinary inline content —
 			// see inline.go's nested case for why.
-			inner = selectDisplayText(n)
+			inner = acc.render(selectDisplayText(n), r.profile)
 		case decls["display"] == "inline-flex":
 			inner = r.renderInlineFlexContent(n, decls, r.width)
 		default:

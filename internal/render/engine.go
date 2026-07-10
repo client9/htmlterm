@@ -13,17 +13,18 @@ import (
 // Options configures the internal render engine. The public htmlterm.Options
 // type is converted to this type by the root package facade.
 type Options struct {
-	CSS               string
-	Stylesheets       []string
-	Width             int
-	Height            int
-	IgnoreDocumentCSS bool
-	Profile           colorprofile.Profile
-	NoOSC8Links       bool
-	MaxBlankLines     int
-	StripHiddenInline bool
-	FocusAttr         string
-	SelectOpenAttr    string
+	CSS                 string
+	Stylesheets         []string
+	Width               int
+	Height              int
+	IgnoreDocumentCSS   bool
+	Profile             colorprofile.Profile
+	NoOSC8Links         bool
+	MaxBlankLines       int
+	StripHiddenInline   bool
+	FocusAttr           string
+	SelectOpenAttr      string
+	SelectHighlightAttr string
 }
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
@@ -39,6 +40,7 @@ type Engine struct {
 	stripHiddenInline   bool
 	focusAttr           string
 	selectOpenAttr      string
+	selectHighlightAttr string
 	counterMap          map[*html.Node]counterSnapshot
 	quoteDepth          int
 	nestedTableWidth    int
@@ -117,17 +119,22 @@ func New(opts Options) (*Engine, error) {
 	if selectOpenAttr == "" {
 		selectOpenAttr = defaultSelectOpenAttr
 	}
+	selectHighlightAttr := opts.SelectHighlightAttr
+	if selectHighlightAttr == "" {
+		selectHighlightAttr = defaultSelectHighlightAttr
+	}
 	return &Engine{
-		baseRules:         rules,
-		width:             opts.Width,
-		height:            opts.Height,
-		profile:           profile,
-		ignoreDocumentCSS: opts.IgnoreDocumentCSS,
-		noOSC8Links:       opts.NoOSC8Links,
-		maxBlankLines:     opts.MaxBlankLines,
-		stripHiddenInline: opts.StripHiddenInline,
-		focusAttr:         focusAttr,
-		selectOpenAttr:    selectOpenAttr,
+		baseRules:           rules,
+		width:               opts.Width,
+		height:              opts.Height,
+		profile:             profile,
+		ignoreDocumentCSS:   opts.IgnoreDocumentCSS,
+		noOSC8Links:         opts.NoOSC8Links,
+		maxBlankLines:       opts.MaxBlankLines,
+		stripHiddenInline:   opts.StripHiddenInline,
+		focusAttr:           focusAttr,
+		selectOpenAttr:      selectOpenAttr,
+		selectHighlightAttr: selectHighlightAttr,
 	}, nil
 }
 
@@ -173,18 +180,19 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		rules = e.DocumentRules(doc)
 	}
 	rr := &Engine{
-		baseRules:         e.baseRules,
-		rules:             rules,
-		width:             req.Width,
-		height:            req.Height,
-		profile:           e.profile,
-		ignoreDocumentCSS: e.ignoreDocumentCSS,
-		noOSC8Links:       e.noOSC8Links,
-		maxBlankLines:     e.maxBlankLines,
-		stripHiddenInline: e.stripHiddenInline,
-		focusAttr:         e.focusAttr,
-		selectOpenAttr:    e.selectOpenAttr,
-		scrollOffsets:     req.ScrollOffsets,
+		baseRules:           e.baseRules,
+		rules:               rules,
+		width:               req.Width,
+		height:              req.Height,
+		profile:             e.profile,
+		ignoreDocumentCSS:   e.ignoreDocumentCSS,
+		noOSC8Links:         e.noOSC8Links,
+		maxBlankLines:       e.maxBlankLines,
+		stripHiddenInline:   e.stripHiddenInline,
+		focusAttr:           e.focusAttr,
+		selectOpenAttr:      e.selectOpenAttr,
+		selectHighlightAttr: e.selectHighlightAttr,
+		scrollOffsets:       req.ScrollOffsets,
 	}
 	if rr.width == 0 {
 		rr.width = e.width
@@ -288,3 +296,13 @@ const defaultFocusAttr = "data-htmlterm-focus"
 // (select_popup.go) to decide which selects need their popup composited into
 // the frame.
 const defaultSelectOpenAttr = "data-htmlterm-select-open"
+
+// defaultSelectHighlightAttr is the reserved marker attribute (see
+// defaultFocusAttr) an <option> carries while it's the arrow-key-highlighted
+// row within its <select>'s open popup — set/cleared by document's
+// openSelectPopup/moveSelectHighlight/confirmSelectPopup/closeSelectPopup
+// and checked here by compositeSelectPopup (select_popup.go) to decide which
+// option gets the "▸" marker, falling back to the "selected" attribute when
+// no option carries this one (e.g. a popup force-opened directly in markup,
+// with no live browsing session behind it — see compositeSelectPopup).
+const defaultSelectHighlightAttr = "data-htmlterm-select-highlight"

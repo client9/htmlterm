@@ -225,12 +225,12 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 						// <input> has no children — its visual content is
 						// synthesized from attributes (type/value/placeholder/
 						// checked), not rendered from child nodes.
-						inner = inputDisplayText(c)
+						inner = childAcc.render(inputDisplayText(c), r.profile)
 					case c.Data == "select":
 						// <select>'s closed-state content is synthesized
 						// from its <option> children's labels, not
 						// rendered as ordinary inline content.
-						inner = selectDisplayText(c)
+						inner = childAcc.render(selectDisplayText(c), r.profile)
 					case display == "inline-flex":
 						inner = r.renderInlineFlexContent(c, childDecls, availWidth)
 					default:

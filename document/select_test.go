@@ -141,6 +141,119 @@ func TestSelectKeyArrowsChangeSelectionWithoutOpening(t *testing.T) {
 	}
 }
 
+func TestSelectArrowsWhileOpenDoNotCommitUntilConfirmed(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
+	doc.Focus(sel)
+
+	changed := 0
+	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
+
+	doc.DispatchKey("Enter") // open — starts selected on "b" (Banana)
+	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown")
+	if got := sel.Value(); got != "b" {
+		t.Errorf("browsing with the popup open should not move Value(): got %q, want %q", got, "b")
+	}
+	if changed != 0 {
+		t.Errorf("change fired %d times while browsing an open popup, want 0", changed)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Cherry") {
+		t.Fatalf("popup should still be open and rendered: %q", out)
+	}
+	// The visible marker follows the highlighted (browsed-to) option, not
+	// the still-uncommitted selected value.
+	if !strings.Contains(out, "▸ Cherry") {
+		t.Errorf("highlight marker should be on the browsed-to option (Cherry): %q", out)
+	}
+
+	doc.DispatchKey("Enter") // confirm
+	if got := sel.Value(); got != "c" {
+		t.Errorf("after confirming, Value() = %q, want %q", got, "c")
+	}
+	if changed != 1 {
+		t.Errorf("change fired %d times total, want exactly 1 (on confirm)", changed)
+	}
+
+	out, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "Cherry") && strings.Contains(out, "\n") {
+		t.Errorf("popup should be closed after confirming: %q", out)
+	}
+}
+
+func TestSelectEscapeAfterBrowsingDoesNotCommit(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
+	doc.Focus(sel)
+
+	changed := 0
+	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
+
+	doc.DispatchKey("Enter") // open
+	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("Escape")
+
+	if got := sel.Value(); got != "b" {
+		t.Errorf("Escape after browsing should leave Value() unchanged: got %q, want %q", got, "b")
+	}
+	if changed != 0 {
+		t.Errorf("change fired %d times, want 0 (Escape cancels, never commits)", changed)
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "Cherry") && strings.Contains(out, "\n") {
+		t.Errorf("popup should be closed after Escape: %q", out)
+	}
+}
+
+func TestSelectConfirmWithoutMovingFiresNoChange(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
+	doc.Focus(sel)
+
+	changed := 0
+	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
+
+	doc.DispatchKey("Enter") // open
+	doc.DispatchKey("Enter") // confirm immediately, no browsing
+
+	if got := sel.Value(); got != "b" {
+		t.Errorf("Value() = %q, want unchanged %q", got, "b")
+	}
+	if changed != 0 {
+		t.Errorf("change fired %d times, want 0 (confirming the already-selected option is a no-op)", changed)
+	}
+}
+
+func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
+	doc.Focus(sel)
+	doc.DispatchKey("Enter")
+	doc.DispatchKey("ArrowUp") // highlight moves to Apple
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	appleRect, ok := doc.Rect(doc.QuerySelector(`option[value="a"]`))
+	if !ok {
+		t.Fatalf("no Rect recorded for the Apple option while open")
+	}
+	if !doc.DispatchClick(appleRect.Row, appleRect.Col) {
+		t.Fatalf("click on Apple option did not hit it")
+	}
+	if got := sel.Value(); got != "a" {
+		t.Errorf("Value() = %q, want %q", got, "a")
+	}
+}
+
 func TestSelectClickOutsideClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<p id="p">unrelated text</p>`)
 	rect, _ := doc.Rect(sel)

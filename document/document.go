@@ -106,17 +106,18 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 
 func renderOptions(opts Options) render.Options {
 	return render.Options{
-		CSS:               opts.CSS,
-		Stylesheets:       opts.Stylesheets,
-		Width:             opts.Width,
-		Height:            opts.Height,
-		IgnoreDocumentCSS: opts.IgnoreDocumentCSS,
-		Profile:           opts.Profile,
-		NoOSC8Links:       opts.NoOSC8Links,
-		MaxBlankLines:     opts.MaxBlankLines,
-		StripHiddenInline: opts.StripHiddenInline,
-		FocusAttr:         focusAttr,
-		SelectOpenAttr:    selectOpenAttr,
+		CSS:                 opts.CSS,
+		Stylesheets:         opts.Stylesheets,
+		Width:               opts.Width,
+		Height:              opts.Height,
+		IgnoreDocumentCSS:   opts.IgnoreDocumentCSS,
+		Profile:             opts.Profile,
+		NoOSC8Links:         opts.NoOSC8Links,
+		MaxBlankLines:       opts.MaxBlankLines,
+		StripHiddenInline:   opts.StripHiddenInline,
+		FocusAttr:           focusAttr,
+		SelectOpenAttr:      selectOpenAttr,
+		SelectHighlightAttr: selectHighlightAttr,
 	}
 }
 
@@ -490,9 +491,17 @@ func (d *Document) DispatchKey(key string) bool {
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
 	case (key == "Enter" || key == " ") && isSelectControl(target):
-		d.toggleSelectOpen(target)
+		if nodeHasAttr(target, selectOpenAttr) {
+			if opt := selectHighlightedOption(target); opt != nil {
+				d.confirmSelectPopup(target, opt)
+			} else {
+				d.closeSelectPopup(target)
+			}
+		} else {
+			d.openSelectPopup(target)
+		}
 	case key == "Escape" && isSelectControl(target):
-		removeAttr(target, selectOpenAttr)
+		d.closeSelectPopup(target)
 	case key == "Enter" && strings.ToLower(target.Data) == "textarea":
 		// A <textarea> is multi-line, so Enter inserts a newline instead of
 		// submitting — matching HTML's implicit-submit-on-Enter behavior,
@@ -645,7 +654,7 @@ func (d *Document) Focus(el *Element) bool {
 	if prev != nil {
 		removeAttr(prev, focusAttr)
 		if isSelectControl(prev) {
-			removeAttr(prev, selectOpenAttr)
+			d.closeSelectPopup(prev)
 		}
 		d.dispatch(prev, "blur", "")
 	}
@@ -745,7 +754,7 @@ func (d *Document) Blur() {
 	d.focused = nil
 	removeAttr(prev, focusAttr)
 	if isSelectControl(prev) {
-		removeAttr(prev, selectOpenAttr)
+		d.closeSelectPopup(prev)
 	}
 	d.dispatch(prev, "blur", "")
 }

@@ -42,6 +42,31 @@ func TestSelectPopupComposition(t *testing.T) {
 	}
 }
 
+func TestSelectPopupMarkerFollowsHighlightNotSelected(t *testing.T) {
+	// "selected" stays on Banana (the committed value); the highlight attr
+	// (what document's moveSelectHighlight sets while arrow-browsing) is on
+	// Cherry — the marker must follow the highlight, not the still-committed
+	// selected option, matching the browse-then-confirm model.
+	src := `<select ` + defaultSelectOpenAttr + `>` +
+		`<option value="a">Apple</option>` +
+		`<option value="b" selected>Banana</option>` +
+		`<option value="c" ` + defaultSelectHighlightAttr + `>Cherry</option>` +
+		`</select>`
+	e, err := New(Options{Width: 20})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	got := stripPopupANSI(result.Output)
+	want := "[ Banana ▾]\n  Apple             \n  Banana            \n▸ Cherry            "
+	if got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
 func TestSelectPopupOptionsGetSyntheticPositions(t *testing.T) {
 	src := `<select ` + defaultSelectOpenAttr + `><option>Apple</option><option>Banana</option></select>`
 	e, err := New(Options{Width: 20})
