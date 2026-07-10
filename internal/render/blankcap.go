@@ -3,13 +3,17 @@ package render
 import "unicode"
 
 // isBlankLine reports whether line (with or without a trailing "\n") consists
-// entirely of whitespace. Ported verbatim from the retired cappedWriter.
+// entirely of whitespace once any ANSI/OSC8 escape sequences are stripped —
+// a zero-width hyperlink wrapped around otherwise-empty text (e.g.
+// wrapHyperlinkBox on a link with no visible content) must still count as
+// blank, or -no-osc8-links and default output would disagree on how many
+// blank lines a run collapses to.
 func isBlankLine(line string) bool {
 	end := len(line)
 	if end > 0 && line[end-1] == '\n' {
 		end--
 	}
-	for _, r := range line[:end] {
+	for _, r := range stripANSI(line[:end]) {
 		if !unicode.IsSpace(r) {
 			return false
 		}

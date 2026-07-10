@@ -103,3 +103,41 @@ func TestCapBlankRunsNilPreTreatsAllLinesAsCappable(t *testing.T) {
 		t.Errorf("got %#v, want %#v", got, want)
 	}
 }
+
+func TestIsBlankLineIgnoresOSC8Hyperlink(t *testing.T) {
+	// wrapHyperlinkBox wraps an otherwise-empty line in a zero-width OSC8
+	// open/reset pair (e.g. a link with no visible text); it must still
+	// count as blank, or -no-osc8-links and default output disagree on how
+	// many blank lines a run collapses to.
+	line := "\x1b]8;;https://example.com\x1b\\\x1b]8;;\x1b\\"
+	if !isBlankLine(line) {
+		t.Errorf("isBlankLine(%q) = false, want true", line)
+	}
+}
+
+func TestIsBlankLineIgnoresSGROnly(t *testing.T) {
+	line := "\x1b[4m\x1b[m"
+	if !isBlankLine(line) {
+		t.Errorf("isBlankLine(%q) = false, want true", line)
+	}
+}
+
+func TestIsBlankLineNotBlankWithVisibleTextInsideEscapes(t *testing.T) {
+	line := "\x1b[4mhi\x1b[m"
+	if isBlankLine(line) {
+		t.Errorf("isBlankLine(%q) = true, want false", line)
+	}
+}
+
+func TestCapBlankRunsOSC8OnlyLinesCollapse(t *testing.T) {
+	// Regression test: a run of lines that are visually blank but each
+	// wrapped in a zero-width OSC8 hyperlink sequence must collapse exactly
+	// like the same run without any hyperlinks does.
+	osc8Blank := "\x1b]8;;https://example.com\x1b\\\x1b]8;;\x1b\\"
+	lines := []string{"A", osc8Blank, osc8Blank, osc8Blank, "B"}
+	got, _ := capBlankRuns(lines, nil, 1)
+	want := []string{"A", "", "B"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %#v, want %#v", got, want)
+	}
+}
