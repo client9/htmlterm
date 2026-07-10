@@ -1,6 +1,7 @@
 package document
 
 import (
+	"slices"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -56,13 +57,26 @@ func (e *Element) RemoveAttribute(name string) {
 	removeAttr(e.node, name)
 }
 
-// Value returns the element's value attribute, e.g. for a text input.
+// Value returns the element's value attribute, e.g. for a text input, or —
+// for a <select> — the currently selected option's value, falling back to
+// its text content if it has no value attribute (mirroring the DOM's
+// HTMLSelectElement.value; see selectValue).
 func (e *Element) Value() string {
+	if isSelectControl(e.node) {
+		return selectValue(e.node)
+	}
 	return nodeAttr(e.node, "value")
 }
 
-// SetValue sets the element's value attribute.
+// SetValue sets the element's value attribute, or — for a <select> — marks
+// the option whose value matches v as selected, leaving it unchanged if none
+// matches (mirroring the DOM's HTMLSelectElement.value setter; see
+// setSelectValue).
 func (e *Element) SetValue(v string) {
+	if isSelectControl(e.node) {
+		setSelectValue(e.node, v)
+		return
+	}
 	e.SetAttribute("value", v)
 }
 
@@ -108,12 +122,7 @@ func (c *ClassList) classes() []string {
 
 // Contains reports whether cls is present in the class list.
 func (c *ClassList) Contains(cls string) bool {
-	for _, x := range c.classes() {
-		if x == cls {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.classes(), cls)
 }
 
 // Add adds cls to the class list, if not already present.

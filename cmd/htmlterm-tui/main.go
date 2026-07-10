@@ -7,6 +7,15 @@
 // demonstrating the event system end to end, not just individual field
 // mutation.
 //
+// The "Favorite color" <select> demonstrates the dropdown popup: Tab to it
+// and press Enter/Space (or click it) to open the option list, then click an
+// option to select it and close the popup (Escape closes it without
+// changing the selection). ArrowUp/ArrowDown change the selection directly
+// whether the popup is open or closed, matching a real <select>. The popup
+// itself is composited as a reverse-video overlay directly beneath the
+// control, on top of whatever content follows it — see RENDERING.md's
+// "Popups / z-order" section.
+//
 // Width is SizeAutomatic and Height is SizeNatural: resize the terminal
 // window and the long paragraph below the form reflows live at the new
 // width (via Loop's SIGWINCH handling — see loop.go's applyTerminalSize),
@@ -37,11 +46,11 @@ import (
 
 const formHTML = `
 <style>
-  input:focus, button:focus { background-color: #4477cc; color: #ffffff; }
+  input:focus, button:focus, select:focus { background-color: #4477cc; color: #ffffff; }
   #result { display: none; }
   #result.visible { display: block; }
   #result.visible::before {
-    content: "Submitted! Name: " attr(data-name) " — Subscribed: " attr(data-subscribed);
+    content: "Submitted! Name: " attr(data-name) " — Subscribed: " attr(data-subscribed) " — Color: " attr(data-color);
   }
   #status { color: #888888; }
   #spinner::before { content: attr(data-frame); }
@@ -51,6 +60,11 @@ const formHTML = `
 <form id="myform">
   <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
   <label><input type="checkbox" id="subscribe"> Subscribe to updates</label><br>
+  <label>Favorite color: <select id="color">
+    <option value="red">Red</option>
+    <option value="green" selected>Green</option>
+    <option value="blue">Blue</option>
+  </select></label><br>
   <button type="submit">Submit</button>
 </form>
 <div id="result"></div>
@@ -99,6 +113,7 @@ func run() int {
 		doc.Focus(name)
 	}
 	subscribe := doc.GetElementByID("subscribe")
+	color := doc.GetElementByID("color")
 	result := doc.GetElementByID("result")
 
 	doc.AddEventListener(doc.GetElementByID("myform"), "submit", false, func(e *document.Event) {
@@ -108,6 +123,7 @@ func run() int {
 		}
 		result.SetAttribute("data-name", name.Value())
 		result.SetAttribute("data-subscribed", subscribed)
+		result.SetAttribute("data-color", color.Value())
 		result.ClassList().Add("visible")
 	})
 

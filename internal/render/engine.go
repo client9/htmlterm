@@ -23,6 +23,7 @@ type Options struct {
 	MaxBlankLines     int
 	StripHiddenInline bool
 	FocusAttr         string
+	SelectOpenAttr    string
 }
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
@@ -37,6 +38,7 @@ type Engine struct {
 	maxBlankLines       int
 	stripHiddenInline   bool
 	focusAttr           string
+	selectOpenAttr      string
 	counterMap          map[*html.Node]counterSnapshot
 	quoteDepth          int
 	nestedTableWidth    int
@@ -111,6 +113,10 @@ func New(opts Options) (*Engine, error) {
 	if focusAttr == "" {
 		focusAttr = defaultFocusAttr
 	}
+	selectOpenAttr := opts.SelectOpenAttr
+	if selectOpenAttr == "" {
+		selectOpenAttr = defaultSelectOpenAttr
+	}
 	return &Engine{
 		baseRules:         rules,
 		width:             opts.Width,
@@ -121,6 +127,7 @@ func New(opts Options) (*Engine, error) {
 		maxBlankLines:     opts.MaxBlankLines,
 		stripHiddenInline: opts.StripHiddenInline,
 		focusAttr:         focusAttr,
+		selectOpenAttr:    selectOpenAttr,
 	}, nil
 }
 
@@ -176,6 +183,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		maxBlankLines:     e.maxBlankLines,
 		stripHiddenInline: e.stripHiddenInline,
 		focusAttr:         e.focusAttr,
+		selectOpenAttr:    e.selectOpenAttr,
 		scrollOffsets:     req.ScrollOffsets,
 	}
 	if rr.width == 0 {
@@ -212,6 +220,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 			positions = visible
 		}
 	}
+	lines, positions = rr.compositeOpenSelects(doc, lines, positions, rr.height <= 0)
 	out := strings.Join(lines, "\n")
 	if trailingNewline {
 		out += "\n"
@@ -265,10 +274,17 @@ hr                      { display: block; border-top: "─"; }
 form                    { display: block; }
 fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
 legend                  { display: block; font-weight: bold; }
-input, button           { display: inline-block; }
+input, button, select   { display: inline-block; }
 textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }
 `
 
 const defaultFocusAttr = "data-htmlterm-focus"
+
+// defaultSelectOpenAttr is the reserved marker attribute (see defaultFocusAttr)
+// a <select> carries while its dropdown popup is open — set/cleared by
+// document's toggleSelectOpen and checked here by compositeOpenSelects
+// (select_popup.go) to decide which selects need their popup composited into
+// the frame.
+const defaultSelectOpenAttr = "data-htmlterm-select-open"

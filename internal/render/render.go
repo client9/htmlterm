@@ -198,6 +198,11 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		case n.Data == "input":
 			// <input> has no children — see inline.go's nested case for why.
 			inner = inputDisplayText(n)
+		case n.Data == "select":
+			// <select>'s closed-state content is synthesized from its
+			// <option> children, not rendered as ordinary inline content —
+			// see inline.go's nested case for why.
+			inner = selectDisplayText(n)
 		case decls["display"] == "inline-flex":
 			inner = r.renderInlineFlexContent(n, decls, r.width)
 		default:

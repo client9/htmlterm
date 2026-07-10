@@ -116,6 +116,7 @@ func renderOptions(opts Options) render.Options {
 		MaxBlankLines:     opts.MaxBlankLines,
 		StripHiddenInline: opts.StripHiddenInline,
 		FocusAttr:         focusAttr,
+		SelectOpenAttr:    selectOpenAttr,
 	}
 }
 
@@ -309,9 +310,14 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // action for it to prevent. A disabled target (nodeHasAttr(target,
 // "disabled")) is inert — matching real browsers, which never fire click on
 // a disabled form control at all — so no event is dispatched and no default
-// action runs. Returns false if no element was hit.
+// action runs. Any open <select> dropdown other than one target is itself
+// inside (see closeSelectsExcept) is closed first, unconditionally — a click
+// anywhere else, including on a disabled element or entirely outside every
+// element's Rect, dismisses it, matching a real dropdown's click-outside
+// behavior. Returns false if no element was hit.
 func (d *Document) DispatchClick(row, col int) bool {
 	target := d.elementAt(row, col)
+	d.closeSelectsExcept(target)
 	if target == nil {
 		return false
 	}
@@ -323,6 +329,7 @@ func (d *Document) DispatchClick(row, col int) bool {
 		return true
 	}
 	d.applyCheckToggle(target)
+	d.applySelectClick(target)
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "")
@@ -482,6 +489,10 @@ func (d *Document) DispatchKey(key string) bool {
 		}
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
+	case (key == "Enter" || key == " ") && isSelectControl(target):
+		d.toggleSelectOpen(target)
+	case key == "Escape" && isSelectControl(target):
+		removeAttr(target, selectOpenAttr)
 	case key == "Enter" && strings.ToLower(target.Data) == "textarea":
 		// A <textarea> is multi-line, so Enter inserts a newline instead of
 		// submitting — matching HTML's implicit-submit-on-Enter behavior,
@@ -503,6 +514,8 @@ func (d *Document) DispatchKey(key string) bool {
 			}
 			d.scrollOffsets[scrollable] += step
 		}
+	case (key == "ArrowUp" || key == "ArrowDown") && isSelectControl(target):
+		d.moveSelectSelection(target, key == "ArrowDown")
 	case key == "ArrowUp" || key == "ArrowDown":
 		if scrollable := d.nearestScrollable(target); scrollable != nil {
 			step := 1
@@ -631,6 +644,9 @@ func (d *Document) Focus(el *Element) bool {
 	setAttr(el.node, focusAttr, "")
 	if prev != nil {
 		removeAttr(prev, focusAttr)
+		if isSelectControl(prev) {
+			removeAttr(prev, selectOpenAttr)
+		}
 		d.dispatch(prev, "blur", "")
 	}
 	d.scrollIntoView(el.node)
@@ -728,6 +744,9 @@ func (d *Document) Blur() {
 	prev := d.focused
 	d.focused = nil
 	removeAttr(prev, focusAttr)
+	if isSelectControl(prev) {
+		removeAttr(prev, selectOpenAttr)
+	}
 	d.dispatch(prev, "blur", "")
 }
 

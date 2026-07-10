@@ -64,3 +64,64 @@ func inputDisplayText(n *html.Node) string {
 		return "[" + val + "]"
 	}
 }
+
+// selectOptionNodes returns n's direct <option> element children, in
+// document order. Options nested inside an <optgroup> are not supported —
+// see CSS.md's <select> entry.
+func selectOptionNodes(n *html.Node) []*html.Node {
+	var out []*html.Node
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "option") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// selectOptionLabel returns opt's visible label: its label attribute if set,
+// else its concatenated descendant text content.
+func selectOptionLabel(opt *html.Node) string {
+	if label := nodeAttr(opt, "label"); label != "" {
+		return label
+	}
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(c *html.Node) {
+		if c.Type == html.TextNode {
+			sb.WriteString(c.Data)
+		}
+		for cc := c.FirstChild; cc != nil; cc = cc.NextSibling {
+			walk(cc)
+		}
+	}
+	walk(opt)
+	return strings.TrimSpace(sb.String())
+}
+
+// selectedOption returns n's currently selected <option> — the first one
+// carrying a selected attribute, else the first option (matching HTML's
+// default-selection rule) — or nil if n has no options.
+func selectedOption(n *html.Node) *html.Node {
+	options := selectOptionNodes(n)
+	if len(options) == 0 {
+		return nil
+	}
+	for _, o := range options {
+		if nodeHasAttr(o, "selected") {
+			return o
+		}
+	}
+	return options[0]
+}
+
+// selectDisplayText synthesizes a closed <select>'s visual content — the
+// selected option's label, bracketed with a disclosure indicator. Mirrors
+// inputDisplayText's role for <input>. The open dropdown itself is a
+// separate compositing step — see compositeOpenSelects in select_popup.go.
+func selectDisplayText(n *html.Node) string {
+	label := ""
+	if sel := selectedOption(n); sel != nil {
+		label = selectOptionLabel(sel)
+	}
+	return "[ " + label + " ▾]"
+}
