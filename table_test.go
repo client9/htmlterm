@@ -165,6 +165,39 @@ func TestNestedTablesInCells(t *testing.T) {
 	if got3 != want3 {
 		t.Fatalf("nested table's own right margin/padding was lost:\ngot  %q\nwant %q", got3, want3)
 	}
+
+	// An outer table with two unconstrained flex columns - one empty, one
+	// holding a nested table - has no CSS/HTML constraints to estimate column
+	// widths from up front. The empty column should collapse and the nested
+	// table should get (almost) the full outer width, not an even 50/50
+	// split guess: its content should stay on one line instead of wrapping.
+	got4 := render("", `<table><tr><td></td><td><table><tr><td>Hello World</td></tr></table></td></tr></table>`)
+	if strings.Contains(got4, "Hello\nWorld") || strings.Contains(got4, "Hello \nWorld") {
+		t.Fatalf("nested table wrapped despite the sibling column being empty:\ngot %q", got4)
+	}
+	if !strings.Contains(got4, "Hello World") {
+		t.Fatalf("nested table content missing or split across lines:\ngot %q", got4)
+	}
+
+	// A fullWidth (width:100%) outer table with an empty flex column and a
+	// content flex column whose text is short enough to NOT need to wrap:
+	// the leftover space distributed to fill the table width must go to the
+	// content column, not be split evenly with the empty one.
+	r5, err := htmlterm.New(htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got5, err := r5.Render(`<table style="width:100%; border-style:hidden"><tr><td></td><td>Hi</td></tr></table>`)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got5 = stripANSI(got5)
+	// A single leading space is expected (the hidden border style's own
+	// column separator, since column 0 is 0-wide) - anything more means the
+	// empty column absorbed part of the leftover fullWidth space.
+	if strings.HasPrefix(got5, "  ") {
+		t.Fatalf("empty flex column absorbed leftover fullWidth space instead of the content column:\ngot %q", got5)
+	}
 }
 
 func TestTablePreservesInlineChildStyling(t *testing.T) {

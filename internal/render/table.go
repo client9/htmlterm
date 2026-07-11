@@ -390,12 +390,20 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 
 	switch {
 	case fullWidth && total < contentWidth:
-		// Distribute extra space across uncapped flex columns using integer
-		// division. If a column would exceed its maxWidth we cap it and carry
-		// the overflow back; each outer iteration saturates at least one column,
+		// Distribute extra space across uncapped flex columns, weighted by
+		// each column's own (already natural/min/max-clamped) width - so an
+		// empty column (weight 0) gets none of it and a content-heavy column
+		// gets most of it, approximating CSS auto-table-layout's
+		// proportional-to-preferred-width distribution instead of splitting
+		// evenly across every flex column regardless of content. Falls back
+		// to an even split only when every flex column's weight is 0 (e.g.
+		// every cell in every flex column is empty), to avoid dividing by
+		// zero. If a column would exceed its maxWidth we cap it and carry the
+		// overflow back; each outer iteration saturates at least one column,
 		// so the loop runs at most numCols times total.
 		for extra := contentWidth - total; extra > 0; {
 			var flex []int
+			weightSum := 0
 			for i, c := range cols {
 				if isConstrained(c) {
 					continue
@@ -405,17 +413,24 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 					continue
 				}
 				flex = append(flex, i)
+				weightSum += widths[i]
 			}
 			if len(flex) == 0 {
 				break
 			}
-			base := extra / len(flex)
-			rem := extra % len(flex)
+			remaining := extra
 			extra = 0
+			assigned := 0
 			for k, i := range flex {
-				add := base
-				if k < rem {
-					add++
+				var add int
+				if k == len(flex)-1 {
+					add = remaining - assigned
+				} else if weightSum == 0 {
+					add = remaining / len(flex)
+					assigned += add
+				} else {
+					add = remaining * widths[i] / weightSum
+					assigned += add
 				}
 				_, maxW := effectiveMinMax(cols[i], contentWidth)
 				if maxW > 0 && widths[i]+add > maxW {

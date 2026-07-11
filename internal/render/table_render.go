@@ -162,6 +162,82 @@ func (r *Engine) preScanTableColumns(n *html.Node, colDecls []map[string]string)
 	return numCols, cols
 }
 
+// measureCellNaturalWidth renders td's content once, at an effectively
+// unbounded width, purely to measure how wide it would be if never forced to
+// wrap — then discards that trial render. measuringNaturalWidth suppresses
+// width:100% expansion in any nested <table> so its own shrink-to-fit natural
+// width is measured instead of it stretching to fill the huge trial budget.
+func (r *Engine) measureCellNaturalWidth(td *html.Node) int {
+	savedMeasuring := r.measuringNaturalWidth
+	savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
+	r.measuringNaturalWidth = true
+	r.nestedTableWidth, r.nestedTableWidthSet = naturalWidthCap, true
+	tokens := r.renderInlineAccTokens(td, inlineStyle{}, naturalWidthCap)
+	r.measuringNaturalWidth = savedMeasuring
+	r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
+	return tokensNaturalWidth(tokens)
+}
+
+// measureNaturalColumnWidths fills in cols' natural field with each column's
+// real unwrapped content width, for the case where estimateColumnWidths
+// couldn't produce a usable estimate from CSS constraints alone (two or more
+// unconstrained flex columns). It mirrors preScanTableColumns's walk and
+// <col>-decl merging, but additionally renders each cell once (via
+// measureCellNaturalWidth) to measure its content instead of only reading
+// declared constraints. Returns a copy of cols with natural filled in; does
+// not mutate the input.
+func (r *Engine) measureNaturalColumnWidths(n *html.Node, colDecls []map[string]string, cols []colConstraints) []colConstraints {
+	out := append([]colConstraints(nil), cols...)
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type != html.ElementNode {
+				continue
+			}
+			switch c.Data {
+			case "thead", "tbody", "tfoot":
+				walk(c)
+			case "tr":
+				if r.resolveDecls(c)["display"] == "none" {
+					continue
+				}
+				ci := 0
+				for td := c.FirstChild; td != nil; td = td.NextSibling {
+					if td.Type != html.ElementNode || (td.Data != "th" && td.Data != "td") {
+						continue
+					}
+					tdDecls := r.resolveDecls(td)
+					if tdDecls["display"] == "none" {
+						continue
+					}
+					if ci < len(colDecls) && len(colDecls[ci]) > 0 {
+						merged := make(map[string]string, len(colDecls[ci])+len(tdDecls))
+						for k, v := range colDecls[ci] {
+							merged[k] = v
+						}
+						for k, v := range tdDecls {
+							merged[k] = v
+						}
+						tdDecls = merged
+					}
+					if ci >= len(out) {
+						out = append(out, make([]colConstraints, ci+1-len(out))...)
+					}
+					pl := parsePaddingLen(tdDecls["padding-left"])
+					pr := parsePaddingLen(tdDecls["padding-right"])
+					w := r.measureCellNaturalWidth(td) + pl + pr
+					if w > out[ci].natural {
+						out[ci].natural = w
+					}
+					ci++
+				}
+			}
+		}
+	}
+	walk(n)
+	return out
+}
+
 // estimateColumnWidths computes a best-effort final column width per column
 // before any cell content is rendered, using only CSS/HTML constraints (no
 // natural content width, which isn't known yet). This exactly matches the
@@ -205,7 +281,7 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 	colDecls := r.collectColDecls(n)
 	tableDecls := r.resolveDecls(n)
 	ts := applyTableCSSToStyle(namedTableStyleDefault(), tableDecls)
-	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%"
+	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%" && !r.measuringNaturalWidth
 
 	// margin-left/right and padding-left/right/top/bottom on the <table>
 	// itself: margin is blank space outside the rendered table block,
@@ -234,11 +310,18 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 	if numColsEst > 0 {
 		overheadEst = runeLen(ts.left) + (numColsEst-1)*runeLen(ts.sep) + runeLen(ts.right)
 		estWidths = estimateColumnWidths(colsEst, availWidth-overheadEst, fullWidth)
+		if estWidths == nil {
+			// CSS constraints alone weren't enough to estimate (two or more
+			// unconstrained flex columns) - measure each cell's real natural
+			// width up front instead of guessing, so nested content (e.g. a
+			// nested <table>) is only ever rendered at its real final budget,
+			// never prematurely committed at a wrong one.
+			measured := r.measureNaturalColumnWidths(n, colDecls, colsEst)
+			estWidths = sizeColumns(measured, availWidth-overheadEst, fullWidth)
+		}
 	}
-	// Fallback budget when a precise per-column estimate isn't available
-	// (e.g. multiple unconstrained flex columns): an even split, same as
-	// before — used only for the nested-table-width hint, not for wrapping
-	// plain cell text (which still uses the raw availWidth as before).
+	// Fallback budget for the caption hint below, when no columns were found
+	// in the pre-scan at all: an even split.
 	fallbackCellWidth := availWidth
 	if numColsEst > 0 {
 		fallbackCellWidth = max(1, (availWidth-overheadEst)/numColsEst)

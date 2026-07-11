@@ -29,22 +29,23 @@ type Options struct {
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
 type Engine struct {
-	baseRules           []cssengine.Rule
-	rules               []cssengine.Rule
-	width               int
-	height              int
-	profile             colorprofile.Profile
-	ignoreDocumentCSS   bool
-	noOSC8Links         bool
-	maxBlankLines       int
-	stripHiddenInline   bool
-	focusAttr           string
-	selectOpenAttr      string
-	selectHighlightAttr string
-	counterMap          map[*html.Node]counterSnapshot
-	quoteDepth          int
-	nestedTableWidth    int
-	nestedTableWidthSet bool
+	baseRules             []cssengine.Rule
+	rules                 []cssengine.Rule
+	width                 int
+	height                int
+	profile               colorprofile.Profile
+	ignoreDocumentCSS     bool
+	noOSC8Links           bool
+	maxBlankLines         int
+	stripHiddenInline     bool
+	focusAttr             string
+	selectOpenAttr        string
+	selectHighlightAttr   string
+	counterMap            map[*html.Node]counterSnapshot
+	quoteDepth            int
+	nestedTableWidth      int
+	nestedTableWidthSet   bool
+	measuringNaturalWidth bool
 
 	scrollOffsets      map[*html.Node]int
 	liveScrollOffsets  map[*html.Node]int
@@ -262,6 +263,7 @@ strong, b               { font-weight: bold; }
 em, i, dfn              { font-style: italic; }
 samp, var, cite, figcaption { font-style: italic; }
 a                       { text-decoration: underline; }
+a > table {text-decoration: none; }
 u, ins                  { text-decoration: underline; }
 pre                     { white-space: pre; }
 ul, ol, menu            { padding-left: 4; }
