@@ -15,7 +15,7 @@
 //	-no-osc8-links       disable OSC 8 hyperlink sequences for <a> elements
 //	-max-blank-lines <n> collapse runs of blank lines to at most n (0 = disabled)
 //	-dump-html           parse input HTML and dump the normalized tree
-//	-dump-html-tags      parse input HTML and dump the normalized tree with all attributes stripped
+//	-dump-html-tags      parse input HTML and dump the normalized tree with all attributes and comments stripped
 package main
 
 import (
@@ -42,6 +42,21 @@ func stripAttrs(n *html.Node) {
 	}
 }
 
+// stripComments removes all comment nodes from the tree, in place, so
+// html.Render doesn't dump them.
+func stripComments(n *html.Node) {
+	c := n.FirstChild
+	for c != nil {
+		next := c.NextSibling
+		if c.Type == html.CommentNode {
+			n.RemoveChild(c)
+		} else {
+			stripComments(c)
+		}
+		c = next
+	}
+}
+
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
@@ -56,7 +71,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	noOSC8 := fs.Bool("no-osc8-links", false, "disable OSC 8 hyperlink sequences for <a> elements")
 	maxBlankLines := fs.Int("max-blank-lines", 0, "collapse runs of blank lines to at most this many (0 = disabled)")
 	dumpHTML := fs.Bool("dump-html", false, "parse input HTML and dump the normalized tree")
-	dumpHTMLTags := fs.Bool("dump-html-tags", false, "parse input HTML and dump the normalized tree with all attributes stripped")
+	dumpHTMLTags := fs.Bool("dump-html-tags", false, "parse input HTML and dump the normalized tree with all attributes and comments stripped")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -86,6 +101,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		if *dumpHTMLTags {
 			stripAttrs(doc)
+			stripComments(doc)
 		}
 		if err := html.Render(stdout, doc); err != nil {
 			fmt.Fprintf(stderr, "htmlterm: %v\n", err)
