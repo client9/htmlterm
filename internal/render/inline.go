@@ -47,6 +47,48 @@ func appendTextSegment(tokens []wrapToken, st inlineStyle, text string, p colorp
 	return append(tokens, wrapToken{text: st.render(text, p)})
 }
 
+// restyleTrailingWhitespaceOnlyToken re-styles the last token in tokens
+// using outerAcc — the style in effect just *before* this element's own
+// decls were merged in — if that token's entire visible content is exactly
+// one space. Such a token can only have come from a dedicated
+// whitespace-only child (not a trailing space attached to real text within
+// the same token, e.g. "Alternatively, " — that keeps its own element's
+// styling, since it's real prose content, not pure structural whitespace).
+//
+// The common source is pretty-printed HTML: a text node holding just the
+// indentation/newline between a child element and its parent's closing tag,
+// e.g. "<a href=...>\n  <em>register</em>\n</a>" — that trailing whitespace
+// is a real DOM child of <a>, so without this it renders styled with the
+// <a>'s own underline/color, showing up as a visibly detached styled space
+// glued to the link.
+//
+// This does NOT remove the character (an earlier version of this fix tried
+// that, by symmetry with the leading-whitespace trim in the TextNode case
+// above, and it was wrong: dropping a trailing space and just hoping the
+// parent's stream independently supplies a replacement space fails whenever
+// there's no such backup source, e.g. "<em>foo </em><b>bar</b>" written
+// with no whitespace between the tags in the source — trimming foo's
+// trailing space there would merge it straight into "foobar". Re-styling in
+// place can never lose or duplicate a character, only change its color.
+func restyleTrailingWhitespaceOnlyToken(tokens []wrapToken, outerAcc inlineStyle, p colorprofile.Profile) []wrapToken {
+	if len(tokens) == 0 {
+		return tokens
+	}
+	last := len(tokens) - 1
+	if tokens[last].box != nil || tokens[last].brk {
+		return tokens
+	}
+	if stripANSI(tokens[last].text) != " " {
+		return tokens
+	}
+	text := " "
+	if outerAcc.has() {
+		text = outerAcc.render(" ", p)
+	}
+	tokens[last] = wrapToken{text: text}
+	return tokens
+}
+
 // renderInlineAccTokens is renderInlineAcc's token-collecting core. It walks
 // n's children, accumulating a []wrapToken instead of writing into a
 // cappedWriter: text runs become text tokens; <br> becomes a brk token;
@@ -244,7 +286,9 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 						// inline-block path. Only one is trimmed, not all
 						// trailing newlines, since a further one could be a
 						// real trailing blank line (e.g. from padding-bottom).
-						inner = strings.TrimSuffix(r.renderInlineAcc(c, childAcc, availWidth), "\n")
+						childToks := r.renderInlineAccTokens(c, childAcc, availWidth)
+						childToks = restyleTrailingWhitespaceOnlyToken(childToks, acc, r.profile)
+						inner = strings.TrimSuffix(tokensToString(childToks), "\n")
 					}
 					if display == "inline-block" || display == "inline-flex" {
 						if colWidth, constrained := resolveWidthConstraints(childDecls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
@@ -292,6 +336,7 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 					if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 						childTokens = childTokens[:len(childTokens)-1]
 					}
+					childTokens = restyleTrailingWhitespaceOnlyToken(childTokens, acc, r.profile)
 					if childDecls["visibility"] == "hidden" {
 						r.quoteDepth = savedDepth
 						childTokens = blankVisibleContentTokens(childTokens)

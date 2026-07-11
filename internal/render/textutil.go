@@ -6,8 +6,20 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/mattn/go-runewidth"
 	"golang.org/x/net/html"
 )
+
+// runeVisualWidth is the terminal column width of a single rune: 0 for
+// zero-width joiners/combining marks (e.g. U+200C ZWNJ, common as an
+// invisible spacer in HTML email templates), 2 for East-Asian wide/fullwidth
+// runes, 1 otherwise. Every width-driven layout decision in this package
+// (ansiVisibleLen, splitAtVisualWidthCarry, visiblePrefixWithTrailingEscapes)
+// must agree with what the terminal itself will draw, or padding and
+// wrapping desync from the actual rendered columns.
+func runeVisualWidth(r rune) int {
+	return runewidth.RuneWidth(r)
+}
 
 var superscriptMap = map[rune]rune{
 	'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
@@ -216,28 +228,48 @@ func (c ansiCarry) openSeq() string {
 // left untouched.
 func (c *ansiCarry) apply(seq string) {
 	switch {
-	case strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m"):
-		params := seq[2 : len(seq)-1]
-		if params == "" || params == "0" {
+	case isSGRSeqStr(seq):
+		if sgrIsReset(seq) {
 			c.sgr = ""
 		} else {
 			c.sgr = seq
 		}
-	case strings.HasPrefix(seq, "\x1b]8;"):
-		rest := seq[len("\x1b]8;"):]
-		semi := strings.IndexByte(rest, ';')
-		if semi < 0 {
-			return
-		}
-		uri := rest[semi+1:]
-		uri = strings.TrimSuffix(uri, "\x07")
-		uri = strings.TrimSuffix(uri, "\x1b\\")
-		if uri == "" {
+	case isOSC8SeqStr(seq):
+		if osc8IsReset(seq) {
 			c.hyperlink = ""
 		} else {
 			c.hyperlink = seq
 		}
 	}
+}
+
+func isSGRSeqStr(seq string) bool {
+	return strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m")
+}
+
+func isOSC8SeqStr(seq string) bool {
+	return strings.HasPrefix(seq, "\x1b]8;")
+}
+
+// sgrIsReset reports whether seq (a full "\x1b[...m" sequence) is a full SGR
+// reset (empty or "0" params) as opposed to a style-setting sequence.
+func sgrIsReset(seq string) bool {
+	params := seq[2 : len(seq)-1]
+	return params == "" || params == "0"
+}
+
+// osc8IsReset reports whether seq (a full "\x1b]8;...ST" sequence) closes a
+// hyperlink (empty URI) as opposed to opening one.
+func osc8IsReset(seq string) bool {
+	rest := seq[len("\x1b]8;"):]
+	semi := strings.IndexByte(rest, ';')
+	if semi < 0 {
+		return false
+	}
+	uri := rest[semi+1:]
+	uri = strings.TrimSuffix(uri, "\x07")
+	uri = strings.TrimSuffix(uri, "\x1b\\")
+	return uri == ""
 }
 
 // scan walks s in order, updating the carry for every escape sequence it
@@ -257,6 +289,91 @@ func (c *ansiCarry) scan(s string) {
 		}
 		i++
 	}
+}
+
+// collapseDeadANSISpans removes SGR/OSC8 "open" escape sequences that are
+// immediately (no visible character in between) superseded by a full reset
+// of the same kind — i.e. spans that never got the chance to style or link
+// anything. Dropping such an open and keeping only the reset is always safe
+// regardless of any earlier context: a full SGR reset ("\x1b[m"/"\x1b[0m")
+// or OSC8 reset (empty-URI "\x1b]8;;...") unconditionally clears that kind
+// of state no matter what, if anything, was open beforehand, so whether the
+// dead open ran first makes no observable difference.
+//
+// This is deliberately one-directional: it does NOT collapse "open A, open
+// B" (with no reset between) down to just B, even though B logically
+// supersedes A — this codebase's SGR sequences are additive, not
+// full-replace (see ansiCarry's doc comment), so e.g. "\x1b[3;4m" (italic+
+// underline) directly followed by "\x1b[3m" (italic) with no reset in
+// between would leave underline stuck on, since there's no explicit
+// "turn off underline" code involved. Only a real reset ever fully clears
+// state, so only a real reset is a safe deletion trigger for what precedes it.
+//
+// wordWrapTokens routinely produces exactly the pattern this removes:
+// coalesceTextRuns concatenates several already-independently-styled spans
+// (each self-contained, from inlineStyle.render) into one string before
+// splitANSITokens re-tokenizes it purely on literal space characters, with
+// no awareness of where one span's styling ends and the next begins. A
+// closing sequence that immediately follows a space (closing the word
+// before it) routinely ends up re-attached to the front of the *next*
+// word's token instead, and the line-wrap carry mechanism (ensureOpen/
+// closeAndPush) can then reopen a span right before that misplaced close
+// cancels it out again — e.g. an <a>'s own trailing single-space text node,
+// styled only with underline, sitting right at a word-wrap boundary next to
+// a differently-styled neighbor. The result is well-formed but pointless
+// escape sequences like "\x1b[3m\x1b[m" wrapping zero characters. This is a
+// final cleanup pass, not a fix for the token misattribution itself — it
+// only guarantees the misattribution can never surface as a dangling or
+// empty span in output.
+func collapseDeadANSISpans(s string) string {
+	if !strings.ContainsRune(s, '\x1b') {
+		return s
+	}
+	runes := []rune(s)
+	out := make([]rune, 0, len(runes))
+	// pendingSGROpen/pendingOSCOpen hold the out-index where a not-yet-
+	// superseded SGR-open / OSC8-open sequence (respectively) starts, as
+	// long as no visible character has appeared since — i.e. dropping it
+	// is still safe if the very next same-kind sequence turns out to be a
+	// full reset. -1 means there's no such pending, droppable open.
+	pendingSGROpen, pendingOSCOpen := -1, -1
+	i := 0
+	for i < len(runes) {
+		if runes[i] != '\x1b' {
+			out = append(out, runes[i])
+			pendingSGROpen, pendingOSCOpen = -1, -1
+			i++
+			continue
+		}
+		j := consumeANSI(runes, i)
+		seq := string(runes[i:j])
+		switch {
+		case isSGRSeqStr(seq):
+			if sgrIsReset(seq) {
+				if pendingSGROpen >= 0 {
+					out = out[:pendingSGROpen]
+				}
+				pendingSGROpen = -1
+			} else {
+				pendingSGROpen = len(out)
+			}
+			out = append(out, []rune(seq)...)
+		case isOSC8SeqStr(seq):
+			if osc8IsReset(seq) {
+				if pendingOSCOpen >= 0 {
+					out = out[:pendingOSCOpen]
+				}
+				pendingOSCOpen = -1
+			} else {
+				pendingOSCOpen = len(out)
+			}
+			out = append(out, []rune(seq)...)
+		default:
+			out = append(out, []rune(seq)...)
+		}
+		i = j
+	}
+	return string(out)
 }
 
 // splitAtVisualWidth splits s into chunks of at most width visible runes,
@@ -296,7 +413,8 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 			i = j
 			continue
 		}
-		if col >= width {
+		w := runeVisualWidth(ch)
+		if col+w > width && col > 0 {
 			if !carry.empty() {
 				cur.WriteString(carry.closeSeq())
 			}
@@ -308,7 +426,7 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 			}
 		}
 		cur.WriteRune(ch)
-		col++
+		col += w
 		i++
 	}
 	if cur.Len() > 0 {
@@ -449,7 +567,7 @@ func ansiVisibleLen(s string) int {
 			inEsc = true
 			prev = ch
 		default:
-			n++
+			n += runeVisualWidth(ch)
 			prev = ch
 		}
 	}
@@ -595,8 +713,34 @@ func trimOneTrailingVisibleSpace(s string) (trimmed string, ok bool) {
 	return string(runes[:lastVisible]) + string(runes[lastVisible+1:]), true
 }
 
-// sanitizeTerminalText removes terminal escape sequences and control
-// characters from untrusted HTML/CSS text before it reaches terminal output.
+// isInvisibleFormatChar reports whether r is a Unicode format character that
+// is never meant to be seen (zero-width joiners/spaces, bidi controls, the
+// BOM). Browsers render these at true zero width with no glyph; terminals
+// are inconsistent about that — many fall back to drawing a tofu/notdef
+// glyph at width 1 when the character isn't adjacent to the joining-script
+// context it's meant for (e.g. a bare ZWNJ used as HTML-email filler, not
+// next to Arabic/Indic letterforms). Rather than rely on the terminal to
+// agree with our own zero-width table, these are dropped from text content
+// entirely before they reach layout.
+func isInvisibleFormatChar(r rune) bool {
+	switch r {
+	case '\u200b', // ZERO WIDTH SPACE
+		'\u200c',                                         // ZERO WIDTH NON-JOINER
+		'\u200d',                                         // ZERO WIDTH JOINER
+		'\u2060',                                         // WORD JOINER
+		'\ufeff',                                         // ZERO WIDTH NO-BREAK SPACE / BOM
+		'\u200e',                                         // LEFT-TO-RIGHT MARK
+		'\u200f',                                         // RIGHT-TO-LEFT MARK
+		'\u202a', '\u202b', '\u202c', '\u202d', '\u202e', // bidi embedding/override controls
+		'\u2066', '\u2067', '\u2068', '\u2069': // bidi isolate controls
+		return true
+	}
+	return false
+}
+
+// sanitizeTerminalText removes terminal escape sequences, control
+// characters, and invisible Unicode format characters from untrusted
+// HTML/CSS text before it reaches terminal output.
 func sanitizeTerminalText(s string, allowNewline bool) string {
 	s = stripANSI(s)
 	var b strings.Builder
@@ -608,6 +752,8 @@ func sanitizeTerminalText(s string, allowNewline bool) string {
 			b.WriteRune(ch)
 		case ch < 0x20 || ch == 0x7f || (ch >= 0x80 && ch <= 0x9f):
 			// Drop remaining C0/C1 controls, including BEL and ESC.
+		case isInvisibleFormatChar(ch):
+			// Drop zero-width/bidi format characters; see isInvisibleFormatChar.
 		default:
 			b.WriteRune(ch)
 		}
@@ -628,7 +774,7 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 			continue
 		}
 		b.WriteRune(runes[i])
-		visible++
+		visible += runeVisualWidth(runes[i])
 		i++
 	}
 	for i < len(runes) {

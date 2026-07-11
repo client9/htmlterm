@@ -510,6 +510,14 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	if cur.Len() > 0 || len(outLines) == 0 {
 		pushLine(cur.String(), curPre)
 	}
+	// Word-splitting an already-ANSI-styled, multi-span coalesced run (see
+	// coalesceTextRuns) can leave dead, pointless escape sequences behind at
+	// span/word boundaries — harmless to a compliant terminal but visible
+	// noise; strip them per line before returning. See
+	// collapseDeadANSISpans's own doc comment for why this happens.
+	for i, ln := range outLines {
+		outLines[i] = collapseDeadANSISpans(ln)
+	}
 	var pre []bool
 	if anyPre {
 		pre = outPre
