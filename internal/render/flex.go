@@ -66,6 +66,12 @@ func parseFlexDirection(decls map[string]string) (isColumn, reverse bool) {
 // renderInlineFlexContent/measureNaturalWidth entry point shares, so
 // direction parsing can't drift between them.
 func (r *Engine) layoutFlex(n *html.Node, decls map[string]string, innerW int) (box, map[*html.Node]Rect) {
+	if r.measuringNaturalWidth && innerW > measureBlockWidthCap {
+		// renderInlineFlexContent calls layoutFlex directly, bypassing
+		// renderFlexContentBox's own clamp above - guard here too, since
+		// this is the single shared entry point (see doc comment).
+		innerW = measureBlockWidthCap
+	}
 	isColumn, reverse := parseFlexDirection(decls)
 	if isColumn {
 		return r.layoutFlexColumn(n, decls, innerW, reverse)
@@ -444,6 +450,9 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 // around flex item layout instead of inline content flow. See CSS.md's
 // Flexbox section for the supported subset.
 func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
+	if r.measuringNaturalWidth && availWidth > measureBlockWidthCap {
+		availWidth = measureBlockWidthCap
+	}
 	bl, br, bt, bb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(decls)
 	ml, mlAuto := resolveMarginSide(decls["margin-left"], availWidth)
 	mr, mrAuto := resolveMarginSide(decls["margin-right"], availWidth)

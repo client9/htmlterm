@@ -202,6 +202,23 @@ func tokensToString(tokens []wrapToken) string {
 // structure, matching maxVisibleLineWidth's string-domain equivalent).
 const naturalWidthCap = 1 << 30
 
+// measureBlockWidthCap bounds the availWidth a block/flex container ever
+// resolves its own width against while measuringNaturalWidth is set (see
+// measureCellNaturalWidth). Unlike inline text - where handing wordWrapTokens
+// naturalWidthCap as a wrap budget is free, since it only ever suppresses
+// width-driven line breaks - a block's default (unconstrained) width is
+// literally its container's width (real CSS block behavior: width:auto
+// fills the containing block), so renderBlockContentBox/renderFlexContentBox
+// resolve their own hBorderWidth directly from availWidth. Handed
+// naturalWidthCap (1<<30) as that availWidth, they'd size themselves to
+// roughly a billion columns and then materialize that many characters of
+// padding the moment anything needs aligning (text-align, a closed border
+// box, etc.) - not an infinite loop, but a multi-second-to-multi-minute hang
+// from sheer string size. 1<<16 is still far larger than any real cell's
+// content could plausibly need (so it essentially never changes a genuine
+// measurement), while keeping every string operation derived from it cheap.
+const measureBlockWidthCap = 1 << 16
+
 // tokensNaturalWidth returns the width tokens would need if never
 // text-wrapped — the token-domain equivalent of maxVisibleLineWidth(text).
 func tokensNaturalWidth(tokens []wrapToken) int {

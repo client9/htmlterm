@@ -159,6 +159,26 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				}
 				tokens = appendText(tokens, acc, normalized, r.profile)
 			}
+		case html.RawNode:
+			// c.Data is inserted verbatim: no sanitizeTerminalText, no
+			// whitespace normalization, no inline styling (acc is
+			// deliberately ignored, unlike the TextNode case above) — see
+			// html.RawNode's doc comment and Document.SetPreRendered. The
+			// parser (html.Parse/ParseFragment) never produces a RawNode;
+			// only application code that explicitly built one can reach
+			// this branch, so c.Data is trusted by construction — by which
+			// code path put it in the tree — not by any property of the
+			// string itself.
+			if c.Data != "" {
+				for i, part := range strings.Split(c.Data, "\n") {
+					if i > 0 {
+						tokens = append(tokens, wrapToken{brk: true})
+					}
+					if part != "" {
+						tokens = append(tokens, wrapToken{text: part})
+					}
+				}
+			}
 		case html.ElementNode:
 			switch c.Data {
 			case "head":
@@ -180,12 +200,32 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 			}
 			if c.Data == "table" {
 				if isTableLayoutDisplay(childDecls["display"]) {
-					tableWidth := availWidth
-					if r.nestedTableWidthSet {
-						tableWidth = r.nestedTableWidth
+					var bx box
+					var tablePositions map[*html.Node]Rect
+					if r.measuringNaturalWidth {
+						// A discardable measurement trial (see
+						// measureCellNaturalWidth) only ever needs this
+						// nested table's own natural WIDTH, not its actual
+						// rendered content - measureTableWidth computes just
+						// that number via the same recursive sizing math,
+						// without a full renderTable pass (which would
+						// itself commit to fully rendering every cell, only
+						// to have the whole string thrown away here). This
+						// is what keeps measuring a deeply nested document
+						// linear in nesting depth instead of exponential:
+						// without it, every level would both measure AND
+						// fully render its descendants, and that doubling
+						// compounds at every level.
+						bx = newBox(strings.Repeat(" ", r.measureTableWidth(c)))
+					} else {
+						tableWidth := availWidth
+						if r.nestedTableWidthSet {
+							tableWidth = r.nestedTableWidth
+						}
+						tableContent, pos := r.renderTable(c, tableWidth)
+						tablePositions = pos
+						bx = newBox(strings.TrimSuffix(tableContent, "\n"))
 					}
-					tableContent, tablePositions := r.renderTable(c, tableWidth)
-					bx := newBox(strings.TrimSuffix(tableContent, "\n"))
 					if childDecls["visibility"] == "hidden" {
 						bx = blankVisibleContentBox(bx)
 					}
@@ -344,7 +384,7 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 					tokens = append(tokens, childTokens...)
 				}
 			}
-		case html.ErrorNode, html.DocumentNode, html.CommentNode, html.DoctypeNode, html.RawNode:
+		case html.ErrorNode, html.DocumentNode, html.CommentNode, html.DoctypeNode:
 			// nothing to render
 		}
 	}

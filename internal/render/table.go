@@ -520,6 +520,48 @@ func drawHBorder(widths []int, b *hBorder, color string, p colorprofile.Profile)
 	return drawHRule(widths, b.fill, color, b.left, b.mid, b.right, p) + "\n"
 }
 
+// drawRowSepWithSpans draws the interior row-separator rule between row
+// index r (aboveRow) and r+1 (belowRow), blanking (space instead of
+// fill/junction) any column segment where the same *tableCell occupies both
+// rows at that column — i.e. a rowspan passing through this boundary, so its
+// border reads as one continuous box rather than being cut by the rule. A
+// junction between two columns is blanked only when both are mid-span of
+// that same passthrough cell (a colspan within it); a junction between two
+// different passthrough cells (adjacent, independent rowspans) still draws
+// normally, since that's a genuine column boundary. Returns "" if b is nil
+// (separator omitted), matching drawHBorder.
+func drawRowSepWithSpans(widths []int, aboveRow, belowRow []*tableCell, b *hBorder, color string, p colorprofile.Profile) string {
+	if b == nil {
+		return ""
+	}
+	paint := makePainter(color, p)
+	var sb strings.Builder
+	sb.WriteString(paint(b.left))
+	passthrough := func(i int) bool {
+		if i < 0 || i >= len(aboveRow) || i >= len(belowRow) {
+			return false
+		}
+		return aboveRow[i] != nil && aboveRow[i] == belowRow[i]
+	}
+	for i, w := range widths {
+		if passthrough(i) {
+			sb.WriteString(strings.Repeat(" ", w))
+		} else {
+			sb.WriteString(paint(strings.Repeat(b.fill, w)))
+		}
+		if i < len(widths)-1 {
+			samePassthroughCell := passthrough(i) && passthrough(i+1) && aboveRow[i] == aboveRow[i+1]
+			if samePassthroughCell {
+				sb.WriteString(strings.Repeat(" ", runeLen(b.mid)))
+			} else {
+				sb.WriteString(paint(b.mid))
+			}
+		}
+	}
+	sb.WriteString(paint(b.right))
+	return sb.String() + "\n"
+}
+
 // makePainter returns a function that applies a border color if set.
 func makePainter(cssColor string, p colorprofile.Profile) func(string) string {
 	c := parseCSSColor(cssColor)

@@ -261,6 +261,9 @@ func resolveBoxBorders(decls map[string]string) (bl, br, bt, bb blockBorder, tlC
 // height padding → text-indent → vertical padding → horizontal padding →
 // borders → top/bottom rules → margins → visibility:hidden blanking, last).
 func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
+	if r.measuringNaturalWidth && availWidth > measureBlockWidthCap {
+		availWidth = measureBlockWidthCap
+	}
 	bl, br, bt, bb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(decls)
 	ml, mlAuto := resolveMarginSide(decls["margin-left"], availWidth)
 	mr, mrAuto := resolveMarginSide(decls["margin-right"], availWidth)

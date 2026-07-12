@@ -1419,3 +1419,151 @@ func TestSetInnerHTMLNilElement(t *testing.T) {
 		t.Error("SetInnerHTML(nil, ...) = nil error, want error")
 	}
 }
+
+// TestSetInnerHTMLSanitizesEmbeddedANSI is the security-boundary regression
+// guard for SetPreRendered's whole premise: ordinary SetInnerHTML content
+// (however it's spelled, including literal escape bytes an attacker-
+// controlled email might contain) must still be sanitized. Only a RawNode —
+// which SetInnerHTML/html.Parse can never produce — bypasses that.
+func TestSetInnerHTMLSanitizesEmbeddedANSI(t *testing.T) {
+	htmlStr := `<div id="pane"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	if err := doc.SetInnerHTML(pane, "\x1b[1mBOLD\x1b[m plain"); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(out, "\x1b[1m") {
+		t.Errorf("Render() = %q, want embedded ESC sequence stripped by SetInnerHTML's sanitizer", out)
+	}
+	if got := stripANSI(out); !strings.Contains(got, "BOLD plain") {
+		t.Errorf("Render() visible text = %q, want the literal text content preserved", got)
+	}
+}
+
+// TestSetPreRenderedBypassesSanitization is SetPreRendered's core contract:
+// content it inserts is exempt from the sanitization
+// TestSetInnerHTMLSanitizesEmbeddedANSI just confirmed applies to ordinary
+// content, because it's carried by an html.RawNode (never producible by
+// html.Parse/ParseFragment) rather than a TextNode.
+func TestSetPreRenderedBypassesSanitization(t *testing.T) {
+	htmlStr := `<div id="pane"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	doc.SetPreRendered(pane, "\x1b[1mBOLD\x1b[m plain")
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "\x1b[1mBOLD\x1b[m") {
+		t.Errorf("Render() = %q, want embedded SGR bold sequence preserved verbatim", out)
+	}
+}
+
+// TestSetPreRenderedSurvivesScrollClip is the actual bug this API was added
+// to fix: a mail-repl message pane pre-rendered once and re-embedded via
+// SetPreRendered lost all styling once scrolled, because scroll clipping
+// doesn't re-run sanitization — the styling was gone from the very first,
+// unscrolled render already (SetInnerHTML's sanitizer stripped it before
+// scrolling ever entered the picture). This exercises both an off-screen
+// (scrolled-away) and on-screen line to confirm the fix holds for content
+// that must survive overflow-y's lines[offset:offset+height] slicing.
+func TestSetPreRenderedSurvivesScrollClip(t *testing.T) {
+	pre := "\x1b[1mBOLD line1\x1b[m\nplain line2\nplain line3\nplain line4\n\x1b[4mUNDER line5\x1b[m"
+	htmlStr := `<div id="pane" style="height:3;overflow:auto"><pre id="content"></pre></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	content := doc.GetElementByID("content")
+	doc.SetPreRendered(content, pre)
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "\x1b[1mBOLD line1\x1b[m") {
+		t.Errorf("initial render = %q, want line1's bold SGR sequence intact", out)
+	}
+
+	pane := doc.GetElementByID("pane")
+	doc.SetScrollTop(pane, 2) // line5 (index 4) now the last of the 3 visible lines
+	out, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "UNDER line5") {
+		t.Fatalf("scrolled render = %q, want line5 visible", got)
+	}
+	if !strings.Contains(out, "\x1b[4mUNDER line5\x1b[m") {
+		t.Errorf("scrolled render = %q, want line5's underline SGR sequence intact after scroll clip", out)
+	}
+}
+
+// TestSetPreRenderedReplacesExistingChildren mirrors
+// TestSetInnerHTMLReplacesChildren: a second call fully replaces the first,
+// no leftover content from the prior call remains.
+func TestSetPreRenderedReplacesExistingChildren(t *testing.T) {
+	doc, err := document.ParseDocument(`<div id="pane"><p>stale</p></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	doc.SetPreRendered(pane, "first")
+	doc.SetPreRendered(pane, "second")
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.Contains(got, "stale") || strings.Contains(got, "first") {
+		t.Errorf("Render() = %q, want no trace of earlier content", got)
+	}
+	if !strings.Contains(got, "second") {
+		t.Errorf("Render() = %q, want %q", got, "second")
+	}
+}
+
+// TestSetPreRenderedClearsFocusOnRemovedDescendant mirrors
+// TestSetInnerHTMLClearsFocusOnRemovedDescendant: replacing a subtree that
+// contains the focused element must clear focus rather than leave it
+// dangling on a detached node.
+func TestSetPreRenderedClearsFocusOnRemovedDescendant(t *testing.T) {
+	htmlStr := `<div id="pane"><input id="name" type="text"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	input := doc.GetElementByID("name")
+	if !doc.Focus(input) {
+		t.Fatal("Focus(input) = false, want true")
+	}
+
+	doc.SetPreRendered(pane, "replaced")
+
+	if doc.FocusedElement() != nil {
+		t.Error("FocusedElement() != nil after focused element's container was replaced, want nil")
+	}
+}
+
+func TestSetPreRenderedNilElement(t *testing.T) {
+	doc, err := document.ParseDocument(`<div></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	// Must not panic.
+	doc.SetPreRendered(nil, "x")
+}

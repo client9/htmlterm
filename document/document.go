@@ -860,6 +860,49 @@ func (d *Document) SetInnerHTML(el *Element, htmlStr string) error {
 	return nil
 }
 
+// SetPreRendered replaces el's content with ansi verbatim, bypassing HTML
+// parsing and — critically — sanitizeTerminalText (see SECURITY.md's
+// "Trusted pre-rendered content"). It does this by attaching a single
+// html.RawNode child carrying ansi as its Data. html.RawNode is never
+// produced by html.Parse/ParseFragment (see its doc comment in
+// golang.org/x/net/html: "RawNode nodes are not returned by the parser, but
+// can be part of the Node tree passed to func Render to insert raw
+// HTML")— so a RawNode can only enter a Document's tree via this method.
+// The trust boundary is which code path built the node, not a naming
+// convention on a string: SetInnerHTML's input, however it's spelled, can
+// never become one.
+//
+// ansi is intended to be the output of a prior Document.Render() (or
+// htmlterm.Renderer.Render()) call — i.e. content this package already
+// rendered (and, in producing it, already sanitized) once. It is inserted
+// exactly as given, with no re-wrapping: word-wrap and overflow-y
+// scroll-clipping still apply around it the same as any other content (both
+// are already ANSI-aware — see wordWrapANSI/textutil.go — so embedded
+// SGR/OSC8 sequences are treated as zero-width), but SetPreRendered performs
+// no validation that ansi's line widths actually match el's resolved
+// content width; a caller re-using stale ansi after a resize will see it
+// clipped or padded to the new width without being rewrapped to it.
+//
+// The caller is solely responsible for ansi's trustworthiness: passing
+// unsanitized, attacker-controlled, or otherwise arbitrary text here
+// reintroduces exactly the terminal-escape-injection risk
+// sanitizeTerminalText exists to prevent. Only pass content this package
+// itself produced.
+func (d *Document) SetPreRendered(el *Element, ansi string) {
+	if el == nil {
+		return
+	}
+	for c := el.node.FirstChild; c != nil; {
+		next := c.NextSibling
+		el.node.RemoveChild(c)
+		c = next
+	}
+	el.node.AppendChild(&html.Node{Type: html.RawNode, Data: ansi})
+	if d.focused != nil && !isDescendant(d.doc, d.focused) {
+		d.focused = nil
+	}
+}
+
 // isDescendant reports whether n is root or a descendant of root, by walking
 // up n's parent chain — used by SetInnerHTML to detect a focused node that
 // just got cut out of the tree.

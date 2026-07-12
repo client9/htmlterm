@@ -3,6 +3,7 @@ package htmlterm_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/client9/htmlterm"
 )
@@ -289,6 +290,82 @@ func TestTableCellTextAlign(t *testing.T) {
 		{name: "text-align center in cell", html: `<table ` + hidden + `><tr><td style="text-align:center;width:6">hi</td></tr></table>`, want: "  hi  \n"},
 		{name: "text-align left is explicit default", html: `<table ` + hidden + `><tr><td style="text-align:left;width:6">hi</td></tr></table>`, want: "hi    \n"},
 	})
+}
+
+// TestDeeplyNestedTablesRenderQuickly guards against exponential blowup when
+// measuring a nested table's natural width (see measureCellNaturalWidth):
+// a table with an empty <td> beside a <td> holding an unconstrained
+// two-column table (no CSS/HTML width anywhere) has no way to estimate
+// column widths from constraints alone, so every level must measure its
+// content - and if measuring a nested table meant fully rendering it (rather
+// than just computing its natural width), that measure-and-fully-render
+// duplication would compound at every nesting level, doubling total work
+// per level. 18 levels deep would take minutes if that regressed; it should
+// take well under a second.
+func TestDeeplyNestedTablesRenderQuickly(t *testing.T) {
+	const depth = 18
+	html := `<table><tr><td>leaf</td><td>leaf2</td></tr></table>`
+	for i := 0; i < depth; i++ {
+		html = `<table><tr><td></td><td>` + html + `</td></tr></table>`
+	}
+
+	done := make(chan struct{})
+	go func() {
+		r, err := htmlterm.New(htmlterm.Options{Width: 80})
+		if err != nil {
+			t.Errorf("New: %v", err)
+			close(done)
+			return
+		}
+		if _, err := r.Render(html); err != nil {
+			t.Errorf("Render: %v", err)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rendering deeply nested tables took too long - likely exponential blowup in nested-table width measurement")
+	}
+}
+
+// TestMeasuringBlockContentRendersQuickly guards against a different
+// blowup in the same nested-table-width-measurement path (see
+// measureCellNaturalWidth): measuring a cell's natural width renders its
+// content at an effectively unbounded width (naturalWidthCap, 1<<30) since
+// that's free for plain text (it only suppresses width-driven wrapping). But
+// a block-level child (e.g. a <div>) resolves its own default width
+// directly from that budget - genuine CSS block behavior (width:auto fills
+// the container) - and text-align (or any other alignment) then pads every
+// line out to that width, materializing a roughly billion-character string.
+// Real-world HTML almost always sets text-align somewhere inside a table
+// cell, so this is a common trigger, not an edge case.
+func TestMeasuringBlockContentRendersQuickly(t *testing.T) {
+	// Two unconstrained flex columns (no CSS/HTML width anywhere) force the
+	// ambiguous measurement path; the second column's block child has
+	// text-align set, which is what triggers the width-padding blowup.
+	html := `<table><tr><td></td><td><div style="text-align:center">hi</div></td></tr></table>`
+
+	done := make(chan struct{})
+	go func() {
+		r, err := htmlterm.New(htmlterm.Options{Width: 80})
+		if err != nil {
+			t.Errorf("New: %v", err)
+			close(done)
+			return
+		}
+		if _, err := r.Render(html); err != nil {
+			t.Errorf("Render: %v", err)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("rendering a text-align block inside a measured table cell took too long - likely materializing a huge padded string")
+	}
 }
 
 func TestColWidthAttrIgnored(t *testing.T) {

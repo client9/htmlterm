@@ -263,7 +263,7 @@ strong, b               { font-weight: bold; }
 em, i, dfn              { font-style: italic; }
 samp, var, cite, figcaption { font-style: italic; }
 a                       { text-decoration: underline; }
-a > table {text-decoration: none; }
+/*a > table               { text-decoration: none; } */
 u, ins                  { text-decoration: underline; }
 pre                     { white-space: pre; }
 ul, ol, menu            { padding-left: 4; }
@@ -288,6 +288,7 @@ input, button, select   { display: inline-block; }
 textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }
+title, meta, script, style: { display: none; }
 `
 
 const defaultFocusAttr = "data-htmlterm-focus"
