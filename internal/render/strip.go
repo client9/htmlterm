@@ -32,11 +32,17 @@ func stripHiddenInline(doc *html.Node) {
 }
 
 func isHiddenInline(n *html.Node) bool {
-	style := nodeAttr(n, "style")
-	if style == "" {
+	return isHiddenStyle(nodeAttr(n, "style"))
+}
+
+// isHiddenStyle reports whether a CSS style attribute value marks an
+// element as invisible, matching the same high-confidence patterns
+// documented on stripHiddenInline.
+func isHiddenStyle(s string) bool {
+	if s == "" {
 		return false
 	}
-	decls := cssengine.ParseDeclarations(style)
+	decls := cssengine.ParseDeclarations(s)
 	if decls["display"] == "none" {
 		return true
 	}

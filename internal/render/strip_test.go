@@ -36,7 +36,7 @@ func TestIsZeroValue(t *testing.T) {
 	}
 }
 
-func TestIsHiddenInline(t *testing.T) {
+func TestIsHiddenStyle(t *testing.T) {
 	tests := []struct {
 		name  string
 		style string
@@ -61,7 +61,7 @@ func TestIsHiddenInline(t *testing.T) {
 		// stripImportant (css.go) — the "hidden preheader" trick this
 		// file's own doc comment names as the motivating case for
 		// StripHiddenInline uses !important specifically to defeat webmail
-		// CSS resets, so isHiddenInline must still recognize these.
+		// CSS resets, so isHiddenStyle must still recognize these.
 		{"display none important with space", "display: none !important", true},
 		{"display none important no space", "display:none!important", true},
 		{"display none important uppercase", "display: none !IMPORTANT", true},
@@ -70,26 +70,8 @@ func TestIsHiddenInline(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			doc, err := html.Parse(strings.NewReader(`<span style="` + tc.style + `">x</span>`))
-			if err != nil {
-				t.Fatalf("html.Parse: %v", err)
-			}
-			var span *html.Node
-			var find func(*html.Node)
-			find = func(n *html.Node) {
-				if n.Type == html.ElementNode && n.Data == "span" {
-					span = n
-				}
-				for c := n.FirstChild; c != nil; c = c.NextSibling {
-					find(c)
-				}
-			}
-			find(doc)
-			if span == nil {
-				t.Fatal("span not found in parsed doc")
-			}
-			if got := isHiddenInline(span); got != tc.want {
-				t.Errorf("isHiddenInline(style=%q) = %v, want %v", tc.style, got, tc.want)
+			if got := isHiddenStyle(tc.style); got != tc.want {
+				t.Errorf("isHiddenStyle(%q) = %v, want %v", tc.style, got, tc.want)
 			}
 		})
 	}
