@@ -61,10 +61,10 @@ type selectorPart struct {
 // to cache and are matched directly off raw via pseudoArg/switch in
 // matchPseudo, same as before.
 type pseudoClass struct {
-	raw     string
-	notPart *selectorPart  // set for :not(<selector>)
-	isParts []selectorPart // set for :is(<list>) / :where(<list>)
-	isWhere bool           // true if isParts came from :where(), which contributes zero specificity
+	raw      string
+	notParts []selectorPart // set for :not(<selector-list>)
+	isParts  []selectorPart // set for :is(<list>) / :where(<list>)
+	isWhere  bool           // true if isParts came from :where(), which contributes zero specificity
 }
 
 // parsePseudoClass parses a single lowercased pseudo-class token (e.g.
@@ -73,8 +73,12 @@ type pseudoClass struct {
 func parsePseudoClass(ps string) pseudoClass {
 	pc := pseudoClass{raw: ps}
 	if arg, ok := pseudoArg(ps, "not("); ok {
-		part := parseSimpleSelector(arg)
-		pc.notPart = &part
+		// Per the CSS Selectors Level 4 grammar, :not() takes a full
+		// selector list (comma-separated), not a single simple selector —
+		// parsed the same way as :is()/:where() below so a comma nested
+		// inside the argument is treated as a list separator rather than
+		// literal selector text.
+		pc.notParts = parseSelectorList(arg)
 		return pc
 	}
 	if arg, ok := pseudoArg(ps, "is("); ok {
@@ -387,8 +391,12 @@ func specificity(parts []selectorPart) specificityScore {
 		s.classes += len(p.attrs)
 		for _, pc := range p.pseudos {
 			switch {
-			case pc.notPart != nil:
-				innerSpec := specificity([]selectorPart{*pc.notPart})
+			case pc.notParts != nil:
+				// :not()'s specificity is that of the most specific selector
+				// in its argument list, same rule as :is() — matches real
+				// CSS's ":not() and :is()... specificity is the specificity
+				// of the most specific complex selector in its argument".
+				innerSpec := maxSpecificityOfParts(pc.notParts)
 				s.ids += innerSpec.ids
 				s.classes += innerSpec.classes
 				s.elements += innerSpec.elements
@@ -501,13 +509,14 @@ func matchPart(n *html.Node, p selectorPart, focusAttr string) bool {
 }
 
 // matchPseudo reports whether n satisfies a single pseudo-class condition.
-// :not()/:is()/:where() were pre-parsed into pc.notPart/pc.isParts by
+// :not()/:is()/:where() were pre-parsed into pc.notParts/pc.isParts by
 // parsePseudoClass at selectorPart-construction time, so matching them here
 // never re-parses their nested selector argument.
 func matchPseudo(n *html.Node, pc pseudoClass, focusAttr string) bool {
-	// :not(<selector>) — negation pseudo-class (simple selector argument only).
-	if pc.notPart != nil {
-		return !matchPart(n, *pc.notPart, focusAttr)
+	// :not(<selector-list>) — matches n if it matches none of the compound
+	// selectors in the (comma-separated) argument list.
+	if pc.notParts != nil {
+		return !matchesAnyCompoundParts(n, pc.notParts, focusAttr)
 	}
 	// :is(<selector-list>) / :where(<selector-list>) — matches n if it
 	// matches any compound selector in a comma-separated list. The two are

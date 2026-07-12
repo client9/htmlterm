@@ -445,7 +445,7 @@ func TestAttrSelectorBracketInsideQuotedValue(t *testing.T) {
 
 func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 	// parseSimpleSelector pre-parses :not()/:is()/:where() arguments once
-	// into pseudoClass.notPart/isParts rather than leaving matchPseudo to
+	// into pseudoClass.notParts/isParts rather than leaving matchPseudo to
 	// re-parse the raw string on every match attempt; confirm the cached
 	// forms round-trip through parsing and matching correctly.
 	part := parseSimpleSelector("p:not(.a):is(.b, .c)")
@@ -453,8 +453,8 @@ func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 		t.Fatalf("parseSimpleSelector(%q).pseudos has %d entries, want 2", "p:not(.a):is(.b, .c)", len(part.pseudos))
 	}
 	notPC, isPC := part.pseudos[0], part.pseudos[1]
-	if notPC.notPart == nil || notPC.notPart.classes[0] != "a" {
-		t.Fatalf("pseudos[0].notPart = %#v, want parsed .a", notPC.notPart)
+	if len(notPC.notParts) != 1 || notPC.notParts[0].classes[0] != "a" {
+		t.Fatalf("pseudos[0].notParts = %#v, want one parsed .a", notPC.notParts)
 	}
 	if len(isPC.isParts) != 2 || isPC.isParts[0].classes[0] != "b" || isPC.isParts[1].classes[0] != "c" {
 		t.Fatalf("pseudos[1].isParts = %#v, want parsed .b and .c", isPC.isParts)
@@ -481,6 +481,51 @@ func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 		if got := matchSelector(n, parts, ""); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "p:not(.a):is(.b, .c)", tc.id, got, tc.want)
 		}
+	}
+}
+
+func TestNotWithSelectorList(t *testing.T) {
+	// Per CSS Selectors Level 4, :not() takes a full selector list, so
+	// :not(.a, .b) must exclude elements matching EITHER .a OR .b — not be
+	// parsed as one unsplit ".a, .b" compound selector (which used to fold
+	// the comma into a garbage class name and make the pseudo-class
+	// vacuously true for every element).
+	part := parseSimpleSelector("a:not(.a, .b)")
+	if len(part.pseudos) != 1 {
+		t.Fatalf("parseSimpleSelector(%q).pseudos has %d entries, want 1", "a:not(.a, .b)", len(part.pseudos))
+	}
+	notParts := part.pseudos[0].notParts
+	if len(notParts) != 2 || notParts[0].classes[0] != "a" || notParts[1].classes[0] != "b" {
+		t.Fatalf("pseudos[0].notParts = %#v, want parsed .a and .b", notParts)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<a id="a1" class="b"></a><a id="a2" class="a"></a><a id="a3" class="c"></a>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("a:not(.a, .b)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"a1", false}, // has .b, excluded by :not(.a, .b)
+		{"a2", false}, // has .a, excluded by :not(.a, .b)
+		{"a3", true},  // has neither .a nor .b
+	}
+	for _, tc := range tests {
+		n := findElementByID(doc, tc.id)
+		if n == nil {
+			t.Fatalf("element #%s not found", tc.id)
+		}
+		if got := matchSelector(n, parts, ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "a:not(.a, .b)", tc.id, got, tc.want)
+		}
+	}
+
+	// Specificity of :not(<list>) is that of the most specific selector in
+	// the list, same rule as :is() — :not(#a, .b) should score as an ID.
+	if got, want := specificity(parseSelector(":not(#a, .b)")), (specificityScore{ids: 1}); got != want {
+		t.Fatalf("specificity(%q) = %#v, want %#v", ":not(#a, .b)", got, want)
 	}
 }
 
