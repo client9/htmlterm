@@ -51,6 +51,7 @@ func ParseStylesheet(src string) ([]Rule, error) {
 	const (
 		inSelector     = iota
 		inDeclarations // inside { }
+		inAtRule       // skipping an unsupported @-rule (prelude, and body if any)
 	)
 
 	state := inSelector
@@ -59,6 +60,7 @@ func ParseStylesheet(src string) ([]Rule, error) {
 	var valBuf strings.Builder
 	var curDecls map[string]declValue
 	inValue := false
+	atRuleDepth := 0
 
 	commitDecl := func() {
 		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
@@ -106,12 +108,57 @@ func ParseStylesheet(src string) ([]Rule, error) {
 			switch tt {
 			case css.CommentToken:
 				continue
+			case css.AtKeywordToken:
+				// An @-rule (@media, @import, @font-face, @keyframes, ...) —
+				// none are supported (see CSS.md), so its prelude and body
+				// (if any) are skipped as a unit rather than being fed
+				// token-by-token into selBuf/curDecls, which used to
+				// misinterpret a block @-rule's nested "{"/"}" as this
+				// state machine's own selector/declaration boundaries and
+				// silently corrupt whatever rule happened to follow it in
+				// the same stylesheet. Only recognized when selBuf is
+				// otherwise empty, i.e. at the true start of a rule — an
+				// "@" appearing mid-selector is already invalid CSS and
+				// isn't specially handled.
+				if strings.TrimSpace(selBuf.String()) == "" {
+					selBuf.Reset()
+					state = inAtRule
+					atRuleDepth = 0
+					continue
+				}
+				selBuf.Write(data)
 			case css.LeftBraceToken:
 				curDecls = make(map[string]declValue)
 				state = inDeclarations
 				inValue = false
 			default:
 				selBuf.Write(data)
+			}
+
+		case inAtRule:
+			switch tt {
+			case css.LeftBraceToken:
+				atRuleDepth++
+			case css.RightBraceToken:
+				if atRuleDepth > 0 {
+					atRuleDepth--
+				}
+				if atRuleDepth == 0 {
+					state = inSelector
+				}
+			case css.SemicolonToken:
+				// A statement @-rule (e.g. "@import url(foo.css);") ends
+				// here; a block @-rule's prelude never has a top-level
+				// semicolon, and any semicolon inside its body is at
+				// atRuleDepth > 0 and is skipped like everything else in
+				// the body.
+				if atRuleDepth == 0 {
+					state = inSelector
+				}
+			default:
+				// Discard the rest of the @-rule's prelude/body tokens
+				// (identifiers, parens, nested selectors and declarations,
+				// strings, etc.) unconditionally.
 			}
 
 		case inDeclarations:

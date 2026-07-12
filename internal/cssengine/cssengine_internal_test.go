@@ -138,6 +138,75 @@ td/* comment */{ white-space: normal; }`)
 	}
 }
 
+func TestParseCSSSkipsAtRules(t *testing.T) {
+	tests := []struct {
+		name string
+		src  string
+		want []Rule
+	}{
+		{
+			name: "block at-rule with nested rule is skipped whole, not just its prelude",
+			src: `@media (max-width: 600px) {
+  .foo { color: red; }
+}
+.bar { color: blue; }`,
+			want: []Rule{
+				{selector: ".bar", decls: map[string]declValue{"color": {value: "blue"}}},
+			},
+		},
+		{
+			name: "statement at-rule terminated by semicolon",
+			src:  `@import url(foo.css);` + "\n" + `.bar { color: blue; }`,
+			want: []Rule{
+				{selector: ".bar", decls: map[string]declValue{"color": {value: "blue"}}},
+			},
+		},
+		{
+			name: "single-brace at-rule (no nested rule) is skipped whole",
+			src: `@font-face { font-family: "x"; src: url(y.woff); }
+.bar { color: blue; }`,
+			want: []Rule{
+				{selector: ".bar", decls: map[string]declValue{"color": {value: "blue"}}},
+			},
+		},
+		{
+			name: "consecutive at-rules followed by a real rule",
+			src: `@charset "utf-8";
+@import url(foo.css);
+@media print {
+  .foo { color: red; }
+}
+@keyframes spin { from { color: red; } to { color: blue; } }
+.bar { color: blue; }
+.baz { color: green; }`,
+			want: []Rule{
+				{selector: ".bar", decls: map[string]declValue{"color": {value: "blue"}}},
+				{selector: ".baz", decls: map[string]declValue{"color": {value: "green"}}},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rules, err := ParseStylesheet(tc.src)
+			if err != nil {
+				t.Fatalf("ParseStylesheet() error = %v", err)
+			}
+			if got := stripRuleParts(rules); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("ParseStylesheet() = %#v, want %#v", got, tc.want)
+			}
+			// The surviving rule's selector must be exactly what the author
+			// wrote, not corrupted by leftover at-rule text (e.g. a stray
+			// "}" folded into the selector, which used to make it
+			// unmatchable against any real element).
+			for i, r := range rules {
+				if r.selector != tc.want[i].selector {
+					t.Fatalf("rules[%d].selector = %q, want %q", i, r.selector, tc.want[i].selector)
+				}
+			}
+		})
+	}
+}
+
 func TestSplitImportant(t *testing.T) {
 	tests := []struct {
 		in            string
