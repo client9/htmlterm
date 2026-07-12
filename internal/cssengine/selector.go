@@ -213,6 +213,19 @@ func parseSelector(sel string) []selectorPart {
 	return parts
 }
 
+// lowerPseudoName lowercases a pseudo-class token's name (case-insensitive
+// per CSS) while preserving the case of any parenthesized argument.
+// Argument content is either case-sensitive itself (a class/id/attribute
+// selector nested in :not()/:is()/:where()) or lowercases what it needs on
+// its own (parseNth's An+B argument), so only the name up to and including
+// the opening "(" should be folded here.
+func lowerPseudoName(raw string) string {
+	if idx := strings.IndexByte(raw, '('); idx >= 0 {
+		return strings.ToLower(raw[:idx+1]) + raw[idx+1:]
+	}
+	return strings.ToLower(raw)
+}
+
 // parseSimpleSelector parses a single compound-selector token such as
 // "div#main.foo.bar:first-child[href=val]" into a selectorPart.
 func parseSimpleSelector(tok string) selectorPart {
@@ -265,7 +278,8 @@ func parseSimpleSelector(tok string) selectorPart {
 					j++
 				}
 			}
-			if ps := strings.ToLower(tok[i:j]); ps != "" {
+			if raw := tok[i:j]; raw != "" {
+				ps := lowerPseudoName(raw)
 				switch ps {
 				case "before", "after", "marker":
 					p.pseudoElem = ps
@@ -307,14 +321,18 @@ func parseAttrSel(s string) (attrSel, bool) {
 	}
 
 	if idx, tokenLen, op, ok := findAttrSelectorOp(s); ok {
-		key := strings.TrimSpace(s[:idx])
+		// HTML attribute names are ASCII case-insensitive, and
+		// golang.org/x/net/html always lowercases them on parse — lowercase
+		// the selector's key here so e.g. "[DATA-FOO]" still matches a
+		// parsed data-foo attribute.
+		key := strings.ToLower(strings.TrimSpace(s[:idx]))
 		val := unquoteAttrSelectorValue(strings.TrimSpace(s[idx+tokenLen:]))
 		if key == "" {
 			return attrSel{}, false
 		}
 		return attrSel{key: key, op: op, val: val}, true
 	}
-	return attrSel{key: s, op: opExists}, true
+	return attrSel{key: strings.ToLower(s), op: opExists}, true
 }
 
 func findAttrSelectorOp(s string) (idx, tokenLen int, op attrOp, ok bool) {

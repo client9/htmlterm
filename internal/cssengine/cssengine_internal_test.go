@@ -598,6 +598,125 @@ func TestNotWithSelectorList(t *testing.T) {
 	}
 }
 
+func TestNotPreservesArgumentCase(t *testing.T) {
+	// parseSimpleSelector used to lowercase a pseudo-class token's entire
+	// text, including a nested :not()/:is()/:where() argument — corrupting
+	// case-sensitive class/id/attribute matching inside it. Only the pseudo
+	// name itself (up through "(") is case-insensitive; the argument must
+	// round-trip untouched.
+	part := parseSimpleSelector("div:not(.Foo)")
+	if len(part.pseudos) != 1 || len(part.pseudos[0].notParts) != 1 {
+		t.Fatalf("parseSimpleSelector(%q) = %#v, want one notParts entry", "div:not(.Foo)", part)
+	}
+	if got := part.pseudos[0].notParts[0].classes[0]; got != "Foo" {
+		t.Fatalf("notParts[0].classes[0] = %q, want %q (case preserved)", got, "Foo")
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<div id="d1" class="Foo">a</div><div id="d2" class="foo">b</div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("div:not(.Foo)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"d1", false}, // has class "Foo" exactly, excluded by :not(.Foo)
+		{"d2", true},  // has class "foo", distinct from "Foo", not excluded
+	}
+	for _, tc := range tests {
+		n := findElementByID(doc, tc.id)
+		if n == nil {
+			t.Fatalf("element #%s not found", tc.id)
+		}
+		if got := matchSelector(n, parts, ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:not(.Foo)", tc.id, got, tc.want)
+		}
+	}
+
+	// Uppercase pseudo-class names are still case-insensitive.
+	upper := parseSimpleSelector("div:NOT(.Foo)")
+	if len(upper.pseudos) != 1 || len(upper.pseudos[0].notParts) != 1 || upper.pseudos[0].notParts[0].classes[0] != "Foo" {
+		t.Fatalf("parseSimpleSelector(%q) = %#v, want the same parse as lowercase :not(.Foo)", "div:NOT(.Foo)", upper)
+	}
+}
+
+func TestIsPreservesIDCase(t *testing.T) {
+	part := parseSimpleSelector("div:is(#MyId)")
+	if len(part.pseudos) != 1 || len(part.pseudos[0].isParts) != 1 {
+		t.Fatalf("parseSimpleSelector(%q) = %#v, want one isParts entry", "div:is(#MyId)", part)
+	}
+	if got := part.pseudos[0].isParts[0].id; got != "MyId" {
+		t.Fatalf("isParts[0].id = %q, want %q (case preserved)", got, "MyId")
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<div id="MyId">a</div><div id="myid">b</div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("div:is(#MyId)")
+	if !matchSelector(findElementByID(doc, "MyId"), parts, "") {
+		t.Errorf(`div:is(#MyId) should match id="MyId"`)
+	}
+	if matchSelector(findElementByID(doc, "myid"), parts, "") {
+		t.Errorf(`div:is(#MyId) should not match id="myid"`)
+	}
+}
+
+func TestNthChildArgumentStillMatchesRegardlessOfCase(t *testing.T) {
+	// parseNth lowercases its own argument, so preserving raw case for
+	// :not()/:is() arguments must not break plain functional pseudo-classes
+	// like :nth-child that rely on the pre-fix lowercasing behavior.
+	doc, err := html.Parse(strings.NewReader(`<ul><li id="l1"></li><li id="l2"></li><li id="l3"></li></ul>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("li:NTH-CHILD(2N+1)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"l1", true},
+		{"l2", false},
+		{"l3", true},
+	}
+	for _, tc := range tests {
+		if got := matchSelector(findElementByID(doc, tc.id), parts, ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "li:NTH-CHILD(2N+1)", tc.id, got, tc.want)
+		}
+	}
+}
+
+func TestAttrSelectorNameIsCaseInsensitive(t *testing.T) {
+	// HTML attribute names are ASCII case-insensitive, and
+	// golang.org/x/net/html always lowercases them on parse, so the
+	// selector's own attribute name must be folded to match.
+	got, ok := parseAttrSel("DATA-FOO")
+	if !ok {
+		t.Fatalf(`parseAttrSel("DATA-FOO") returned !ok`)
+	}
+	if want := (attrSel{key: "data-foo", op: opExists}); got != want {
+		t.Fatalf(`parseAttrSel("DATA-FOO") = %#v, want %#v`, got, want)
+	}
+
+	got, ok = parseAttrSel(`DATA-FOO="x"`)
+	if !ok {
+		t.Fatalf(`parseAttrSel("DATA-FOO=\"x\"") returned !ok`)
+	}
+	if want := (attrSel{key: "data-foo", op: opEquals, val: "x"}); got != want {
+		t.Fatalf(`parseAttrSel("DATA-FOO=\"x\"") = %#v, want %#v`, got, want)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<div id="d1" data-foo="x">a</div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("div[DATA-FOO]")
+	if !matchSelector(findElementByID(doc, "d1"), parts, "") {
+		t.Errorf(`div[DATA-FOO] should match data-foo attribute`)
+	}
+}
+
 func TestParseCSSCommaAndShorthand(t *testing.T) {
 	rules, err := ParseStylesheet("p, div { margin: 1 2; padding: 3; }")
 	if err != nil {
