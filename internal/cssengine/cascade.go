@@ -1,6 +1,7 @@
 package cssengine
 
 import (
+	"maps"
 	"sort"
 	"strings"
 
@@ -12,6 +13,20 @@ type Cascade struct {
 	Rules        []Rule
 	IgnoreInline bool
 	FocusAttr    string
+
+	// Cache, if non-nil, memoizes Direct's per-node result across every
+	// Resolve/Direct call sharing this map. Resolve's ancestor walk calls
+	// Direct(anc) once for every descendant of anc, so without a cache
+	// shared across an entire render pass, resolving N nodes at average
+	// depth D against R rules costs O(N*D*R) — every descendant re-running
+	// the full R-rule match against the same ancestor from scratch — instead
+	// of the O(N*R) achievable by matching each node against the ruleset
+	// once and reusing that result for all of its descendants. Callers that
+	// only resolve a handful of nodes (or the package's own tests) can leave
+	// this nil; Direct/Resolve behave identically either way, just without
+	// the reuse. A zero-value Cascade{Rules: ...} is safe: Direct and
+	// Resolve both nil-check before touching it.
+	Cache map[*html.Node]map[string]string
 }
 
 // ExtractStyleRules walks doc and parses CSS text from every active <style> element.
@@ -60,7 +75,15 @@ var inheritableProps = map[string]bool{
 // matching rules by ascending specificity, then filling missing inheritable
 // properties from the nearest ancestor that directly declares them.
 func (c Cascade) Resolve(n *html.Node) map[string]string {
-	result := c.Direct(n)
+	// Copy rather than reuse c.Direct(n) directly: when c.Cache is set, that
+	// map is the shared, cached result for n and must not be mutated by the
+	// inherited-property fill-in below, or a later Direct(n) call (e.g. from
+	// this same node's own use as an ancestor of something else, or a
+	// caller's own directDecls-style lookup) would see leaked inherited
+	// values as if they were n's own direct declarations.
+	direct := c.Direct(n)
+	result := make(map[string]string, len(direct))
+	maps.Copy(result, direct)
 	for anc := n.Parent; anc != nil; anc = anc.Parent {
 		if anc.Type != html.ElementNode {
 			continue
@@ -139,6 +162,11 @@ func flattenImportant(normal, important map[string]string) map[string]string {
 // Direct returns CSS declarations for n based only on rules that directly
 // match n (no ancestor inheritance). Used by Resolve.
 func (c Cascade) Direct(n *html.Node) map[string]string {
+	if c.Cache != nil {
+		if cached, ok := c.Cache[n]; ok {
+			return cached
+		}
+	}
 	var matches []ruleMatch
 	for _, rl := range c.Rules {
 		if matchSelector(n, rl.parts, c.FocusAttr) {
@@ -154,7 +182,11 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 			mergeInlineDecls(normal, important, parseDeclarationsWithImportance(s))
 		}
 	}
-	return flattenImportant(normal, important)
+	result := flattenImportant(normal, important)
+	if c.Cache != nil {
+		c.Cache[n] = result
+	}
+	return result
 }
 
 // PseudoElement returns the merged CSS declarations from all rules whose

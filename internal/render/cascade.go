@@ -10,6 +10,7 @@ func (r *Engine) cascade() cssengine.Cascade {
 		Rules:        r.rules,
 		IgnoreInline: r.ignoreDocumentCSS,
 		FocusAttr:    r.focusAttr,
+		Cache:        r.directCache,
 	}
 }
 

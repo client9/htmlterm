@@ -42,6 +42,7 @@ type Engine struct {
 	selectOpenAttr        string
 	selectHighlightAttr   string
 	counterMap            map[*html.Node]counterSnapshot
+	directCache           map[*html.Node]map[string]string
 	quoteDepth            int
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
@@ -202,6 +203,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		rr.height = e.height
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
+	rr.directCache = make(map[*html.Node]map[string]string)
 	rr.quoteDepth = 0
 	tokens := rr.renderRootTokens(doc)
 	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
