@@ -382,6 +382,108 @@ func TestConsumeCSSQuotedTokenTrailingBackslashDoesNotPanic(t *testing.T) {
 	_ = s[:i]
 }
 
+func TestParseCSSCommaInsideFunctionalPseudoIsNotAGroupSeparator(t *testing.T) {
+	// A naive strings.Split(sel, ",") would break "a:is(.x, .y), b" into
+	// "a:is(.x", " .y)", " b" — the first two fragments have unbalanced
+	// parens and can never match a real element.
+	rules, err := ParseStylesheet(`a:is(.x, .y), b { color: red }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	if len(rules) != 2 {
+		t.Fatalf("ParseStylesheet() returned %d rules, want 2: %#v", len(rules), rules)
+	}
+	if rules[0].selector != "a:is(.x, .y)" || rules[1].selector != "b" {
+		t.Fatalf("unexpected selectors: %q, %q", rules[0].selector, rules[1].selector)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<div><a id="a1" class="x">x</a></div><b id="b1">y</b>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	cascade := Cascade{Rules: rules}
+	if got := cascade.Direct(findElementByID(doc, "a1")); got["color"] != "red" {
+		t.Errorf(`Direct(#a1)["color"] = %q, want "red"`, got["color"])
+	}
+	if got := cascade.Direct(findElementByID(doc, "b1")); got["color"] != "red" {
+		t.Errorf(`Direct(#b1)["color"] = %q, want "red"`, got["color"])
+	}
+}
+
+func TestParseSelectorGroupCommaInsideFunctionalPseudoIsNotAGroupSeparator(t *testing.T) {
+	group := ParseSelectorGroup("a:is(.x, .y), b")
+	if len(group.groups) != 2 {
+		t.Fatalf("ParseSelectorGroup() produced %d groups, want 2: %#v", len(group.groups), group.groups)
+	}
+}
+
+func TestAttrSelectorBracketInsideQuotedValue(t *testing.T) {
+	// A quote-blind bracket scan would stop at the "]" embedded in the
+	// quoted value, truncating the selector and producing an attrSel that
+	// can never match a real attribute.
+	got, ok := parseAttrSel(`title="a]b"`)
+	if !ok {
+		t.Fatalf(`parseAttrSel("title=\"a]b\"") returned !ok`)
+	}
+	want := attrSel{key: "title", op: opEquals, val: "a]b"}
+	if got != want {
+		t.Fatalf(`parseAttrSel("title=\"a]b\"") = %#v, want %#v`, got, want)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<p id="a" title="a]b">x</p><p id="b" title="ab">y</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector(`[title="a]b"]`)
+	if !matchSelector(findElementByID(doc, "a"), parts, "") {
+		t.Errorf(`[title="a]b"] should match #a`)
+	}
+	if matchSelector(findElementByID(doc, "b"), parts, "") {
+		t.Errorf(`[title="a]b"] should not match #b`)
+	}
+}
+
+func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
+	// parseSimpleSelector pre-parses :not()/:is()/:where() arguments once
+	// into pseudoClass.notPart/isParts rather than leaving matchPseudo to
+	// re-parse the raw string on every match attempt; confirm the cached
+	// forms round-trip through parsing and matching correctly.
+	part := parseSimpleSelector("p:not(.a):is(.b, .c)")
+	if len(part.pseudos) != 2 {
+		t.Fatalf("parseSimpleSelector(%q).pseudos has %d entries, want 2", "p:not(.a):is(.b, .c)", len(part.pseudos))
+	}
+	notPC, isPC := part.pseudos[0], part.pseudos[1]
+	if notPC.notPart == nil || notPC.notPart.classes[0] != "a" {
+		t.Fatalf("pseudos[0].notPart = %#v, want parsed .a", notPC.notPart)
+	}
+	if len(isPC.isParts) != 2 || isPC.isParts[0].classes[0] != "b" || isPC.isParts[1].classes[0] != "c" {
+		t.Fatalf("pseudos[1].isParts = %#v, want parsed .b and .c", isPC.isParts)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<p id="p1" class="b">x</p><p id="p2" class="a b">y</p><p id="p3" class="d">z</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("p:not(.a):is(.b, .c)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"p1", true},  // has .b, lacks .a
+		{"p2", false}, // has .a, excluded by :not(.a)
+		{"p3", false}, // has neither .b nor .c
+	}
+	for _, tc := range tests {
+		n := findElementByID(doc, tc.id)
+		if n == nil {
+			t.Fatalf("element #%s not found", tc.id)
+		}
+		if got := matchSelector(n, parts, ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "p:not(.a):is(.b, .c)", tc.id, got, tc.want)
+		}
+	}
+}
+
 func TestParseCSSCommaAndShorthand(t *testing.T) {
 	rules, err := ParseStylesheet("p, div { margin: 1 2; padding: 3; }")
 	if err != nil {

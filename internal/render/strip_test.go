@@ -67,6 +67,7 @@ func TestIsHiddenStyle(t *testing.T) {
 		{"display none important uppercase", "display: none !IMPORTANT", true},
 		{"visibility hidden important", "visibility: hidden !important", true},
 		{"opacity zero important", "opacity: 0 !important", true},
+		{"compound1", "font-size:0px;display:none;visibility:hidden;opacity:0;color:transparent;max-height:0px;height:0;width:0;mso-hide:all", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

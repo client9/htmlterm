@@ -45,10 +45,61 @@ type selectorPart struct {
 	element    string
 	id         string
 	classes    []string
-	pseudos    []string
+	pseudos    []pseudoClass
 	attrs      []attrSel
 	combo      combinator
 	pseudoElem string
+}
+
+// pseudoClass is a single pseudo-class condition, pre-parsed once at
+// selectorPart-construction time. :not()/:is()/:where() carry a nested
+// selector (list) argument that used to be re-parsed by matchPseudo on
+// every single match attempt — an O(nodes × rules) cost per render, the
+// same cost Rule.parts's own caching exists to avoid for the outer
+// selector. Caching the nested parse here closes that gap. Plain
+// pseudo-classes (:hover, :nth-child(2n+1), etc.) have no nested selector
+// to cache and are matched directly off raw via pseudoArg/switch in
+// matchPseudo, same as before.
+type pseudoClass struct {
+	raw     string
+	notPart *selectorPart  // set for :not(<selector>)
+	isParts []selectorPart // set for :is(<list>) / :where(<list>)
+	isWhere bool           // true if isParts came from :where(), which contributes zero specificity
+}
+
+// parsePseudoClass parses a single lowercased pseudo-class token (e.g.
+// "not(.x)", "is(.x, .y)", "nth-child(2n+1)", "hover") into a pseudoClass,
+// pre-parsing any nested :not()/:is()/:where() selector argument.
+func parsePseudoClass(ps string) pseudoClass {
+	pc := pseudoClass{raw: ps}
+	if arg, ok := pseudoArg(ps, "not("); ok {
+		part := parseSimpleSelector(arg)
+		pc.notPart = &part
+		return pc
+	}
+	if arg, ok := pseudoArg(ps, "is("); ok {
+		pc.isParts = parseSelectorList(arg)
+		return pc
+	}
+	if arg, ok := pseudoArg(ps, "where("); ok {
+		pc.isParts = parseSelectorList(arg)
+		pc.isWhere = true
+		return pc
+	}
+	return pc
+}
+
+// parseSelectorList parses a selector-list argument (as passed to
+// :is()/:where()) into one selectorPart per top-level comma-separated
+// compound selector.
+func parseSelectorList(list string) []selectorPart {
+	var parts []selectorPart
+	for _, item := range splitSelectorList(list) {
+		if item = strings.TrimSpace(item); item != "" {
+			parts = append(parts, parseSimpleSelector(item))
+		}
+	}
+	return parts
 }
 
 // SelectorGroup is a parsed comma-separated selector group.
@@ -56,10 +107,13 @@ type SelectorGroup struct {
 	groups [][]selectorPart
 }
 
-// ParseSelectorGroup parses a comma-separated selector group.
+// ParseSelectorGroup parses a comma-separated selector group. Splitting
+// uses splitSelectorList rather than a naive strings.Split so a comma
+// nested inside a functional pseudo-class argument (e.g.
+// "a:is(.x, .y), b") isn't mistaken for a top-level group separator.
 func ParseSelectorGroup(sel string) SelectorGroup {
 	var group SelectorGroup
-	for _, s := range strings.Split(sel, ",") {
+	for _, s := range splitSelectorList(sel) {
 		if s = strings.TrimSpace(s); s != "" {
 			group.groups = append(group.groups, parseSelector(s))
 		}
@@ -122,6 +176,10 @@ func parseSelector(sel string) []selectorPart {
 			switch sel[i] {
 			case '[':
 				for i < n && sel[i] != ']' {
+					if sel[i] == '"' || sel[i] == '\'' {
+						i = consumeCSSQuotedToken(sel, i)
+						continue
+					}
 					i++
 				}
 				if i < n {
@@ -208,7 +266,7 @@ func parseSimpleSelector(tok string) selectorPart {
 				case "before", "after", "marker":
 					p.pseudoElem = ps
 				default:
-					p.pseudos = append(p.pseudos, ps)
+					p.pseudos = append(p.pseudos, parsePseudoClass(ps))
 				}
 			}
 			i = j
@@ -216,6 +274,10 @@ func parseSimpleSelector(tok string) selectorPart {
 			i++
 			j = i
 			for j < n && tok[j] != ']' {
+				if tok[j] == '"' || tok[j] == '\'' {
+					j = consumeCSSQuotedToken(tok, j)
+					continue
+				}
 				j++
 			}
 			if a, ok := parseAttrSel(tok[i:j]); ok {
@@ -323,23 +385,21 @@ func specificity(parts []selectorPart) specificityScore {
 		}
 		s.classes += len(p.classes)
 		s.classes += len(p.attrs)
-		for _, ps := range p.pseudos {
+		for _, pc := range p.pseudos {
 			switch {
-			case strings.HasPrefix(ps, "not(") && strings.HasSuffix(ps, ")"):
-				inner := strings.TrimSpace(ps[4 : len(ps)-1])
-				innerSpec := specificity([]selectorPart{parseSimpleSelector(inner)})
+			case pc.notPart != nil:
+				innerSpec := specificity([]selectorPart{*pc.notPart})
 				s.ids += innerSpec.ids
 				s.classes += innerSpec.classes
 				s.elements += innerSpec.elements
-			case strings.HasPrefix(ps, "is(") && strings.HasSuffix(ps, ")"):
-				inner := strings.TrimSpace(ps[3 : len(ps)-1])
-				innerSpec := selectorListMaxSpecificity(inner)
-				s.ids += innerSpec.ids
-				s.classes += innerSpec.classes
-				s.elements += innerSpec.elements
-			case strings.HasPrefix(ps, "where(") && strings.HasSuffix(ps, ")"):
+			case pc.isWhere:
 				// :where() always contributes zero specificity, regardless
 				// of its argument — that's its entire reason to exist.
+			case pc.isParts != nil:
+				innerSpec := maxSpecificityOfParts(pc.isParts)
+				s.ids += innerSpec.ids
+				s.classes += innerSpec.classes
+				s.elements += innerSpec.elements
 			default:
 				s.classes++
 			}
@@ -348,15 +408,11 @@ func specificity(parts []selectorPart) specificityScore {
 	return s
 }
 
-// matchesAnyCompound reports whether n matches any compound selector in a
-// comma-separated selector list, as used by :is()/:where().
-func matchesAnyCompound(n *html.Node, list string, focusAttr string) bool {
-	for _, item := range splitSelectorList(list) {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		if matchPart(n, parseSimpleSelector(item), focusAttr) {
+// matchesAnyCompoundParts reports whether n matches any compound selector in
+// a pre-parsed selector list, as used by :is()/:where().
+func matchesAnyCompoundParts(n *html.Node, parts []selectorPart, focusAttr string) bool {
+	for _, p := range parts {
+		if matchPart(n, p, focusAttr) {
 			return true
 		}
 	}
@@ -390,18 +446,13 @@ func splitSelectorList(s string) []string {
 	return parts
 }
 
-// selectorListMaxSpecificity returns the highest specificity among the
-// compound selectors in a comma-separated list, per :is()'s "most specific
-// selector in its argument" rule.
-func selectorListMaxSpecificity(list string) specificityScore {
+// maxSpecificityOfParts returns the highest specificity among a pre-parsed
+// selector list, per :is()'s "most specific selector in its argument" rule.
+func maxSpecificityOfParts(parts []selectorPart) specificityScore {
 	var max specificityScore
 	first := true
-	for _, item := range splitSelectorList(list) {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		sc := specificity([]selectorPart{parseSimpleSelector(item)})
+	for _, p := range parts {
+		sc := specificity([]selectorPart{p})
 		if first || max.less(sc) {
 			max = sc
 			first = false
@@ -436,8 +487,8 @@ func matchPart(n *html.Node, p selectorPart, focusAttr string) bool {
 			return false
 		}
 	}
-	for _, ps := range p.pseudos {
-		if !matchPseudo(n, ps, focusAttr) {
+	for _, pc := range p.pseudos {
+		if !matchPseudo(n, pc, focusAttr) {
 			return false
 		}
 	}
@@ -450,13 +501,13 @@ func matchPart(n *html.Node, p selectorPart, focusAttr string) bool {
 }
 
 // matchPseudo reports whether n satisfies a single pseudo-class condition.
-func matchPseudo(n *html.Node, pseudo, focusAttr string) bool {
+// :not()/:is()/:where() were pre-parsed into pc.notPart/pc.isParts by
+// parsePseudoClass at selectorPart-construction time, so matching them here
+// never re-parses their nested selector argument.
+func matchPseudo(n *html.Node, pc pseudoClass, focusAttr string) bool {
 	// :not(<selector>) — negation pseudo-class (simple selector argument only).
-	if strings.HasPrefix(pseudo, "not(") && strings.HasSuffix(pseudo, ")") {
-		inner := pseudo[4 : len(pseudo)-1]
-		inner = strings.TrimSpace(inner)
-		p := parseSimpleSelector(inner)
-		return !matchPart(n, p, focusAttr)
+	if pc.notPart != nil {
+		return !matchPart(n, *pc.notPart, focusAttr)
 	}
 	// :is(<selector-list>) / :where(<selector-list>) — matches n if it
 	// matches any compound selector in a comma-separated list. The two are
@@ -464,13 +515,11 @@ func matchPseudo(n *html.Node, pseudo, focusAttr string) bool {
 	// (see specificity()), where :where() always contributes zero. Like
 	// :not(), each list item is a single compound selector — nested
 	// combinators are not supported.
-	if arg, ok := pseudoArg(pseudo, "is("); ok {
-		return matchesAnyCompound(n, arg, focusAttr)
-	}
-	if arg, ok := pseudoArg(pseudo, "where("); ok {
-		return matchesAnyCompound(n, arg, focusAttr)
+	if pc.isParts != nil {
+		return matchesAnyCompoundParts(n, pc.isParts, focusAttr)
 	}
 
+	pseudo := pc.raw
 	if n.Parent == nil {
 		return false
 	}

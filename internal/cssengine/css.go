@@ -77,7 +77,11 @@ func ParseStylesheet(src string) ([]Rule, error) {
 		commitDecl()
 		sel := strings.TrimSpace(selBuf.String())
 		if sel != "" && curDecls != nil {
-			for _, s := range strings.Split(sel, ",") {
+			// splitSelectorList (not a naive strings.Split) so a comma
+			// nested inside a functional pseudo-class argument (e.g.
+			// "a:is(.x, .y), b { ... }") isn't mistaken for a rule's
+			// top-level selector-group separator.
+			for _, s := range splitSelectorList(sel) {
 				if s = strings.TrimSpace(s); s != "" {
 					rules = append(rules, Rule{selector: s, decls: copyDecls(curDecls), parts: parseSelector(s)})
 				}
