@@ -1567,3 +1567,119 @@ func TestSetPreRenderedNilElement(t *testing.T) {
 	// Must not panic.
 	doc.SetPreRendered(nil, "x")
 }
+
+func TestElementTreeNavigation(t *testing.T) {
+	htmlStr := `<div id="parent">` +
+		`<span id="one">1</span>` +
+		`<span id="two">2</span>` +
+		`<span id="three">3</span>` +
+		`</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	parent := doc.GetElementByID("parent")
+	one := doc.GetElementByID("one")
+	two := doc.GetElementByID("two")
+	three := doc.GetElementByID("three")
+
+	if got := parent.FirstElementChild(); got == nil || got.ID() != "one" {
+		t.Errorf("FirstElementChild() = %v, want id=one", got)
+	}
+	if got := parent.LastElementChild(); got == nil || got.ID() != "three" {
+		t.Errorf("LastElementChild() = %v, want id=three", got)
+	}
+	if got := one.NextElementSibling(); got == nil || got.ID() != "two" {
+		t.Errorf("one.NextElementSibling() = %v, want id=two", got)
+	}
+	if got := three.PreviousElementSibling(); got == nil || got.ID() != "two" {
+		t.Errorf("three.PreviousElementSibling() = %v, want id=two", got)
+	}
+	if one.PreviousElementSibling() != nil {
+		t.Error("one.PreviousElementSibling() != nil, want nil (first child)")
+	}
+	if three.NextElementSibling() != nil {
+		t.Error("three.NextElementSibling() != nil, want nil (last child)")
+	}
+	if got := two.Parent(); got == nil || got.ID() != "parent" {
+		t.Errorf("two.Parent() = %v, want id=parent", got)
+	}
+	if doc.DocumentElement().Parent() != nil {
+		t.Error("DocumentElement().Parent() != nil, want nil (document root)")
+	}
+
+	children := parent.Children()
+	if len(children) != 3 || children[0].ID() != "one" || children[1].ID() != "two" || children[2].ID() != "three" {
+		t.Errorf("Children() = %v, want [one two three]", children)
+	}
+
+	// This markup has no whitespace between tags, so plain (non-Element-
+	// filtered) sibling/child navigation lines up with the element-only
+	// view too.
+	if got := two.FirstChild(); got == nil || got.TextContent() != "2" {
+		t.Errorf("two.FirstChild().TextContent() = %v, want \"2\"", got)
+	}
+	if got := two.NextSibling(); got == nil || got.ID() != "three" {
+		t.Errorf("two.NextSibling() = %v, want id=three", got)
+	}
+	if got := two.PreviousSibling(); got == nil || got.ID() != "one" {
+		t.Errorf("two.PreviousSibling() = %v, want id=one", got)
+	}
+}
+
+func TestElementCreateAndAppendChild(t *testing.T) {
+	doc, err := document.ParseDocument(`<div id="container"></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+
+	span := doc.CreateElement("span")
+	span.SetAttribute("id", "created")
+	span.AppendChild(doc.CreateTextNode("hello"))
+	container.AppendChild(span)
+
+	got := doc.GetElementByID("created")
+	if got == nil {
+		t.Fatal("GetElementByID(\"created\") = nil after AppendChild")
+	}
+	if got.TextContent() != "hello" {
+		t.Errorf("TextContent() = %q, want %q", got.TextContent(), "hello")
+	}
+	if p := got.Parent(); p == nil || p.ID() != "container" {
+		t.Error("created span's Parent() should be the container")
+	}
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "hello") {
+		t.Errorf("Render() = %q, want it to contain the appended content %q", out, "hello")
+	}
+}
+
+func TestElementInsertBefore(t *testing.T) {
+	htmlStr := `<div id="container"><span id="last">last</span></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+	last := doc.GetElementByID("last")
+
+	first := doc.CreateElement("span")
+	first.SetAttribute("id", "first")
+	container.InsertBefore(first, last)
+
+	if got := container.FirstElementChild(); got == nil || got.ID() != "first" {
+		t.Errorf("FirstElementChild() = %v, want id=first (inserted before last)", got)
+	}
+
+	end := doc.CreateElement("span")
+	end.SetAttribute("id", "end")
+	container.InsertBefore(end, nil) // nil oldChild appends at the end
+	if got := container.LastElementChild(); got == nil || got.ID() != "end" {
+		t.Errorf("LastElementChild() = %v, want id=end (nil oldChild appends)", got)
+	}
+}

@@ -269,32 +269,30 @@ func (d *Document) nearestScrollable(n *html.Node) *html.Node {
 	return nil
 }
 
-// nodeDepth counts n's ancestors up to (but not including) the document
-// root — used by elementAt to break ties between overlapping Rects in favor
-// of the more deeply nested (more specific) element.
-func nodeDepth(n *html.Node) int {
-	depth := 0
-	for cur := n.Parent; cur != nil; cur = cur.Parent {
-		depth++
-	}
-	return depth
-}
-
 // elementAt returns the innermost element whose Rect contains (row, col), or
 // nil if none does. Multiple recorded Rects can contain the same point (e.g.
 // a <label> wrapping an <input> — both cover the click point); the deepest
-// node in the tree wins, matching DOM hit-testing semantics.
+// node in the tree wins, matching DOM hit-testing semantics. Ties at equal
+// depth (which shouldn't arise from normal box layout, but would from
+// overlapping Rects at the same nesting level) are broken by document order,
+// keeping the first one walked — deterministic, unlike ranging over
+// d.positions directly, whose Go map iteration order varies from call to
+// call.
 func (d *Document) elementAt(row, col int) *html.Node {
 	var best *html.Node
 	bestDepth := -1
-	for n, r := range d.positions {
-		if row < r.Row || row >= r.Row+r.Height || col < r.Col || col >= r.Col+r.Width {
-			continue
-		}
-		if depth := nodeDepth(n); depth > bestDepth {
+	var walk func(n *html.Node, depth int)
+	walk = func(n *html.Node, depth int) {
+		if r, ok := d.positions[n]; ok &&
+			row >= r.Row && row < r.Row+r.Height && col >= r.Col && col < r.Col+r.Width &&
+			depth > bestDepth {
 			best, bestDepth = n, depth
 		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c, depth+1)
+		}
 	}
+	walk(d.doc, 0)
 	return best
 }
 
@@ -913,6 +911,20 @@ func isDescendant(root, n *html.Node) bool {
 		}
 	}
 	return false
+}
+
+// CreateElement returns a new element node with tag as its tag name,
+// detached from the tree — mirroring the DOM's Document.createElement.
+// Attach it with Element.AppendChild or Element.InsertBefore.
+func (d *Document) CreateElement(tag string) *Element {
+	return &Element{node: &html.Node{Type: html.ElementNode, Data: tag}}
+}
+
+// CreateTextNode returns a new text node carrying text, detached from the
+// tree — mirroring the DOM's Document.createTextNode. Attach it with
+// Element.AppendChild or Element.InsertBefore.
+func (d *Document) CreateTextNode(text string) *Element {
+	return &Element{node: &html.Node{Type: html.TextNode, Data: text}}
 }
 
 // GetElementByID returns the first element in document order whose id
