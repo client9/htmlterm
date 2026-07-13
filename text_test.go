@@ -108,7 +108,7 @@ func TestPseudoElements(t *testing.T) {
 		{name: "element scoped — div::before fires on div", css: `div::before { content: "> "; }`, html: `<div>content</div>`, want: "> content\n"},
 		{name: "before with styling (color stripped in plain-text comparison)", css: `p::before { content: "! "; color: #ff0000; }`, html: `<p>warning</p>`, want: "! warning\n\n"},
 		{name: "before inherits parent inline context", css: `p { font-weight: bold; } p::before { content: "★ "; }`, html: `<p>bold</p>`, want: "★ bold\n\n"},
-		{name: "ancestor selector in pseudo-element rule", css: `div p::before { content: "• "; }`, html: `<div><p>item</p></div>`, want: "• item\n"},
+		{name: "ancestor selector in pseudo-element rule", css: `div p::before { content: "• "; }`, html: `<div><p>item</p></div>`, want: "• item\n\n"},
 		{name: "ancestor selector does not fire outside context", css: `div p::before { content: "• "; }`, html: `<p>item</p>`, want: "item\n\n"},
 	})
 }

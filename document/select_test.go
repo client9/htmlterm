@@ -255,7 +255,11 @@ func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
 }
 
 func TestSelectClickOutsideClosesPopup(t *testing.T) {
-	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<p id="p">unrelated text</p>`)
+	// The dropdown popup overlays rows below the select without reflowing
+	// later content, so "unrelated content" needs enough filler <br>s ahead
+	// of it to land below the (3-option) popup's footprint, or the click
+	// meant for it would land on the popup instead.
+	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<br><br><br><br><p id="p">unrelated text</p>`)
 	rect, _ := sel.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col) // open it

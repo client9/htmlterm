@@ -122,8 +122,8 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 				}
 			case "ol", "ul", "menu":
 				ordered := n.Data == "ol"
-				if mt := parseMargin(decls["margin-top"]); mt > 0 && hasContent(tokens) {
-					tokens = ensureBreaks(tokens, mt+1)
+				if hasContent(tokens) {
+					tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
 				}
 				listContent, listPositions := r.renderList(n, ordered, r.width)
 				bx := newBox(strings.TrimSuffix(listContent, "\n"))
@@ -156,30 +156,29 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 	switch decls["display"] {
 	case "none":
 	case "block":
-		// Unlike inline.go's nested "block" case (always ensures at least 1
-		// separator when there's preceding content, regardless of margin
-		// value), root-level block dispatch has historically only forced
-		// separation when margin-top is explicitly non-zero — preserved
-		// here exactly: e.g. "before<p>paragraph</p>" (p's margin-top is 0)
-		// glues directly with no separator, relying on whatever's already
-		// pending from the previous sibling.
-		if mt := parseMargin(decls["margin-top"]); mt > 0 && hasContent(tokens) {
-			tokens = ensureBreaks(tokens, mt+1)
-		}
 		savedDepth := r.quoteDepth
+		// renderBlockContentBox runs before consulting decls["margin-top"]:
+		// it may raise that value itself, when n's own first child's
+		// margin-top collapses through n's open top edge (block.go's
+		// leading-trim) - the pre-box separator below must see that
+		// collapsed value, not the one resolveDecls produced.
 		bx, subPositions := r.renderBlockContentBox(n, decls, r.width)
 		if decls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth
 			bx = blankVisibleContentBox(bx)
 		}
 		bx = r.wrapHyperlinkBox(href, bx)
+		// A block box always starts its own line regardless of margin-top —
+		// matches inline.go's nested "block" case (pushBoxDirect always
+		// ensures at least 1 separator when there's preceding content); a
+		// non-zero margin-top only raises that minimum further.
+		if hasContent(tokens) {
+			tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+		}
 		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
 	case "flex":
-		if mt := parseMargin(decls["margin-top"]); mt > 0 && hasContent(tokens) {
-			tokens = ensureBreaks(tokens, mt+1)
-		}
 		savedDepth := r.quoteDepth
 		bx, subPositions := r.renderFlexContentBox(n, decls, r.width)
 		if decls["visibility"] == "hidden" {
@@ -187,6 +186,9 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			bx = blankVisibleContentBox(bx)
 		}
 		bx = r.wrapHyperlinkBox(href, bx)
+		if hasContent(tokens) {
+			tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+		}
 		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)

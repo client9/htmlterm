@@ -500,7 +500,7 @@ func TestNoscriptDoesNotCorruptOuterCounters(t *testing.T) {
 			name: "noscript recursive render preserves outer counter map",
 			css:  `body { counter-reset: sec; } p { counter-increment: sec; } p::before { content: counter(sec) ". "; }`,
 			html: `<p>a</p><noscript><b>fallback</b></noscript><p>b</p>`,
-			want: "1. a\n\nfallback2. b\n\n",
+			want: "1. a\n\nfallback\n2. b\n\n",
 		},
 	})
 }
@@ -528,7 +528,7 @@ func TestBareText(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "bare text in html element", html: `<html>Hello World</html>`, want: "Hello World"},
 		{name: "bare text in body element", html: `<body>hello</body>`, want: "hello"},
-		{name: "bare text mixed with block element", html: `<body>before<p>paragraph</p>after</body>`, want: "beforeparagraph\n\nafter"},
+		{name: "bare text mixed with block element", html: `<body>before<p>paragraph</p>after</body>`, want: "before\nparagraph\n\nafter"},
 		{name: "whitespace-only text between elements is ignored", html: "<body>\n<p>text</p>\n</body>", want: "text\n\n"},
 		{name: "bare root text wraps at terminal width", html: `one two three four five six seven`, width: 20, want: "one two three four\nfive six seven"},
 		{name: "bare body text wraps without trailing newline", html: `<body>one two three four five six</body>`, width: 14, want: "one two three\nfour five six"},
@@ -863,8 +863,8 @@ func TestOverflowWrap(t *testing.T) {
 			html:  `<div><p>averylongwordindeed</p></div>`,
 			width: 8,
 			// "averylongwordindeed" (19 chars) split at 8: "averylon"+"gwordind"+"eed"
-			// div strips trailing newlines from inner p; only div's own \n remains
-			want: "averylon\ngwordind\need\n",
+			// p's own trailing margin-bottom collapses through div's open bottom edge
+			want: "averylon\ngwordind\need\n\n",
 		},
 	})
 }
@@ -892,8 +892,8 @@ func TestTextIndent(t *testing.T) {
 			html:  `<div><p>hello</p></div>`,
 			width: 40,
 			// div's first content is a block child (p); indent applies to p's own first line
-			// div strips p's trailing newline, so result has only div's \n
-			want: "   hello\n",
+			// p's own trailing margin-bottom collapses through div's open bottom edge
+			want: "   hello\n\n",
 		},
 		{
 			name:  "text-indent percentage of available width",
@@ -1014,8 +1014,8 @@ func TestVisibilityHidden(t *testing.T) {
 			css:   `div { visibility: hidden; }`,
 			html:  `<div><p>secret</p></div>`,
 			width: 20,
-			// div strips p's trailing newlines; only div's own \n remains
-			want: "      \n",
+			// p's own trailing margin-bottom collapses through div's open bottom edge
+			want: "      \n\n",
 		},
 		{
 			name:  "visibility hidden inline-block blanks content",
@@ -1260,8 +1260,8 @@ func TestNewHTMLElements(t *testing.T) {
 		{name: "ol without start defaults to 1", html: `<ol><li>x</li></ol>`, want: "    1. x\n"},
 
 		// details / summary — p's margin-bottom is absorbed by the outer details block
-		{name: "details renders expanded with summary as bold block", html: `<details><summary>Title</summary><p>body</p></details>`, want: "Title\nbody\n"},
-		{name: "details without summary renders children", html: `<details><p>text</p></details>`, want: "text\n"},
+		{name: "details renders expanded with summary as bold block", html: `<details><summary>Title</summary><p>body</p></details>`, want: "Title\nbody\n\n"},
+		{name: "details without summary renders children", html: `<details><p>text</p></details>`, want: "text\n\n"},
 
 		// caption — appears before the table; centered when table is wider than caption
 		{

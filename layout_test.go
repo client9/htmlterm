@@ -76,13 +76,13 @@ func TestWordWrap(t *testing.T) {
 		{name: "pre block skips word wrap", html: `<pre>one two three four five six</pre>`, width: 20, want: "one two three four five six\n"},
 		{name: "blockquote text wraps inside border and padding", html: `<blockquote>one two three four five six</blockquote>`, width: 20, want: "│ one two three  \n│ four five six  \n"},
 		{name: "explicit CSS width constrains wrap width", html: `<p style="width:10">hello world end</p>`, width: 40, want: "hello     \nworld end \n\n"},
-		{name: "multi-line content from block-in-inline is not re-wrapped", html: `<blockquote><p>A</p><p>B</p></blockquote>`, width: 40, want: "│ A  \n│   \n│ B  \n"},
+		{name: "multi-line content from block-in-inline is not re-wrapped", html: `<blockquote><p>A</p><p>B</p></blockquote>`, width: 40, want: "│ A  \n│   \n│ B  \n\n"},
 	})
 }
 
 func TestBlockquoteBlocks(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "blockquote heading and paragraph no extra trailing spaces", html: `<blockquote><h2>Title</h2><p>Body.</p></blockquote>`, want: "│ Title  \n│ Body.  \n"},
-		{name: "two paragraphs in blockquote separated by one blank bordered line", html: `<blockquote><p>A</p><p>B</p></blockquote>`, want: "│ A  \n│   \n│ B  \n"},
+		{name: "blockquote heading and paragraph no extra trailing spaces", html: `<blockquote><h2>Title</h2><p>Body.</p></blockquote>`, want: "│ Title  \n│ Body.  \n\n"},
+		{name: "two paragraphs in blockquote separated by one blank bordered line", html: `<blockquote><p>A</p><p>B</p></blockquote>`, want: "│ A  \n│   \n│ B  \n\n"},
 	})
 }
