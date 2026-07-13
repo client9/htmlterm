@@ -209,25 +209,107 @@ func (e *Element) Children() []*Element {
 
 // AppendChild adds child as e's last child — mirroring the DOM's
 // Node.appendChild. child must be freshly created (e.g. via
-// Document.CreateElement/CreateTextNode) and not already attached anywhere
-// in the tree; like the underlying golang.org/x/net/html.Node.AppendChild,
-// it panics otherwise. There is no removeChild/replaceChild yet to detach an
-// already-attached node first (planned separately), so this only covers
-// building up new content, not relocating existing nodes.
+// Document.CreateElement/CreateTextNode or Element.CloneNode) or already
+// removed from wherever it was (see RemoveChild); like the underlying
+// golang.org/x/net/html.Node.AppendChild, it panics if child is still
+// attached anywhere in the tree.
 func (e *Element) AppendChild(child *Element) {
 	e.node.AppendChild(child.node)
 }
 
 // InsertBefore inserts newChild immediately before oldChild among e's
 // children, or appends it as the last child if oldChild is nil — mirroring
-// the DOM's Node.insertBefore. newChild must be freshly created and not
-// already attached anywhere in the tree, same as AppendChild.
+// the DOM's Node.insertBefore. newChild must not already be attached
+// anywhere in the tree, same as AppendChild.
 func (e *Element) InsertBefore(newChild, oldChild *Element) {
 	var old *html.Node
 	if oldChild != nil {
 		old = oldChild.node
 	}
 	e.node.InsertBefore(newChild.node, old)
+}
+
+// RemoveChild removes child from e's children and returns it, now detached
+// (no parent, no siblings) and safe to re-attach elsewhere via AppendChild/
+// InsertBefore — mirroring the DOM's Node.removeChild. Panics if child is
+// not currently a child of e, matching the underlying
+// golang.org/x/net/html.Node.RemoveChild. If the currently focused element
+// is child or one of its descendants, focus is silently cleared (no "blur"
+// dispatched — the element is gone, not blurred), the same behavior
+// SetInnerHTML/SetPreRendered already have for a wholesale subtree
+// replacement (see Document.clearFocusIfDetached). Listeners registered on
+// now-detached descendants become unreachable, same as SetInnerHTML — call
+// Document.RemoveEventListener first if that matters.
+func (e *Element) RemoveChild(child *Element) *Element {
+	e.node.RemoveChild(child.node)
+	if e.doc != nil {
+		e.doc.clearFocusIfDetached()
+	}
+	return child
+}
+
+// ReplaceChild replaces oldChild with newChild among e's children and
+// returns oldChild, now detached — mirroring the DOM's
+// Node.replaceChild(newChild, oldChild) (note the argument order: new node
+// first, matching the DOM rather than RemoveChild's single-argument shape).
+// newChild must not already be attached anywhere in the tree (see
+// AppendChild). Panics if oldChild is not currently a child of e. Focus/
+// listener handling for oldChild's subtree is identical to RemoveChild.
+func (e *Element) ReplaceChild(newChild, oldChild *Element) *Element {
+	if oldChild.node.Parent != e.node {
+		panic("htmlterm: ReplaceChild called for a non-child Node")
+	}
+	e.node.InsertBefore(newChild.node, oldChild.node)
+	e.node.RemoveChild(oldChild.node)
+	if e.doc != nil {
+		e.doc.clearFocusIfDetached()
+	}
+	return oldChild
+}
+
+// CloneNode returns a detached copy of e — mirroring the DOM's
+// Node.cloneNode(deep). If deep is true, e's whole subtree is copied; if
+// false, only e itself (with its attributes, but no children) is copied.
+// The clone must be attached via AppendChild/InsertBefore before it appears
+// in Render output. Event listeners are never copied, matching the DOM
+// (cloneNode never copies listeners either).
+//
+// The three reserved state-marker attributes this package reflects into the
+// tree as real attributes — focusAttr, selectOpenAttr, selectHighlightAttr
+// (see event.go/select.go) — are deliberately not copied, even though a
+// real DOM clone would copy every attribute verbatim: unlike a browser,
+// where focus/open-popup state is never an HTML attribute in the first
+// place, those three *are* attributes here, so a literal copy would produce
+// a second element that matches ":focus" (or renders as an open dropdown)
+// the moment it's attached, alongside the original — clearly not what a
+// caller cloning a focused input or an open <select> wants.
+func (e *Element) CloneNode(deep bool) *Element {
+	return &Element{node: cloneHTMLNode(e.node, deep), doc: e.doc}
+}
+
+// cloneHTMLNode is CloneNode's recursive implementation. golang.org/x/net/
+// html has no built-in clone, and its Node.AppendChild panics on a node that
+// already has parent/sibling pointers set, so reusing subtree nodes directly
+// isn't an option — every node needs a fresh copy.
+func cloneHTMLNode(n *html.Node, deep bool) *html.Node {
+	clone := &html.Node{
+		Type:      n.Type,
+		DataAtom:  n.DataAtom,
+		Data:      n.Data,
+		Namespace: n.Namespace,
+	}
+	for _, a := range n.Attr {
+		if a.Key == focusAttr || a.Key == selectOpenAttr || a.Key == selectHighlightAttr {
+			continue
+		}
+		clone.Attr = append(clone.Attr, a)
+	}
+	if deep {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			clone.AppendChild(cloneHTMLNode(c, true))
+		}
+	}
+	return clone
 }
 
 // Focus moves focus to e, setting the reserved focusAttr marker that

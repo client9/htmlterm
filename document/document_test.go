@@ -1684,3 +1684,203 @@ func TestElementInsertBefore(t *testing.T) {
 		t.Errorf("LastElementChild() = %v, want id=end (nil oldChild appends)", got)
 	}
 }
+
+func TestElementRemoveChild(t *testing.T) {
+	htmlStr := `<div id="container"><span id="a">a</span><span id="b">b</span></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+	a := doc.GetElementByID("a")
+
+	removed := container.RemoveChild(a)
+	if removed.ID() != "a" {
+		t.Errorf("RemoveChild returned id=%q, want a", removed.ID())
+	}
+	if removed.Parent() != nil {
+		t.Error("removed child's Parent() != nil, want nil (detached)")
+	}
+	if got := container.Children(); len(got) != 1 || got[0].ID() != "b" {
+		t.Errorf("container.Children() after removal = %v, want [b]", got)
+	}
+	if doc.GetElementByID("a") != nil {
+		t.Error("GetElementByID(\"a\") still finds the removed element")
+	}
+
+	// A detached node can be re-attached elsewhere.
+	container.AppendChild(removed)
+	if got := container.Children(); len(got) != 2 || got[1].ID() != "a" {
+		t.Errorf("container.Children() after re-appending removed child = %v, want [b a]", got)
+	}
+}
+
+func TestElementRemoveChildPanicsOnNonChild(t *testing.T) {
+	doc, err := document.ParseDocument(`<div id="a"></div><div id="b"></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	a := doc.GetElementByID("a")
+	b := doc.GetElementByID("b")
+
+	defer func() {
+		if recover() == nil {
+			t.Error("RemoveChild(non-child) did not panic")
+		}
+	}()
+	a.RemoveChild(b)
+}
+
+func TestElementRemoveChildClearsFocusOnDescendant(t *testing.T) {
+	htmlStr := `<div id="container"><input id="name" type="text"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+	input := doc.GetElementByID("name")
+	if !input.Focus() {
+		t.Fatal("Focus(input) = false, want true")
+	}
+
+	container.RemoveChild(input)
+
+	if doc.FocusedElement() != nil {
+		t.Error("FocusedElement() != nil after focused element was removed, want nil")
+	}
+}
+
+func TestElementReplaceChild(t *testing.T) {
+	htmlStr := `<div id="container"><span id="old">old</span></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+	oldChild := doc.GetElementByID("old")
+
+	newChild := doc.CreateElement("span")
+	newChild.SetAttribute("id", "new")
+
+	returned := container.ReplaceChild(newChild, oldChild)
+	if returned.ID() != "old" {
+		t.Errorf("ReplaceChild returned id=%q, want old", returned.ID())
+	}
+	if returned.Parent() != nil {
+		t.Error("replaced-out child's Parent() != nil, want nil (detached)")
+	}
+	if got := container.Children(); len(got) != 1 || got[0].ID() != "new" {
+		t.Errorf("container.Children() after ReplaceChild = %v, want [new]", got)
+	}
+	if doc.GetElementByID("old") != nil {
+		t.Error("GetElementByID(\"old\") still finds the replaced-out element")
+	}
+}
+
+func TestElementReplaceChildClearsFocusOnOldChild(t *testing.T) {
+	htmlStr := `<div id="container"><input id="name" type="text"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	container := doc.GetElementByID("container")
+	input := doc.GetElementByID("name")
+	if !input.Focus() {
+		t.Fatal("Focus(input) = false, want true")
+	}
+
+	container.ReplaceChild(doc.CreateElement("span"), input)
+
+	if doc.FocusedElement() != nil {
+		t.Error("FocusedElement() != nil after focused element was replaced out, want nil")
+	}
+}
+
+func TestElementReplaceChildPanicsOnNonChild(t *testing.T) {
+	doc, err := document.ParseDocument(`<div id="a"></div><div id="b"></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	a := doc.GetElementByID("a")
+	b := doc.GetElementByID("b")
+
+	defer func() {
+		if recover() == nil {
+			t.Error("ReplaceChild(_, non-child) did not panic")
+		}
+	}()
+	a.ReplaceChild(doc.CreateElement("span"), b)
+}
+
+func TestElementCloneNodeDeep(t *testing.T) {
+	htmlStr := `<div id="orig" class="row"><span>hello</span></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	orig := doc.GetElementByID("orig")
+
+	clone := orig.CloneNode(true)
+	if clone.Parent() != nil {
+		t.Error("CloneNode result has a Parent(), want detached (nil)")
+	}
+	if clone.ID() != "orig" || !clone.ClassList().Contains("row") {
+		t.Errorf("clone attributes = id:%q class-has-row:%v, want id:orig class-has-row:true", clone.ID(), clone.ClassList().Contains("row"))
+	}
+	if clone.TextContent() != "hello" {
+		t.Errorf("deep clone TextContent() = %q, want %q (children copied)", clone.TextContent(), "hello")
+	}
+
+	// Mutating the clone must not affect the original.
+	clone.SetAttribute("id", "clone")
+	if orig.ID() != "orig" {
+		t.Errorf("orig.ID() = %q after mutating clone, want unchanged \"orig\"", orig.ID())
+	}
+
+	container := doc.GetElementByID("orig").Parent()
+	container.AppendChild(clone)
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Count(out, "hello") != 2 {
+		t.Errorf("Render() = %q, want \"hello\" to appear twice (original + attached deep clone)", out)
+	}
+}
+
+func TestElementCloneNodeShallowExcludesChildren(t *testing.T) {
+	doc, err := document.ParseDocument(`<div id="orig"><span>hello</span></div>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	orig := doc.GetElementByID("orig")
+
+	clone := orig.CloneNode(false)
+	if clone.TextContent() != "" {
+		t.Errorf("shallow clone TextContent() = %q, want \"\" (no children copied)", clone.TextContent())
+	}
+	if clone.ID() != "orig" {
+		t.Errorf("shallow clone ID() = %q, want \"orig\" (attributes still copied)", clone.ID())
+	}
+}
+
+func TestElementCloneNodeDoesNotCopyFocusState(t *testing.T) {
+	htmlStr := `<div id="container"><input id="a"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	a := doc.GetElementByID("a")
+	if !a.Focus() {
+		t.Fatal("Focus(a) = false, want true")
+	}
+
+	clone := a.CloneNode(false)
+	clone.SetAttribute("id", "clone")
+	doc.GetElementByID("container").AppendChild(clone)
+
+	focused := doc.QuerySelectorAll(":focus")
+	if len(focused) != 1 || focused[0].ID() != "a" {
+		t.Errorf("QuerySelectorAll(:focus) after cloning the focused element = %v, want exactly [a] (clone must not carry focus state)", focused)
+	}
+}

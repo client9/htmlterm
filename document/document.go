@@ -839,9 +839,7 @@ func (d *Document) SetInnerHTML(el *Element, htmlStr string) error {
 	for _, n := range nodes {
 		el.node.AppendChild(n)
 	}
-	if d.focused != nil && !isDescendant(d.doc, d.focused) {
-		d.focused = nil
-	}
+	d.clearFocusIfDetached()
 	return nil
 }
 
@@ -883,14 +881,23 @@ func (d *Document) SetPreRendered(el *Element, ansi string) {
 		c = next
 	}
 	el.node.AppendChild(&html.Node{Type: html.RawNode, Data: ansi})
+	d.clearFocusIfDetached()
+}
+
+// clearFocusIfDetached clears d.focused (silently — no "blur" dispatched,
+// since the element is gone, not blurred) if it's no longer reachable from
+// the document root — the common cleanup every mutation that can cut a
+// subtree out of the tree (SetInnerHTML, SetPreRendered, Element.RemoveChild,
+// Element.ReplaceChild) needs, so focus never dangles on a detached node.
+func (d *Document) clearFocusIfDetached() {
 	if d.focused != nil && !isDescendant(d.doc, d.focused) {
 		d.focused = nil
 	}
 }
 
 // isDescendant reports whether n is root or a descendant of root, by walking
-// up n's parent chain — used by SetInnerHTML to detect a focused node that
-// just got cut out of the tree.
+// up n's parent chain — used by clearFocusIfDetached to detect a focused
+// node that just got cut out of the tree.
 func isDescendant(root, n *html.Node) bool {
 	for cur := n; cur != nil; cur = cur.Parent {
 		if cur == root {
