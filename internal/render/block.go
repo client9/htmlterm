@@ -187,62 +187,6 @@ func parseMargin(s string) int {
 	return n
 }
 
-// leadingMarginTop returns the margin-top that collapses through n's own top
-// edge from a chain of leading block/flex children with nothing else
-// separating them from n's own top - the mirror image of
-// renderBlockContentBox's trailing-margin collapse, computed by peeking at
-// DOM structure directly (rather than off rendered tokens, the way the
-// trailing case is) since unlike a trailing child's margin-bottom - which
-// inline.go's per-child loop always emits unconditionally, trailing or not -
-// a leading child's margin-top is deliberately suppressed at the point of
-// render (pushBoxDirect's hasContent guard) to avoid a spurious separator
-// before whatever's actually first; recovering it after the fact would mean
-// changing that shared emission for every pushBoxDirect caller (table cells,
-// list items, display:contents splices), not just the block-container case
-// that wants to collapse it through.
-func (r *Engine) leadingMarginTop(n *html.Node) int {
-	max := 0
-	cur := n
-	for {
-		var first *html.Node
-		for c := cur.FirstChild; c != nil; c = c.NextSibling {
-			switch c.Type {
-			case html.TextNode:
-				if strings.TrimSpace(c.Data) != "" {
-					return max
-				}
-			case html.ElementNode:
-				if d := r.resolveDecls(c); d["display"] != "none" {
-					first = c
-				}
-			}
-			if first != nil {
-				break
-			}
-		}
-		if first == nil {
-			return max
-		}
-		decls := r.resolveDecls(first)
-		if decls["display"] != "block" && decls["display"] != "flex" {
-			return max
-		}
-		if mt := parseMargin(decls["margin-top"]); mt > max {
-			max = mt
-		}
-		_, _, bt, _, _, _, _, _ := resolveBoxBorders(decls)
-		if bt.char != "" || parsePaddingLen(decls["padding-top"]) != 0 {
-			return max
-		}
-		if v := decls["height"]; v != "" {
-			if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-				return max
-			}
-		}
-		cur = first
-	}
-}
-
 // resolveBoxBorders resolves the four border edges (glyph, color) and corner
 // overrides for a block-level box from decls — shared by renderBlockContentBox
 // and renderFlexContentBox (flex.go) so both box models pick up
@@ -402,26 +346,52 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	} else {
 		tokens = r.renderInlineAccTokens(n, acc, innerW)
 	}
-	if n.Data != "textarea" && bt.char == "" && pt == 0 && heightLines == 0 {
-		if lmt := r.leadingMarginTop(n); lmt > parseMargin(decls["margin-top"]) {
-			decls["margin-top"] = strconv.Itoa(lmt)
+	// A leading child's margin-top (e.g. the first <h2> in a plain <div>) and
+	// a trailing child's margin-bottom (e.g. the last one) show up here as
+	// leading/trailing brk tokens. When this box's own top/bottom edge is
+	// open (no border/padding on that side, no explicit height forcing its
+	// own box size), real CSS collapses that margin through to this
+	// element's own margin-top/margin-bottom - do the same here, stripping
+	// those tokens (so they don't ALSO leave a blank line inside this box)
+	// and widening (never narrowing) whatever margin this element already
+	// has. When an edge is blocked (border/padding/height present), the
+	// margin does NOT collapse through, but it must still take effect right
+	// where it already is - as real blank lines inside the box, exactly like
+	// any other block child's margin.
+	//
+	// Leading and trailing aren't symmetric here: a trailing brk run always
+	// has this box's own real content immediately before it, so the first
+	// one just closes that content's own line (no blank line of its own) and
+	// every one after represents one real blank line - the existing mb+1
+	// convention (wraptoken.go's ensureBreaks) already prices that in, so
+	// leaving a blocked trailing run untouched already renders the right
+	// number of blank lines with no further adjustment. A leading brk run
+	// has nothing before it (it's the first thing in this box's own
+	// content), so *every* leading brk - including the first - renders as
+	// its own blank line; the first one is pushBoxDirect's mandatory
+	// "start a fresh line" placeholder (meaningless when there's nothing to
+	// separate from) and must always be dropped, blocked or not, or a
+	// blocked margin-top would render one blank line too many.
+	if leadingBrk := leadingBreaks(tokens); leadingBrk > 0 {
+		tokens = tokens[1:]
+		if marginLines := leadingBrk - 1; marginLines > 0 {
+			if bt.char == "" && pt == 0 && heightLines == 0 {
+				tokens = tokens[marginLines:]
+				if marginLines > parseMargin(decls["margin-top"]) {
+					decls["margin-top"] = strconv.Itoa(marginLines)
+				}
+			}
+			// else: blocked - the remaining marginLines leading brk tokens
+			// stay in tokens, already rendering exactly marginLines blank
+			// lines.
 		}
 	}
-	trailingBrk := trailingBreaks(tokens)
-	for len(tokens) > 0 && tokens[len(tokens)-1].brk {
-		tokens = tokens[:len(tokens)-1]
-	}
-	// A trailing child's margin-bottom (e.g. the last <h2> in a plain <div>)
-	// shows up here as trailing brk tokens, stripped above so it doesn't
-	// leave a blank line inside this box. When this box's own bottom edge is
-	// open (no border-bottom, no padding-bottom, no explicit height forcing
-	// its own box size), real CSS would collapse that margin through to this
-	// element's own margin-bottom rather than lose it - do the same here,
-	// widening (never narrowing) whatever margin-bottom this element already
-	// has.
-	if bb.char == "" && pb == 0 && heightLines == 0 && trailingBrk > 1 {
-		if collapsed := trailingBrk - 1; collapsed > parseMargin(decls["margin-bottom"]) {
-			decls["margin-bottom"] = strconv.Itoa(collapsed)
+	if bottomOpen := bb.char == "" && pb == 0 && heightLines == 0; bottomOpen {
+		if trailingBrk := trailingBreaks(tokens); trailingBrk > 1 {
+			tokens = tokens[:len(tokens)-trailingBrk]
+			if collapsed := trailingBrk - 1; collapsed > parseMargin(decls["margin-bottom"]) {
+				decls["margin-bottom"] = strconv.Itoa(collapsed)
+			}
 		}
 	}
 	wasWrapped := false

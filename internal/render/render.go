@@ -239,12 +239,20 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		acc := mergeContentsInlineStyle(newInlineStyle(), decls)
 		savedDepth := r.quoteDepth
 		childTokens := r.renderInlineAccTokens(n, acc, r.width)
+		// See inline.go's nested "contents" case for why the leading brk
+		// tokens (n's first child's own margin-top) need resolving against
+		// the real outer tokens here rather than passing through as-is.
+		leading := leadingBreaks(childTokens)
+		childTokens = childTokens[leading:]
 		if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 			childTokens = childTokens[:len(childTokens)-1]
 		}
 		if decls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth
 			childTokens = blankVisibleContentTokens(childTokens)
+		}
+		if hasContent(tokens) {
+			tokens = ensureBreaks(tokens, leading)
 		}
 		tokens = append(tokens, childTokens...)
 	default:

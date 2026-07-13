@@ -108,6 +108,35 @@ func trailingBreaks(tokens []wrapToken) int {
 	return n
 }
 
+// leadingBreaks counts consecutive brk tokens at the start of tokens — the
+// mirror image of trailingBreaks, used the same way on the other edge.
+func leadingBreaks(tokens []wrapToken) int {
+	n := 0
+	for n < len(tokens) && tokens[n].brk {
+		n++
+	}
+	return n
+}
+
+// trimBoundaryBreaks strips leading and trailing brk tokens from tokens,
+// returning the trimmed slice along with how many were stripped from each
+// end. A block/flex child's margin-top/margin-bottom (pushBoxDirect,
+// renderInlineAccTokens's nested "block"/"flex" cases) always shows up as
+// leading/trailing brk tokens when that child is first/last, even though no
+// preceding/following content exists yet to separate from — every consumer
+// of renderInlineAccTokens's result needs to either discard that boundary
+// noise (renderInlineAcc, the string shim used by list.go/table_render.go,
+// which has no notion of margin collapse) or recover it as a collapsed
+// margin on its own container (renderBlockContentBox, block.go) — the
+// leading/trailing counts returned here are what let the latter do that.
+func trimBoundaryBreaks(tokens []wrapToken) (trimmed []wrapToken, leading, trailing int) {
+	leading = leadingBreaks(tokens)
+	tokens = tokens[leading:]
+	trailing = trailingBreaks(tokens)
+	tokens = tokens[:len(tokens)-trailing]
+	return tokens, leading, trailing
+}
+
 // ensureBreaks appends brk tokens so at least n consecutive breaks trail the
 // stream, raising (never lowering) whatever's already there — the direct
 // token-domain replacement for cappedWriter.WriteAtLeastNewlines(n), used by

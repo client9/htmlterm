@@ -138,6 +138,13 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 		}
 		savedDepth := r.quoteDepth
 		tokens := r.renderInlineAccTokens(c, newInlineStyle(), contentWidth)
+		// A first block child's margin-top (e.g. a loose <li><p>...</p></li>)
+		// shows up as leading brk tokens (pushBoxDirect, inline.go) even
+		// though there's nothing inside this <li> to separate from - list
+		// items don't collapse margins the way a block container does, so
+		// this boundary noise is discarded, not recovered, same as
+		// renderInlineAcc's trim (wraptoken.go's trimBoundaryBreaks doc).
+		tokens = tokens[leadingBreaks(tokens):]
 		tokens = trimTrailingBreaksAndSpace(tokens)
 		if liDecls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth

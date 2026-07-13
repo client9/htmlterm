@@ -11,7 +11,15 @@ import (
 // style. Thin shim over renderInlineAccTokens for callers not yet migrated
 // to tokens (list.go, table_render.go) — see wraptoken.go.
 func (r *Engine) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int) string {
-	return tokensToString(r.renderInlineAccTokens(n, acc, availWidth))
+	// A block/flex child's margin-top/margin-bottom (pushBoxDirect, below)
+	// always shows up as leading/trailing brk tokens when that child is
+	// first/last, even with nothing to separate from - this shim's callers
+	// (list.go/table_render.go, rendering <li>/<td> content) have no notion
+	// of margin collapse, so that boundary noise is simply discarded here
+	// rather than recovered, matching this function's own pre-existing
+	// contract of returning flattened content, not a margin-aware box.
+	tokens, _, _ := trimBoundaryBreaks(r.renderInlineAccTokens(n, acc, availWidth))
+	return tokensToString(tokens)
 }
 
 // appendText appends text, splitting any embedded "\n" into brk tokens first
@@ -138,10 +146,19 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 	// still carrying any trackable descendants' positions along (see
 	// wraptoken.go's Rect doc comment) rather than flattening to a string
 	// first and losing them.
+	//
+	// Unconditional even when tokens is still empty (n's margin-top pseudo-
+	// content aside, this box is the very first thing here): that leading
+	// separator is n's first child's margin-top, and it must show up as
+	// real leading brk tokens rather than being silently skipped, so that
+	// renderBlockContentBox's leading-margin collapse (block.go) - the
+	// mirror of its existing trailing-margin collapse - can recover it as
+	// n's own collapsed margin-top. Callers that have no notion of margin
+	// collapse (renderInlineAcc, the string shim behind list.go/
+	// table_render.go) discard this same boundary noise via
+	// trimBoundaryBreaks instead of recovering it - see its doc comment.
 	pushBoxDirect := func(bx box, subPositions map[*html.Node]Rect, minBreaksBefore int, node *html.Node) {
-		if hasContent(tokens) {
-			tokens = ensureBreaks(tokens, minBreaksBefore+1)
-		}
+		tokens = ensureBreaks(tokens, minBreaksBefore+1)
 		tokens = append(tokens, wrapToken{box: &bx, node: node, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
 	}
@@ -278,12 +295,29 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				childAcc := mergeContentsInlineStyle(acc, childDecls)
 				savedDepth := r.quoteDepth
 				childTokens := r.renderInlineAccTokens(c, childAcc, availWidth)
+				// childTokens starts fresh from c's own first child's
+				// perspective, so its leading brk tokens (that child's own
+				// margin-top, always emitted now - see pushBoxDirect) don't
+				// know anything about what precedes the contents wrapper
+				// itself in tokens. Since a display:contents element
+				// generates no box to collapse its own margin into, resolve
+				// that here against the real outer context instead: nothing
+				// to separate from yet (tokens empty) discards it, same as
+				// any other first-content-in-the-document case; otherwise
+				// re-apply it against tokens directly, exactly as if c were
+				// truly n's own next child (which, per display:contents, it
+				// is).
+				leading := leadingBreaks(childTokens)
+				childTokens = childTokens[leading:]
 				if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 					childTokens = childTokens[:len(childTokens)-1]
 				}
 				if childDecls["visibility"] == "hidden" {
 					r.quoteDepth = savedDepth
 					childTokens = blankVisibleContentTokens(childTokens)
+				}
+				if hasContent(tokens) {
+					tokens = ensureBreaks(tokens, leading)
 				}
 				tokens = append(tokens, childTokens...)
 			default:

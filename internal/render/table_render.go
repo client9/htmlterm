@@ -535,10 +535,14 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 		cellTokens := r.renderInlineAccTokens(cell.node, newInlineStyle(), cellBudget)
 		r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 
-		// A trailing brk (e.g. from a block child or nested table rendered
-		// via pushBox) is only ever meaningful as structural separation
-		// between siblings — trailing, it's not real content and would
-		// otherwise wrap to a spurious blank line at the bottom of the cell.
+		// A leading/trailing brk (e.g. from a first/last block child's
+		// margin, or a nested table rendered via pushBox) is only ever
+		// meaningful as structural separation between siblings — at either
+		// edge of the cell's own content it's not real content and would
+		// otherwise wrap to a spurious blank line at the top/bottom of the
+		// cell (table cells don't collapse margins with their content the
+		// way a block container does).
+		cellTokens = cellTokens[leadingBreaks(cellTokens):]
 		for len(cellTokens) > 0 && cellTokens[len(cellTokens)-1].brk {
 			cellTokens = cellTokens[:len(cellTokens)-1]
 		}
