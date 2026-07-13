@@ -44,6 +44,7 @@ type Event struct {
 	// UTF-8 string, or a named key such as "Enter", "Backspace", "Tab".
 	Key string
 
+	doc              *Document
 	current          *html.Node
 	stopped          bool
 	stoppedImmediate bool
@@ -53,7 +54,7 @@ type Event struct {
 // CurrentTarget returns the element whose listener is currently running —
 // during capture/bubble phases this differs from Target, which stays fixed.
 func (e *Event) CurrentTarget() *Element {
-	return &Element{node: e.current}
+	return &Element{node: e.current, doc: e.doc}
 }
 
 // StopPropagation prevents the event from reaching any further ancestors
@@ -134,7 +135,7 @@ func ancestorChain(n *html.Node) []*html.Node {
 // StopImmediatePropagation. key is copied into the returned Event's Key
 // field (used for "keydown").
 func (d *Document) dispatch(target *html.Node, typ, key string) *Event {
-	ev := &Event{Type: typ, Target: &Element{node: target}, Key: key}
+	ev := &Event{Type: typ, Target: &Element{node: target, doc: d}, Key: key, doc: d}
 	chain := ancestorChain(target)
 
 	runNode := func(n *html.Node, wantCapture *bool) bool {

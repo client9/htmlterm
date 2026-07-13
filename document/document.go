@@ -189,24 +189,13 @@ func (d *Document) Size() (width, height int) {
 // AddEventListener(doc.DocumentElement(), "resize", ...) the same way any
 // other element's listeners are registered.
 func (d *Document) DocumentElement() *Element {
-	return &Element{node: d.doc}
+	return &Element{node: d.doc, doc: d}
 }
 
-// Rect returns el's position and size as of the most recent Render call
-// (the CSS border box — content+padding+border, excluding margin — see
-// RENDERING.md's Position tracking section for the exact semantics and its
-// documented approximations), and whether a position was recorded for it at
-// all. A position is recorded for every element that produces its own box
-// during composition (block-level elements, tables, lists, inline-block
-// elements including form controls, and plain inline elements like <span>/
-// <label> reached via token-splicing) — see inline.go's and render.go's
-// "default" dispatch cases for exactly which elements that covers, and
-// their doc comments for the specific, uncommon combinations (a hyperlink
-// or another inline-block wrapping a further trackable descendant) where a
-// nested element's own Rect isn't tracked. ok is false if Render hasn't been
-// called yet, or if el has no recorded position (e.g. display:none, or one
-// of those documented gaps).
-func (d *Document) Rect(el *Element) (Rect, bool) {
+// rect is Element.Rect's implementation — see its doc comment. Lives on
+// Document, rather than being computed by Element directly, because it reads
+// d.positions, the whole-tree position map from the most recent Render call.
+func (d *Document) rect(el *Element) (Rect, bool) {
 	if d.positions == nil || el == nil {
 		return Rect{}, false
 	}
@@ -634,12 +623,10 @@ func (d *Document) focusableList() []*html.Node {
 	return out
 }
 
-// Focus moves focus to el, setting the reserved focusAttr marker (see
-// event.go) that ":focus" matches against and dispatching "blur"/"focus"
-// events (neither of which bubbles, per DOM semantics) for the previously
-// and newly focused elements. Returns false, making no change, if el is nil
-// or not focusable (see isFocusable).
-func (d *Document) Focus(el *Element) bool {
+// focus is Element.Focus's implementation — see its doc comment. Lives on
+// Document, rather than being done by Element directly, because it needs to
+// find and clear whichever other node was previously focused (d.focused).
+func (d *Document) focus(el *Element) bool {
 	if el == nil || !d.isFocusable(el.node) {
 		return false
 	}
@@ -743,11 +730,11 @@ func (d *Document) ScrollVisible(el *Element) bool {
 	return true
 }
 
-// Blur clears the currently focused element, if any, dispatching "blur".
-func (d *Document) Blur() {
-	if d.focused == nil {
-		return
-	}
+// blur is Element.Blur's implementation, unconditionally clearing whatever
+// is currently focused — Element.Blur itself is what checks that the
+// receiver is actually the focused node (matching a real blur()'s no-op
+// behavior otherwise) before calling this.
+func (d *Document) blur() {
 	prev := d.focused
 	d.focused = nil
 	removeAttr(prev, focusAttr)
@@ -762,7 +749,7 @@ func (d *Document) FocusedElement() *Element {
 	if d.focused == nil {
 		return nil
 	}
-	return &Element{node: d.focused}
+	return &Element{node: d.focused, doc: d}
 }
 
 // FocusNext moves focus to the next focusable element in document order
@@ -780,9 +767,9 @@ func (d *Document) FocusNext() *Element {
 			break
 		}
 	}
-	next := list[(idx+1)%len(list)]
-	d.Focus(&Element{node: next})
-	return &Element{node: next}
+	next := &Element{node: list[(idx+1)%len(list)], doc: d}
+	d.focus(next)
+	return next
 }
 
 // FocusPrev moves focus to the previous focusable element in document order
@@ -800,9 +787,9 @@ func (d *Document) FocusPrev() *Element {
 			break
 		}
 	}
-	prev := list[(idx-1+len(list))%len(list)]
-	d.Focus(&Element{node: prev})
-	return &Element{node: prev}
+	prev := &Element{node: list[(idx-1+len(list))%len(list)], doc: d}
+	d.focus(prev)
+	return prev
 }
 
 // SetInnerHTML parses htmlStr as an HTML fragment (parsed in el's own
@@ -917,14 +904,14 @@ func isDescendant(root, n *html.Node) bool {
 // detached from the tree — mirroring the DOM's Document.createElement.
 // Attach it with Element.AppendChild or Element.InsertBefore.
 func (d *Document) CreateElement(tag string) *Element {
-	return &Element{node: &html.Node{Type: html.ElementNode, Data: tag}}
+	return &Element{node: &html.Node{Type: html.ElementNode, Data: tag}, doc: d}
 }
 
 // CreateTextNode returns a new text node carrying text, detached from the
 // tree — mirroring the DOM's Document.createTextNode. Attach it with
 // Element.AppendChild or Element.InsertBefore.
 func (d *Document) CreateTextNode(text string) *Element {
-	return &Element{node: &html.Node{Type: html.TextNode, Data: text}}
+	return &Element{node: &html.Node{Type: html.TextNode, Data: text}, doc: d}
 }
 
 // GetElementByID returns the first element in document order whose id
@@ -951,7 +938,7 @@ func (d *Document) GetElementByID(id string) *Element {
 	if found == nil {
 		return nil
 	}
-	return &Element{node: found}
+	return &Element{node: found, doc: d}
 }
 
 // QuerySelector returns the first element in document order matching sel,
@@ -966,7 +953,7 @@ func (d *Document) QuerySelector(sel string) *Element {
 	if found == nil {
 		return nil
 	}
-	return &Element{node: found}
+	return &Element{node: found, doc: d}
 }
 
 // QuerySelectorAll returns every element in document order matching sel.
@@ -975,7 +962,7 @@ func (d *Document) QuerySelector(sel string) *Element {
 func (d *Document) QuerySelectorAll(sel string) []*Element {
 	var out []*Element
 	d.walkMatching(sel, func(n *html.Node) bool {
-		out = append(out, &Element{node: n})
+		out = append(out, &Element{node: n, doc: d})
 		return true // keep going
 	})
 	return out

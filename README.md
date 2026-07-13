@@ -15,7 +15,7 @@ It is designed for terminal UIs, CLIs, and text-first applications that want ric
 - Support a focused CSS subset including selectors, inheritance, margins, padding, borders, width, wrapping, overflow, and text transforms.
 - Emit OSC 8 hyperlinks for `<a href="...">...</a>` when supported by the terminal.
 - A mutable `Document`/`Element` API for hosts that want to query, mutate, and re-render a tree instead of parsing once and discarding it.
-- Native Go DOM-style events (`AddEventListener`, capture/target/bubble phases), focus management, and hit-testing (`Document.Rect`) — no scripting engine, just Go closures.
+- Native Go DOM-style events (`AddEventListener`, capture/target/bubble phases), focus management, and hit-testing (`Element.Rect`) — no scripting engine, just Go closures.
 - A `Loop` that drives a `Document` against a real terminal: raw-mode keyboard/mouse input, `SetInterval`/`SetTimeout` timers, and a render loop — enough to build a small interactive TUI.
 
 ## Scope
@@ -150,7 +150,7 @@ doc, err := htmlterm.ParseDocument(`
 	</form>`, htmlterm.Options{Width: 40})
 
 name := doc.GetElementByID("name")
-doc.Focus(name)
+name.Focus()
 
 doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *htmlterm.Event) {
 	fmt.Println("submitted:", name.Value())
@@ -166,7 +166,7 @@ fmt.Print(out)
 
 - **`Document`/`Element`** (`ParseDocument`, `GetElementByID`, `QuerySelector`/`QuerySelectorAll`, attribute get/set/remove, `ClassList`, `Value`/`SetValue`, `Checked`/`SetChecked`) — parse once, mutate and re-render repeatedly, instead of `Renderer.Render`'s parse-once-discard model.
 - **Events** — `Document.AddEventListener(el, type, capture, fn)` / `RemoveEventListener`, with `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`, dispatched through capture → target → bubble phases. `Document.DispatchClick(row, col)` and `DispatchKey(key)` hit-test/route input and run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter).
-- **Focus and hit-testing** — `Document.Focus`/`Blur`/`FocusNext`/`FocusPrev` manage a `:focus`-matching focused element; `Document.Rect(el)` returns an element's on-screen position and size (the CSS border box), recorded for free as a byproduct of rendering — useful for translating real mouse coordinates into `DispatchClick` calls.
+- **Focus and hit-testing** — `Element.Focus`/`Blur` (plus `Document.FocusNext`/`FocusPrev`/`FocusedElement`, which need whole-document state) manage a `:focus`-matching focused element; `Element.Rect()` returns an element's on-screen position and size (the CSS border box), recorded for free as a byproduct of rendering — useful for translating real mouse coordinates into `DispatchClick` calls.
 - **Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with sensible terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `<select>` is not yet supported (no dropdown-rendering concept exists).
 - **`Loop`** (`NewLoop`, `Loop.Run`) drives a `Document` against a real terminal: raw mode, SGR mouse reporting, keyboard/mouse decoding into `DispatchClick`/`DispatchKey` calls, and repaint after every event, timer fire, or terminal resize. `Loop.SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout` mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. See [`cmd/htmlterm-tui`](./cmd/htmlterm-tui) for a complete runnable example (form + spinner + clock + a long paragraph that reflows live as you resize the terminal), and `INTERACTIVE.md`/`REPAINT.md` for the full design history, including known gaps (no `<select>` dropdown, no line-level diff repaint yet — every paint currently redraws the whole frame).
 

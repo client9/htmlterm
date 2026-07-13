@@ -110,7 +110,7 @@ func run() int {
 
 	name := doc.GetElementByID("name")
 	if name != nil {
-		doc.Focus(name)
+		name.Focus()
 	}
 	subscribe := doc.GetElementByID("subscribe")
 	color := doc.GetElementByID("color")

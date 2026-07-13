@@ -25,7 +25,7 @@ const fruitSelectHTML = `<select id="s">
 
 func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	rect, ok := doc.Rect(sel)
+	rect, ok := sel.Rect()
 	if !ok {
 		t.Fatalf("Rect(sel) not found")
 	}
@@ -44,7 +44,7 @@ func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 		t.Fatalf("popup did not render after opening select: %q", out)
 	}
 
-	cherryRect, ok := doc.Rect(doc.QuerySelector(`option[value="c"]`))
+	cherryRect, ok := doc.QuerySelector(`option[value="c"]`).Rect()
 	if !ok {
 		t.Fatalf("no Rect recorded for the Cherry option while open")
 	}
@@ -70,7 +70,7 @@ func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 
 func TestSelectClickTogglesOpenClosed(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	rect, _ := doc.Rect(sel)
+	rect, _ := sel.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col)
 	out, _ := doc.Render()
@@ -87,7 +87,7 @@ func TestSelectClickTogglesOpenClosed(t *testing.T) {
 
 func TestSelectKeyEnterOpensAndEscapeCloses(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 
 	doc.DispatchKey("Enter")
 	out, _ := doc.Render()
@@ -104,7 +104,7 @@ func TestSelectKeyEnterOpensAndEscapeCloses(t *testing.T) {
 
 func TestSelectKeyArrowsChangeSelectionWithoutOpening(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
@@ -143,7 +143,7 @@ func TestSelectKeyArrowsChangeSelectionWithoutOpening(t *testing.T) {
 
 func TestSelectArrowsWhileOpenDoNotCommitUntilConfirmed(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
@@ -190,7 +190,7 @@ func TestSelectArrowsWhileOpenDoNotCommitUntilConfirmed(t *testing.T) {
 
 func TestSelectEscapeAfterBrowsingDoesNotCommit(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
@@ -217,7 +217,7 @@ func TestSelectEscapeAfterBrowsingDoesNotCommit(t *testing.T) {
 
 func TestSelectConfirmWithoutMovingFiresNoChange(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
@@ -235,14 +235,14 @@ func TestSelectConfirmWithoutMovingFiresNoChange(t *testing.T) {
 
 func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	doc.Focus(sel)
+	sel.Focus()
 	doc.DispatchKey("Enter")
 	doc.DispatchKey("ArrowUp") // highlight moves to Apple
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 
-	appleRect, ok := doc.Rect(doc.QuerySelector(`option[value="a"]`))
+	appleRect, ok := doc.QuerySelector(`option[value="a"]`).Rect()
 	if !ok {
 		t.Fatalf("no Rect recorded for the Apple option while open")
 	}
@@ -256,7 +256,7 @@ func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
 
 func TestSelectClickOutsideClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<p id="p">unrelated text</p>`)
-	rect, _ := doc.Rect(sel)
+	rect, _ := sel.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col) // open it
 	out, _ := doc.Render()
@@ -265,7 +265,7 @@ func TestSelectClickOutsideClosesPopup(t *testing.T) {
 	}
 
 	p := doc.GetElementByID("p")
-	pRect, ok := doc.Rect(p)
+	pRect, ok := p.Rect()
 	if !ok {
 		t.Fatalf("Rect(p) not found")
 	}
@@ -278,7 +278,7 @@ func TestSelectClickOutsideClosesPopup(t *testing.T) {
 
 func TestSelectClickMissClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
-	rect, _ := doc.Rect(sel)
+	rect, _ := sel.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col) // open it
 	out, _ := doc.Render()
@@ -297,7 +297,7 @@ func TestSelectClickMissClosesPopup(t *testing.T) {
 
 func TestSelectFocusMovingAwayClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<input id="i" type="text">`)
-	doc.Focus(sel)
+	sel.Focus()
 	doc.DispatchKey("Enter")
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
@@ -305,7 +305,7 @@ func TestSelectFocusMovingAwayClosesPopup(t *testing.T) {
 	}
 
 	inp := doc.GetElementByID("i")
-	if !doc.Focus(inp) {
+	if !inp.Focus() {
 		t.Fatalf("Focus(input) returned false")
 	}
 	out, _ = doc.Render()
@@ -348,7 +348,7 @@ func TestSelectValueFallsBackToOptionTextWithNoValueAttr(t *testing.T) {
 
 func TestSelectDisabledClickIsInert(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, `<select id="s" disabled><option>Apple</option><option selected>Banana</option></select>`)
-	rect, ok := doc.Rect(sel)
+	rect, ok := sel.Rect()
 	if !ok {
 		t.Fatalf("Rect(sel) not found")
 	}

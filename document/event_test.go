@@ -32,7 +32,7 @@ func TestEventDispatchCaptureTargetBubbleOrder(t *testing.T) {
 	doc.AddEventListener(mid, "click", false, func(e *document.Event) { order = append(order, "mid-bubble") })
 	doc.AddEventListener(outer, "click", false, func(e *document.Event) { order = append(order, "outer-bubble") })
 
-	rect, ok := doc.Rect(inner)
+	rect, ok := inner.Rect()
 	if !ok {
 		t.Fatalf("Rect(inner) not found")
 	}
@@ -61,7 +61,7 @@ func TestEventStopPropagationStopsBubble(t *testing.T) {
 	doc.AddEventListener(mid, "click", false, func(e *document.Event) { e.StopPropagation() })
 	doc.AddEventListener(outer, "click", false, func(e *document.Event) { outerCalled = true })
 
-	rect, _ := doc.Rect(inner)
+	rect, _ := inner.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if outerCalled {
@@ -77,7 +77,7 @@ func TestEventStopImmediatePropagationSkipsSiblingListeners(t *testing.T) {
 	doc.AddEventListener(btn, "click", false, func(e *document.Event) { e.StopImmediatePropagation() })
 	doc.AddEventListener(btn, "click", false, func(e *document.Event) { secondCalled = true })
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if secondCalled {
@@ -93,7 +93,7 @@ func TestDispatchClickHitTestsInnermostElement(t *testing.T) {
 	var target string
 	doc.AddEventListener(lbl, "click", false, func(e *document.Event) { target = e.Target.TagName() })
 
-	rect, ok := doc.Rect(cb)
+	rect, ok := cb.Rect()
 	if !ok {
 		t.Fatalf("Rect(cb) not found")
 	}
@@ -115,7 +115,7 @@ func TestDispatchClickReturnsFalseWhenNothingHit(t *testing.T) {
 func TestDispatchClickTogglesCheckbox(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
 	cb := doc.GetElementByID("cb")
-	rect, _ := doc.Rect(cb)
+	rect, _ := cb.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col)
 	if !cb.Checked() {
@@ -132,7 +132,7 @@ func TestDispatchClickPreventDefaultSuppressesToggle(t *testing.T) {
 	cb := doc.GetElementByID("cb")
 	doc.AddEventListener(cb, "click", false, func(e *document.Event) { e.PreventDefault() })
 
-	rect, _ := doc.Rect(cb)
+	rect, _ := cb.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 	if cb.Checked() {
 		t.Error("checkbox checked despite PreventDefault, want unchanged")
@@ -145,7 +145,7 @@ func TestDispatchClickRadioGroupScopedToForm(t *testing.T) {
 	r2 := doc.GetElementByID("r2")
 	r3 := doc.GetElementByID("r3")
 
-	rect, _ := doc.Rect(r2)
+	rect, _ := r2.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if r1.Checked() {
@@ -167,7 +167,7 @@ func TestDispatchClickSubmitButtonFiresSubmitOnForm(t *testing.T) {
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if !submitted {
@@ -183,7 +183,7 @@ func TestDispatchClickButtonTypeButtonDoesNotSubmit(t *testing.T) {
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if submitted {
@@ -199,7 +199,7 @@ func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if !submitted {
@@ -210,7 +210,7 @@ func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
 func TestDispatchClickDisabledCheckboxDoesNotToggle(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb" disabled>`)
 	cb := doc.GetElementByID("cb")
-	rect, _ := doc.Rect(cb)
+	rect, _ := cb.Rect()
 
 	doc.DispatchClick(rect.Row, rect.Col)
 	if cb.Checked() {
@@ -226,7 +226,7 @@ func TestDispatchClickDisabledSubmitButtonDoesNotSubmit(t *testing.T) {
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 
 	if submitted {
@@ -238,7 +238,7 @@ func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"></form>`)
 	form := doc.GetElementByID("f")
 	name := doc.GetElementByID("name")
-	doc.Focus(name)
+	name.Focus()
 
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
@@ -253,7 +253,7 @@ func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 func TestDispatchKeyEnterOutsideFormDoesNotSubmit(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="text" id="name">`)
 	name := doc.GetElementByID("name")
-	doc.Focus(name)
+	name.Focus()
 
 	// No form ancestor at all — DispatchKey should just not panic or fire
 	// anything; nothing to assert beyond "doesn't blow up".
@@ -266,7 +266,7 @@ func TestDispatchKeyEnterOnTextareaInsertsNewlineInsteadOfSubmitting(t *testing.
 	doc := mustParseDoc(t, `<form id="f"><textarea id="ta"></textarea></form>`)
 	form := doc.GetElementByID("f")
 	ta := doc.GetElementByID("ta")
-	doc.Focus(ta)
+	ta.Focus()
 
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
@@ -291,7 +291,7 @@ func TestFocusAndBlur(t *testing.T) {
 	if doc.FocusedElement() != nil {
 		t.Fatal("FocusedElement should start nil")
 	}
-	if !doc.Focus(a) {
+	if !a.Focus() {
 		t.Fatal("Focus(a) returned false, want true")
 	}
 	if got := doc.FocusedElement(); got == nil || got.ID() != "a" {
@@ -302,16 +302,50 @@ func TestFocusAndBlur(t *testing.T) {
 	}
 
 	b := doc.GetElementByID("b")
-	if doc.Focus(b) {
+	if b.Focus() {
 		t.Error("Focus on a disabled element returned true, want false")
 	}
 
-	doc.Blur()
+	a.Blur()
 	if doc.FocusedElement() != nil {
 		t.Error("FocusedElement() after Blur should be nil")
 	}
 	if m := doc.QuerySelector("input:focus"); m != nil {
 		t.Errorf("QuerySelector(input:focus) after Blur = %v, want nil", m)
+	}
+}
+
+// TestElementBlurNoopIfNotFocused: calling Blur on an element that isn't the
+// currently focused one must do nothing — mirroring a real browser, where
+// HTMLElement.blur() only has an effect on the actually-focused element.
+func TestElementBlurNoopIfNotFocused(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a"><input id="b">`)
+	a := doc.GetElementByID("a")
+	b := doc.GetElementByID("b")
+
+	if !a.Focus() {
+		t.Fatal("Focus(a) returned false, want true")
+	}
+	b.Blur()
+	if got := doc.FocusedElement(); got == nil || got.ID() != "a" {
+		t.Errorf("FocusedElement() after unfocused b.Blur() = %v, want element a (unchanged)", got)
+	}
+}
+
+// TestElementFocusBlurRectNilReceiverSafe pins that Focus/Blur/Rect on a nil
+// *Element (or one never attached to a Document) degrade to a safe
+// false/no-op/zero-value rather than panicking — the same defensive shape
+// every other pointer-receiver method in this package that takes an *Element
+// argument already has (e.g. Document.Rect used to check el == nil before
+// this refactor moved Rect onto Element itself).
+func TestElementFocusBlurRectNilReceiverSafe(t *testing.T) {
+	var el *document.Element
+	if el.Focus() {
+		t.Error("nil Element.Focus() = true, want false")
+	}
+	el.Blur() // must not panic
+	if _, ok := el.Rect(); ok {
+		t.Error("nil Element.Rect() ok = true, want false")
 	}
 }
 
@@ -340,7 +374,7 @@ func TestFocusNextSkipsDisabledAndWraps(t *testing.T) {
 func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
 	a := doc.GetElementByID("a")
-	doc.Focus(a)
+	a.Focus()
 
 	doc.DispatchKey("a")
 	doc.DispatchKey("b")
@@ -356,7 +390,7 @@ func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 func TestDispatchKeySpaceTogglesFocusedCheckbox(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
 	cb := doc.GetElementByID("cb")
-	doc.Focus(cb)
+	cb.Focus()
 
 	doc.DispatchKey(" ")
 	if !cb.Checked() {
@@ -367,7 +401,7 @@ func TestDispatchKeySpaceTogglesFocusedCheckbox(t *testing.T) {
 func TestDispatchKeyTabMovesFocus(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a"><input id="b">`)
 	a := doc.GetElementByID("a")
-	doc.Focus(a)
+	a.Focus()
 
 	doc.DispatchKey("Tab")
 	if got := doc.FocusedElement(); got == nil || got.ID() != "b" {
@@ -385,7 +419,7 @@ func TestDispatchKeyReturnsFalseWhenNothingFocused(t *testing.T) {
 func TestDispatchKeyPreventDefaultSuppressesTyping(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
 	a := doc.GetElementByID("a")
-	doc.Focus(a)
+	a.Focus()
 	doc.AddEventListener(a, "keydown", false, func(e *document.Event) { e.PreventDefault() })
 
 	doc.DispatchKey("x")
@@ -402,7 +436,7 @@ func TestRemoveEventListener(t *testing.T) {
 	h := doc.AddEventListener(btn, "click", false, func(e *document.Event) { called = true })
 	doc.RemoveEventListener(h)
 
-	rect, _ := doc.Rect(btn)
+	rect, _ := btn.Rect()
 	doc.DispatchClick(rect.Row, rect.Col)
 	if called {
 		t.Error("listener ran after RemoveEventListener, want it gone")

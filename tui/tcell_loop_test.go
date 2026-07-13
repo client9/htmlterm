@@ -40,12 +40,12 @@ func TestLoopRunDispatchesKeyboardMouseAndExits(t *testing.T) {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	name := doc.GetElementByID("name")
-	doc.Focus(name)
+	name.Focus()
 	cb := doc.GetElementByID("cb")
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("initial Render: %v", err)
 	}
-	rect, ok := doc.Rect(cb)
+	rect, ok := cb.Rect()
 	if !ok {
 		t.Fatalf("checkbox has no recorded Rect")
 	}
@@ -98,7 +98,7 @@ func TestLoopQuit(t *testing.T) {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	cmd := doc.GetElementByID("cmd")
-	doc.Focus(cmd)
+	cmd.Focus()
 
 	scr, mt := newUninitScreen(t, 40, 5)
 	loop := newLoopWithScreen(doc, scr)
@@ -147,9 +147,9 @@ line three"></textarea>`, htmlterm.Options{Width: 40})
 		t.Fatalf("Render: %v", err)
 	}
 	el := doc.GetElementByID("ta")
-	doc.Focus(el)
+	el.Focus()
 
-	rect, ok := doc.Rect(el)
+	rect, ok := el.Rect()
 	if !ok {
 		t.Fatalf("textarea has no recorded Rect")
 	}
@@ -182,9 +182,9 @@ b"></textarea>`, htmlterm.Options{Width: 40})
 		t.Fatalf("Render: %v", err)
 	}
 	el := doc.GetElementByID("ta")
-	doc.Focus(el)
+	el.Focus()
 
-	rect, ok := doc.Rect(el)
+	rect, ok := el.Rect()
 	if !ok {
 		t.Fatalf("textarea has no recorded Rect")
 	}
@@ -213,9 +213,9 @@ func TestFocusCursorPosSingleLineInputUnaffected(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	el := doc.GetElementByID("in")
-	doc.Focus(el)
+	el.Focus()
 
-	rect, ok := doc.Rect(el)
+	rect, ok := el.Rect()
 	if !ok {
 		t.Fatalf("input has no recorded Rect")
 	}

@@ -286,7 +286,7 @@ func TestDocumentRectBeforeRenderIsNotOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
 	}
-	if _, ok := doc.Rect(doc.GetElementByID("d")); ok {
+	if _, ok := doc.GetElementByID("d").Rect(); ok {
 		t.Error("Rect() before any Render() call: ok = true, want false")
 	}
 }
@@ -299,8 +299,9 @@ func TestDocumentRectNilElement(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if _, ok := doc.Rect(nil); ok {
-		t.Error("Rect(nil): ok = true, want false")
+	var el *document.Element
+	if _, ok := el.Rect(); ok {
+		t.Error("(*Element)(nil).Rect(): ok = true, want false")
 	}
 }
 
@@ -315,7 +316,7 @@ func TestDocumentRectBlockElement(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("bq"))
+	rect, ok := doc.GetElementByID("bq").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -340,14 +341,14 @@ func TestDocumentRectFlexItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rectA, ok := doc.Rect(doc.GetElementByID("a"))
+	rectA, ok := doc.GetElementByID("a").Rect()
 	if !ok {
 		t.Fatal("Rect(a) ok = false, want true")
 	}
 	if want := (document.Rect{Row: 0, Col: 0, Width: 5, Height: 1}); rectA != want { // "[ A ]"
 		t.Errorf("Rect(a) = %+v, want %+v (rendered: %q)", rectA, want, out)
 	}
-	rectB, ok := doc.Rect(doc.GetElementByID("b"))
+	rectB, ok := doc.GetElementByID("b").Rect()
 	if !ok {
 		t.Fatal("Rect(b) ok = false, want true")
 	}
@@ -371,14 +372,14 @@ func TestDocumentRectFlexItemsWithOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rectA, ok := doc.Rect(doc.GetElementByID("a"))
+	rectA, ok := doc.GetElementByID("a").Rect()
 	if !ok {
 		t.Fatal("Rect(a) ok = false, want true")
 	}
 	if want := (document.Rect{Row: 0, Col: 1, Width: 1, Height: 1}); rectA != want {
 		t.Errorf("Rect(a) = %+v, want %+v (rendered: %q)", rectA, want, out)
 	}
-	rectB, ok := doc.Rect(doc.GetElementByID("b"))
+	rectB, ok := doc.GetElementByID("b").Rect()
 	if !ok {
 		t.Fatal("Rect(b) ok = false, want true")
 	}
@@ -400,7 +401,7 @@ func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("in"))
+	rect, ok := doc.GetElementByID("in").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -423,7 +424,7 @@ func TestDocumentRectFormControlInsideListItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("cb"))
+	rect, ok := doc.GetElementByID("cb").Rect()
 	if !ok {
 		t.Fatalf("Rect() ok = false, want true (rendered: %q)", out)
 	}
@@ -448,7 +449,7 @@ func TestDocumentRectFormControlInsideTableCell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("cb"))
+	rect, ok := doc.GetElementByID("cb").Rect()
 	if !ok {
 		t.Fatalf("Rect() ok = false, want true (rendered: %q)", out)
 	}
@@ -486,7 +487,7 @@ func TestDocumentRectClippedByOptionsHeightIsNotOK(t *testing.T) {
 	if want := "line1\nline2\n"; out != want {
 		t.Fatalf("Render() = %q, want %q", out, want)
 	}
-	if _, ok := doc.Rect(doc.GetElementByID("cb")); ok {
+	if _, ok := doc.GetElementByID("cb").Rect(); ok {
 		t.Error("Rect() ok = true for an element clipped by Options.Height, want false")
 	}
 
@@ -498,7 +499,7 @@ func TestDocumentRectClippedByOptionsHeightIsNotOK(t *testing.T) {
 	if _, err := visDoc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := visDoc.Rect(visDoc.GetElementByID("cb2"))
+	rect, ok := visDoc.GetElementByID("cb2").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false for a visible element, want true")
 	}
@@ -521,7 +522,7 @@ func TestDocumentRectRootLevelInlineBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("btn"))
+	rect, ok := doc.GetElementByID("btn").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -540,7 +541,7 @@ func TestDocumentRectMultiLineBox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	rect, ok := doc.Rect(doc.GetElementByID("ta"))
+	rect, ok := doc.GetElementByID("ta").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -564,7 +565,7 @@ func TestDocumentRectRowShiftsForPaddingAndBorder(t *testing.T) {
 	}
 	// want: "┌────────┐\n│        │\n│        │\n│hi      │\n└────────┘\n"
 	// row 0 = top border, rows 1-2 = padding-top, row 3 = content.
-	rect, ok := doc.Rect(doc.GetElementByID("d"))
+	rect, ok := doc.GetElementByID("d").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -588,7 +589,7 @@ func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	before, ok := doc.Rect(doc.GetElementByID("target"))
+	before, ok := doc.GetElementByID("target").Rect()
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
@@ -597,7 +598,7 @@ func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render (after mutation): %v", err)
 	}
-	after, ok := doc.Rect(doc.GetElementByID("target"))
+	after, ok := doc.GetElementByID("target").Rect()
 	if !ok {
 		t.Fatal("Rect() after re-render: ok = false, want true")
 	}
@@ -858,7 +859,7 @@ func TestDispatchWheelScrollsNearestScrollableAncestor(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	rect, ok := doc.Rect(pane)
+	rect, ok := pane.Rect()
 	if !ok {
 		t.Fatal("Rect(pane) ok = false, want true")
 	}
@@ -886,7 +887,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	}
 
 	btn := doc.GetElementByID("btn")
-	if !doc.Focus(btn) {
+	if !btn.Focus() {
 		t.Fatal("Focus(btn) = false, want true")
 	}
 	// Focus's own scroll-into-view already jumped the pane to make btn
@@ -946,7 +947,7 @@ func TestFocusScrollsIntoView(t *testing.T) {
 	}
 
 	btn := doc.GetElementByID("btn")
-	doc.Focus(btn)
+	btn.Focus()
 	if top, ok := doc.ScrollTop(pane); !ok || top == 0 {
 		t.Errorf("ScrollTop(pane) after focusing an off-screen button = (%d, %v), want a positive offset", top, ok)
 	}
@@ -978,7 +979,7 @@ func TestFocusScrollsIntoViewWithBorderAndPadding(t *testing.T) {
 	}
 
 	btn := doc.GetElementByID("btn")
-	doc.Focus(btn)
+	btn.Focus()
 	out, err := doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -1040,11 +1041,11 @@ func TestScrollShiftsDescendantPositions(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	paneRect, ok := doc.Rect(pane)
+	paneRect, ok := pane.Rect()
 	if !ok {
 		t.Fatal("Rect(pane) ok = false, want true")
 	}
-	inpRect, ok := doc.Rect(inp)
+	inpRect, ok := inp.Rect()
 	if !ok {
 		t.Fatal("Rect(inp) ok = false, want true")
 	}
@@ -1056,11 +1057,11 @@ func TestScrollShiftsDescendantPositions(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	paneRect2, ok := doc.Rect(pane)
+	paneRect2, ok := pane.Rect()
 	if !ok {
 		t.Fatal("Rect(pane) ok = false after scroll, want true")
 	}
-	inpRect2, ok := doc.Rect(inp)
+	inpRect2, ok := inp.Rect()
 	if !ok {
 		t.Fatal("Rect(inp) ok = false after scroll, want true (kept, not deleted, even though scrolled out of view)")
 	}
@@ -1374,7 +1375,7 @@ func TestSetInnerHTMLClearsFocusOnRemovedDescendant(t *testing.T) {
 	}
 	pane := doc.GetElementByID("pane")
 	input := doc.GetElementByID("name")
-	if !doc.Focus(input) {
+	if !input.Focus() {
 		t.Fatal("Focus(input) = false, want true")
 	}
 	if doc.FocusedElement() == nil {
@@ -1398,7 +1399,7 @@ func TestSetInnerHTMLPreservesFocusOutsideReplacedSubtree(t *testing.T) {
 	}
 	pane := doc.GetElementByID("pane")
 	input := doc.GetElementByID("name")
-	doc.Focus(input)
+	input.Focus()
 
 	if err := doc.SetInnerHTML(pane, `<p>new</p>`); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
@@ -1548,7 +1549,7 @@ func TestSetPreRenderedClearsFocusOnRemovedDescendant(t *testing.T) {
 	}
 	pane := doc.GetElementByID("pane")
 	input := doc.GetElementByID("name")
-	if !doc.Focus(input) {
+	if !input.Focus() {
 		t.Fatal("Focus(input) = false, want true")
 	}
 

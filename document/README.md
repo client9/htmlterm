@@ -20,7 +20,7 @@ doc, err := document.ParseDocument(`
     </form>`, document.Options{Width: 40})
 
 name := doc.GetElementByID("name")
-doc.Focus(name)
+name.Focus()
 
 doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *document.Event) {
     fmt.Println("submitted:", name.Value())
@@ -44,9 +44,9 @@ fmt.Print(out)
 
 **Events** — `Document.AddEventListener(el, typ, capture, fn) ListenerHandle` / `RemoveEventListener(h)`, modeled on the DOM `Event` interface: capture → target → bubble dispatch phases, `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`. `Document.DispatchClick(row, col)`, `DispatchWheel(row, col, delta)`, and `DispatchKey(key)` hit-test/route input, run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter), and dispatch the corresponding native event.
 
-**Focus** — `Document.Focus(el)`/`Blur()`/`FocusNext()`/`FocusPrev()`/`FocusedElement()` manage a single focused element matched by the `:focus` pseudo-class; focusable elements are form controls and other elements the built-in default actions know how to drive.
+**Focus** — `Element.Focus()`/`Blur()` (mirroring the DOM's `HTMLElement.focus`/`blur`) plus `Document.FocusNext()`/`FocusPrev()`/`FocusedElement()`, which need whole-document state, manage a single focused element matched by the `:focus` pseudo-class; focusable elements are form controls and other elements the built-in default actions know how to drive.
 
-**Hit-testing and geometry** — `Document.Rect(el) (Rect, bool)` returns an element's on-screen position and size (the CSS border box) as of the most recent `Render` call — recorded for free as a byproduct of rendering, and the basis for translating real mouse coordinates into `DispatchClick` calls. `ContentOffset(el)`, `ScrollTop(el)`/`SetScrollTop(el, offset)`, and `ScrollVisible(el)` support scroll containers (`overflow: scroll|auto` with a resolved height).
+**Hit-testing and geometry** — `Element.Rect() (Rect, bool)` returns an element's on-screen position and size (the CSS border box) as of the most recent `Render` call — recorded for free as a byproduct of rendering, and the basis for translating real mouse coordinates into `DispatchClick` calls. `ContentOffset(el)`, `ScrollTop(el)`/`SetScrollTop(el, offset)`, and `ScrollVisible(el)` support scroll containers (`overflow: scroll|auto` with a resolved height).
 
 **Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `Element.IsTextEntry()` reports whether an element accepts direct keystroke input (used by `DispatchKey` and by `tui`'s cursor placement). `<select>` is not yet supported — no dropdown-rendering concept exists.
 

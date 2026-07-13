@@ -245,7 +245,7 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	if !doc.ScrollVisible(el) {
 		return 0, 0, false
 	}
-	rect, ok := doc.Rect(el)
+	rect, ok := el.Rect()
 	if !ok {
 		return 0, 0, false
 	}

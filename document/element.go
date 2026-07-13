@@ -11,8 +11,20 @@ import (
 // tree. Mutations made through an Element are visible immediately in the
 // underlying tree, including in any Element obtained separately for the
 // same node, and take effect the next time Document.Render is called.
+//
+// doc is the owning Document, threaded through every Element constructor in
+// this package (GetElementByID, QuerySelector[All], the tree-navigation
+// methods below, Event.Target/CurrentTarget, etc.) so that Focus/Blur/Rect —
+// which need Document-level state (the focused node, the last Render's
+// position map) — can be called directly on the element, matching the DOM's
+// HTMLElement.focus()/blur()/getBoundingClientRect() shape instead of taking
+// an *Element parameter on Document. It is nil only for a zero-value or
+// var-declared *Element a caller constructs itself outside this package;
+// Focus/Blur/Rect degrade to safe no-ops/false in that case rather than
+// panicking.
 type Element struct {
 	node *html.Node
+	doc  *Document
 }
 
 // TagName returns the element's tag name, e.g. "div" or "input".
@@ -101,7 +113,7 @@ func (e *Element) Parent() *Element {
 	if e.node.Parent == nil {
 		return nil
 	}
-	return &Element{node: e.node.Parent}
+	return &Element{node: e.node.Parent, doc: e.doc}
 }
 
 // NextSibling returns e's next sibling node, which may be a text node rather
@@ -111,7 +123,7 @@ func (e *Element) NextSibling() *Element {
 	if e.node.NextSibling == nil {
 		return nil
 	}
-	return &Element{node: e.node.NextSibling}
+	return &Element{node: e.node.NextSibling, doc: e.doc}
 }
 
 // PreviousSibling is NextSibling's counterpart, toward e's parent's first
@@ -120,7 +132,7 @@ func (e *Element) PreviousSibling() *Element {
 	if e.node.PrevSibling == nil {
 		return nil
 	}
-	return &Element{node: e.node.PrevSibling}
+	return &Element{node: e.node.PrevSibling, doc: e.doc}
 }
 
 // FirstChild returns e's first child node, which may be a text node rather
@@ -130,7 +142,7 @@ func (e *Element) FirstChild() *Element {
 	if e.node.FirstChild == nil {
 		return nil
 	}
-	return &Element{node: e.node.FirstChild}
+	return &Element{node: e.node.FirstChild, doc: e.doc}
 }
 
 // LastChild is FirstChild's counterpart.
@@ -138,7 +150,7 @@ func (e *Element) LastChild() *Element {
 	if e.node.LastChild == nil {
 		return nil
 	}
-	return &Element{node: e.node.LastChild}
+	return &Element{node: e.node.LastChild, doc: e.doc}
 }
 
 // NextElementSibling returns e's next sibling that is itself an element,
@@ -146,7 +158,7 @@ func (e *Element) LastChild() *Element {
 func (e *Element) NextElementSibling() *Element {
 	for n := e.node.NextSibling; n != nil; n = n.NextSibling {
 		if n.Type == html.ElementNode {
-			return &Element{node: n}
+			return &Element{node: n, doc: e.doc}
 		}
 	}
 	return nil
@@ -156,7 +168,7 @@ func (e *Element) NextElementSibling() *Element {
 func (e *Element) PreviousElementSibling() *Element {
 	for n := e.node.PrevSibling; n != nil; n = n.PrevSibling {
 		if n.Type == html.ElementNode {
-			return &Element{node: n}
+			return &Element{node: n, doc: e.doc}
 		}
 	}
 	return nil
@@ -167,7 +179,7 @@ func (e *Element) PreviousElementSibling() *Element {
 func (e *Element) FirstElementChild() *Element {
 	for n := e.node.FirstChild; n != nil; n = n.NextSibling {
 		if n.Type == html.ElementNode {
-			return &Element{node: n}
+			return &Element{node: n, doc: e.doc}
 		}
 	}
 	return nil
@@ -177,7 +189,7 @@ func (e *Element) FirstElementChild() *Element {
 func (e *Element) LastElementChild() *Element {
 	for n := e.node.LastChild; n != nil; n = n.PrevSibling {
 		if n.Type == html.ElementNode {
-			return &Element{node: n}
+			return &Element{node: n, doc: e.doc}
 		}
 	}
 	return nil
@@ -189,7 +201,7 @@ func (e *Element) Children() []*Element {
 	var out []*Element
 	for n := e.node.FirstChild; n != nil; n = n.NextSibling {
 		if n.Type == html.ElementNode {
-			out = append(out, &Element{node: n})
+			out = append(out, &Element{node: n, doc: e.doc})
 		}
 	}
 	return out
@@ -216,6 +228,54 @@ func (e *Element) InsertBefore(newChild, oldChild *Element) {
 		old = oldChild.node
 	}
 	e.node.InsertBefore(newChild.node, old)
+}
+
+// Focus moves focus to e, setting the reserved focusAttr marker that
+// ":focus" matches against and dispatching "blur"/"focus" events (neither of
+// which bubbles, per DOM semantics) for the previously and newly focused
+// elements — mirroring the DOM's HTMLElement.focus(). Returns false, making
+// no change, if e is nil, not attached to a Document, or not focusable (a
+// disabled element, or one that isn't a tab-stoppable form control or
+// scroll container — see Document.isFocusable).
+func (e *Element) Focus() bool {
+	if e == nil || e.doc == nil {
+		return false
+	}
+	return e.doc.focus(e)
+}
+
+// Blur removes focus from e, dispatching "blur", if e is the currently
+// focused element — mirroring the DOM's HTMLElement.blur(). A no-op if e is
+// nil, not attached to a Document, or not the currently focused element
+// (matching a real browser, where blur() on an element that isn't focused
+// does nothing).
+func (e *Element) Blur() {
+	if e == nil || e.doc == nil || e.doc.focused != e.node {
+		return
+	}
+	e.doc.blur()
+}
+
+// Rect returns e's position and size as of the most recent Document.Render
+// call (the CSS border box — content+padding+border, excluding margin — see
+// RENDERING.md's Position tracking section for the exact semantics and its
+// documented approximations), and whether a position was recorded for it at
+// all — mirroring (approximately; see above) the DOM's
+// getBoundingClientRect(). A position is recorded for every element that
+// produces its own box during composition (block-level elements, tables,
+// lists, inline-block elements including form controls, and plain inline
+// elements like <span>/<label> reached via token-splicing) — see inline.go's
+// and render.go's "default" dispatch cases for exactly which elements that
+// covers, and their doc comments for the specific, uncommon combinations (a
+// hyperlink or another inline-block wrapping a further trackable descendant)
+// where a nested element's own Rect isn't tracked. ok is false if e is nil,
+// not attached to a Document, Render hasn't been called yet, or e has no
+// recorded position (e.g. display:none, or one of those documented gaps).
+func (e *Element) Rect() (Rect, bool) {
+	if e == nil || e.doc == nil {
+		return Rect{}, false
+	}
+	return e.doc.rect(e)
 }
 
 // ClassList returns a handle for reading and mutating the element's class

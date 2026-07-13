@@ -72,7 +72,7 @@ regardless of its argument — useful for writing override-friendly base
 rules, e.g. in a user stylesheet layered under `Options.Stylesheets`.
 `:checked`/`:disabled`/`:required` match
 the real HTML `checked`/`disabled`/`required` attributes' presence. `:focus`
-matches whichever element `Document.Focus` (see the package godoc's events
+matches whichever element `Element.Focus` (see the package godoc's events
 section) most recently marked focused; it has no meaning against
 `Renderer.Render`'s one-shot rendering, only against a live `Document`.
 
@@ -373,7 +373,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
 
 - **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
-- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Document.Focus` auto-scrolls it into view). No visible scrollbar/indicator is drawn.
+- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). No visible scrollbar/indicator is drawn.
 - **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved one-column gutter with a `│` track and `█` thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one.
 
 See `SCROLLING.md` for the full design (including why `auto` deliberately never gets an indicator).
