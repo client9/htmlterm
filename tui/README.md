@@ -30,6 +30,7 @@ See [`cmd/htmlterm-tui`](../cmd/htmlterm-tui) for a complete runnable example: a
 ```go
 func NewLoop(doc *document.Document) (*Loop, error)
 func (l *Loop) Run() error
+func (l *Loop) Quit()
 
 func (l *Loop) SetInterval(d time.Duration, fn func()) TimerHandle
 func (l *Loop) SetTimeout(d time.Duration, fn func()) TimerHandle
@@ -38,7 +39,8 @@ func (l *Loop) ClearTimeout(h TimerHandle)
 ```
 
 - **`NewLoop`** builds a `Loop` backed by a new `tcell.Screen` for the process's controlling terminal. Timers may be registered any time after construction, including before `Run` is called.
-- **`Run`** initializes the screen (raw mode, mouse reporting) and repaints `doc` after every keyboard/mouse event, after every fired timer, and after every terminal resize, until Ctrl-C is read or the screen's event stream ends. The terminal is always restored to its original state before `Run` returns, even on error. `tcell.Screen` owns the whole terminal from `Init` onward — this is a full-screen-owning TUI, with no inline/preserve-scrollback mode.
+- **`Run`** initializes the screen (raw mode, mouse reporting) and repaints `doc` after every keyboard/mouse event, after every fired timer, and after every terminal resize, until Ctrl-C is read, `Quit` is called, or the screen's event stream ends. The terminal is always restored to its original state before `Run` returns, even on error. `tcell.Screen` owns the whole terminal from `Init` onward — this is a full-screen-owning TUI, with no inline/preserve-scrollback mode.
+- **`Quit`** is the programmatic equivalent of the user pressing Ctrl-C — for a host that wants its own typed/dispatched quit command (e.g. a `Document` event listener reacting to a "quit" command) to end `Run` without requiring the raw Ctrl-C key sequence. Like timer callbacks, it's meant to be called from `Run`'s own goroutine; `Run` returns after the event currently being handled finishes, skipping the final repaint.
 - **`SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout`** mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. Callbacks run on `Run`'s own goroutine — the same goroutine that dispatches input events — so they may freely mutate the `Document` or register/cancel further timers.
 
 Keyboard, mouse, and resize events read from `tcell.Screen.EventQ` are translated into calls on `Document`'s public dispatch API (`DispatchKey`/`DispatchClick`/`DispatchWheel`/`SetSize`+`DispatchResize`); a repaint follows each one. Timer fires are delivered as synthetic events on that same queue (see `timer.go`'s `timerFireEvent`), so they're handled by the same single-goroutine event loop rather than a separate channel `Run` has to select on.
