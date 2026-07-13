@@ -1884,3 +1884,78 @@ func TestElementCloneNodeDoesNotCopyFocusState(t *testing.T) {
 		t.Errorf("QuerySelectorAll(:focus) after cloning the focused element = %v, want exactly [a] (clone must not carry focus state)", focused)
 	}
 }
+
+func TestElementMatches(t *testing.T) {
+	htmlStr := `<ul><li id="a" class="row warn">a</li><li id="b">b</li></ul>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	a := doc.GetElementByID("a")
+	b := doc.GetElementByID("b")
+
+	if !a.Matches(".row") {
+		t.Error("a.Matches(\".row\") = false, want true")
+	}
+	if !a.Matches("li.warn") {
+		t.Error("a.Matches(\"li.warn\") = false, want true")
+	}
+	if a.Matches(".missing") {
+		t.Error("a.Matches(\".missing\") = true, want false")
+	}
+	if b.Matches(".row") {
+		t.Error("b.Matches(\".row\") = true, want false")
+	}
+	// Comma-separated selector groups: matches if any branch matches.
+	if !b.Matches(".row, #b") {
+		t.Error("b.Matches(\".row, #b\") = false, want true (second branch matches)")
+	}
+}
+
+func TestElementClosest(t *testing.T) {
+	htmlStr := `<div id="outer" class="row"><div id="inner"><span id="leaf">x</span></div></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	leaf := doc.GetElementByID("leaf")
+	inner := doc.GetElementByID("inner")
+
+	if got := leaf.Closest(".row"); got == nil || got.ID() != "outer" {
+		t.Errorf("leaf.Closest(\".row\") = %v, want id=outer", got)
+	}
+	// Closest checks the element itself first, before walking up.
+	if got := inner.Closest("#inner"); got == nil || got.ID() != "inner" {
+		t.Errorf("inner.Closest(\"#inner\") = %v, want id=inner (matches itself)", got)
+	}
+	if got := leaf.Closest(".missing"); got != nil {
+		t.Errorf("leaf.Closest(\".missing\") = %v, want nil", got)
+	}
+	if got := doc.DocumentElement().Closest("*"); got != nil {
+		t.Errorf("DocumentElement().Closest(\"*\") = %v, want nil (document root is not an element)", got)
+	}
+}
+
+func TestElementContains(t *testing.T) {
+	htmlStr := `<div id="outer"><div id="inner"><span id="leaf">x</span></div></div><div id="other"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	outer := doc.GetElementByID("outer")
+	leaf := doc.GetElementByID("leaf")
+	other := doc.GetElementByID("other")
+
+	if !outer.Contains(leaf) {
+		t.Error("outer.Contains(leaf) = false, want true")
+	}
+	if !outer.Contains(outer) {
+		t.Error("outer.Contains(outer) = false, want true (inclusive of itself)")
+	}
+	if outer.Contains(other) {
+		t.Error("outer.Contains(other) = true, want false")
+	}
+	if outer.Contains(nil) {
+		t.Error("outer.Contains(nil) = true, want false")
+	}
+}

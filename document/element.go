@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/client9/htmlterm/internal/cssengine"
 	"golang.org/x/net/html"
 )
 
@@ -205,6 +206,40 @@ func (e *Element) Children() []*Element {
 		}
 	}
 	return out
+}
+
+// Matches reports whether e matches sel — mirroring the DOM's
+// Element.matches(). sel accepts the same selector grammar as CSS rules and
+// Document.QuerySelector (see CSS.md), including comma-separated selector
+// groups.
+func (e *Element) Matches(sel string) bool {
+	return cssengine.ParseSelectorGroup(sel).Match(e.node, focusAttr)
+}
+
+// Closest returns the nearest element in e's own inclusive ancestor chain
+// (starting with e itself, then walking up through Parent) that matches
+// sel, or nil if none does — mirroring the DOM's Element.closest(). Typical
+// use is inside an event listener registered on a container, to find which
+// specific descendant (e.g. a list row) an event's Target landed in or
+// under: doc.AddEventListener(list, "click", false, func(e *Event) { row :=
+// e.Target.Closest(".row"); ... }).
+func (e *Element) Closest(sel string) *Element {
+	group := cssengine.ParseSelectorGroup(sel)
+	for n := e.node; n != nil; n = n.Parent {
+		if n.Type == html.ElementNode && group.Match(n, focusAttr) {
+			return &Element{node: n, doc: e.doc}
+		}
+	}
+	return nil
+}
+
+// Contains reports whether other is e itself or one of e's descendants —
+// mirroring the DOM's Node.contains(). Returns false if other is nil.
+func (e *Element) Contains(other *Element) bool {
+	if other == nil {
+		return false
+	}
+	return isDescendant(e.node, other.node)
 }
 
 // AppendChild adds child as e's last child — mirroring the DOM's
