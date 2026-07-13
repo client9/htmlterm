@@ -229,6 +229,24 @@ func TestStripHiddenInlineDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestOpacityZeroBlanksTextButKeepsLayout(t *testing.T) {
+	// A class-selector opacity:0 rule is out of scope for stripHiddenInline
+	// (it only inspects an element's own style= attribute), so this exercises
+	// the general cascade -> inlineStyle rendering path, not the stripping
+	// heuristic covered by TestStripHiddenInline.
+	r, err := htmlterm.New(htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.Render(`<style>.x{opacity:0}</style><span class="x">hidden</span> after`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "      after"; stripANSI(got) != want {
+		t.Errorf("opacity:0 text should render as blank spaces of the same width, not be visible: got %q, want %q", stripANSI(got), want)
+	}
+}
+
 func TestTerminalControlSanitization(t *testing.T) {
 	r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
 	if err != nil {

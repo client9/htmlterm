@@ -21,6 +21,16 @@ func runeVisualWidth(r rune) int {
 	return runewidth.RuneWidth(r)
 }
 
+// textVisualWidth is the terminal column width of an entire plain (no ANSI
+// escapes) string: the sum of runeVisualWidth over its runes.
+func textVisualWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeVisualWidth(r)
+	}
+	return w
+}
+
 var superscriptMap = map[rune]rune{
 	'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
 	'5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',

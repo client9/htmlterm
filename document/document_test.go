@@ -58,8 +58,15 @@ func TestDocumentRenderIgnoresStripHiddenInline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Document.Render: %v", err)
 	}
-	if !strings.Contains(stripANSI(docOut), "hidden") {
-		t.Errorf("Document.Render must not honor StripHiddenInline (destructive on a persistent tree), got: %q", docOut)
+	// The hidden div's text is legitimately blanked (opacity:0 paints
+	// nothing) but the node itself must still occupy a line, unlike the
+	// Renderer.Render/StripHiddenInline path above which removes it from
+	// the tree outright. So compare line counts, not the (now correctly
+	// invisible) text content.
+	rendererLines := strings.Count(stripANSI(rendererOut), "\n")
+	docLines := strings.Count(stripANSI(docOut), "\n")
+	if docLines <= rendererLines {
+		t.Errorf("Document.Render must not honor StripHiddenInline (destructive on a persistent tree): want more lines than Renderer.Render's stripped output (%d), got %d: %q", rendererLines, docLines, docOut)
 	}
 }
 

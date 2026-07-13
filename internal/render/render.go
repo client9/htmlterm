@@ -234,7 +234,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		// No box, no hyperlink wrap, regardless of n.Data — n's children
 		// splice directly into the root token stream as if they were root
 		// siblings themselves. Mirrors inline.go's nested "contents" case.
-		acc := mergeContentsInlineStyle(inlineStyle{}, decls)
+		acc := mergeContentsInlineStyle(newInlineStyle(), decls)
 		savedDepth := r.quoteDepth
 		childTokens := r.renderInlineAccTokens(n, acc, r.width)
 		if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {

@@ -60,7 +60,7 @@ func TestResolveBorderEdgeChar(t *testing.T) {
 }
 
 func TestMergeInlineStyleTextDecoration(t *testing.T) {
-	base := mergeInlineStyle(inlineStyle{}, map[string]string{"text-decoration": "underline line-through"})
+	base := mergeInlineStyle(newInlineStyle(), map[string]string{"text-decoration": "underline line-through"})
 	if !base.underline || !base.strike {
 		t.Fatalf("combined decoration not applied: %#v", base)
 	}

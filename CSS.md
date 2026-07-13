@@ -247,7 +247,12 @@ and clip components are ignored. For example, `background: url(bg.png) #003366
 no-repeat` behaves like `background-color: #003366`. Not inherited.
 
 #### `opacity`
-`0.0`–`1.0`. Scales the foreground and background color channels. `1` is fully opaque (the default); `0` renders as black. Inherited.
+`0.0`–`1.0`. `1` is fully opaque (the default). For `0 < opacity < 1`, scales
+the foreground and background color channels toward black (terminals can't
+composite against an unknown background, so darkening is the closest
+approximation). `0` renders the element's text as blank spaces of the same
+width — invisible on any terminal theme, though (like real CSS `opacity:0`)
+the element still occupies its layout box. Inherited.
 
 #### `font-weight`
 `bold` | `normal`. `normal` cancels inherited bold. Inherited.

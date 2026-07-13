@@ -9,29 +9,48 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// inlineStyle is the accumulated text style passed down through inline rendering.
+// inlineStyle is the accumulated text style passed down through inline
+// rendering. Its zero value is INVALID: opacity's CSS initial value is 1.0
+// (fully opaque), not 0.0, so a bare inlineStyle{} reads as "opacity: 0" and
+// renders content invisible. Every inlineStyle must be built by
+// newInlineStyle (directly, or via extractInlineStyle/mergeInlineStyle
+// starting from one) so that opacity always carries a real, explicitly-set
+// value in (0.0, 1.0] rather than colliding with Go's zero value.
 type inlineStyle struct {
 	fg        color.Color // nil = unset
 	bg        color.Color // nil = unset
-	opacity   float64     // 0 = unset, treat as 1.0
+	opacity   float64     // CSS initial value is 1.0; see inlineStyle doc comment
 	bold      bool
 	italic    bool
 	underline bool
 	strike    bool
 }
 
+// newInlineStyle returns the correct base inlineStyle for the start of an
+// inheritance chain (document root, a table cell, a list item, ...): fully
+// opaque, no other properties set. inlineStyle{} must never be used directly.
+func newInlineStyle() inlineStyle {
+	return inlineStyle{opacity: 1.0}
+}
+
 func (s inlineStyle) has() bool {
-	return s.fg != nil || s.bg != nil || s.bold || s.italic || s.underline || s.strike
+	return s.fg != nil || s.bg != nil || s.bold || s.italic || s.underline || s.strike || s.opacity < 1
 }
 
 func (s inlineStyle) render(text string, p colorprofile.Profile) string {
+	if s.opacity <= 0 {
+		// Terminals can't composite against an unknown background, so
+		// there's no color that reliably reads as "invisible" the way
+		// applyOpacity's darken-toward-black approximation does for
+		// fractional opacity. Blanking to spaces (preserving layout width,
+		// per CSS: opacity:0 keeps its box, just isn't painted) is the only
+		// approximation that's actually invisible on any terminal theme.
+		return strings.Repeat(" ", textVisualWidth(text))
+	}
 	if !s.has() {
 		return text
 	}
 	opacity := s.opacity
-	if opacity == 0 {
-		opacity = 1.0
-	}
 	var st ansi.Style
 	if s.fg != nil {
 		c := s.fg
@@ -71,7 +90,7 @@ func (s inlineStyle) render(text string, p colorprofile.Profile) string {
 
 // extractInlineStyle builds an inlineStyle from a resolved CSS declaration map.
 func extractInlineStyle(decls map[string]string) inlineStyle {
-	return mergeInlineStyle(inlineStyle{}, decls)
+	return mergeInlineStyle(newInlineStyle(), decls)
 }
 
 // mergeContentsInlineStyle is mergeInlineStyle for a display:contents

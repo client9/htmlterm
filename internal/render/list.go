@@ -137,7 +137,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 			prefix = extractInlineStyle(md).render(prefix, r.profile)
 		}
 		savedDepth := r.quoteDepth
-		tokens := r.renderInlineAccTokens(c, inlineStyle{}, contentWidth)
+		tokens := r.renderInlineAccTokens(c, newInlineStyle(), contentWidth)
 		tokens = trimTrailingBreaksAndSpace(tokens)
 		if liDecls["visibility"] == "hidden" {
 			r.quoteDepth = savedDepth

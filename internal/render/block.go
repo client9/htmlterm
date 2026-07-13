@@ -342,7 +342,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if val == "" {
 			val = strings.TrimPrefix(rawContent(n), "\n")
 		}
-		tokens = appendText(nil, inlineStyle{}, val, r.profile)
+		tokens = appendText(nil, newInlineStyle(), val, r.profile)
 	} else {
 		tokens = r.renderInlineAccTokens(n, acc, innerW)
 	}

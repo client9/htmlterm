@@ -387,7 +387,7 @@ func (r *Engine) measureCellNaturalWidth(td *html.Node) int {
 	savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 	r.measuringNaturalWidth = true
 	r.nestedTableWidth, r.nestedTableWidthSet = naturalWidthCap, true
-	tokens := r.renderInlineAccTokens(td, inlineStyle{}, naturalWidthCap)
+	tokens := r.renderInlineAccTokens(td, newInlineStyle(), naturalWidthCap)
 	r.measuringNaturalWidth = savedMeasuring
 	r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 	return tokensNaturalWidth(tokens)
@@ -532,7 +532,7 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 
 		savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 		r.nestedTableWidth, r.nestedTableWidthSet = cellBudget, true
-		cellTokens := r.renderInlineAccTokens(cell.node, inlineStyle{}, cellBudget)
+		cellTokens := r.renderInlineAccTokens(cell.node, newInlineStyle(), cellBudget)
 		r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 
 		// A trailing brk (e.g. from a block child or nested table rendered
@@ -620,7 +620,7 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 			captionWidth := max(1, availWidth-overhead)
 			savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 			r.nestedTableWidth, r.nestedTableWidthSet = fallbackCellWidth, true
-			captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, inlineStyle{}, captionWidth)))
+			captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
 			r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 			break
 		}
