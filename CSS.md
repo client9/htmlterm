@@ -752,6 +752,20 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
 .col { flex: 1; }
 ```
 
+#### `margin-top`, `margin-right`, `margin-bottom`, `margin-left` (on a flex item)
+Fixed (integer or percentage) margins on a flex item are respected, same
+value vocabulary as elsewhere. Flex items never collapse margins with each
+other or the container — unlike ordinary block flow, adjacent flex items'
+margins simply **add** together (on top of `gap`), and a first/last item's
+margin is never absorbed by the container's own margin. In `row` direction, `margin-left`/
+`margin-right` consume main-axis space (subtracted before `flex-grow`
+distributes leftover space) and `margin-top`/`margin-bottom` widen the
+item's own cross-axis footprint (what `align-items`/`align-self` align
+within). In `column` direction, `margin-top`/`margin-bottom` add directly to
+the vertical space between items (and before the first / after the last),
+and `margin-left`/`margin-right` bound the space `align-items`/`align-self`
+positions the item within. `margin: auto` is not supported (see below).
+
 #### Not supported
 
 - **`flex-wrap`** — items never wrap to multiple lines; a `row` that doesn't
@@ -764,6 +778,9 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
   container height; `column`-direction items simply stack with `row-gap`
   between them.
 - **`baseline`** alignment — falls back to `flex-start`.
+- **`margin: auto` on a flex item** — treated as `0`, not the CSS
+  leftover-space-absorbing behavior (which also overrides
+  `justify-content` when present on the main axis).
 
 ---
 

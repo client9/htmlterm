@@ -309,6 +309,30 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	totalGap := gap * (len(items) - 1)
 	availForItems := max(0, innerW-totalGap)
 
+	// margin-left/margin-right on a flex item need no separate handling
+	// here: renderFlexItemBox dispatches to the ordinary block box model
+	// (renderBlockContentBox), which already bakes horizontal margin
+	// directly into an item's own returned box (and into resolveMainBasis's
+	// natural-width measurement, which renders through the same box model)
+	// regardless of flex context - adding it again here would double it.
+	// margin-top/margin-bottom get no such treatment from the block box
+	// model when the item's own top/bottom edge is open (no border/
+	// padding/height): that's normally left for a block-flow caller to
+	// apply externally via the collapse-through margin on decls (see
+	// block.go), a convention flex layout doesn't participate in - flex
+	// items never collapse margins with each other or the container at all
+	// (real CSS: a flex formatting context doesn't collapse), so each
+	// item's raw margin-top/margin-bottom is read directly here and applied
+	// as its own cross-axis space (via outerHeight, below). margin: auto is
+	// not supported (resolveMarginSide's isAuto return is discarded
+	// elsewhere in this file) - see CSS.md's Flexbox "Not supported" list.
+	mt := make([]int, len(items))
+	mb := make([]int, len(items))
+	for i, it := range items {
+		mt[i] = parseMargin(it.decls["margin-top"])
+		mb[i] = parseMargin(it.decls["margin-bottom"])
+	}
+
 	widths := make([]int, len(items))
 	totalGrow := 0.0
 	for i, it := range items {
@@ -334,6 +358,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 
 	itemBoxes := make([]box, len(items))
 	itemPositions := make([]map[*html.Node]Rect, len(items))
+	outerHeights := make([]int, len(items))
 	height := 1
 	for i, it := range items {
 		w := max(1, widths[i])
@@ -347,7 +372,13 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 		b = alignLinesBox(b, it.decls["text-align"], w)
 		itemBoxes[i] = b
 		itemPositions[i] = pos
-		height = max(height, len(b.lines))
+		// The item's margin-top/margin-bottom widen its own cross-axis
+		// footprint (its "outer" height) - align-items/align-self and the
+		// row's own shared height are resolved against that outer height,
+		// not the bare content height, matching real CSS (alignment
+		// distributes free space around an item's margin box).
+		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
+		height = max(height, outerHeights[i])
 	}
 
 	align := decls["align-items"]
@@ -363,7 +394,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	positions := map[*html.Node]Rect{}
 	colStart := leadPad
 	for i, it := range items {
-		offset := crossOffset(itemAlign(it, align), height, len(itemBoxes[i].lines))
+		offset := mt[i] + crossOffset(itemAlign(it, align), height, outerHeights[i])
 		padded := padBoxVertical(itemBoxes[i], height, offset)
 		for li := range rowLines {
 			rowLines[li] += padded.lines[li]
@@ -409,12 +440,32 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	var lines []string
 	positions := map[*html.Node]Rect{}
 	row := 0
+	prevMb := 0
 	for i, it := range items {
+		// margin-left/margin-right on a flex item need no separate handling
+		// here - see layoutFlexRow's doc comment on the same point: the
+		// block box model already bakes horizontal margin into an item's
+		// own returned box regardless of flex direction. margin-top/
+		// margin-bottom get no such treatment (a bare item's open top/
+		// bottom edge means the block box model strips them into decls for
+		// a block-flow caller to apply, a convention flex layout doesn't
+		// participate in), so they're read directly here. Flex items never
+		// collapse margins with each other or the container at all (real
+		// CSS: a flex formatting context doesn't collapse) - the previous
+		// item's margin-bottom and this item's margin-top both apply in
+		// full, summed with row-gap, not collapsed via max the way ordinary
+		// block flow would. margin: auto is not supported (resolveMarginSide's
+		// isAuto return is discarded elsewhere in this file) - see CSS.md's
+		// Flexbox "Not supported" list.
+		mt := parseMargin(it.decls["margin-top"])
+		mb := parseMargin(it.decls["margin-bottom"])
+		gapLines := mt + prevMb
 		if i > 0 {
-			for range rowGap {
-				lines = append(lines, "")
-				row++
-			}
+			gapLines += rowGap
+		}
+		for range gapLines {
+			lines = append(lines, "")
+			row++
 		}
 		itAlign := itemAlign(it, align)
 		w := innerW
@@ -441,6 +492,13 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			positions = mergePositions(positions, pos, row, colOffset)
 		}
 		row += len(b.lines)
+		prevMb = mb
+	}
+	// The last item's own margin-bottom is never collapsed away (see above)
+	// - flush it as trailing blank rows, unlike an ordinary block's last
+	// child (which can collapse through its container's open bottom edge).
+	for range prevMb {
+		lines = append(lines, "")
 	}
 	return box{lines: lines, width: linesWidth(lines)}, positions
 }
