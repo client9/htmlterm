@@ -97,8 +97,6 @@ func applyTextTransform(s, mode string) string {
 			} else if atStart {
 				runes[i] = unicode.ToUpper(r)
 				atStart = false
-			} else {
-				atStart = false
 			}
 		}
 		return string(runes)

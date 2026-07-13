@@ -34,7 +34,7 @@ func (e *Engine) DocumentRules(doc *html.Node) []cssengine.Rule
 - `engine.go`, `render.go` — `Engine`/`Options`/`Viewport`/`Request`/`Result` and root-level render dispatch.
 - `block.go`, `inline.go`, `list.go`, `table.go`, `table_render.go` — block, inline, list, and table layout.
 - `box.go`, `wraptoken.go`, `blankcap.go` — position tracking (`Rect`, `mergePositions`), token-level word wrapping, and blank-line-run capping.
-- `cascade.go`, `style.go`, `color.go`, `css.go`, `strip.go`, `formcontrol.go`, `counter.go`, `textutil.go` — CSS resolution on top of `cssengine`, style synthesis, color parsing, hidden-inline stripping, form control rendering, list/heading counters, and text utilities.
+- `cascade.go`, `style.go`, `color.go`, `strip.go`, `formcontrol.go`, `counter.go`, `textutil.go` — CSS resolution on top of `cssengine` (shorthand expansion and declaration parsing itself live in `internal/cssengine/css.go`, not here), style synthesis, color parsing, hidden-inline stripping, form control rendering, list/heading counters, and text utilities.
 - `attrs.go` — small attribute-lookup helpers shared across the above.
 
 ## Key invariants

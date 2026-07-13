@@ -34,8 +34,9 @@ func (cs mutableCS) reset(name string, val int) {
 
 func (cs mutableCS) increment(name string, step int) {
 	if len(cs[name]) == 0 {
-		cs[name] = []int{step}
-		return
+		// CSS: counter-increment on a counter with no active counter-reset
+		// implicitly reset it to 0 first, then increments.
+		cs[name] = []int{0}
 	}
 	cs[name][len(cs[name])-1] += step
 }
