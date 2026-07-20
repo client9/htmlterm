@@ -13,6 +13,12 @@ func TestWhiteSpace(t *testing.T) {
 		{name: "pre-line preserves newlines but collapses spaces", css: `p { white-space: pre-line; }`, html: "<p>hello\n  world</p>", want: "hello\n world\n\n"},
 		{name: "white-space inherited by child inline elements", html: "<pre><span>hello   world</span></pre>", want: "hello   world\n"},
 		{name: "pre-wrap preserves all whitespace", css: `p { white-space: pre-wrap; }`, html: "<p>hello   world\n  end</p>", want: "hello   world\n  end\n\n"},
+		{name: "leading space inside nested inline element is preserved after preceding text", html: `<p>Google<span> search</span></p>`, want: "Google search\n\n"},
+		{name: "leading space inside doubly-nested inline element is preserved", html: `<p>Google<span><em> search</em></span></p>`, want: "Google search\n\n"},
+		{name: "leading space inside display:contents child is preserved after preceding text", html: `<p>Google<span style="display:contents"> search</span></p>`, want: "Google search\n\n"},
+		{name: "space between text and inline element is not duplicated", html: `<p>Google <span>search</span></p>`, want: "Google search\n\n"},
+		{name: "leading space inside inline element at true line start is still trimmed", html: `<p><span> search</span></p>`, want: "search\n\n"},
+		{name: "trailing space inside inline element followed by text is preserved", html: `<p><span>Google </span>search</p>`, want: "Google search\n\n"},
 	})
 }
 

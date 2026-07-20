@@ -111,6 +111,22 @@ func restyleTrailingWhitespaceOnlyToken(tokens []wrapToken, outerAcc inlineStyle
 // vs. multi-line-forces-a-break based purely on their own height, per
 // wordWrapTokens).
 func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth int) []wrapToken {
+	return r.renderInlineAccTokensSeeded(n, acc, availWidth, 0, false)
+}
+
+// renderInlineAccTokensSeeded is renderInlineAccTokens's real implementation,
+// with (seedLastRune, seedOK) carrying the last rune already emitted by the
+// enclosing token stream (ok=false at true top-level/line-start callers).
+// The splice branches below (display:contents and plain inline elements like
+// <span>) are transparent to whitespace collapsing — their content is just
+// as much "mid-line" as their parent's — so they must seed their recursive
+// call with the outer stream's own trailing state rather than starting fresh
+// as if their first text node were at the very start of a line. Without
+// this, e.g. "Google<span> search</span>" loses its leading space: the
+// nested call's own tokens starts empty, so its leading-space trim (below)
+// mistakes that emptiness for atLineStart instead of consulting what
+// "Google" actually left behind.
+func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, availWidth int, seedLastRune rune, seedOK bool) []wrapToken {
 	nDecls := r.resolveDecls(n)
 	ws := "normal"
 	if v := nDecls["white-space"]; v != "" {
@@ -157,6 +173,21 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 	// collapse (renderInlineAcc, the string shim behind list.go/
 	// table_render.go) discard this same boundary noise via
 	// trimBoundaryBreaks instead of recovering it - see its doc comment.
+	// effectiveSeed reports the last-rune state a nested splice call should
+	// itself be seeded with: this frame's own accumulated tokens if it's
+	// emitted anything yet, otherwise this frame's own seed passed through
+	// unchanged. Without falling through here, a second level of splicing
+	// (e.g. <em> nested inside a <span>, both transparent to whitespace
+	// collapsing) would see this frame's tokens still empty and stop the
+	// seed right there instead of relaying what "Google" left behind two
+	// levels up.
+	effectiveSeed := func() (rune, bool) {
+		if lr, ok := lastRune(tokens); ok {
+			return lr, ok
+		}
+		return seedLastRune, seedOK
+	}
+
 	pushBoxDirect := func(bx box, subPositions map[*html.Node]Rect, minBreaksBefore int, node *html.Node) {
 		tokens = ensureBreaks(tokens, minBreaksBefore+1)
 		tokens = append(tokens, wrapToken{box: &bx, node: node, subPositions: subPositions})
@@ -169,6 +200,9 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 			normalized := applyTextTransform(normalizeWhiteSpace(sanitizeTerminalText(c.Data, true), ws, tabSize), tt)
 			if normalized != "" {
 				lr, ok := lastRune(tokens)
+				if !ok {
+					lr, ok = seedLastRune, seedOK
+				}
 				atLineStart := !ok || lr == '\n'
 				prevIsSpace := ok && lr == ' '
 				if (atLineStart || prevIsSpace) && ws != "pre" && ws != "pre-wrap" {
@@ -294,7 +328,8 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 				// contents never gets its own box or hyperlink wrap.
 				childAcc := mergeContentsInlineStyle(acc, childDecls)
 				savedDepth := r.quoteDepth
-				childTokens := r.renderInlineAccTokens(c, childAcc, availWidth)
+				childSeedLR, childSeedOK := effectiveSeed()
+				childTokens := r.renderInlineAccTokensSeeded(c, childAcc, availWidth, childSeedLR, childSeedOK)
 				// childTokens starts fresh from c's own first child's
 				// perspective, so its leading brk tokens (that child's own
 				// margin-top, always emitted now - see pushBoxDirect) don't
@@ -400,7 +435,8 @@ func (r *Engine) renderInlineAccTokens(n *html.Node, acc inlineStyle, availWidth
 					// flatten-then-rebox approach the other branch uses.
 					childAcc := mergeInlineStyle(acc, childDecls)
 					savedDepth := r.quoteDepth
-					childTokens := r.renderInlineAccTokens(c, childAcc, availWidth)
+					childSeedLR, childSeedOK := effectiveSeed()
+					childTokens := r.renderInlineAccTokensSeeded(c, childAcc, availWidth, childSeedLR, childSeedOK)
 					// Trim one trailing brk, mirroring the TrimSuffix quirk
 					// on the string-based branch above: a nested block-ish
 					// descendant's own mandatory trailing brk is structural,
