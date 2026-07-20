@@ -1002,13 +1002,27 @@ func (r *Engine) wrapHyperlink(href, text string) string {
 // (the string-signature version, joining and re-splitting, would silently
 // drop it — box.join() has no pre-tagging concept). The OSC 8 sequences are
 // zero-width and never contain "\n", so this never changes b's line count.
+//
+// Every line gets its own open+close pair, not just line 0/the last line:
+// the terminal-facing consumer of this output (../tui/cellbridge.go's
+// writeANSILine) decodes each screen row independently from a fresh state,
+// the same way it re-derives SGR style per row rather than carrying it
+// across rows — an open only on line 0 left every wrapped continuation
+// line of a multi-line block/flex <a> (common for HTML-email "read
+// more"/CTA buttons) with no URL attached to its cells at all: still
+// underlined (SGR is correctly self-contained per line), but not
+// clickable, and if line 0 itself scrolled out of view, no visible row of
+// the link was clickable.
 func (r *Engine) wrapHyperlinkBox(href string, b box) box {
 	href = sanitizeTerminalText(href, false)
 	if href == "" || r.noOSC8Links || r.profile <= colorprofile.Ascii || len(b.lines) == 0 {
 		return b
 	}
 	lines := append([]string(nil), b.lines...)
-	lines[0] = ansi.SetHyperlink(href) + lines[0]
-	lines[len(lines)-1] += ansi.ResetHyperlink()
+	open := ansi.SetHyperlink(href)
+	closeSeq := ansi.ResetHyperlink()
+	for i, line := range lines {
+		lines[i] = open + line + closeSeq
+	}
 	return box{lines: lines, width: linesWidth(lines), pre: b.pre}
 }
