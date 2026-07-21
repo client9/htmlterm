@@ -2,14 +2,17 @@
 
 ## Status
 
-This is a design proposal, not yet implemented. **Interactive/`Document`/hit-test
-work (see INTERACTIVE.md) is paused until this lands** — Phase 2 there
-("hit-test map via zero-width markers") is superseded by this document and
-should not be built as originally designed; once boxes are real, element
-position falls out of composition directly, no markers needed. Phase 1
-(`Document`/`Element`, already implemented) needs no changes — it only
-depends on `Renderer`'s public contract (`Render(htmlStr) (string, error)`),
-which this rewrite preserves unchanged.
+**Implemented in full** — see the migration plan below, all 7 steps done, and
+docs/INTERACTIVE.md's own "Status" line ("RENDERING.md landed (all 9 steps)").
+`box` (box.go), `wrapToken`/`wordWrapTokens` (wraptoken.go), and the
+`select_popup.go` popup-compositing mechanism described below all exist in
+the code as designed; `cappedWriter` is gone, referenced only in comments
+explaining what it was replaced by. docs/INTERACTIVE.md's Phase 2
+("hit-test map via zero-width markers") was superseded by this document as
+planned — see "Migration plan" step 7 below for what actually shipped instead
+(`Document.Rect(el)` reading the position map composition produces directly).
+The rest of this document is kept as design history/rationale, not a live
+plan — read it for the "why", not as a to-do list.
 
 ## Motivation
 
@@ -183,7 +186,7 @@ type wrapToken struct {
     width int          // ansiVisibleLen(text), or box.width
 }
 
-func wordWrapTokens(tokens []wrapToken, width int, breakMode string) (lines []box, positions map[*html.Node]Rect)
+func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWidth int) (result box, positions map[*html.Node]Rect)
 ```
 
 Per finding #4, the fill/break decision loop in `wordWrapANSI` barely
