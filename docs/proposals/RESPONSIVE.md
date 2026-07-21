@@ -107,22 +107,25 @@ actual code change this design needs — small and contained, unlike an
   selection happens once, at the Go level, before a `Render` call, not during
   cascade resolution.
 
-## Separate, lower-priority item: parser robustness
+## Parser robustness (done, independently of this decision)
 
-Independent of this decision: since htmlterm explicitly supports rendering
-untrusted HTML (`example_test.go`'s "New with untrusted HTML" case),
-`<style>` content containing a real `@media { ... }` block (or any other
-unrecognized at-rule) will currently be **misparsed** by `ParseStylesheet` —
-the nested ruleset's inner `{`/`}` and property-like tokens get read as if
-they were a single flat rule's selector/declarations, potentially corrupting
-parsing of the rest of that stylesheet.
+Since htmlterm explicitly supports rendering untrusted HTML
+(`example_test.go`'s "New with untrusted HTML" case), `<style>` content
+containing a real `@media { ... }` block (or any other unrecognized at-rule)
+used to be **misparsed** by `ParseStylesheet` — the nested ruleset's inner
+`{`/`}` and property-like tokens got read as if they were a single flat
+rule's selector/declarations, potentially corrupting parsing of the rest of
+that stylesheet.
 
-Worth fixing on its own, independent of whether host-layer breakpoints or a
-real `@media` implementation is ever pursued: teach `ParseStylesheet` to
-recognize `@ident ... { ... }` and skip it as a balanced-brace block (nested
-braces counted, not assumed single-level), so unsupported at-rules are
-silently ignored rather than corrupting subsequent rules. Small, contained,
-defensive — not a stepping stone to full `@media` support.
+This has since been fixed, independently of whether host-layer breakpoints
+or a real `@media` implementation is ever pursued: `ParseStylesheet`
+(`internal/cssengine/css.go`) now recognizes `@ident ... { ... }` via an
+`inAtRule` parser state with a nesting-aware `atRuleDepth` counter, and
+skips it as a balanced-brace block — unsupported at-rules (including a real
+`@media { ... }` block) are silently ignored rather than corrupting
+subsequent rules. This does *not* mean `@media` conditions are evaluated —
+its rules are simply dropped, same as any other unrecognized at-rule; the
+"Decision" above (host-layer breakpoints, no `@media` grammar) still stands.
 
 ## Summary
 
@@ -132,4 +135,4 @@ defensive — not a stepping stone to full `@media` support.
 | Color scheme | Host supplies an explicit signal (source TBD); no terminal autodetection in htmlterm |
 | `cssengine` changes | None |
 | `Document` API changes | One new method: `SetStylesheets` (+ cache invalidation, mirroring `SetSize`) |
-| Parser hardening | Separate, optional: make `ParseStylesheet` skip unknown at-rule blocks instead of misparsing them |
+| Parser hardening | Done — `ParseStylesheet` skips unknown at-rule blocks (including `@media`) instead of misparsing them |
