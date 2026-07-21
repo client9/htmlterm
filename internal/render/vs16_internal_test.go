@@ -13,11 +13,11 @@ func TestVS16WidthCorrection(t *testing.T) {
 		s    string
 		want int
 	}{
-		{"heart with VS16", "❤️", 2},          // ❤️
-		{"warning with VS16", "⚠️", 2},        // ⚠️
-		{"play button with VS16", "▶️", 2},    // ▶️
-		{"heart alone, no VS16", "❤", 1},           // ❤ (ambiguous, defaults narrow)
-		{"already-wide emoji unaffected", "✅", 2},  // ✅ (unambiguous, VS16 not needed)
+		{"heart with VS16", "❤️", 2},              // ❤️
+		{"warning with VS16", "⚠️", 2},            // ⚠️
+		{"play button with VS16", "▶️", 2},        // ▶️
+		{"heart alone, no VS16", "❤", 1},          // ❤ (ambiguous, defaults narrow)
+		{"already-wide emoji unaffected", "✅", 2}, // ✅ (unambiguous, VS16 not needed)
 		{"plain ascii unaffected", "hi", 2},
 		{"heart with VS16 amid text", "a❤️b", 4}, // a + ❤️(2) + b
 	}
