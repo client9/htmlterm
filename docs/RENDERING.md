@@ -355,10 +355,19 @@ case, that step preserved behavior.
 
 ## Explicit non-goals / open questions for the implementer
 
-- **Wide characters / grapheme clusters**: not addressed by this rewrite.
-  Width counting stays exactly as today (`ansiVisibleLen`) — this rewrite
-  changes *where* position is tracked, not whether individual glyphs are
-  correctly measured. Pre-existing limitation, not introduced or worsened.
+- **Grapheme clusters**: still not addressed, and this is a real, live gap
+  — not addressed by this rewrite. East-Asian double-width characters
+  *are* handled correctly (`runeVisualWidth`/`ansiVisibleLen`, textutil.go,
+  call `go-runewidth` per rune), so "wide characters" alone is done. What's
+  missing is multi-codepoint grapheme-cluster segmentation: sequences like
+  emoji ZWJ families or combining diacritics are still measured and split
+  rune-by-rune, not cluster-by-cluster. Confirmed symptom: `document.go`'s
+  `Backspace` handler (`utf8.DecodeLastRuneInString`) deletes one codepoint
+  at a time, so backspacing a multi-rune emoji corrupts it instead of
+  removing the whole glyph. Fixing this needs a grapheme-segmentation
+  library (e.g. `rivo/uniseg`) threaded through every width/split call site
+  (`ansiVisibleLen`, `splitAtVisualWidthCarry`, `Backspace`, etc.) — a
+  scoped feature in its own right, not a byproduct of this rewrite.
 - **`maxBlankLines` + pre-formatted region interaction**: flagged above as
   unresolved — needs a concrete tagging mechanism for the final filter to
   skip `<pre>` ranges, not designed in detail here.

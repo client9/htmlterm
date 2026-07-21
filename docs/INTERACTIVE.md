@@ -275,19 +275,6 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
 
 ## Also deferred, not on the critical path
 
-- **Chat/REPL-style rendering:** an append-only transcript doesn't need
-  `Document` at all for the log — each turn is rendered independently via
-  plain `Renderer.Render` and frozen once complete (written straight to
-  real stdout, preserving native terminal scrollback/copy-paste). A
-  still-streaming turn is repainted in place by re-rendering the
-  accumulated-so-far fragment from scratch and moving the cursor up by
-  `strings.Count(prevOutput, "\n")` — no new API needed. `Document` is only
-  needed for the one small live input line. CSS whose truth depends on
-  future siblings (`:last-child`, sibling combinators, `counter.go`'s
-  whole-document `buildCounterMap` prepass) is incompatible with "freeze
-  and never revisit" content and should be avoided there; turn numbering
-  should be plain Go string interpolation instead of CSS counters. This is
-  unaffected by RENDERING.md and can proceed independently at any time.
 - **Popups / z-order beyond `<select>`:** `<select>`'s dropdown is now
   implemented — see RENDERING.md's "Popups / z-order" section and
   `select_popup.go`. Any *other* floating/overlay use case (a tooltip, a

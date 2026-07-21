@@ -65,76 +65,26 @@ both advance with zero keyboard/mouse input, while Tab/typing/checkbox
 toggle/submit all continue to work exactly as before and Ctrl-C still exits
 cleanly.
 
-**Not done, deliberately deferred**: the instrumentation this section
-originally asked for (bytes-written-per-paint or `Document.Render()`
-wall-time per tick) — Phase 2 will need it as its "before" baseline, but nothing
-consumes it yet, so it wasn't added speculatively. Add it as the first step
-of Phase 2, not before.
+## Phase 2 (superseded, not built): line-level diff repaint
 
-## Phase 2: line-level diff repaint
+Phase 2 as originally scoped would have added hand-rolled line-level diffing
+inside `paint()` — track the previous frame's lines, rewrite only the lines
+that changed, fall back to a full repaint above some differing-line
+threshold — with cell-level (per-column) diffing explicitly named as a
+further, larger step out of scope even for that plan.
 
-Change `Loop.paint()` (currently: CUP to `(originRow, 0)` → `\x1b[J` → write
-the whole frame) to diff against the *previous* frame instead of always
-doing a full repaint:
-
-- `Loop` keeps the previous frame's lines (`prevLines []string`) as new
-  state.
-- Split the new frame into lines the same way; compare index by index up to
-  `max(len(prevLines), len(newLines))` (treat a missing side as `""` — this
-  naturally handles the frame growing or shrinking a line count between
-  paints).
-- Identical line → skip entirely, zero terminal writes for that row.
-- Differing line → CUP to `(originRow+i, 0)`, erase-to-end-of-line
-  (`\x1b[K` — the line-granularity analog of the existing `\x1b[J`), write
-  just that line's content. No `\n`→`\r\n` translation needed here (unlike
-  `writeFrame`'s existing full-frame path, still used by the fallback below)
-  since each write is a single line preceded by an absolute CUP — nothing
-  relies on a bare linefeed to advance to the next row.
-- **Fallback**: if the fraction of differing lines exceeds some threshold
-  (discussed as roughly 50% during design, not fixed here — pick something
-  reasonable and note it's tunable), just run the existing full-repaint path
-  instead. Cheaper in total operations than many small diffs when almost
-  everything changed anyway. The very first paint (no `prevLines` yet)
-  always takes this path too — there's nothing to diff against.
-
-**Why this is safe without inventing a new invariant**: every line this
-engine renders is already independently ANSI-self-contained — opens and
-closes its own SGR/OSC8 span, never leaks style across a line boundary (see
-textutil.go's `ansiCarry` design, and `wordWrapANSI`'s doc comment: "every
-wrapped line of a styled/linked run remains independently styled"). That
-existing guarantee is exactly what makes rewriting one line in isolation
-correct, with no bleed into neighboring untouched lines. Nothing new needs
-to be proven here — just relied on.
-
-**Explicitly out of scope for this phase, not an oversight — cell-level
-diffing** (per-column diffing *within* a changed line: coalescing runs of
-changed cells, rewriting only the exact changed glyphs instead of the whole
-line). For the motivating cases here — a spinner/progress bar/clock that's
-either its own line or dominates one — line-level already captures nearly
-all the benefit over full-frame repaint (unrelated lines untouched at all;
-a changed line's cost is bounded by *its own* width, not the document's
-total height) for a fraction of the engineering. Cell-level would require
-decomposing each line into a per-column style-state grid (extending
-`ansiCarry`-style tracking across *every* column, not just wrap points, the
-way `spliceColumns` (textutil.go) already does for a *known, fixed*
-replacement range), plus a run-coalescing diff algorithm — a real new
-subsystem, not a tweak. It only matters for a case this project isn't
-motivated by (many independently-updating small widgets packed into wide,
-mostly-static lines). Line-level and cell-level aren't mutually exclusive as
-a roadmap, though: line-level decides *which lines* to touch; a future
-cell-level pass could sub-diff *within* a changed line later without
-discarding this work — so this isn't a dead end if that case ever shows up.
-
-**Verification**: reuse Phase 1's instrumentation to show a concrete
-before/after — e.g. "N bytes/tick, whole frame" (Phase 1 baseline) vs. "M
-bytes/tick, one line" (Phase 2), with N ≫ M for any multi-line document.
+None of it was built: `Loop`'s later migration onto a
+`github.com/gdamore/tcell/v3` `Screen` gave `paint()` real line/cell-level
+diffing via `Screen.Show()` for free, arrived at for unrelated reasons
+(offloading the terminal I/O layer generally) but strictly superseding what
+this design would have delivered. See INTERACTIVE.md's terminal I/O section
+and `cellbridge.go`'s CLAUDE.md entry for what actually shipped instead.
 
 ## Layering note
 
-Both phases stay entirely inside `loop.go` (plus whatever new demo file).
-No changes anticipated to `Document`/`Element`/`Render`/the box model — this
-is a `Loop`-level concern only, consistent with the one-directional layering
-already established for the terminal I/O work: `Loop → Document →
-Renderer.Render` (see INTERACTIVE.md's "Layering, deliberately unchanged by
-living in one package" note). A caller who never touches timers or the new
-diff path is completely unaffected.
+Phase 1 lives in `timer.go`; no changes were made to `Document`/`Element`/
+`Render`/the box model — timers are a `Loop`-level concern only, consistent
+with the one-directional layering established for the terminal I/O work:
+`Loop → Document → Renderer.Render` (see INTERACTIVE.md's "Layering,
+deliberately unchanged by living in one package" note). A caller who never
+touches timers is completely unaffected.
