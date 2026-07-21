@@ -66,7 +66,7 @@ fmt.Print(out)
 
 ## Design notes
 
-`Document` assumes a single-goroutine-mutates-the-tree contract: nothing in its public API is safe to call concurrently on the same `Document`, and nothing in the codebase ever does — [`tui.Loop`](../tui)'s main goroutine is the only place that mutates a `Document` in an interactive program. See [`INTERACTIVE.md`](../INTERACTIVE.md) for the full design history behind this package (focus manager, event model, form controls) and [`SCROLLING.md`](../SCROLLING.md) for the scroll-container support.
+`Document` assumes a single-goroutine-mutates-the-tree contract: nothing in its public API is safe to call concurrently on the same `Document`, and nothing in the codebase ever does — [`tui.Loop`](../tui)'s main goroutine is the only place that mutates a `Document` in an interactive program. See [`INTERACTIVE.md`](../docs/INTERACTIVE.md) for the full design history behind this package (focus manager, event model, form controls) and [`SCROLLING.md`](../docs/SCROLLING.md) for the scroll-container support.
 
 ## See also
 

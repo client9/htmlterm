@@ -30,7 +30,7 @@ func TestSelectPopupComposition(t *testing.T) {
 
 	// Every rendered line must carry the reverse-video SGR wrapper for the
 	// popup rows (not the closed control's own first line) — this is the
-	// only per-cell visual distinction the popup gets, per RENDERING.md.
+	// only per-cell visual distinction the popup gets, per docs/RENDERING.md.
 	lines := strings.Split(result.Output, "\n")
 	if len(lines) != 4 {
 		t.Fatalf("got %d lines, want 4:\n%q", len(lines), result.Output)

@@ -274,7 +274,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	hBorderWidth := availWidth - ml - mr
 	acc := extractInlineStyle(decls)
 	textAlign := decls["text-align"]
-	// ovX/ovY are overflow-x/overflow-y — see SCROLLING.md's "Scrollbar
+	// ovX/ovY are overflow-x/overflow-y — see docs/SCROLLING.md's "Scrollbar
 	// gutter and indicator": expandShorthand (css.go) already expands a
 	// plain overflow:<val> shorthand into both, so these are correct even
 	// when only the shorthand was ever set; a more specific overflow-x/-y
@@ -311,7 +311,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 
 	avail := hBorderWidth - runeLen(bl.char) - runeLen(br.char)
 	// gutterWidth reserves a column for the scrollbar indicator up front,
-	// before wrapping — see SCROLLING.md's "Scrollbar gutter and indicator"
+	// before wrapping — see docs/SCROLLING.md's "Scrollbar gutter and indicator"
 	// for why this must happen before wordWrapTokens runs (below), not as a
 	// post-hoc overlay. Silently dropped (gutterWidth stays 0) if there
 	// isn't room for it, rather than collapsing content to 0 width.
@@ -496,7 +496,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				// matching a scrolled-off real DOM element's
 				// getBoundingClientRect(). r.liveScrollOffsets is this
 				// frame's freshly rebuilt scroll-offset map (see
-				// SCROLLING.md); r.scrollOffsets is nil for a plain
+				// docs/SCROLLING.md); r.scrollOffsets is nil for a plain
 				// Renderer.Render call (no persistent Document to read a
 				// prior offset from), so offset is simply 0 there.
 				offset := r.scrollOffsets[n]
@@ -516,7 +516,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				}
 				// hasScrollbarGutter (not just ovY == "scroll") draws an
 				// always-on gutter indicator, regardless of whether this
-				// frame actually needed to slice — see SCROLLING.md's
+				// frame actually needed to slice — see docs/SCROLLING.md's
 				// "Scrollbar gutter and indicator" for why "auto"
 				// deliberately gets none, and why a too-narrow box (the
 				// gutter wasn't actually reserved in innerW) must not draw
@@ -662,12 +662,12 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 }
 
 // scrollbarGutterWidth is the fixed column width reserved for the scrollbar
-// gutter when overflow-y:scroll is set — see SCROLLING.md's "Scrollbar
+// gutter when overflow-y:scroll is set — see docs/SCROLLING.md's "Scrollbar
 // gutter and indicator". Not CSS-configurable in this pass.
 const scrollbarGutterWidth = 1
 
 // scrollbarTrackChar/scrollbarThumbChar are the fixed glyphs drawn in the
-// scrollbar gutter — not CSS-configurable in this pass (see SCROLLING.md's
+// scrollbar gutter — not CSS-configurable in this pass (see docs/SCROLLING.md's
 // explicit non-goals for the scrollbar).
 const (
 	scrollbarTrackChar = "│"
@@ -680,7 +680,7 @@ const (
 // the content's line count before it was sliced/padded to heightLines, so
 // the thumb reflects the real scrollable range even though lines itself no
 // longer does. Appends rather than overwrites, so real content is never
-// clobbered — see SCROLLING.md's rejected splice-overlay alternative for
+// clobbered — see docs/SCROLLING.md's rejected splice-overlay alternative for
 // why that matters. When totalLines <= heightLines (nothing to actually
 // scroll), thumbSize naturally comes out to heightLines, i.e. the thumb
 // fills the whole track, matching a real scrollbar's own convention for

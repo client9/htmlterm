@@ -375,7 +375,7 @@ func (e *Element) Blur() {
 
 // Rect returns e's position and size as of the most recent Document.Render
 // call (the CSS border box — content+padding+border, excluding margin — see
-// RENDERING.md's Position tracking section for the exact semantics and its
+// docs/RENDERING.md's Position tracking section for the exact semantics and its
 // documented approximations), and whether a position was recorded for it at
 // all — mirroring (approximately; see above) the DOM's
 // getBoundingClientRect(). A position is recorded for every element that

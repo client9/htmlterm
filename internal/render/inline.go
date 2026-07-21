@@ -429,7 +429,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					// so its position) through to whichever ancestor's
 					// wordWrapTokens call ultimately places it. It also
 					// naturally preserves word-wrap-ability across this
-					// element's own boundary, matching RENDERING.md's
+					// element's own boundary, matching docs/RENDERING.md's
 					// original token-splicing intent for plain inline
 					// content (findings #3/#4) more closely than the
 					// flatten-then-rebox approach the other branch uses.

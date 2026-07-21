@@ -7,7 +7,7 @@ import (
 )
 
 // compositeOpenSelects splices an open dropdown popup onto lines for every
-// <select> in doc currently carrying e.selectOpenAttr — see RENDERING.md's
+// <select> in doc currently carrying e.selectOpenAttr — see docs/RENDERING.md's
 // "Popups / z-order" section: the popup is composed as its own little block
 // of lines, then spliced over the base lines at the select's own Rect via
 // spliceColumns (textutil.go), the primitive built for exactly this and
@@ -40,7 +40,7 @@ func (e *Engine) compositeOpenSelects(doc *html.Node, lines []string, positions 
 // compositeSelectPopup splices sel's option list directly beneath its own
 // Rect, reverse-video styled so it visually reads as a popup on top of
 // whatever content it overlaps — the only per-cell distinction it needs, per
-// RENDERING.md's "opaque rectangular overlay, no per-cell blending"
+// docs/RENDERING.md's "opaque rectangular overlay, no per-cell blending"
 // decision. Does nothing if sel has no recorded Rect (not laid out this
 // frame) or no options, or renders as many options as fit — canGrow decides
 // whether to extend lines with extra blank rows past its current end (the

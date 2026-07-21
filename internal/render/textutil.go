@@ -449,7 +449,7 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 // spliceColumns overwrites visible columns [col, col+width) of line with
 // replacement, preserving line's ANSI styling for the untouched prefix/
 // suffix and re-carrying any open span across the splice boundary — the
-// primitive popup/overlay rendering needs (see RENDERING.md's popup
+// primitive popup/overlay rendering needs (see docs/RENDERING.md's popup
 // section) to punch replacement content into an already-composed line
 // without disturbing anything outside the overwritten range, unlike
 // splitAtVisualWidth/splitAtVisualWidthCarry, which only chop a string into

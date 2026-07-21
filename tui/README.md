@@ -54,7 +54,7 @@ Keyboard, mouse, and resize events read from `tcell.Screen.EventQ` are translate
 ## Key invariants
 
 - **No locking in this layer.** `Loop.Run`'s main goroutine is the only place that ever mutates `doc` or calls `paint()`; timer callbacks and dispatched event handlers all run there too, reached only via `tcell.Screen`'s single `EventQ()` channel. Nothing in `Loop` is safe to call from another goroutine.
-- **Every paint redraws the whole frame.** `cellbridge.go`'s `paintLines` must explicitly blank every column past a line's own content, and every row past the frame's own line count, up to the screen's full size — there is no line-level diff repaint yet (see [`REPAINT.md`](../REPAINT.md)).
+- **Every paint redraws the whole frame.** `cellbridge.go`'s `paintLines` must explicitly blank every column past a line's own content, and every row past the frame's own line count, up to the screen's full size — there is no line-level diff repaint yet (see [`REPAINT.md`](../docs/REPAINT.md)).
 - **POSIX-oriented.** Automatic resize tracking relies on `syscall.SIGWINCH`, which doesn't exist on Windows — a compile-time constraint there, not just an unverified one.
 
 ## Testing
@@ -66,4 +66,4 @@ Keyboard, mouse, and resize events read from `tcell.Screen.EventQ` are translate
 ## See also
 
 - [`document`](../document) — the DOM/event layer this package drives; read its README first for what a `Document` can do independent of any terminal.
-- [`INTERACTIVE.md`](../INTERACTIVE.md), [`REPAINT.md`](../REPAINT.md), [`SCROLLING.md`](../SCROLLING.md) — design history and rationale for the interactive/rendering-engine work; read these before extending this package.
+- [`INTERACTIVE.md`](../docs/INTERACTIVE.md), [`REPAINT.md`](../docs/REPAINT.md), [`SCROLLING.md`](../docs/SCROLLING.md) — design history and rationale for the interactive/rendering-engine work; read these before extending this package.

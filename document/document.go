@@ -450,7 +450,7 @@ func nearestForm(n *html.Node) *html.Node {
 // matching HTML's implicit-submit-on-Enter behavior for a single-line text
 // field; any other single-rune key appends to a focused text entry's (input
 // or textarea) value. key follows the convention described in
-// INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
+// docs/INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
 // or a named key from a fixed vocabulary ("Enter", "Backspace", "Tab",
 // "Escape", "ArrowUp"/"Down"/"Left"/"Right"). The host owns all
 // raw-terminal-byte-to-key-name translation; htmlterm never reads a
@@ -803,7 +803,7 @@ func (d *Document) FocusPrev() *Element {
 // pointer for its whole run; there is no document-swap API, so a container
 // declared once up front and refreshed via SetInnerHTML is the supported
 // pattern for content that changes shape, as opposed to attribute-driven
-// mutation for content that doesn't — see INTERACTIVE.md's ImportHTML note,
+// mutation for content that doesn't — see docs/INTERACTIVE.md's ImportHTML note,
 // which this supersedes).
 //
 // The fragment must not itself contain <style> elements: Document caches its

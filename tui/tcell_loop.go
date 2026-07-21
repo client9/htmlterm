@@ -154,7 +154,7 @@ func (l *Loop) Quit() {
 }
 
 // keyName maps a tcell.EventKey to htmlterm's existing DispatchKey
-// vocabulary (INTERACTIVE.md): a single printable rune as a UTF-8 string,
+// vocabulary (docs/INTERACTIVE.md): a single printable rune as a UTF-8 string,
 // or a named key from a fixed set ("Enter", "Backspace", "Tab", "Escape",
 // "ArrowUp"/"Down"/"Left"/"Right", "PageUp"/"PageDown"). ok is false for
 // anything outside that vocabulary (function keys, modifier-only events,

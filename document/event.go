@@ -4,10 +4,10 @@ import "golang.org/x/net/html"
 
 // focusAttr is the reserved marker attribute Document.Focus/Blur set and
 // clear to record the currently focused node, and that matchPseudo checks
-// for ":focus" — see INTERACTIVE.md's "Focus manager + live pseudo-classes"
+// for ":focus" — see docs/INTERACTIVE.md's "Focus manager + live pseudo-classes"
 // section. Namespaced beyond plain "data-*" so it can't collide with a
 // host's own data attributes. Future :hover/:active support (not part of
-// this phase — see INTERACTIVE.md's events section) would follow the same
+// this phase — see docs/INTERACTIVE.md's events section) would follow the same
 // pattern with sibling attribute names, e.g. "data-htmlterm-hover".
 const focusAttr = "data-htmlterm-focus"
 
@@ -32,7 +32,7 @@ type ListenerHandle struct {
 
 // Event is passed to listeners registered via Document.AddEventListener,
 // modeled on the DOM Event interface's capture/target/bubble phases and
-// preventDefault/stopPropagation controls — see INTERACTIVE.md's "Next:
+// preventDefault/stopPropagation controls — see docs/INTERACTIVE.md's "Next:
 // events" section.
 type Event struct {
 	// Type is the event name, e.g. "click", "keydown", "focus", "blur".

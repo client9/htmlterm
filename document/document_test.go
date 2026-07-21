@@ -588,7 +588,7 @@ func TestDocumentRectUpdatesAcrossReRender(t *testing.T) {
 	// Document.Render refreshes the position map on every call, so a
 	// mutate-then-re-render loop always has Rects matching the latest
 	// output — the core host-driven interactive use case from
-	// INTERACTIVE.md.
+	// docs/INTERACTIVE.md.
 	doc, err := document.ParseDocument(`<p id="first">A</p><div id="target">B</div>`, htmlterm.Options{Width: 40})
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
@@ -1182,7 +1182,7 @@ func TestScrollContainerWithFocusableChildIsNotDoubleTabStop(t *testing.T) {
 	}
 }
 
-// TestOverflowYScrollDrawsGutterIndicator covers SCROLLING.md's "Scrollbar
+// TestOverflowYScrollDrawsGutterIndicator covers docs/SCROLLING.md's "Scrollbar
 // gutter and indicator": overflow-y:scroll reserves a column and draws a
 // track/thumb, unconditionally (regardless of whether content overflows).
 func TestOverflowYScrollDrawsGutterIndicator(t *testing.T) {
@@ -1206,7 +1206,7 @@ func TestOverflowYScrollDrawsGutterIndicator(t *testing.T) {
 
 // TestOverflowYAutoDrawsNoGutter locks in that overflow-y:auto (and plain
 // overflow:auto, its shorthand equivalent) get no gutter/indicator at all —
-// a deliberate SCROLLING.md design choice (see "Why auto gets no indicator,
+// a deliberate docs/SCROLLING.md design choice (see "Why auto gets no indicator,
 // deliberately"), and also a regression guard that this feature didn't
 // change auto's existing, already-shipped rendering.
 func TestOverflowYAutoDrawsNoGutter(t *testing.T) {
@@ -1304,7 +1304,7 @@ func TestScrollbarThumbTracksScrollPosition(t *testing.T) {
 }
 
 // TestOverflowYScrollGutterDroppedWhenNoRoom covers the "silently drop the
-// gutter rather than collapse content" edge case named in SCROLLING.md: a
+// gutter rather than collapse content" edge case named in docs/SCROLLING.md: a
 // box too narrow to spare a column for the gutter renders its content with
 // no gutter/indicator at all, rather than corrupting it.
 func TestOverflowYScrollGutterDroppedWhenNoRoom(t *testing.T) {

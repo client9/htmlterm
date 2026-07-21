@@ -78,7 +78,7 @@ func TestWordWrapTokensOversizedBoxOverflows(t *testing.T) {
 // TestWordWrapTokensTextForcesBreakAroundTallBox verifies text that would
 // otherwise fit alongside a box on the same line is still pushed to its own
 // line when the box is multi-line tall (no flowing text around a tall
-// embedded object, per RENDERING.md's stated scope).
+// embedded object, per docs/RENDERING.md's stated scope).
 func TestWordWrapTokensTextForcesBreakAroundTallBox(t *testing.T) {
 	bx := box{lines: []string{"X", "Y", "Z"}, width: 1}
 	tokens := []wrapToken{

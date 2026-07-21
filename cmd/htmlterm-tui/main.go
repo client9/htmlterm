@@ -13,7 +13,7 @@
 // changing the selection). ArrowUp/ArrowDown change the selection directly
 // whether the popup is open or closed, matching a real <select>. The popup
 // itself is composited as a reverse-video overlay directly beneath the
-// control, on top of whatever content follows it — see RENDERING.md's
+// control, on top of whatever content follows it — see docs/RENDERING.md's
 // "Popups / z-order" section.
 //
 // Width is SizeAutomatic and Height is SizeNatural: resize the terminal
@@ -23,7 +23,7 @@
 // clipped/padded to the terminal's row count.
 //
 // Below the paragraph is a scrollable log pane (overflow-y:scroll with an
-// explicit height — see SCROLLING.md), with a second, nested scrollable
+// explicit height — see docs/SCROLLING.md), with a second, nested scrollable
 // pane inside it (plain overflow:auto) demonstrating that nested scrollable
 // regions need no special handling. Scroll either with the mouse wheel over
 // a pane, or Tab to the button inside the outer one (focus auto-scrolls it
@@ -31,7 +31,7 @@
 // PageUp/PageDown/ArrowUp/ArrowDown. The outer pane's overflow-y:scroll
 // draws an always-on │/█ gutter/thumb tracking the scroll position — the
 // nested pane's plain overflow:auto deliberately draws none (see
-// SCROLLING.md's "Scrollbar gutter and indicator" for why).
+// docs/SCROLLING.md's "Scrollbar gutter and indicator" for why).
 package main
 
 import (

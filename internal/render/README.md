@@ -57,5 +57,5 @@ These are load-bearing enough that changing them without updating every call sit
 ## See also
 
 - [`internal/cssengine`](../cssengine) — CSS parsing, selector matching, and cascade resolution this package builds on.
-- [`RENDERING.md`](../../RENDERING.md) — design history and rationale for the layout engine.
+- [`RENDERING.md`](../../docs/RENDERING.md) — design history and rationale for the layout engine.
 - [`CSS.md`](../../CSS.md) — the full supported CSS surface as seen by users of `htmlterm`.

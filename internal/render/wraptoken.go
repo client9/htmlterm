@@ -24,14 +24,14 @@ type wrapToken struct {
 	// box has no trackable descendants. wordWrapTokens shifts these by
 	// wherever it ultimately places this token and merges them into its own
 	// returned position map — this is the "propagated incrementally, one
-	// level at a time" mechanism RENDERING.md's Position tracking section
+	// level at a time" mechanism docs/RENDERING.md's Position tracking section
 	// describes: nothing needs to know the absolute position of anything
 	// until the walk reaches the document root.
 	subPositions map[*html.Node]Rect
 }
 
 // Rect is a box's position and size relative to whatever coordinate space it
-// was recorded in — see RENDERING.md's "Position tracking" section. It
+// was recorded in — see docs/RENDERING.md's "Position tracking" section. It
 // approximates the CSS border box (content+padding+border): horizontal
 // margin, when an element sets margin-left/right explicitly, is baked into
 // its box the same way padding is (see renderBlockContentBox) and is not
@@ -39,7 +39,7 @@ type wrapToken struct {
 // margin overlap for such elements. Vertical margin is unaffected (it's
 // injected as separate blank lines around a box, never baked into it). This
 // is an accepted simplification: the primary motivating use (hit-testing
-// form controls — see INTERACTIVE.md) essentially never sets margin on
+// form controls — see docs/INTERACTIVE.md) essentially never sets margin on
 // input/button/textarea.
 type Rect struct {
 	Row, Col      int
@@ -282,7 +282,7 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 // always ends the current line; a box token is placed whole — single-line
 // boxes behave like an atomic word (can share a line with surrounding text),
 // multi-line boxes force a line break before and after themselves and
-// contribute their own lines verbatim (no reflow), per RENDERING.md's stated
+// contribute their own lines verbatim (no reflow), per docs/RENDERING.md's stated
 // scope of not flowing text around a tall embedded object. A box wider than
 // width is clipped (overflow:hidden semantics), matching truncateToWidth's
 // use elsewhere for explicit-width overflow.
@@ -300,7 +300,7 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 // positions records each box token's placement (Row/Col/Width/Height)
 // relative to this call's own output — not yet absolute document
 // coordinates; callers up the composition chain shift these by their own
-// offset as they embed this result into a parent (see RENDERING.md's
+// offset as they embed this result into a parent (see docs/RENDERING.md's
 // "Position tracking" section).
 func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWidth int) (box, map[*html.Node]Rect) {
 	if width <= 0 {

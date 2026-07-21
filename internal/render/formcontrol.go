@@ -19,7 +19,7 @@ func nodeHasAttr(n *html.Node, key string) bool {
 }
 
 // inputDisplayText synthesizes an <input>'s visual content from its
-// attributes rather than children (it has none) — see INTERACTIVE.md's
+// attributes rather than children (it has none) — see docs/INTERACTIVE.md's
 // "render actual form controls" section. checkbox/radio show a glyph
 // reflecting the checked attribute; submit/button/reset show a bracketed
 // label (falling back to a type-appropriate default when value is unset);
