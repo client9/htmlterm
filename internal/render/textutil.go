@@ -21,12 +21,67 @@ func runeVisualWidth(r rune) int {
 	return runewidth.RuneWidth(r)
 }
 
+// variationSelector16 (U+FE0F) forces emoji presentation on the immediately
+// preceding base rune. go-runewidth (with its default StrictEmojiNeutral
+// setting) reports width 1 for "ambiguous" emoji symbols like U+2764 (❤),
+// U+26A0 (⚠), U+25B6 (▶) when read alone, on the assumption they're being
+// used in plain text presentation — and reports 0 for the VS16 rune itself,
+// so naively summing runeVisualWidth over the pair totals 1. But essentially
+// every modern terminal renders such a pair (❤️, ⚠️, ▶️, ...) as width 2,
+// since VS16 is specifically the signal that emoji presentation was
+// intended. Every width-summing loop in this file must apply
+// vs16WidthCorrection when it sees this rune, or lines containing these
+// (very common) emoji desync from their actual rendered width — this is
+// what caused the scrollbar gutter to land one column short on such lines.
+const variationSelector16 = 0xFE0F
+
+// vs16WidthCorrection returns the additional width VS16 contributes beyond
+// its own (zero) rune width, given prevWidth — the width already counted
+// for the base rune it modifies. Only ambiguous-width bases (prevWidth==1)
+// need the correction; unambiguous wide emoji (prevWidth==2) already render
+// correctly as 2 with or without VS16.
+func vs16WidthCorrection(prevWidth int) int {
+	if prevWidth == 1 {
+		return 1
+	}
+	return 0
+}
+
+// NextRuneWidth is runeVisualWidth plus vs16WidthCorrection, exported (via
+// htmlterm/tui's use of this package) for consumers that must walk an
+// already-rendered ANSI line rune-by-rune and paint it onto a real screen
+// (e.g. cellbridge.go's writeANSILine, translating Document.Render's output
+// into tcell.Screen.SetContent calls) — the column advance for each rune
+// there must exactly match what this package's own layout/wrapping already
+// decided, or the painted frame desyncs from the frame the CSS engine
+// actually laid out and measured (this is what caused a wide emoji to shift
+// every subsequent character, including the scrollbar gutter, one column
+// left of where htmlterm's own layout placed it). prevWidth is the width
+// this same walk credited to the immediately preceding rune (0 for the
+// first rune, or right after a rune whose width the just-processed VS16
+// already absorbed).
+func NextRuneWidth(r rune, prevWidth int) int {
+	if r == variationSelector16 {
+		return vs16WidthCorrection(prevWidth)
+	}
+	return runeVisualWidth(r)
+}
+
 // textVisualWidth is the terminal column width of an entire plain (no ANSI
-// escapes) string: the sum of runeVisualWidth over its runes.
+// escapes) string: the sum of runeVisualWidth over its runes, with
+// vs16WidthCorrection applied for variation-selector emoji pairs.
 func textVisualWidth(s string) int {
 	w := 0
+	prevWidth := 0
 	for _, r := range s {
-		w += runeVisualWidth(r)
+		if r == variationSelector16 {
+			w += vs16WidthCorrection(prevWidth)
+			prevWidth = 0
+			continue
+		}
+		rw := runeVisualWidth(r)
+		w += rw
+		prevWidth = rw
 	}
 	return w
 }
@@ -409,6 +464,7 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 		cur.WriteString(carry.openSeq())
 	}
 	col := 0
+	prevWidth := 0
 	runes := []rune(s)
 	i := 0
 	for i < len(runes) {
@@ -421,7 +477,14 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 			i = j
 			continue
 		}
-		w := runeVisualWidth(ch)
+		var w int
+		if ch == variationSelector16 {
+			w = vs16WidthCorrection(prevWidth)
+			prevWidth = 0
+		} else {
+			w = runeVisualWidth(ch)
+			prevWidth = w
+		}
 		if col+w > width && col > 0 {
 			if !carry.empty() {
 				cur.WriteString(carry.closeSeq())
@@ -545,6 +608,7 @@ func ansiVisibleLen(s string) int {
 	inCSI := false
 	inOSC := false
 	prev := rune(0)
+	prevWidth := 0
 	for _, ch := range s {
 		switch {
 		case inOSC:
@@ -574,8 +638,14 @@ func ansiVisibleLen(s string) int {
 		case ch == '\x1b':
 			inEsc = true
 			prev = ch
+		case ch == variationSelector16:
+			n += vs16WidthCorrection(prevWidth)
+			prevWidth = 0
+			prev = ch
 		default:
-			n += runeVisualWidth(ch)
+			rw := runeVisualWidth(ch)
+			n += rw
+			prevWidth = rw
 			prev = ch
 		}
 	}
@@ -773,6 +843,7 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 	runes := []rune(s)
 	var b strings.Builder
 	visible := 0
+	prevWidth := 0
 	i := 0
 	for i < len(runes) && visible < width {
 		if runes[i] == '\x1b' {
@@ -781,8 +852,27 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 			i = next
 			continue
 		}
+		var rw int
+		if runes[i] == variationSelector16 {
+			rw = vs16WidthCorrection(prevWidth)
+		} else {
+			rw = runeVisualWidth(runes[i])
+		}
+		// A wide (2-column) rune that would land exactly on the boundary
+		// must not be included — doing so overshoots width by 1, which is
+		// exactly what produced the scrollbar-gutter off-by-one for lines
+		// ending in an emoji. Drop it and stop; the caller pads the
+		// resulting 1-column gap instead.
+		if visible+rw > width {
+			break
+		}
 		b.WriteRune(runes[i])
-		visible += runeVisualWidth(runes[i])
+		if runes[i] == variationSelector16 {
+			prevWidth = 0
+		} else {
+			prevWidth = rw
+		}
+		visible += rw
 		i++
 	}
 	for i < len(runes) {

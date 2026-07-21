@@ -130,6 +130,31 @@ func TestWriteANSILineResetClearsAttrs(t *testing.T) {
 	}
 }
 
+// TestWriteANSILineWideRuneAdvancesTwoColumns is a regression test: a wide
+// (East Asian/emoji) rune must advance the paint column by 2, matching
+// ansiVisibleLen/wordWrapTokens' own column accounting (see
+// render.NextRuneWidth). An earlier version of writeANSILine advanced by a
+// flat 1 per rune regardless of width, which desynced the painted frame
+// from the frame htmlterm's layout engine actually measured — every
+// character after a wide emoji (including, on lines reaching a pane's right
+// edge, the scrollbar gutter itself) got painted one column left of where
+// layout placed it.
+func TestWriteANSILineWideRuneAdvancesTwoColumns(t *testing.T) {
+	scr, mt := newTestScreen(t, 20, 3)
+	nextLinkID := 0
+	writeANSILine(scr, 0, "🎧X", 20, &nextLinkID)
+	scr.Show()
+
+	emoji := mt.GetCell(vt.Coord{X: 0, Y: 0})
+	if emoji.C != "🎧" {
+		t.Errorf("col 0: got %q, want %q", emoji.C, "🎧")
+	}
+	marker := mt.GetCell(vt.Coord{X: 2, Y: 0})
+	if marker.C != "X" {
+		t.Errorf("col 2: got %q, want \"X\" (a wide rune must advance by 2 columns)", marker.C)
+	}
+}
+
 func TestWriteANSILineHyperlink(t *testing.T) {
 	scr, mt := newTestScreen(t, 20, 3)
 	line := "\x1b]8;;https://example.com\x07link\x1b]8;;\x07 plain"

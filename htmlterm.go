@@ -31,6 +31,19 @@ const SizeNatural = -1
 // or diff against it when writing overrides.
 const DefaultStylesheet = render.DefaultStylesheet
 
+// ScrollbarGutterWidth is the fixed column width an overflow-y:scroll element
+// reserves for its scrollbar gutter (see docs/SCROLLING.md). Exposed for
+// callers who pre-render content in a separate Renderer.Render/Document pass
+// — outside the scrollable element that will eventually display it, e.g. to
+// cache an expensive layout and later splice it into a live pane via
+// Document.SetPreRendered — so that pass can subtract this from its own
+// Width and wrap at the same content width the live pane will actually have.
+// Skipping this produces content wrapped 1 column wider than the live pane's
+// real innerW, which desyncs from that pane's own scrollbar gutter and
+// produces an off-by-one-short scrollbar column on any line that reaches
+// the (wrongly wider) boundary.
+const ScrollbarGutterWidth = render.ScrollbarGutterWidth
+
 // Options configures a Renderer.
 type Options struct {
 	CSS               string               // additional stylesheet layered above built-in defaults (DefaultStylesheet)

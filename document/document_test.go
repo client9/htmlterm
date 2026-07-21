@@ -1,6 +1,7 @@
 package document_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1287,8 +1288,11 @@ func TestScrollbarThumbTracksScrollPosition(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	got := stripANSI(out)
-	if !strings.Contains(got, "AAAA█") || !strings.Contains(got, "BBBB│") {
-		t.Fatalf("render at offset 0 = %q, want thumb on the first visible line (AAAA█) and track on the second (BBBB│)", got)
+	if !strings.Contains(got, "AAAA") || !strings.Contains(got, "BBBB") {
+		t.Fatalf("render at offset 0 = %q, want AAAA and BBBB present", got)
+	}
+	if !regexp.MustCompile(`AAAA +█`).MatchString(got) || !regexp.MustCompile(`BBBB +│`).MatchString(got) {
+		t.Fatalf("render at offset 0 = %q, want thumb on the first visible line (AAAA...█) and track on the second (BBBB...│), each padded to a straight gutter column", got)
 	}
 
 	pane := doc.GetElementByID("pane")
@@ -1298,8 +1302,8 @@ func TestScrollbarThumbTracksScrollPosition(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 	got = stripANSI(out)
-	if !strings.Contains(got, "DDDD│") || !strings.Contains(got, "EEEE█") {
-		t.Errorf("render at max offset = %q, want track on the first visible line (DDDD│) and thumb on the second (EEEE█)", got)
+	if !regexp.MustCompile(`DDDD +│`).MatchString(got) || !regexp.MustCompile(`EEEE +█`).MatchString(got) {
+		t.Errorf("render at max offset = %q, want track on the first visible line (DDDD...│) and thumb on the second (EEEE...█), each padded to a straight gutter column", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/client9/htmlterm/internal/render"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -49,12 +50,21 @@ func paintLines(screen tcell.Screen, lines []string) {
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
 // walks left to right — reusing x/ansi's decoder (consumeANSI, below) to
 // tokenize each escape sequence, the same way htmlterm's own ansiCarry
-// does internally. Column position advances by
-// exactly one per visible rune, matching ansiVisibleLen/wordWrapTokens'
-// existing (width-1-per-rune) column accounting: htmlterm's layout engine
-// does not currently measure double-width East Asian/emoji characters as
-// two columns, so the bridge must not either, or the painted frame would
-// disagree with the frame the CSS engine actually laid out and measured.
+// does internally. Column position advances by render.NextRuneWidth per
+// visible rune (1 normally, 2 for East Asian wide/emoji runes, matching
+// vs16WidthCorrection for variation-selector pairs) — this must exactly
+// match ansiVisibleLen/wordWrapTokens' own column accounting, which does
+// measure double-width runes as two columns; advancing by a flat 1 here
+// regardless of width (an earlier, since-corrected assumption) desynced the
+// painted frame from the frame the CSS engine actually laid out and
+// measured, shifting every character after a wide emoji one column left of
+// where htmlterm's layout placed it — including, on lines that reached the
+// pane's right edge, the scrollbar gutter itself. tcell.Screen.SetContent's
+// own doc comment confirms the contract this depends on: "wide ... runes
+// occupy two cells, and attempts to place a character at the next cell to
+// the right will have undefined effects" — so a wide rune's second cell
+// must never receive its own SetContent call, which advancing col by 2
+// (skipping straight past it) guarantees.
 //
 // Once line's content is exhausted, every remaining column up to width is
 // explicitly blanked (a space in the default style) — necessary because
@@ -68,6 +78,7 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	runes := []rune(line)
 	col := 0
 	i := 0
+	prevWidth := 0
 	for i < len(runes) && col < width {
 		if runes[i] == '\x1b' {
 			end := consumeANSI(runes, i)
@@ -75,8 +86,12 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 			i = end
 			continue
 		}
-		screen.SetContent(col, row, runes[i], nil, state.style)
-		col++
+		w := render.NextRuneWidth(runes[i], prevWidth)
+		if w > 0 {
+			screen.SetContent(col, row, runes[i], nil, state.style)
+		}
+		col += w
+		prevWidth = w
 		i++
 	}
 	for ; col < width; col++ {
