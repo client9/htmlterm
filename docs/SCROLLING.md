@@ -50,7 +50,7 @@ section for the shipped `overflow-y: scroll` vs. `auto` behavior split. The
 gutter's width and the track/thumb glyphs/colors, originally listed below as
 an explicit non-goal ("CSS-configurable glyphs/colors for the track/thumb
 characters"), have since shipped too, as `::scrollbar`/`::scrollbar-track`/
-`::scrollbar-thumb` plus a `scrollbar-style: block|shaded|classic|ascii` shorthand
+`::scrollbar-thumb` plus a `scrollbar-style: block|shaded|classic|ascii|line` shorthand
 that presets those three pseudo-elements' glyphs/colors in one declaration
 — see "Scrollbar pseudo-elements" below for that design and CSS.md's own
 "Scrollbar pseudo-elements" section for the user-facing reference. Clickable
@@ -409,7 +409,7 @@ same glyph across every reserved column rather than requiring a
 column-by-column pattern (no such per-column pattern concept exists; out of
 scope, not just unimplemented — `content` is one glyph, not a bitmap).
 
-**`scrollbar-style: block|shaded|classic|ascii`** (`scrollbarPresets`,
+**`scrollbar-style: block|shaded|classic|ascii|line`** (`scrollbarPresets`,
 `Engine.resolveScrollbarStyle`, `block.go`) is a shorthand set on the
 scrollable element itself, not on `::scrollbar-track`/`::scrollbar-thumb` —
 it can't be, since a preset needs to supply *both* pseudo-elements' baseline

@@ -1397,8 +1397,8 @@ func TestScrollbarPseudoElementColorApplied(t *testing.T) {
 	}
 }
 
-// TestScrollbarStylePresets covers scrollbar-style's block, shaded, and
-// ascii presets, each supplying its own baseline ::scrollbar-track/
+// TestScrollbarStylePresets covers scrollbar-style's block, shaded, ascii,
+// and line presets, each supplying its own baseline ::scrollbar-track/
 // ::scrollbar-thumb glyph. classic's glyph is a plain space
 // (indistinguishable from ordinary line padding by content alone), so it's
 // covered separately by TestScrollbarStyleClassicColors, which checks its
@@ -1412,6 +1412,7 @@ func TestScrollbarStylePresets(t *testing.T) {
 		{style: "block", wantTrack: "│", wantThumb: "█"},
 		{style: "shaded", wantTrack: "░", wantThumb: "█"},
 		{style: "ascii", wantTrack: "|", wantThumb: "#"},
+		{style: "line", wantTrack: "│", wantThumb: "┃"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.style, func(t *testing.T) {
@@ -1498,10 +1499,10 @@ func TestScrollbarStylePresetOverriddenByExplicitPseudoRule(t *testing.T) {
 	}
 }
 
-// TestScrollbarStylePresetsIncludeCapDefaults covers all four
-// scrollbar-style presets (block, shaded, classic, ascii) each supplying
-// their own default cap glyphs, not just track/thumb — presets are
-// default-on for caps the same way they already are for track/thumb.
+// TestScrollbarStylePresetsIncludeCapDefaults covers all five
+// scrollbar-style presets (block, shaded, classic, ascii, line) each
+// supplying their own default cap glyphs, not just track/thumb — presets
+// are default-on for caps the same way they already are for track/thumb.
 func TestScrollbarStylePresetsIncludeCapDefaults(t *testing.T) {
 	tests := []struct {
 		style        string
@@ -1512,6 +1513,7 @@ func TestScrollbarStylePresetsIncludeCapDefaults(t *testing.T) {
 		{style: "shaded", wantCapStart: "▲", wantCapEnd: "▼"},
 		{style: "classic", wantCapStart: "▲", wantCapEnd: "▼"},
 		{style: "ascii", wantCapStart: "^", wantCapEnd: "v"},
+		{style: "line", wantCapStart: "▲", wantCapEnd: "▼"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.style, func(t *testing.T) {

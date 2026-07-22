@@ -726,7 +726,7 @@ type scrollbarPreset struct {
 // pre-scrollbar-style/pre-::scrollbar-track/thumb-defaults behavior exactly.
 const defaultScrollbarStyle = "block"
 
-// scrollbarPresets backs the scrollbar-style property: block|shaded|classic|ascii.
+// scrollbarPresets backs the scrollbar-style property: block|shaded|classic|ascii|line.
 // Each preset supplies content (and, for classic, background-color) as a
 // baseline that an element's own ::scrollbar-track/::scrollbar-thumb/
 // ::scrollbar-cap-start/::scrollbar-cap-end rules still override
@@ -765,6 +765,14 @@ var scrollbarPresets = map[string]scrollbarPreset{
 		thumb:    map[string]string{"content": `"#"`},
 		capStart: map[string]string{"content": `"^"`},
 		capEnd:   map[string]string{"content": `"v"`},
+	},
+	"line": {
+		track: map[string]string{"content": `"│"`},
+		thumb: map[string]string{"content": `"┃"`},
+		//thumb:    map[string]string{"content": `"▌"`},
+		//thumb:    map[string]string{"content": `"║"`},
+		capStart: map[string]string{"content": `"▲"`},
+		capEnd:   map[string]string{"content": `"▼"`},
 	},
 }
 
