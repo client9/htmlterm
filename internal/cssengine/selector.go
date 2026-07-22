@@ -281,7 +281,7 @@ func parseSimpleSelector(tok string) selectorPart {
 			if raw := tok[i:j]; raw != "" {
 				ps := lowerPseudoName(raw)
 				switch ps {
-				case "before", "after", "marker", "scrollbar", "scrollbar-track", "scrollbar-thumb":
+				case "before", "after", "marker", "scrollbar", "scrollbar-track", "scrollbar-thumb", "scrollbar-cap-start", "scrollbar-cap-end":
 					p.pseudoElem = ps
 				default:
 					p.pseudos = append(p.pseudos, parsePseudoClass(ps))

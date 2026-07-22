@@ -55,9 +55,22 @@ type Engine struct {
 }
 
 // Viewport records a scroll container's visible content-area geometry.
+// GutterCol/GutterWidth/CapStart/CapEnd are only meaningful when
+// GutterWidth > 0 (an overflow-y:scroll gutter was actually reserved this
+// frame — see block.go's hasScrollbarGutter); document.go's
+// tryScrollCapClick uses them, combined with the element's own Rect (whose
+// Col/Row this Viewport's offsets are relative to, same as TopOffset already
+// is), to hit-test a click against the cap buttons' cells. CapStart/CapEnd
+// reflect whether that cap was actually drawn this frame, not just whether a
+// ::scrollbar-cap-start/::scrollbar-cap-end rule set content — a cap dropped
+// for lack of room (see appendScrollbarColumn) must not be clickable.
 type Viewport struct {
-	Height    int
-	TopOffset int
+	Height      int
+	TopOffset   int
+	GutterCol   int
+	GutterWidth int
+	CapStart    bool
+	CapEnd      bool
 }
 
 // Request supplies per-frame state for RenderNode.

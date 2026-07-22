@@ -323,6 +323,11 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		}
 	}
 	hasScrollbarGutter := gutterWidth > 0
+	// capStartDrawn/capEndDrawn are set (if hasScrollbarGutter) inside the
+	// "scroll"/"auto" case below and read afterward at the
+	// r.liveScrollViewport[n] = ... assignment — declared here, not with :=
+	// in the case block, so they survive past that switch statement's scope.
+	var capStartDrawn, capEndDrawn bool
 	var innerW int
 	pl, pr, innerW = clampCellPadding(avail-gutterWidth, pl, pr)
 	if innerW < 1 {
@@ -528,7 +533,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				if hasScrollbarGutter {
 					track := r.resolveScrollbarStyle(n, decls, "scrollbar-track")
 					thumb := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb")
-					lines = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, r.profile)
+					capStart, hasCapStart := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start")
+					capEnd, hasCapEnd := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end")
+					lines, capStartDrawn, capEndDrawn = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, capStart, capEnd, hasCapStart, hasCapEnd, r.profile)
 				}
 			default:
 				for len(lines) < heightLines {
@@ -661,7 +668,21 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if r.liveScrollViewport == nil {
 			r.liveScrollViewport = map[*html.Node]Viewport{}
 		}
-		r.liveScrollViewport[n] = Viewport{Height: heightLines, TopOffset: rowShift}
+		// GutterCol mirrors colShift's own reasoning just above (the offset
+		// from this box's own Rect.Col — which anchors to the very start of
+		// its composed lines, margin-left included, per Rect's own doc
+		// comment — to where child content starts): the gutter sits
+		// immediately after content, so it's colShift plus innerW. Only
+		// meaningful (and only used by document.go's tryScrollCapClick)
+		// when GutterWidth > 0.
+		r.liveScrollViewport[n] = Viewport{
+			Height:      heightLines,
+			TopOffset:   rowShift,
+			GutterCol:   colShift + innerW,
+			GutterWidth: gutterWidth,
+			CapStart:    capStartDrawn,
+			CapEnd:      capEndDrawn,
+		}
 	}
 	return b, positions
 }
@@ -697,7 +718,7 @@ const ScrollbarGutterWidth = 1
 // ::scrollbar-thumb declarations — the same shape pseudoElemDecls returns
 // from a real stylesheet rule, so it can be merged with one identically.
 type scrollbarPreset struct {
-	track, thumb map[string]string
+	track, thumb, capStart, capEnd map[string]string
 }
 
 // defaultScrollbarStyle is used when scrollbar-style is unset or names a
@@ -707,24 +728,37 @@ const defaultScrollbarStyle = "block"
 
 // scrollbarPresets backs the scrollbar-style property: block|shaded|classic.
 // Each preset supplies content (and, for classic, background-color) as a
-// baseline that an element's own ::scrollbar-track/::scrollbar-thumb rules
-// still override property-by-property — see resolveScrollbarStyle. classic's
-// colors are a deliberately neutral gray pair (not CSS-configurable via the
-// scrollbar-style keyword itself); override them with an explicit
-// ::scrollbar-track/::scrollbar-thumb rule instead of a new preset if a
-// different palette is wanted.
+// baseline that an element's own ::scrollbar-track/::scrollbar-thumb/
+// ::scrollbar-cap-start/::scrollbar-cap-end rules still override
+// property-by-property — see resolveScrollbarStyle/resolveScrollbarCap.
+// capStart/capEnd make the cap buttons opt-out, not opt-in: every preset
+// supplies an arrow glyph, and an element only goes without caps by
+// explicitly setting content: none on the relevant pseudo-element (the same
+// "none suppresses injection" convention ::before/::after already have) or
+// by the gutter being too short to spare a row for one (see
+// appendScrollbarColumn). classic's colors are a deliberately neutral gray
+// pair (not CSS-configurable via the scrollbar-style keyword itself);
+// override them with an explicit ::scrollbar-track/::scrollbar-thumb/
+// ::scrollbar-cap-* rule instead of a new preset if a different palette is
+// wanted.
 var scrollbarPresets = map[string]scrollbarPreset{
 	"block": {
-		track: map[string]string{"content": `"│"`},
-		thumb: map[string]string{"content": `"█"`},
+		track:    map[string]string{"content": `"│"`},
+		thumb:    map[string]string{"content": `"█"`},
+		capStart: map[string]string{"content": `"▲"`},
+		capEnd:   map[string]string{"content": `"▼"`},
 	},
 	"shaded": {
-		track: map[string]string{"content": `"░"`},
-		thumb: map[string]string{"content": `"█"`},
+		track:    map[string]string{"content": `"░"`},
+		thumb:    map[string]string{"content": `"█"`},
+		capStart: map[string]string{"content": `"▲"`},
+		capEnd:   map[string]string{"content": `"▼"`},
 	},
 	"classic": {
-		track: map[string]string{"content": `" "`, "background-color": "#444444"},
-		thumb: map[string]string{"content": `" "`, "background-color": "#aaaaaa"},
+		track:    map[string]string{"content": `" "`, "background-color": "#444444"},
+		thumb:    map[string]string{"content": `" "`, "background-color": "#aaaaaa"},
+		capStart: map[string]string{"content": `"▲"`, "background-color": "#444444", "color": "#ffffff"},
+		capEnd:   map[string]string{"content": `"▼"`, "background-color": "#444444", "color": "#ffffff"},
 	},
 }
 
@@ -769,6 +803,42 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}
 }
 
+// resolveScrollbarCap resolves n's effective ::scrollbar-cap-start or
+// ::scrollbar-cap-end style (which is "scrollbar-cap-start" or
+// "scrollbar-cap-end") into a glyph plus text style, the same
+// preset-baseline-plus-override merge resolveScrollbarStyle already does
+// for ::scrollbar-track/::scrollbar-thumb (elemDecls is n's own resolved
+// declarations, read only for scrollbar-style). Caps are opt-out, not
+// opt-in: every scrollbarPresets entry supplies an arrow glyph for both
+// ends, so ok is true unless an element's own ::scrollbar-cap-start/
+// ::scrollbar-cap-end rule explicitly sets content: none/normal — the same
+// "none suppresses injection" convention ::before/::after already have —
+// or (handled by appendScrollbarColumn, not here) there's no room for the
+// cap this frame.
+func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, which string) (scrollbarStyle, bool) {
+	preset, ok := scrollbarPresets[elemDecls["scrollbar-style"]]
+	if !ok {
+		preset = scrollbarPresets[defaultScrollbarStyle]
+	}
+	base := preset.capStart
+	if which == "scrollbar-cap-end" {
+		base = preset.capEnd
+	}
+	merged := make(map[string]string, len(base))
+	maps.Copy(merged, base)
+	maps.Copy(merged, r.pseudoElemDecls(n, which))
+	// parseCSSContentString itself already treats "none"/"normal" as empty
+	// (see its own doc comment), so an explicit ::scrollbar-cap-start/
+	// ::scrollbar-cap-end { content: none; } rule overriding the preset's
+	// own content here is what turns ch (and so ok) back to empty/false —
+	// no separate check needed.
+	ch := r.parseCSSContentString(merged["content"], n)
+	if ch == "" {
+		return scrollbarStyle{}, false
+	}
+	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}, true
+}
+
 // appendScrollbarColumn appends one scrollbar-gutter — gutterWidth columns
 // wide, each column holding either track.char or thumb.char (styled per
 // track.style/thumb.style) — to each of lines, using the standard
@@ -789,20 +859,62 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 // already >= width (e.g. one holding an unbreakable overlong token), so
 // without this the gutter column would land on a ragged, content-dependent
 // column instead of a straight line at the pane's right edge.
-func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, innerW, gutterWidth int, track, thumb scrollbarStyle, profile colorprofile.Profile) []string {
-	thumbSize := heightLines
+//
+// capStart/capEnd are the resolved ::scrollbar-cap-start/::scrollbar-cap-end
+// glyphs (see resolveScrollbarCap), each gated by its own hasCapStart/
+// hasCapEnd — caps are opt-out (on by default via scrollbarPresets), so
+// either can still be individually false when a rule explicitly disabled it
+// (content: none). When active,
+// a cap claims row 0 (start) and/or the last row (end) verbatim, and the
+// thumb-size/thumb-position formula runs over the interior track
+// (heightLines minus however many caps are active) so the thumb never
+// overlaps a cap. If there isn't at least 1 interior row left once active
+// caps are subtracted, both caps are silently dropped for this render (not
+// just the one that doesn't fit) — the same "drop the added chrome, keep
+// content correct" precedent already used when the gutter itself doesn't
+// fit. The returned bools report which caps were actually drawn, for the
+// caller to record in Viewport (document.go's click hit-testing must not
+// treat a dropped cap as clickable).
+func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, innerW, gutterWidth int, track, thumb, capStart, capEnd scrollbarStyle, hasCapStart, hasCapEnd bool, profile colorprofile.Profile) ([]string, bool, bool) {
+	activeCaps := 0
+	if hasCapStart {
+		activeCaps++
+	}
+	if hasCapEnd {
+		activeCaps++
+	}
+	if activeCaps > 0 && heightLines-activeCaps < 1 {
+		hasCapStart, hasCapEnd = false, false
+		activeCaps = 0
+	}
+	interior := heightLines - activeCaps
+
+	thumbSize := interior
 	if totalLines > heightLines {
-		thumbSize = max(1, min(heightLines*heightLines/totalLines, heightLines))
+		thumbSize = max(1, min(interior*interior/totalLines, interior))
 	}
 	thumbStart := 0
 	if maxOffset := totalLines - heightLines; maxOffset > 0 {
-		thumbStart = offset * (heightLines - thumbSize) / maxOffset
+		thumbStart = offset * (interior - thumbSize) / maxOffset
+	}
+
+	capOffset := 0
+	if hasCapStart {
+		capOffset = 1
 	}
 	out := make([]string, len(lines))
 	for i, ln := range lines {
-		g := track
-		if i >= thumbStart && i < thumbStart+thumbSize {
-			g = thumb
+		var g scrollbarStyle
+		switch {
+		case hasCapStart && i == 0:
+			g = capStart
+		case hasCapEnd && i == heightLines-1:
+			g = capEnd
+		default:
+			g = track
+			if interiorIdx := i - capOffset; interiorIdx >= thumbStart && interiorIdx < thumbStart+thumbSize {
+				g = thumb
+			}
 		}
 		ln = truncateToWidth(ln, innerW, "")
 		if pad := innerW - ansiVisibleLen(ln); pad > 0 {
@@ -810,7 +922,7 @@ func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, inne
 		}
 		out[i] = ln + g.style.render(strings.Repeat(g.char, gutterWidth), profile)
 	}
-	return out
+	return out, hasCapStart, hasCapEnd
 }
 
 // firstContentIsInline reports whether n's first non-whitespace content is

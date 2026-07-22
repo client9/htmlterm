@@ -53,7 +53,10 @@ characters"), have since shipped too, as `::scrollbar`/`::scrollbar-track`/
 `::scrollbar-thumb` plus a `scrollbar-style: block|shaded|classic` shorthand
 that presets those three pseudo-elements' glyphs/colors in one declaration
 — see "Scrollbar pseudo-elements" below for that design and CSS.md's own
-"Scrollbar pseudo-elements" section for the user-facing reference. The rest
+"Scrollbar pseudo-elements" section for the user-facing reference. Clickable
+arrow-cap buttons at the two ends of the track — `::scrollbar-cap-start`/
+`::scrollbar-cap-end`, on by default and included in every `scrollbar-style`
+preset — have since shipped too; see "Scrollbar cap buttons" below. The rest
 of the "explicit non-goals for the scrollbar" listed
 below remain out of scope (`tabindex`/`autofocus` handling, named separately
 under Section 3, likewise remain unimplemented).
@@ -448,6 +451,108 @@ parameterized shorthand; a different palette on `classic` is one
 `::scrollbar-thumb { background-color: … }` rule away, using the
 property-level override the merge already supports.
 
+### Scrollbar cap buttons: `::scrollbar-cap-start` / `::scrollbar-cap-end`
+
+Arrow-button cells at the two ends of the track (real GUI/terminal
+scrollbars commonly draw `▲`/`▼` here). Three decisions, confirmed with the
+user before implementing:
+
+- **Clickable**, not just decorative — a click on the cap's cell scrolls one
+  line, matching `DispatchKey`'s own `ArrowUp`/`ArrowDown` step.
+- **New pseudo-elements, opt-out (revised from an initial opt-in design)** —
+  first shipped requiring an explicit `content` rule (mirroring `::before`/
+  `::after`'s own "no content, no injection" contract) with no
+  `scrollbarPresets` involvement at all; the user then asked for the
+  opposite — caps on by default, with basic glyphs added to the UA-visible
+  defaults, and each `scrollbar-style` preset given its own cap glyphs too.
+  `scrollbarPresets` (the same table `resolveScrollbarStyle` already reads
+  for track/thumb) gained `capStart`/`capEnd` entries per preset, and
+  `resolveScrollbarCap` was rewritten to do the identical
+  preset-baseline-plus-override merge `resolveScrollbarStyle` already does —
+  so `overflow-y: scroll` alone now gets cap buttons, styled per whichever
+  `scrollbar-style` is active. The per-element opt-*out* escape hatch is
+  `content: none` on `::scrollbar-cap-start`/`::scrollbar-cap-end` — that
+  still works exactly as designed the first time (`parseCSSContentString`
+  already treats `none`/`normal` as empty, so no extra code was needed for
+  this once the merge existed), it's just no longer the *only* way to get no
+  cap (a too-short gutter still drops both automatically too — see
+  "Rendering" below).
+- **Named `-start`/`-end`, not `-top`/`-bottom`** — matches WebKit's own
+  `::-webkit-scrollbar-button:start`/`:end` precedent, and stays meaningful
+  if a horizontal scrollbar is ever added (this axis has no "top" to alias).
+
+**Resolution** (`Engine.resolveScrollbarCap`, `block.go`) mirrors
+`resolveScrollbarStyle`: look up `scrollbarPresets[elemDecls["scrollbar-style"]]`
+(falling back to `defaultScrollbarStyle`, "block") for a baseline `capStart`/
+`capEnd` map, copy `r.pseudoElemDecls(n, which)` on top per-property, then
+compute `content` via `parseCSSContentString`. `ok` is `false` only when
+that resolves empty — which happens either because an explicit rule set
+`content: none`/`"normal"` (parseCSSContentString's own existing handling,
+unchanged) or, in principle, a `scrollbar-style` preset that supplied no cap
+content at all (none currently do — every preset defines both ends).
+
+**Rendering** (`appendScrollbarColumn`, `block.go`) draws a cap by claiming
+row 0 (`capStart`) and/or the last row (`capEnd`) verbatim instead of
+computed track/thumb, and runs the existing thumb-size/thumb-position
+formula against the *interior* track — `heightLines` minus however many caps
+are actually active — so the thumb never overlaps a cap. If there isn't at
+least 1 interior row left once active caps are subtracted
+(`heightLines-activeCaps < 1`), **both** caps are dropped for that render,
+not just the one that doesn't fit — the same "silently drop the added
+chrome, keep the rest correct" precedent the gutter reservation itself
+already established (see "Scrollbar gutter and indicator" above). The
+function now returns which caps it actually drew (`bool, bool`), since that
+can differ from which caps were *requested* (`hasCapStart`/`hasCapEnd`) in
+exactly that no-room case — the caller needs the drawn value, not the
+requested one, for the click hit-testing geometry below.
+
+**Click hit-testing** needed a route from render-time geometry back to
+`document.go`, which never previously needed to know the gutter's *column*
+range (only `Height`/`TopOffset`, for `PageUp`/`PageDown` step size and
+scroll-into-view math). `Viewport` (`engine.go`) gained `GutterCol`,
+`GutterWidth`, `CapStart`, `CapEnd`:
+
+```go
+type Viewport struct {
+	Height      int
+	TopOffset   int
+	GutterCol   int
+	GutterWidth int
+	CapStart    bool
+	CapEnd      bool
+}
+```
+
+`GutterCol` is relative to the element's own `Rect.Col`, the same relationship
+`TopOffset` already has to `Rect.Row` — computed at the existing
+`r.liveScrollViewport[n] = ...` assignment (`block.go`, right where
+`colShift := pl + runeLen(bl.char) + ml` is already computed for
+`mergePositions`) as `colShift + innerW`: `colShift` is the offset to where
+this box's own *content* starts (margin-left included, matching `Rect`'s own
+documented "margin baked in, not subtracted back out" imprecision — the
+same one every other click/wheel hit-test on a scrollable pane already
+lives with), and the gutter sits immediately after content. `CapStart`/
+`CapEnd` are the *drawn* booleans `appendScrollbarColumn` returns, not
+whether a rule was set — so a cap dropped for lack of room correctly reads
+back as not clickable.
+
+`document.go`'s new `tryScrollCapClick(scrollable *html.Node, row, col int) bool`
+combines `d.scrollViewport[scrollable]` with `d.positions[scrollable]`
+exactly the way `scrollIntoView`/`ScrollVisible` already combine `Viewport`
+and `Rect` — `rect.Col + vp.GutterCol` for the column range, `rect.Row +
+vp.TopOffset` / `+ vp.Height - 1` for the two candidate rows — and on a hit,
+mutates `d.scrollOffsets[scrollable]` by ∓1 directly, unclamped (clamped on
+the next `Render()`, the same pattern every other `scrollOffsets` mutation
+site already follows). `DispatchClick` calls this *before* falling through
+to its own `elementAt`-based dispatch, but after `closeSelectsExcept(target)`
+so an open `<select>` popup still closes on any click, cap included. A cap
+hit does **not** dispatch a `"click"` `Event` on the scrollable element —
+deliberately mirrors `DispatchWheel`'s own direct-mutation, no-event shape
+rather than `DispatchClick`'s normal target-dispatch path, since a cap is
+rendering chrome, not real element content, and dispatching a real click
+there risked interfering with a listener or a submit/checkbox default
+action attached to the scrollable element itself.
+
 **Not implemented / deliberately out of scope, same reasoning as
 `::marker`'s own property list:** `font-style`, `text-decoration`, and
 `opacity` on `::scrollbar-track`/`::scrollbar-thumb` — `extractInlineStyle`
@@ -578,3 +683,16 @@ use them) are the only touched files — no changes to `cascade.go`'s
 no `cssengine` changes at all — it's read as a plain, already-parsed
 property off the scrollable element's own resolved decls, not a new
 selector or shorthand-expansion form.
+
+The scrollbar cap buttons crossed one more boundary than any prior piece of
+this feature: `document.go` (`DispatchClick`'s new early branch plus the new
+`tryScrollCapClick` helper), because click-to-scroll is a `document`-layer
+concern (`Document.scrollOffsets`/`scrollViewport`, hit-testing), not a
+`render`-layer one — `render.Viewport`'s four new fields are exactly the
+data contract that crossing needed, mirroring how `Height`/`TopOffset`
+already crossed that same boundary for `PageUp`/`PageDown` and
+scroll-into-view. Otherwise the same files as before: `selector.go` (two
+more whitelisted pseudo-element names) and `block.go`
+(`resolveScrollbarCap`, `appendScrollbarColumn`'s extended signature, and
+the `Viewport` construction site). No change to `cascade.go`'s
+`PseudoElement`, `event.go`, or `Renderer`'s public contract.

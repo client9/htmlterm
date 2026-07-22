@@ -79,12 +79,16 @@ func TestAppendScrollbarColumn(t *testing.T) {
 	}
 	defaultTrack := scrollbarStyle{char: "│", style: newInlineStyle()}
 	defaultThumb := scrollbarStyle{char: "█", style: newInlineStyle()}
+	noCap := scrollbarStyle{}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := appendScrollbarColumn(tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, 1, defaultTrack, defaultThumb, colorprofile.NoTTY)
+			got, capStart, capEnd := appendScrollbarColumn(tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, 1, defaultTrack, defaultThumb, noCap, noCap, false, false, colorprofile.NoTTY)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("appendScrollbarColumn(%v, %d, %d, %d, %d) = %v, want %v",
 					tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, got, tc.want)
+			}
+			if capStart || capEnd {
+				t.Errorf("appendScrollbarColumn with hasCapStart/hasCapEnd both false returned capStart=%v capEnd=%v, want both false", capStart, capEnd)
 			}
 		})
 	}
@@ -93,7 +97,8 @@ func TestAppendScrollbarColumn(t *testing.T) {
 func TestAppendScrollbarColumnCustomGlyphsAndWidth(t *testing.T) {
 	track := scrollbarStyle{char: "-", style: newInlineStyle()}
 	thumb := scrollbarStyle{char: "=", style: newInlineStyle()}
-	got := appendScrollbarColumn([]string{"a", "b"}, 0, 2, 2, 1, 3, track, thumb, colorprofile.NoTTY)
+	noCap := scrollbarStyle{}
+	got, _, _ := appendScrollbarColumn([]string{"a", "b"}, 0, 2, 2, 1, 3, track, thumb, noCap, noCap, false, false, colorprofile.NoTTY)
 	want := []string{"a===", "b==="}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("appendScrollbarColumn with width 3 = %v, want %v", got, want)
@@ -103,11 +108,63 @@ func TestAppendScrollbarColumnCustomGlyphsAndWidth(t *testing.T) {
 func TestAppendScrollbarColumnStyledGlyphs(t *testing.T) {
 	track := scrollbarStyle{char: "|", style: extractInlineStyle(map[string]string{"color": "#ff0000"})}
 	thumb := scrollbarStyle{char: "#", style: extractInlineStyle(map[string]string{"background-color": "#0000ff", "font-weight": "bold"})}
-	got := appendScrollbarColumn([]string{"x", "y"}, 0, 4, 2, 1, 1, track, thumb, colorprofile.TrueColor)
+	noCap := scrollbarStyle{}
+	got, _, _ := appendScrollbarColumn([]string{"x", "y"}, 0, 4, 2, 1, 1, track, thumb, noCap, noCap, false, false, colorprofile.TrueColor)
 	wantTrack := extractInlineStyle(map[string]string{"color": "#ff0000"}).render("|", colorprofile.TrueColor)
 	wantThumb := extractInlineStyle(map[string]string{"background-color": "#0000ff", "font-weight": "bold"}).render("#", colorprofile.TrueColor)
 	want := []string{"x" + wantThumb, "y" + wantTrack}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("appendScrollbarColumn styled glyphs = %q, want %q", got, want)
 	}
+}
+
+func TestAppendScrollbarColumnCaps(t *testing.T) {
+	track := scrollbarStyle{char: "│", style: newInlineStyle()}
+	thumb := scrollbarStyle{char: "█", style: newInlineStyle()}
+	capStart := scrollbarStyle{char: "▲", style: newInlineStyle()}
+	capEnd := scrollbarStyle{char: "▼", style: newInlineStyle()}
+	noCap := scrollbarStyle{}
+
+	t.Run("both caps active, thumb confined to interior track", func(t *testing.T) {
+		// heightLines=4, both caps active -> interior=2 rows (indices 1,2).
+		// totalLines==heightLines (4) so thumbSize==interior==2: thumb fills
+		// the entire interior track, matching the no-scroll-needed
+		// convention appendScrollbarColumn already has for track/thumb.
+		lines := []string{"a", "b", "c", "d"}
+		got, gotCapStart, gotCapEnd := appendScrollbarColumn(lines, 0, 4, 4, 1, 1, track, thumb, capStart, capEnd, true, true, colorprofile.NoTTY)
+		want := []string{"a▲", "b█", "c█", "d▼"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("appendScrollbarColumn with both caps = %v, want %v", got, want)
+		}
+		if !gotCapStart || !gotCapEnd {
+			t.Errorf("appendScrollbarColumn with both caps active returned capStart=%v capEnd=%v, want both true", gotCapStart, gotCapEnd)
+		}
+	})
+
+	t.Run("only cap-start active", func(t *testing.T) {
+		lines := []string{"a", "b", "c"}
+		got, gotCapStart, gotCapEnd := appendScrollbarColumn(lines, 0, 3, 3, 1, 1, track, thumb, capStart, noCap, true, false, colorprofile.NoTTY)
+		want := []string{"a▲", "b█", "c█"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("appendScrollbarColumn with only cap-start = %v, want %v", got, want)
+		}
+		if !gotCapStart || gotCapEnd {
+			t.Errorf("appendScrollbarColumn with only cap-start returned capStart=%v capEnd=%v, want true/false", gotCapStart, gotCapEnd)
+		}
+	})
+
+	t.Run("not enough room drops both caps", func(t *testing.T) {
+		// heightLines=2, both caps requested -> heightLines-activeCaps == 0,
+		// less than the required 1 interior row, so both caps are dropped
+		// and ordinary track/thumb rendering applies instead.
+		lines := []string{"a", "b"}
+		got, gotCapStart, gotCapEnd := appendScrollbarColumn(lines, 0, 2, 2, 1, 1, track, thumb, capStart, capEnd, true, true, colorprofile.NoTTY)
+		want := []string{"a█", "b█"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("appendScrollbarColumn with no room for caps = %v, want %v", got, want)
+		}
+		if gotCapStart || gotCapEnd {
+			t.Errorf("appendScrollbarColumn with no room for caps returned capStart=%v capEnd=%v, want both false", gotCapStart, gotCapEnd)
+		}
+	})
 }

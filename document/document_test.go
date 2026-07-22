@@ -1187,8 +1187,12 @@ func TestScrollContainerWithFocusableChildIsNotDoubleTabStop(t *testing.T) {
 // TestOverflowYScrollDrawsGutterIndicator covers docs/SCROLLING.md's "Scrollbar
 // gutter and indicator": overflow-y:scroll reserves a column and draws a
 // track/thumb, unconditionally (regardless of whether content overflows).
+// Cap buttons are opt-out (on by default — see TestScrollbarCapsDefaultOn)
+// and would eat into this pane's 3-row gutter, so they're explicitly
+// disabled here to keep this test about track/thumb specifically.
 func TestOverflowYScrollDrawsGutterIndicator(t *testing.T) {
-	htmlStr := `<div id="pane" style="height:3;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5</div>`
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: none; } #pane::scrollbar-cap-end { content: none; }</style>` +
+		`<div id="pane" style="height:3;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5</div>`
 	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
@@ -1489,6 +1493,227 @@ func TestScrollbarStylePresetOverriddenByExplicitPseudoRule(t *testing.T) {
 	}
 	if !strings.Contains(got, "░") {
 		t.Errorf("render = %q, want the shaded preset's own track glyph ('░') still applied (not overridden)", got)
+	}
+}
+
+// TestScrollbarStylePresetsIncludeCapDefaults covers all three
+// scrollbar-style presets (block, shaded, classic) each supplying their own
+// default cap glyphs, not just track/thumb — presets are default-on for
+// caps the same way they already are for track/thumb.
+func TestScrollbarStylePresetsIncludeCapDefaults(t *testing.T) {
+	for _, style := range []string{"block", "shaded", "classic"} {
+		t.Run(style, func(t *testing.T) {
+			htmlStr := `<div id="pane" style="height:4;overflow-y:scroll;scrollbar-style:` + style + `">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+			doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+			if err != nil {
+				t.Fatalf("ParseDocument: %v", err)
+			}
+			out, err := doc.Render()
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			got := stripANSI(out)
+			if !strings.Contains(got, "▲") || !strings.Contains(got, "▼") {
+				t.Errorf("scrollbar-style:%s render = %q, want default cap arrows (▲/▼)", style, got)
+			}
+		})
+	}
+}
+
+// TestScrollbarCapsDefaultOn covers the cap buttons' opt-out contract: with
+// no ::scrollbar-cap-start/::scrollbar-cap-end rule set at all, the block
+// scrollbar-style preset's own arrow glyphs are drawn by default (given
+// enough gutter height to spare a row per cap — see
+// TestScrollbarCapsDroppedWhenNoRoom for the too-short case).
+func TestScrollbarCapsDefaultOn(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:4;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "▲") || !strings.Contains(got, "▼") {
+		t.Errorf("render with no ::scrollbar-cap-* rules = %q, want the block preset's default cap arrows (▲/▼)", got)
+	}
+}
+
+// TestScrollbarCapsDroppedWhenNoRoom covers appendScrollbarColumn's "not
+// enough room" fallback at the document level: a gutter too short to spare
+// a row per (default-on) cap silently renders ordinary track/thumb instead,
+// exactly like this feature's original pre-cap behavior — same regression
+// spirit as TestOverflowYAutoDrawsNoGutter.
+func TestScrollbarCapsDroppedWhenNoRoom(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow-y:scroll">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.ContainsAny(got, "▲▼") {
+		t.Errorf("render with height:2 (no room for default caps) = %q, want no cap glyphs, just ordinary track/thumb", got)
+	}
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with height:2 = %q, want the thumb character (█) still drawn", got)
+	}
+}
+
+// TestScrollbarCapsExplicitNoneOptsOut covers the per-element opt-out
+// escape hatch: content: none on ::scrollbar-cap-start/::scrollbar-cap-end
+// suppresses that cap even though the block preset defaults it on,
+// mirroring ::before/::after's own "content: none suppresses injection"
+// convention.
+func TestScrollbarCapsExplicitNoneOptsOut(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: none; } #pane::scrollbar-cap-end { content: none; }</style>` +
+		`<div id="pane" style="height:4;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.ContainsAny(got, "▲▼") {
+		t.Errorf("render with content:none on both caps = %q, want no cap glyphs", got)
+	}
+}
+
+// TestScrollbarCapsRenderAtTrackEnds covers ::scrollbar-cap-start/
+// ::scrollbar-cap-end drawing their glyph at the first/last gutter row when
+// content is set, with the thumb confined to the interior rows in between.
+func TestScrollbarCapsRenderAtTrackEnds(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: "▲"; } #pane::scrollbar-cap-end { content: "▼"; }</style>` +
+		`<div id="pane" style="height:4;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines := strings.Split(stripANSI(out), "\n")
+	if len(lines) < 4 || !strings.Contains(lines[0], "▲") {
+		t.Errorf("render lines = %q, want cap-start glyph on the first line", lines)
+	}
+	if len(lines) < 4 || !strings.Contains(lines[3], "▼") {
+		t.Errorf("render lines = %q, want cap-end glyph on the fourth (last) line", lines)
+	}
+	if strings.Contains(lines[1], "▲") || strings.Contains(lines[1], "▼") || strings.Contains(lines[2], "▲") || strings.Contains(lines[2], "▼") {
+		t.Errorf("render lines = %q, want no cap glyphs on the interior track rows", lines)
+	}
+}
+
+// findGlyph returns the (row, col) of the first occurrence of glyph in
+// lines (rune index within that line), or (-1, -1) if not found.
+func findGlyph(lines []string, glyph rune) (int, int) {
+	for row, ln := range lines {
+		for col, r := range []rune(ln) {
+			if r == glyph {
+				return row, col
+			}
+		}
+	}
+	return -1, -1
+}
+
+// TestScrollbarCapClickScrollsOneLine covers the clickable-cap contract:
+// clicking the ::scrollbar-cap-end cell scrolls down one line; clicking
+// ::scrollbar-cap-start (once scrolled away from the top) scrolls up one
+// line. Mirrors DispatchKey's own ArrowUp/ArrowDown step size.
+func TestScrollbarCapClickScrollsOneLine(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: "▲"; } #pane::scrollbar-cap-end { content: "▼"; }</style>` +
+		`<div id="pane" style="height:4;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines := strings.Split(stripANSI(out), "\n")
+	capEndRow, capEndCol := findGlyph(lines, '▼')
+	if capEndRow < 0 {
+		t.Fatalf("cap-end glyph not found in %q", out)
+	}
+	before, _ := doc.ScrollTop(pane)
+	if !doc.DispatchClick(capEndRow, capEndCol) {
+		t.Fatalf("DispatchClick on cap-end cell returned false")
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if after, _ := doc.ScrollTop(pane); after != before+1 {
+		t.Errorf("scroll offset after cap-end click = %d, want %d", after, before+1)
+	}
+
+	// Scroll to the bottom, re-render (so cap-start's row/col reflect the
+	// new frame), then click cap-start and expect a one-line decrement.
+	doc.SetScrollTop(pane, 100)
+	out, err = doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines = strings.Split(stripANSI(out), "\n")
+	capStartRow, capStartCol := findGlyph(lines, '▲')
+	if capStartRow < 0 {
+		t.Fatalf("cap-start glyph not found in %q", out)
+	}
+	beforeMax, _ := doc.ScrollTop(pane)
+	if !doc.DispatchClick(capStartRow, capStartCol) {
+		t.Fatalf("DispatchClick on cap-start cell returned false")
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if afterMax, _ := doc.ScrollTop(pane); afterMax != beforeMax-1 {
+		t.Errorf("scroll offset after cap-start click = %d, want %d", afterMax, beforeMax-1)
+	}
+}
+
+// TestScrollbarCapClickElsewhereInGutterDoesNotScroll confirms a click on
+// an ordinary track/thumb row (not the cap row itself) leaves the scroll
+// offset untouched — only the exact cap cell is a click target.
+func TestScrollbarCapClickElsewhereInGutterDoesNotScroll(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: "▲"; } #pane::scrollbar-cap-end { content: "▼"; }</style>` +
+		`<div id="pane" style="height:4;overflow-y:scroll">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines := strings.Split(stripANSI(out), "\n")
+	capStartRow, capStartCol := findGlyph(lines, '▲')
+	if capStartRow < 0 {
+		t.Fatalf("cap-start glyph not found in %q", out)
+	}
+	// One row below cap-start is guaranteed to be an interior track/thumb
+	// row (heightLines=4, both caps active -> 2 interior rows in between).
+	trackRow, trackCol := capStartRow+1, capStartCol
+
+	before, _ := doc.ScrollTop(pane)
+	doc.DispatchClick(trackRow, trackCol)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if after, _ := doc.ScrollTop(pane); after != before {
+		t.Errorf("scroll offset after clicking an interior track row = %d, want unchanged %d", after, before)
 	}
 }
 

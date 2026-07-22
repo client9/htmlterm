@@ -258,6 +258,43 @@ func (d *Document) nearestScrollable(n *html.Node) *html.Node {
 	return nil
 }
 
+// tryScrollCapClick reports whether (row, col) lands on scrollable's
+// ::scrollbar-cap-start or ::scrollbar-cap-end cell — see render.Viewport's
+// GutterCol/GutterWidth/CapStart/CapEnd doc comment — and if so, scrolls it
+// by one line (mirroring DispatchKey's own ArrowUp/ArrowDown step) and
+// reports true. scrollable's own Rect anchors GutterCol/TopOffset, the same
+// Rect-plus-Viewport composition scrollIntoView/ScrollVisible already use.
+// Unclamped, like every other d.scrollOffsets mutation site — clamped on
+// the next Render call. No "click" Event is dispatched for a cap hit: a cap
+// is rendering chrome, not real element content, so this intentionally
+// mirrors DispatchWheel's direct-mutation shape rather than DispatchClick's
+// own event-dispatch path.
+func (d *Document) tryScrollCapClick(scrollable *html.Node, row, col int) bool {
+	vp, ok := d.scrollViewport[scrollable]
+	if !ok || vp.GutterWidth == 0 {
+		return false
+	}
+	rect, ok := d.positions[scrollable]
+	if !ok {
+		return false
+	}
+	colStart := rect.Col + vp.GutterCol
+	if col < colStart || col > colStart+vp.GutterWidth-1 {
+		return false
+	}
+	top := rect.Row + vp.TopOffset
+	bottom := top + vp.Height - 1
+	switch {
+	case vp.CapStart && row == top:
+		d.scrollOffsets[scrollable]--
+		return true
+	case vp.CapEnd && row == bottom:
+		d.scrollOffsets[scrollable]++
+		return true
+	}
+	return false
+}
+
 // elementAt returns the innermost element whose Rect contains (row, col), or
 // nil if none does. Multiple recorded Rects can contain the same point (e.g.
 // a <label> wrapping an <input> — both cover the click point); the deepest
@@ -302,10 +339,18 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // inside (see closeSelectsExcept) is closed first, unconditionally — a click
 // anywhere else, including on a disabled element or entirely outside every
 // element's Rect, dismisses it, matching a real dropdown's click-outside
-// behavior. Returns false if no element was hit.
+// behavior. A click landing on a scrollable ancestor's
+// ::scrollbar-cap-start/::scrollbar-cap-end cell (see tryScrollCapClick) is
+// handled before any of that — it scrolls by one line and returns, the same
+// no-event-dispatch shape DispatchWheel already has, since a cap is
+// rendering chrome, not real element content. Returns false if no element
+// was hit.
 func (d *Document) DispatchClick(row, col int) bool {
 	target := d.elementAt(row, col)
 	d.closeSelectsExcept(target)
+	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
+		return true
+	}
 	if target == nil {
 		return false
 	}

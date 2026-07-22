@@ -445,6 +445,33 @@ func TestPseudoElementScrollbarBareSelectorIsUniversal(t *testing.T) {
 	}
 }
 
+func TestPseudoElementScrollbarCapStartEnd(t *testing.T) {
+	rules, err := ParseStylesheet(`
+		.pane::scrollbar-cap-start { content: "▲"; color: gray; }
+		.pane::scrollbar-cap-end   { content: "▼"; color: gray; }
+	`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div id="a" class="pane">x</div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<div id="a"> not found`)
+	}
+	cascade := Cascade{Rules: rules}
+	start := cascade.PseudoElement(n, "scrollbar-cap-start")
+	if start["content"] != `"▲"` || start["color"] != "gray" {
+		t.Errorf(`PseudoElement(n, "scrollbar-cap-start") = %v, want content "▲" and color gray`, start)
+	}
+	end := cascade.PseudoElement(n, "scrollbar-cap-end")
+	if end["content"] != `"▼"` || end["color"] != "gray" {
+		t.Errorf(`PseudoElement(n, "scrollbar-cap-end") = %v, want content "▼" and color gray`, end)
+	}
+}
+
 func TestPseudoElementDoesNotMutateSharedCachedParts(t *testing.T) {
 	rules, err := ParseStylesheet(`p::before { content: "> "; }`)
 	if err != nil {
@@ -1017,6 +1044,8 @@ func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
 		{sel: "*::before", want: specificityScore{elements: 1}},
 		{sel: "::scrollbar-thumb", want: specificityScore{elements: 1}},
 		{sel: ".pane::scrollbar-track", want: specificityScore{classes: 1, elements: 1}},
+		{sel: "::scrollbar-cap-start", want: specificityScore{elements: 1}},
+		{sel: "#log::scrollbar-cap-end", want: specificityScore{ids: 1, elements: 1}},
 		{sel: ":root", want: specificityScore{classes: 1}},
 		{sel: ":not(*)", want: specificityScore{}},
 		{sel: ":is(#a, .b)", want: specificityScore{ids: 1}},
