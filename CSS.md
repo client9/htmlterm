@@ -426,7 +426,7 @@ Scoping to one pane:
 
 #### `scrollbar-style`
 
-`block` (default) | `shaded` | `classic`. Shorthand set on the *scrollable*
+`block` (default) | `shaded` | `classic` | `ascii`. Shorthand set on the *scrollable*
 element (not on `::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*`
 themselves) that picks a built-in track/thumb/cap glyph (and, for `classic`,
 background color) preset, without writing out `::scrollbar-track`/
@@ -438,6 +438,10 @@ hand:
 | `block` | `"│"` | `"█"` | `"▲"` | `"▼"` |
 | `shaded` | `"░"` | `"█"` | `"▲"` | `"▼"` |
 | `classic` | `" "` on `background-color: #444444` | `" "` on `background-color: #aaaaaa` | `"▲"` on `background-color: #444444`, `color: #ffffff` | `"▼"` (same colors) |
+| `ascii` | `"\|"` | `"#"` | `"^"` | `"v"` |
+
+`ascii` uses only plain 7-bit ASCII characters — no box-drawing or block
+glyphs — for terminals/fonts with unreliable Unicode rendering.
 
 An unrecognized or unset value falls back to `block`. Any property an
 `::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-start`/

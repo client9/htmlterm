@@ -1397,11 +1397,12 @@ func TestScrollbarPseudoElementColorApplied(t *testing.T) {
 	}
 }
 
-// TestScrollbarStylePresets covers scrollbar-style's block and shaded
-// presets, each supplying its own baseline ::scrollbar-track/::scrollbar-thumb
-// glyph. classic's glyph is a plain space (indistinguishable from ordinary
-// line padding by content alone), so it's covered separately by
-// TestScrollbarStyleClassicColors, which checks its background-color instead.
+// TestScrollbarStylePresets covers scrollbar-style's block, shaded, and
+// ascii presets, each supplying its own baseline ::scrollbar-track/
+// ::scrollbar-thumb glyph. classic's glyph is a plain space
+// (indistinguishable from ordinary line padding by content alone), so it's
+// covered separately by TestScrollbarStyleClassicColors, which checks its
+// background-color instead.
 func TestScrollbarStylePresets(t *testing.T) {
 	tests := []struct {
 		style     string
@@ -1410,6 +1411,7 @@ func TestScrollbarStylePresets(t *testing.T) {
 	}{
 		{style: "block", wantTrack: "│", wantThumb: "█"},
 		{style: "shaded", wantTrack: "░", wantThumb: "█"},
+		{style: "ascii", wantTrack: "|", wantThumb: "#"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.style, func(t *testing.T) {
@@ -1496,14 +1498,24 @@ func TestScrollbarStylePresetOverriddenByExplicitPseudoRule(t *testing.T) {
 	}
 }
 
-// TestScrollbarStylePresetsIncludeCapDefaults covers all three
-// scrollbar-style presets (block, shaded, classic) each supplying their own
-// default cap glyphs, not just track/thumb — presets are default-on for
-// caps the same way they already are for track/thumb.
+// TestScrollbarStylePresetsIncludeCapDefaults covers all four
+// scrollbar-style presets (block, shaded, classic, ascii) each supplying
+// their own default cap glyphs, not just track/thumb — presets are
+// default-on for caps the same way they already are for track/thumb.
 func TestScrollbarStylePresetsIncludeCapDefaults(t *testing.T) {
-	for _, style := range []string{"block", "shaded", "classic"} {
-		t.Run(style, func(t *testing.T) {
-			htmlStr := `<div id="pane" style="height:4;overflow-y:scroll;scrollbar-style:` + style + `">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
+	tests := []struct {
+		style        string
+		wantCapStart string
+		wantCapEnd   string
+	}{
+		{style: "block", wantCapStart: "▲", wantCapEnd: "▼"},
+		{style: "shaded", wantCapStart: "▲", wantCapEnd: "▼"},
+		{style: "classic", wantCapStart: "▲", wantCapEnd: "▼"},
+		{style: "ascii", wantCapStart: "^", wantCapEnd: "v"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.style, func(t *testing.T) {
+			htmlStr := `<div id="pane" style="height:4;overflow-y:scroll;scrollbar-style:` + tc.style + `">line1<br>line2<br>line3<br>line4<br>line5<br>line6<br>line7<br>line8</div>`
 			doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
 			if err != nil {
 				t.Fatalf("ParseDocument: %v", err)
@@ -1513,8 +1525,8 @@ func TestScrollbarStylePresetsIncludeCapDefaults(t *testing.T) {
 				t.Fatalf("Render: %v", err)
 			}
 			got := stripANSI(out)
-			if !strings.Contains(got, "▲") || !strings.Contains(got, "▼") {
-				t.Errorf("scrollbar-style:%s render = %q, want default cap arrows (▲/▼)", style, got)
+			if !strings.Contains(got, tc.wantCapStart) || !strings.Contains(got, tc.wantCapEnd) {
+				t.Errorf("scrollbar-style:%s render = %q, want default cap glyphs (%s/%s)", tc.style, got, tc.wantCapStart, tc.wantCapEnd)
 			}
 		})
 	}
