@@ -77,8 +77,8 @@ func TestAppendScrollbarColumn(t *testing.T) {
 			want:        []string{"this line █"},
 		},
 	}
-	defaultTrack := scrollbarStyle{char: scrollbarTrackChar, style: newInlineStyle()}
-	defaultThumb := scrollbarStyle{char: scrollbarThumbChar, style: newInlineStyle()}
+	defaultTrack := scrollbarStyle{char: "│", style: newInlineStyle()}
+	defaultThumb := scrollbarStyle{char: "█", style: newInlineStyle()}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := appendScrollbarColumn(tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, 1, defaultTrack, defaultThumb, colorprofile.NoTTY)

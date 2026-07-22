@@ -50,9 +50,11 @@ section for the shipped `overflow-y: scroll` vs. `auto` behavior split. The
 gutter's width and the track/thumb glyphs/colors, originally listed below as
 an explicit non-goal ("CSS-configurable glyphs/colors for the track/thumb
 characters"), have since shipped too, as `::scrollbar`/`::scrollbar-track`/
-`::scrollbar-thumb` — see "Scrollbar pseudo-elements" below for that design
-and CSS.md's own "Scrollbar pseudo-elements" section for the user-facing
-reference. The rest of the "explicit non-goals for the scrollbar" listed
+`::scrollbar-thumb` plus a `scrollbar-style: block|shaded|classic` shorthand
+that presets those three pseudo-elements' glyphs/colors in one declaration
+— see "Scrollbar pseudo-elements" below for that design and CSS.md's own
+"Scrollbar pseudo-elements" section for the user-facing reference. The rest
+of the "explicit non-goals for the scrollbar" listed
 below remain out of scope (`tabindex`/`autofocus` handling, named separately
 under Section 3, likewise remain unimplemented).
 
@@ -404,6 +406,48 @@ same glyph across every reserved column rather than requiring a
 column-by-column pattern (no such per-column pattern concept exists; out of
 scope, not just unimplemented — `content` is one glyph, not a bitmap).
 
+**`scrollbar-style: block|shaded|classic`** (`scrollbarPresets`,
+`Engine.resolveScrollbarStyle`, `block.go`) is a shorthand set on the
+scrollable element itself, not on `::scrollbar-track`/`::scrollbar-thumb` —
+it can't be, since a preset needs to supply *both* pseudo-elements' baseline
+from one declaration on the one real element both pseudo-elements are
+matched against. This is a different shape from `margin`/`padding`/
+`overflow`'s existing shorthand-expansion mechanism (`expandShorthand`,
+`css.go`), which expands into longhands on the *same* selector target at
+parse time — `scrollbar-style` instead has to be read from the scrollable
+element's own resolved decls (`renderBlockContentBox` already has this as
+its `decls` parameter, threaded into `resolveScrollbarStyle` as `elemDecls`)
+and merged against a *different* selector target's cascade result
+(`r.pseudoElemDecls(n, which)`) at render time. The two are merged
+property-by-property — preset supplies a baseline map, the real
+`::scrollbar-track`/`::scrollbar-thumb` rule's own resolved decls are
+copied on top (`maps.Copy`) — so `scrollbar-style: classic` plus a lone
+`::scrollbar-thumb { color: red }` combine (classic's `content`/
+`background-color` baseline, plus this rule's `color` on top) rather than
+one replacing the other outright. An unset or unrecognized
+`scrollbar-style` value falls back to `defaultScrollbarStyle` ("block"),
+which is defined to reproduce this feature's own pre-`scrollbar-style`
+behavior exactly — dropping the UA stylesheet's original
+`::scrollbar-track { content: "│"; }`/`::scrollbar-thumb { content: "█"; }`
+rules (now redundant: `block`'s Go-level preset defaults supply the same
+values) was necessary specifically so an *unset* real `::scrollbar-track`/
+`::scrollbar-thumb` rule reads back as genuinely empty from
+`pseudoElemDecls` — if the old UA rules had stayed, they'd unconditionally
+win the merge (real cascade rules always beat a Go-level fallback the way
+this is wired) and no non-`block` preset's own `content` would ever be
+visible.
+
+`classic`'s track/thumb colors (`#444444`/`#aaaaaa`, a neutral gray pair
+evoking the flat, non-glyph classic Mac/Windows scrollbar look — plain
+`" "` content, distinguished only by `background-color`, not by a glyph)
+are not independently CSS-configurable through the `scrollbar-style`
+keyword itself — the design choice here is that `scrollbar-style` names a
+small, fixed set of *complete* presets (mirroring `border-style`'s own
+`solid`/`rounded`/`thick`/`double` preset model in spirit), not a
+parameterized shorthand; a different palette on `classic` is one
+`::scrollbar-thumb { background-color: … }` rule away, using the
+property-level override the merge already supports.
+
 **Not implemented / deliberately out of scope, same reasoning as
 `::marker`'s own property list:** `font-style`, `text-decoration`, and
 `opacity` on `::scrollbar-track`/`::scrollbar-thumb` — `extractInlineStyle`
@@ -523,9 +567,14 @@ and did not touch `Loop` or the event/focus layer beyond what Section 1
 already added.
 
 The scrollbar pseudo-elements landed within the same boundary too:
-`internal/cssengine/selector.go` (pseudo-element name whitelist) and
-`internal/render/block.go` (`scrollbarGutterWidth`/`resolveScrollbarStyle`/
-`appendScrollbarColumn`, and the two call sites that use them) are the only
-touched files — no changes to `cascade.go`'s `PseudoElement` (already
-generic over the pseudo-element name), `document.go`, `event.go`, or
-`Renderer`'s public contract.
+`internal/cssengine/selector.go` (pseudo-element name whitelist),
+`internal/render/engine.go` (dropping the now-redundant UA
+`::scrollbar-track`/`::scrollbar-thumb` content rules), and
+`internal/render/block.go` (`scrollbarPresets`/`scrollbarGutterWidth`/
+`resolveScrollbarStyle`/`appendScrollbarColumn`, and the two call sites that
+use them) are the only touched files — no changes to `cascade.go`'s
+`PseudoElement` (already generic over the pseudo-element name), `document.go`,
+`event.go`, or `Renderer`'s public contract. `scrollbar-style` itself needed
+no `cssengine` changes at all — it's read as a plain, already-parsed
+property off the scrollable element's own resolved decls, not a new
+selector or shorthand-expansion form.

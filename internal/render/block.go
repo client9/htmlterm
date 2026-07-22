@@ -1,6 +1,7 @@
 package render
 
 import (
+	"maps"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -525,8 +526,8 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				// one either, or content would get an unreserved column
 				// appended on top of it instead of a properly narrowed box.
 				if hasScrollbarGutter {
-					track := r.resolveScrollbarStyle(n, "scrollbar-track", scrollbarTrackChar)
-					thumb := r.resolveScrollbarStyle(n, "scrollbar-thumb", scrollbarThumbChar)
+					track := r.resolveScrollbarStyle(n, decls, "scrollbar-track")
+					thumb := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb")
 					lines = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, r.profile)
 				}
 			default:
@@ -692,19 +693,46 @@ type scrollbarStyle struct {
 // reflects the built-in default.
 const ScrollbarGutterWidth = 1
 
-// scrollbarTrackChar/scrollbarThumbChar are the built-in default glyphs
-// drawn in the scrollbar gutter, used whenever a ::scrollbar-track/
-// ::scrollbar-thumb rule doesn't set its own content — see
-// resolveScrollbarStyle.
-const (
-	scrollbarTrackChar = "│"
-	scrollbarThumbChar = "█"
-)
+// scrollbarPreset is one named scrollbar-style's baseline ::scrollbar-track/
+// ::scrollbar-thumb declarations — the same shape pseudoElemDecls returns
+// from a real stylesheet rule, so it can be merged with one identically.
+type scrollbarPreset struct {
+	track, thumb map[string]string
+}
+
+// defaultScrollbarStyle is used when scrollbar-style is unset or names a
+// preset that doesn't exist; it reproduces this feature's original,
+// pre-scrollbar-style/pre-::scrollbar-track/thumb-defaults behavior exactly.
+const defaultScrollbarStyle = "block"
+
+// scrollbarPresets backs the scrollbar-style property: block|shaded|classic.
+// Each preset supplies content (and, for classic, background-color) as a
+// baseline that an element's own ::scrollbar-track/::scrollbar-thumb rules
+// still override property-by-property — see resolveScrollbarStyle. classic's
+// colors are a deliberately neutral gray pair (not CSS-configurable via the
+// scrollbar-style keyword itself); override them with an explicit
+// ::scrollbar-track/::scrollbar-thumb rule instead of a new preset if a
+// different palette is wanted.
+var scrollbarPresets = map[string]scrollbarPreset{
+	"block": {
+		track: map[string]string{"content": `"│"`},
+		thumb: map[string]string{"content": `"█"`},
+	},
+	"shaded": {
+		track: map[string]string{"content": `"░"`},
+		thumb: map[string]string{"content": `"█"`},
+	},
+	"classic": {
+		track: map[string]string{"content": `" "`, "background-color": "#444444"},
+		thumb: map[string]string{"content": `" "`, "background-color": "#aaaaaa"},
+	},
+}
 
 // scrollbarGutterWidth resolves n's ::scrollbar { width } declaration (in
 // ch/columns — see parseSizeVal), falling back to ScrollbarGutterWidth when
 // unset, unparseable, or non-positive. Percentage widths are not meaningful
-// for a gutter and are also treated as unset.
+// for a gutter and are also treated as unset. Independent of scrollbar-style
+// — none of the named presets set a width, only track/thumb glyph and color.
 func (r *Engine) scrollbarGutterWidth(n *html.Node) int {
 	decls := r.pseudoElemDecls(n, "scrollbar")
 	if abs, pct, ok := parseSizeVal(decls["width"]); ok && pct == 0 && abs > 0 {
@@ -713,19 +741,32 @@ func (r *Engine) scrollbarGutterWidth(n *html.Node) int {
 	return ScrollbarGutterWidth
 }
 
-// resolveScrollbarStyle resolves n's ::scrollbar-track or ::scrollbar-thumb
-// rule (which is "scrollbar-track" or "scrollbar-thumb") into a glyph plus
-// text style, falling back to defaultChar when content is unset (matching
-// ::before/::after's own "content unset means no override" convention,
-// reusing parseCSSContentString) and to no color/background/bold when those
-// properties are unset.
-func (r *Engine) resolveScrollbarStyle(n *html.Node, which, defaultChar string) scrollbarStyle {
-	decls := r.pseudoElemDecls(n, which)
-	ch := defaultChar
-	if s := r.parseCSSContentString(decls["content"], n); s != "" {
-		ch = s
+// resolveScrollbarStyle resolves n's effective ::scrollbar-track or
+// ::scrollbar-thumb style (which is "scrollbar-track" or "scrollbar-thumb")
+// into a glyph plus text style. elemDecls is n's own resolved declarations
+// (renderBlockContentBox already has this as decls — not re-resolved here),
+// read only for scrollbar-style; it selects which scrollbarPresets entry
+// supplies the baseline (falling back to defaultScrollbarStyle when unset or
+// unrecognized). n's actual ::scrollbar-track/::scrollbar-thumb rule, if
+// any, is then layered on top of that baseline property-by-property (a
+// content/color/etc. the rule sets wins; anything the rule doesn't mention
+// falls through to the preset) — this is what lets `scrollbar-style: classic`
+// plus a lone `::scrollbar-thumb { color: red }` combine instead of one
+// replacing the other outright.
+func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string, which string) scrollbarStyle {
+	preset, ok := scrollbarPresets[elemDecls["scrollbar-style"]]
+	if !ok {
+		preset = scrollbarPresets[defaultScrollbarStyle]
 	}
-	return scrollbarStyle{char: ch, style: extractInlineStyle(decls)}
+	base := preset.track
+	if which == "scrollbar-thumb" {
+		base = preset.thumb
+	}
+	merged := make(map[string]string, len(base))
+	maps.Copy(merged, base)
+	maps.Copy(merged, r.pseudoElemDecls(n, which))
+	ch := r.parseCSSContentString(merged["content"], n)
+	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}
 }
 
 // appendScrollbarColumn appends one scrollbar-gutter — gutterWidth columns

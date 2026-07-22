@@ -1393,6 +1393,105 @@ func TestScrollbarPseudoElementColorApplied(t *testing.T) {
 	}
 }
 
+// TestScrollbarStylePresets covers scrollbar-style's block and shaded
+// presets, each supplying its own baseline ::scrollbar-track/::scrollbar-thumb
+// glyph. classic's glyph is a plain space (indistinguishable from ordinary
+// line padding by content alone), so it's covered separately by
+// TestScrollbarStyleClassicColors, which checks its background-color instead.
+func TestScrollbarStylePresets(t *testing.T) {
+	tests := []struct {
+		style     string
+		wantTrack string
+		wantThumb string
+	}{
+		{style: "block", wantTrack: "│", wantThumb: "█"},
+		{style: "shaded", wantTrack: "░", wantThumb: "█"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.style, func(t *testing.T) {
+			htmlStr := `<div id="pane" style="height:2;overflow-y:scroll;scrollbar-style:` + tc.style + `">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+			doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+			if err != nil {
+				t.Fatalf("ParseDocument: %v", err)
+			}
+			out, err := doc.Render()
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			got := stripANSI(out)
+			if !regexp.MustCompile(`AAAA +` + regexp.QuoteMeta(tc.wantThumb)).MatchString(got) {
+				t.Errorf("scrollbar-style:%s render = %q, want thumb glyph %q on first line", tc.style, got, tc.wantThumb)
+			}
+			if !regexp.MustCompile(`BBBB +` + regexp.QuoteMeta(tc.wantTrack)).MatchString(got) {
+				t.Errorf("scrollbar-style:%s render = %q, want track glyph %q on second line", tc.style, got, tc.wantTrack)
+			}
+		})
+	}
+}
+
+// TestScrollbarStyleUnrecognizedFallsBackToBlock covers the "falls back to
+// defaultScrollbarStyle when unset or unrecognized" documented behavior.
+func TestScrollbarStyleUnrecognizedFallsBackToBlock(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow-y:scroll;scrollbar-style:nonsense">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !strings.Contains(got, "█") || !strings.Contains(got, "│") {
+		t.Errorf("scrollbar-style:nonsense render = %q, want the block preset's default glyphs", got)
+	}
+}
+
+// TestScrollbarStyleClassicColors verifies classic's baseline
+// background-color reaches rendered ANSI output.
+func TestScrollbarStyleClassicColors(t *testing.T) {
+	htmlStr := `<div id="pane" style="height:2;overflow-y:scroll;scrollbar-style:classic">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("scrollbar-style:classic render = %q, want an ANSI escape sequence for the track/thumb background", out)
+	}
+}
+
+// TestScrollbarStylePresetOverriddenByExplicitPseudoRule confirms an
+// explicit ::scrollbar-thumb rule wins over the preset's own value for the
+// same property, while other preset properties still apply — the
+// "shorthand supplies defaults, longhand-equivalent rule overrides
+// per-property" contract documented on resolveScrollbarStyle.
+func TestScrollbarStylePresetOverriddenByExplicitPseudoRule(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-thumb { content: "="; }</style>` +
+		`<div id="pane" style="height:2;overflow-y:scroll;scrollbar-style:shaded">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.Contains(got, "█") {
+		t.Errorf("render = %q, want explicit ::scrollbar-thumb content to override the shaded preset's thumb glyph", got)
+	}
+	if !strings.Contains(got, "=") {
+		t.Errorf("render = %q, want the explicit ::scrollbar-thumb content ('=')", got)
+	}
+	if !strings.Contains(got, "░") {
+		t.Errorf("render = %q, want the shaded preset's own track glyph ('░') still applied (not overridden)", got)
+	}
+}
+
 func TestSetInnerHTMLReplacesChildren(t *testing.T) {
 	htmlStr := `<div id="list"><p>stale</p></div>`
 	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 40})

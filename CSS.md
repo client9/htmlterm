@@ -396,11 +396,11 @@ against the scrollable element itself (so they can be scoped, e.g.
 `.log-pane::scrollbar-thumb { … }`, or left bare to apply to every scrollable
 element):
 
-| Pseudo-element | Supported properties | Default (UA stylesheet) |
+| Pseudo-element | Supported properties | Default |
 |---|---|---|
-| `::scrollbar` | `width` (see [Size Values](#size-values); percentages are ignored) | `width: 1ch` |
-| `::scrollbar-track` | `content`, `color`, `background-color`, `font-weight` | `content: "│"` |
-| `::scrollbar-thumb` | `content`, `color`, `background-color`, `font-weight` | `content: "█"` |
+| `::scrollbar` | `width` (see [Size Values](#size-values); percentages are ignored) | `width: 1ch` (UA stylesheet) |
+| `::scrollbar-track` | `content`, `color`, `background-color`, `font-weight` | `content: "│"` (the `block` [`scrollbar-style`](#scrollbar-style) preset — see below) |
+| `::scrollbar-thumb` | `content`, `color`, `background-color`, `font-weight` | `content: "█"` (same) |
 
 `content` takes the same quoted-string form `::before`/`::after` accept (see
 [`content`](#content) below) and is expected to resolve to exactly one
@@ -421,6 +421,35 @@ Scoping to one pane:
 ```css
 #log::scrollbar-thumb { content: "▓"; color: #ff9e64; }
 ```
+
+#### `scrollbar-style`
+
+`block` (default) | `shaded` | `classic`. Shorthand set on the *scrollable*
+element (not on `::scrollbar-track`/`::scrollbar-thumb` themselves) that
+picks a built-in track/thumb glyph (and, for `classic`, background color)
+preset, without writing out `::scrollbar-track`/`::scrollbar-thumb` rules by
+hand:
+
+| Value | Track | Thumb |
+|---|---|---|
+| `block` | `"│"` | `"█"` |
+| `shaded` | `"░"` | `"█"` |
+| `classic` | `" "` on `background-color: #444444` | `" "` on `background-color: #aaaaaa` |
+
+An unrecognized or unset value falls back to `block`. Any property an
+`::scrollbar-track`/`::scrollbar-thumb` rule sets directly still overrides
+just that one property from the preset — the preset only fills in whatever
+the rule doesn't mention:
+
+```css
+/* shaded preset's track glyph ("░"), but a custom thumb color on top */
+#log { scrollbar-style: shaded; }
+#log::scrollbar-thumb { color: #ff9e64; }
+```
+
+Not inherited (matches `overflow`'s own non-inherited treatment — a
+`scrollbar-style` set on a non-scrollable ancestor has no scroll box of its
+own to apply to).
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.

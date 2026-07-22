@@ -291,8 +291,6 @@ textarea                { display: block; border-style: solid; padding-left: 1; 
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }
 ::scrollbar             { width: 1ch; }
-::scrollbar-track       { content: "│"; }
-::scrollbar-thumb       { content: "█"; }
 title, meta, script, style: { display: none; }
 `
 
