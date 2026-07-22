@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/colorprofile"
 	"github.com/client9/htmlterm"
 	"github.com/client9/htmlterm/document"
 )
@@ -1327,6 +1328,68 @@ func TestOverflowYScrollGutterDroppedWhenNoRoom(t *testing.T) {
 	}
 	if !strings.Contains(got, "a") || !strings.Contains(got, "b") {
 		t.Errorf("render with width:1 = %q, want real content (a, b) preserved, not corrupted", got)
+	}
+}
+
+// TestScrollbarPseudoElementsCustomizeGlyphs covers the docs/SCROLLING.md
+// "Scrollbar pseudo-elements" design: ::scrollbar-track/::scrollbar-thumb
+// content overrides replace the default │/█ glyphs.
+func TestScrollbarPseudoElementsCustomizeGlyphs(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-track { content: "-"; } #pane::scrollbar-thumb { content: "="; }</style>` +
+		`<div id="pane" style="height:2;overflow-y:scroll">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if strings.ContainsAny(got, "█│") {
+		t.Errorf("render with custom track/thumb content = %q, want no default glyphs", got)
+	}
+	if !strings.Contains(got, "=") || !strings.Contains(got, "-") {
+		t.Errorf("render with custom track/thumb content = %q, want '=' (thumb) and '-' (track)", got)
+	}
+}
+
+// TestScrollbarGutterWidthPseudoElement covers ::scrollbar { width } widening
+// the reserved gutter beyond the 1-column default, repeating the resolved
+// track/thumb glyph across every reserved column.
+func TestScrollbarGutterWidthPseudoElement(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar { width: 3ch; }</style>` +
+		`<div id="pane" style="height:2;overflow-y:scroll">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	got := stripANSI(out)
+	if !regexp.MustCompile(`███|───`).MatchString(got) {
+		t.Errorf("render with ::scrollbar{width:3ch} = %q, want a 3-column-wide run of the same glyph", got)
+	}
+}
+
+// TestScrollbarPseudoElementColorApplied confirms color/background-color on
+// ::scrollbar-track/::scrollbar-thumb actually reach the rendered ANSI
+// output, not just the resolved declaration map.
+func TestScrollbarPseudoElementColorApplied(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-thumb { color: #ff0000; }</style>` +
+		`<div id="pane" style="height:2;overflow-y:scroll">AAAA<br>BBBB<br>CCCC<br>DDDD</div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "\x1b[") {
+		t.Fatalf("render with ::scrollbar-thumb{color} = %q, want an ANSI escape sequence for the thumb color", out)
 	}
 }
 

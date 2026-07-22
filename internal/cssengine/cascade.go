@@ -190,8 +190,10 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 }
 
 // PseudoElement returns the merged CSS declarations from all rules whose
-// selector targets the pseudo-element named by which ("before" or "after")
-// on element n. Handles both :before/:after (CSS2) and ::before/::after (CSS3).
+// selector targets the pseudo-element named by which ("before", "after",
+// "marker", "scrollbar", "scrollbar-track", or "scrollbar-thumb") on
+// element n. Handles both :before/:after (CSS2) and ::before/::after (CSS3)
+// syntax for all of them, not just before/after.
 func (c Cascade) PseudoElement(n *html.Node, which string) map[string]string {
 	var matches []ruleMatch
 	for _, rl := range c.Rules {

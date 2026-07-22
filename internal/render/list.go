@@ -218,6 +218,15 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 	if custom, ok := listStyleCustomString(style); ok {
 		return utf8.RuneCountInString(custom)
 	}
+	if items, ok := parseSymbolsArgs(style); ok {
+		width := 0
+		for _, item := range items {
+			if w := textVisualWidth(item); w > width {
+				width = w
+			}
+		}
+		return width
+	}
 	if !ordered || style == "none" {
 		switch style {
 		case "none":
@@ -242,6 +251,17 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 func listItemPrefix(style string, ordered bool, n, width int) string {
 	if custom, ok := listStyleCustomString(style); ok {
 		return custom
+	}
+	if items, ok := parseSymbolsArgs(style); ok {
+		// symbols() cycles through its list for items beyond its length,
+		// per the CSS spec's default <symbols-type> of "symbolic". Modulo is
+		// wrapped to stay non-negative since n can be <= 0 (e.g. <ol
+		// start="0">).
+		idx := (n - 1) % len(items)
+		if idx < 0 {
+			idx += len(items)
+		}
+		return items[idx]
 	}
 	if !ordered {
 		switch style {

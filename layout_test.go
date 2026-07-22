@@ -65,6 +65,9 @@ func TestList(t *testing.T) {
 		{name: "list-style-position inside ordered", css: `ol { list-style-position: inside; }`, html: `<ol><li>one</li><li>two</li></ol>`, want: "    1. one\n    2. two\n"},
 		{name: "list-style-position inside wraps without hanging indent", width: 20, css: `ul { list-style-position: inside; }`, html: `<ul><li>one two three four five</li></ul>`, want: "    • one two three\n    four five\n"},
 		{name: "list-style-position outside wraps with hanging indent", width: 20, html: `<ul><li>one two three four five six</li></ul>`, want: "    • one two three\n      four five six\n"},
+		{name: "list-style-type symbols cycles through the list", css: `ul { list-style-type: symbols("A" "B"); }`, html: `<ul><li>one</li><li>two</li><li>three</li></ul>`, want: "    Aone\n    Btwo\n    Athree\n"},
+		{name: "list-style shorthand with symbols function", css: `ol { list-style: symbols("A" "B") inside; padding-left: 0; }`, html: `<ol><li>one</li><li>two</li><li>three</li></ol>`, want: "Aone\nBtwo\nAthree\n"},
+		{name: "list-style-type symbols with wide emoji glyphs sizes hanging indent by widest item", width: 16, css: `ul { list-style-type: symbols("🟥" "🟨" "🟦"); }`, html: `<ul><li>one two three</li><li>b</li></ul>`, want: "    🟥one two\n      three\n    🟨b\n"},
 	})
 }
 

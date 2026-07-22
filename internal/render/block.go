@@ -316,8 +316,10 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// post-hoc overlay. Silently dropped (gutterWidth stays 0) if there
 	// isn't room for it, rather than collapsing content to 0 width.
 	gutterWidth := 0
-	if heightLines > 0 && ovY == "scroll" && avail-ScrollbarGutterWidth >= 1 {
-		gutterWidth = ScrollbarGutterWidth
+	if heightLines > 0 && ovY == "scroll" {
+		if w := r.scrollbarGutterWidth(n); avail-w >= 1 {
+			gutterWidth = w
+		}
 	}
 	hasScrollbarGutter := gutterWidth > 0
 	var innerW int
@@ -523,7 +525,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				// one either, or content would get an unreserved column
 				// appended on top of it instead of a properly narrowed box.
 				if hasScrollbarGutter {
-					lines = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW)
+					track := r.resolveScrollbarStyle(n, "scrollbar-track", scrollbarTrackChar)
+					thumb := r.resolveScrollbarStyle(n, "scrollbar-thumb", scrollbarThumbChar)
+					lines = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, r.profile)
 				}
 			default:
 				for len(lines) < heightLines {
@@ -661,45 +665,90 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	return b, positions
 }
 
-// ScrollbarGutterWidth is the fixed column width reserved for the scrollbar
-// gutter when overflow-y:scroll is set — see docs/SCROLLING.md's "Scrollbar
-// gutter and indicator". Not CSS-configurable in this pass. Exported (via
+// scrollbarStyle is one resolved ::scrollbar-track or ::scrollbar-thumb: the
+// glyph repeated across the gutter's width, plus its text style (color,
+// background-color, font-weight — see resolveScrollbarStyle). Always build
+// style via extractInlineStyle/newInlineStyle, never the zero inlineStyle{}
+// — per inlineStyle's own doc comment, the zero value reads as opacity:0
+// and silently blanks the glyph.
+type scrollbarStyle struct {
+	char  string
+	style inlineStyle
+}
+
+// ScrollbarGutterWidth is the default column width reserved for the
+// scrollbar gutter when overflow-y:scroll is set and no ::scrollbar width
+// declaration overrides it — see docs/SCROLLING.md's "Scrollbar gutter and
+// indicator" and CSS.md's "Scrollbar pseudo-elements" section. Exported (via
 // htmlterm.ScrollbarGutterWidth) so callers who pre-render content outside a
 // scrollable Document/Renderer pass (e.g. to cache an expensive layout, then
 // splice it into a live scrollable pane via Document.SetPreRendered) can
 // reserve the same column up front — otherwise the pre-rendered content is
 // wrapped 1 column wider than the live pane's actual content width once the
 // gutter is reserved there, desyncing the two and producing exactly the
-// scrollbar-off-by-one symptom this constant's existence is meant to prevent.
+// scrollbar-off-by-one symptom this constant's existence is meant to
+// prevent. A caller that also sets a custom ::scrollbar { width } on the
+// live pane must account for that override itself — this constant only
+// reflects the built-in default.
 const ScrollbarGutterWidth = 1
 
-// scrollbarTrackChar/scrollbarThumbChar are the fixed glyphs drawn in the
-// scrollbar gutter — not CSS-configurable in this pass (see docs/SCROLLING.md's
-// explicit non-goals for the scrollbar).
+// scrollbarTrackChar/scrollbarThumbChar are the built-in default glyphs
+// drawn in the scrollbar gutter, used whenever a ::scrollbar-track/
+// ::scrollbar-thumb rule doesn't set its own content — see
+// resolveScrollbarStyle.
 const (
 	scrollbarTrackChar = "│"
 	scrollbarThumbChar = "█"
 )
 
-// appendScrollbarColumn appends one scrollbar-gutter column to each of
-// lines, using the standard proportional thumb-size/thumb-position formula.
-// totalLines is the content's line count before it was sliced/padded to
-// heightLines, so the thumb reflects the real scrollable range even though
-// lines itself no longer does. Appends rather than overwrites, so real
-// content is never clobbered — see docs/SCROLLING.md's rejected
-// splice-overlay alternative for why that matters. When totalLines <=
-// heightLines (nothing to actually scroll), thumbSize naturally comes out to
-// heightLines, i.e. the thumb fills the whole track, matching a real
-// scrollbar's own convention for "you can already see everything."
+// scrollbarGutterWidth resolves n's ::scrollbar { width } declaration (in
+// ch/columns — see parseSizeVal), falling back to ScrollbarGutterWidth when
+// unset, unparseable, or non-positive. Percentage widths are not meaningful
+// for a gutter and are also treated as unset.
+func (r *Engine) scrollbarGutterWidth(n *html.Node) int {
+	decls := r.pseudoElemDecls(n, "scrollbar")
+	if abs, pct, ok := parseSizeVal(decls["width"]); ok && pct == 0 && abs > 0 {
+		return abs
+	}
+	return ScrollbarGutterWidth
+}
+
+// resolveScrollbarStyle resolves n's ::scrollbar-track or ::scrollbar-thumb
+// rule (which is "scrollbar-track" or "scrollbar-thumb") into a glyph plus
+// text style, falling back to defaultChar when content is unset (matching
+// ::before/::after's own "content unset means no override" convention,
+// reusing parseCSSContentString) and to no color/background/bold when those
+// properties are unset.
+func (r *Engine) resolveScrollbarStyle(n *html.Node, which, defaultChar string) scrollbarStyle {
+	decls := r.pseudoElemDecls(n, which)
+	ch := defaultChar
+	if s := r.parseCSSContentString(decls["content"], n); s != "" {
+		ch = s
+	}
+	return scrollbarStyle{char: ch, style: extractInlineStyle(decls)}
+}
+
+// appendScrollbarColumn appends one scrollbar-gutter — gutterWidth columns
+// wide, each column holding either track.char or thumb.char (styled per
+// track.style/thumb.style) — to each of lines, using the standard
+// proportional thumb-size/thumb-position formula. totalLines is the
+// content's line count before it was sliced/padded to heightLines, so the
+// thumb reflects the real scrollable range even though lines itself no
+// longer does. Appends rather than overwrites, so real content is never
+// clobbered — see docs/SCROLLING.md's rejected splice-overlay alternative
+// for why that matters. When totalLines <= heightLines (nothing to actually
+// scroll), thumbSize naturally comes out to heightLines, i.e. the thumb
+// fills the whole track, matching a real scrollbar's own convention for
+// "you can already see everything."
 //
 // innerW is the box's content width (excluding the gutter itself). Each line
-// is padded or truncated to exactly innerW visible columns before the glyph
-// is appended — upstream width-normalization (alignLinesBox/padLinesToWidthBox)
+// is padded or truncated to exactly innerW visible columns before the glyphs
+// are appended — upstream width-normalization (alignLinesBox/padLinesToWidthBox)
 // only runs conditionally, and even then never truncates a line that's
 // already >= width (e.g. one holding an unbreakable overlong token), so
 // without this the gutter column would land on a ragged, content-dependent
 // column instead of a straight line at the pane's right edge.
-func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, innerW int) []string {
+func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, innerW, gutterWidth int, track, thumb scrollbarStyle, profile colorprofile.Profile) []string {
 	thumbSize := heightLines
 	if totalLines > heightLines {
 		thumbSize = max(1, min(heightLines*heightLines/totalLines, heightLines))
@@ -710,15 +759,15 @@ func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, inne
 	}
 	out := make([]string, len(lines))
 	for i, ln := range lines {
-		ch := scrollbarTrackChar
+		g := track
 		if i >= thumbStart && i < thumbStart+thumbSize {
-			ch = scrollbarThumbChar
+			g = thumb
 		}
 		ln = truncateToWidth(ln, innerW, "")
 		if pad := innerW - ansiVisibleLen(ln); pad > 0 {
 			ln += strings.Repeat(" ", pad)
 		}
-		out[i] = ln + ch
+		out[i] = ln + g.style.render(strings.Repeat(g.char, gutterWidth), profile)
 	}
 	return out
 }

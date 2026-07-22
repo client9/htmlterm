@@ -508,6 +508,11 @@ func expandListStyleShorthand(val string) map[string]string {
 		switch {
 		case lower == "inside" || lower == "outside":
 			decls["list-style-position"] = lower
+		case strings.HasPrefix(lower, "symbols("):
+			// symbols(...) is a supported list-style-type value (see
+			// internal/render/symbols.go); kept verbatim, case as written,
+			// so the quoted strings inside aren't lowercased.
+			decls["list-style-type"] = tok
 		case isCSSFunctionToken(lower):
 			// list-style-image is not supported. Ignore url(...) and other
 			// function-valued image tokens in the shorthand.

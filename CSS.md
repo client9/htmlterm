@@ -27,7 +27,7 @@ that is recognized. Anything not listed here is silently ignored.
 | Descendant (space) | `tr.unseen td { }` |
 | Child (`>`) | `div > p { }` |
 | Pseudo-class | `:root { }`, `li:first-child { }`, `tr:nth-child(odd) { }` |
-| Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }` |
+| Pseudo-element | `p::before { content: "→ "; }`, `p::after { content: " ←"; }`, `::scrollbar-thumb { content: "█"; }` |
 | Adjacent sibling (`+`) | `h2 + p { }` |
 | General sibling (`~`) | `h2 ~ p { }` |
 | Comma-separated (any of the above) | `h1, h2, h3 { }` |
@@ -76,13 +76,19 @@ matches whichever element `Element.Focus` (see the package godoc's events
 section) most recently marked focused; it has no meaning against
 `Renderer.Render`'s one-shot rendering, only against a live `Document`.
 
-**Supported pseudo-elements:** `::before`, `::after`, and `::marker` (all also accepted
-with a single colon). `::before`/`::after` inject inline text at the start or end of an
+**Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::scrollbar`,
+`::scrollbar-track`, and `::scrollbar-thumb` (all also accepted with a single
+colon). `::before`/`::after` inject inline text at the start or end of an
 element's content; they require the `content` property. `::marker` styles the list
 prefix (bullet or number) of an `<li>` element; supported properties are `color`,
 `background-color`, `font-weight`, `font-style`, and `text-decoration`.
+`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb` style the scrollbar gutter
+drawn by `overflow-y: scroll` — see [Scrollbar pseudo-elements](#scrollbar-pseudo-elements)
+below.
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
-`li::marker`, `ul.fancy li::marker`, etc.
+`li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`, etc. A bare
+`::scrollbar-thumb { … }` (no element/class/id prefix) matches every scrollable
+element, the same way a bare `::before` would match every element.
 
 **Supported attribute operators:** `[attr]` (presence), `[attr=val]` (exact
 match), `[attr~=val]` (whitespace-separated word), `[attr|=val]` (exact value
@@ -379,9 +385,42 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 
 - **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
 - **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). No visible scrollbar/indicator is drawn.
-- **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved one-column gutter with a `│` track and `█` thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one.
+- **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved gutter (default 1 column wide) with a track and thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one. The gutter's width and the track/thumb glyphs/colors are styled via `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb` — see [Scrollbar pseudo-elements](#scrollbar-pseudo-elements) below.
 
 See `docs/SCROLLING.md` for the full design (including why `auto` deliberately never gets an indicator).
+
+### Scrollbar pseudo-elements
+
+`overflow-y: scroll`'s gutter is styled with three pseudo-elements, matched
+against the scrollable element itself (so they can be scoped, e.g.
+`.log-pane::scrollbar-thumb { … }`, or left bare to apply to every scrollable
+element):
+
+| Pseudo-element | Supported properties | Default (UA stylesheet) |
+|---|---|---|
+| `::scrollbar` | `width` (see [Size Values](#size-values); percentages are ignored) | `width: 1ch` |
+| `::scrollbar-track` | `content`, `color`, `background-color`, `font-weight` | `content: "│"` |
+| `::scrollbar-thumb` | `content`, `color`, `background-color`, `font-weight` | `content: "█"` |
+
+`content` takes the same quoted-string form `::before`/`::after` accept (see
+[`content`](#content) below) and is expected to resolve to exactly one
+character per reserved column — there is no re-wrap pass to correct a
+too-wide glyph, so a multi-column `content` value will misalign the gutter.
+When `::scrollbar { width }` reserves more than one column, the resolved
+track/thumb glyph is repeated across every reserved column, not spread
+across them individually.
+
+```css
+::scrollbar       { width: 1ch; }
+::scrollbar-track { content: "│"; color: gray; background: transparent; font-weight: normal; }
+::scrollbar-thumb { content: "█"; color: white; background: blue; font-weight: bold; }
+```
+
+Scoping to one pane:
+
+```css
+#log::scrollbar-thumb { content: "▓"; color: #ff9e64; }
+```
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.
@@ -596,7 +635,7 @@ Item content word-wraps at the available content width.
 | Property | Values | Notes |
 |----------|--------|-------|
 | `list-style` | Any supported `list-style-type` and/or `list-style-position`, in either order | Shorthand for the supported list longhands. `list-style-image` values such as `url(...)` are ignored. |
-| `list-style-type` | See table below | Prefix string for each `<li>`. A quoted string literal (e.g. `"→ "`) is used verbatim as the bullet. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
+| `list-style-type` | See table below | Prefix string for each `<li>`. A quoted string literal (e.g. `"→ "`) is used verbatim as the bullet. `symbols("<string>" ...)` cycles a list of custom bullets. Not inherited. Default: `disc` for `<ul>`, `decimal` for `<ol>`. |
 | `list-style-position` | `outside` (default), `inside` | `outside`: prefix hangs to the left; continuation lines align under the first text character. `inside`: prefix flows inline with text; continuation lines align with `padding-left`. Inherited. |
 | `padding-left` | `4` | Indents the entire list from the left; combined with `margin-left` for total indentation. Default: `4`. |
 | `margin-left` | `4` | Left margin for the list block; added to `padding-left`. Default: `0`. |
@@ -615,14 +654,25 @@ Item content word-wraps at the available content width.
 | `lower-roman` | `i.` `ii.` … | `<ol>` |
 | `upper-roman` | `I.` `II.` … | `<ol>` |
 | `"<string>"` / `'<string>'` | custom | `<ul>`, `<ol>` |
+| `symbols("<string>" "<string>" …)` | custom, cycled | `<ul>`, `<ol>` |
 
 A quoted string literal sets a custom bullet used verbatim for every item, e.g. `list-style-type: "→ "`. The string is used as-is with no additional spacing — include a trailing space in the string if desired. Works on both `<ul>` and `<ol>`.
 
+`symbols("<string>" "<string>" …)` takes a whitespace-separated list of two or
+more quoted strings and cycles through them one per `<li>`, wrapping back to
+the first string after the last (e.g. `symbols("🟥" "🟨" "🟦")` on a four-item
+list produces 🟥, 🟨, 🟦, 🟥). Each string is used verbatim, same as the single
+quoted-string form — include trailing spacing in the string if desired. Only
+the plain string-list form is supported: the optional leading
+`<symbols-type>` keyword (`cyclic`/`numeric`/`alphabetic`/`symbolic`/`fixed`)
+and `<image>` arguments from the CSS spec are not recognized. Works on both
+`<ul>` and `<ol>`.
+
 The `list-style` shorthand accepts the supported type and position values in
 either order, e.g. `list-style: square inside`, `list-style: inside upper-roman`,
-or `list-style: "→ " outside`. Image values such as `url(bullet.png)` are
-ignored, so `list-style: url(bullet.png) square` behaves like
-`list-style-type: square`.
+`list-style: "→ " outside`, or `list-style: symbols("→ " "· ") inside`. Image
+values such as `url(bullet.png)` are ignored, so `list-style: url(bullet.png)
+square` behaves like `list-style-type: square`.
 
 Numeric prefixes (`decimal`, `*-roman`, `*-alpha`) are right-aligned within a
 fixed-width column sized to the widest prefix in the list (e.g. `" 1."` aligns

@@ -3,6 +3,8 @@ package render
 import (
 	"reflect"
 	"testing"
+
+	"github.com/charmbracelet/colorprofile"
 )
 
 func TestAppendScrollbarColumn(t *testing.T) {
@@ -75,13 +77,37 @@ func TestAppendScrollbarColumn(t *testing.T) {
 			want:        []string{"this line █"},
 		},
 	}
+	defaultTrack := scrollbarStyle{char: scrollbarTrackChar, style: newInlineStyle()}
+	defaultThumb := scrollbarStyle{char: scrollbarThumbChar, style: newInlineStyle()}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := appendScrollbarColumn(tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW)
+			got := appendScrollbarColumn(tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, 1, defaultTrack, defaultThumb, colorprofile.NoTTY)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("appendScrollbarColumn(%v, %d, %d, %d, %d) = %v, want %v",
 					tc.lines, tc.offset, tc.totalLines, tc.heightLines, tc.innerW, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAppendScrollbarColumnCustomGlyphsAndWidth(t *testing.T) {
+	track := scrollbarStyle{char: "-", style: newInlineStyle()}
+	thumb := scrollbarStyle{char: "=", style: newInlineStyle()}
+	got := appendScrollbarColumn([]string{"a", "b"}, 0, 2, 2, 1, 3, track, thumb, colorprofile.NoTTY)
+	want := []string{"a===", "b==="}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("appendScrollbarColumn with width 3 = %v, want %v", got, want)
+	}
+}
+
+func TestAppendScrollbarColumnStyledGlyphs(t *testing.T) {
+	track := scrollbarStyle{char: "|", style: extractInlineStyle(map[string]string{"color": "#ff0000"})}
+	thumb := scrollbarStyle{char: "#", style: extractInlineStyle(map[string]string{"background-color": "#0000ff", "font-weight": "bold"})}
+	got := appendScrollbarColumn([]string{"x", "y"}, 0, 4, 2, 1, 1, track, thumb, colorprofile.TrueColor)
+	wantTrack := extractInlineStyle(map[string]string{"color": "#ff0000"}).render("|", colorprofile.TrueColor)
+	wantThumb := extractInlineStyle(map[string]string{"background-color": "#0000ff", "font-weight": "bold"}).render("#", colorprofile.TrueColor)
+	want := []string{"x" + wantThumb, "y" + wantTrack}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("appendScrollbarColumn styled glyphs = %q, want %q", got, want)
 	}
 }

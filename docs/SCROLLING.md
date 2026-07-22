@@ -42,13 +42,19 @@ single-row/single-column layouts — `internal/render/flex.go`; see CSS.md's
 `column-reverse`, and applied `flex-shrink`).
 
 The **scrollbar gutter/indicator**, designed in detail below (see "Scrollbar
-gutter and indicator"), shipped as designed: `scrollbarGutterWidth` and the
-gutter-reservation gate in `renderBlockContentBox`, and the track/thumb
-rendering plus thumb-math formula in `appendScrollbarColumn` (all in
-`block.go`) — see also CSS.md's `overflow` section for the shipped
-`overflow-y: scroll` vs. `auto` behavior split. The "explicit non-goals for
-the scrollbar" listed below remain out of scope (`tabindex`/`autofocus`
-handling, named separately under Section 3, likewise remain unimplemented).
+gutter and indicator"), shipped as designed: the `ScrollbarGutterWidth`
+default constant and the gutter-reservation gate in `renderBlockContentBox`,
+and the track/thumb rendering plus thumb-math formula in
+`appendScrollbarColumn` (all in `block.go`) — see also CSS.md's `overflow`
+section for the shipped `overflow-y: scroll` vs. `auto` behavior split. The
+gutter's width and the track/thumb glyphs/colors, originally listed below as
+an explicit non-goal ("CSS-configurable glyphs/colors for the track/thumb
+characters"), have since shipped too, as `::scrollbar`/`::scrollbar-track`/
+`::scrollbar-thumb` — see "Scrollbar pseudo-elements" below for that design
+and CSS.md's own "Scrollbar pseudo-elements" section for the user-facing
+reference. The rest of the "explicit non-goals for the scrollbar" listed
+below remain out of scope (`tabindex`/`autofocus` handling, named separately
+under Section 3, likewise remain unimplemented).
 
 ## Why scrolling was sequenced before flexbox
 
@@ -334,8 +340,79 @@ When `totalLines <= heightLines` (nothing to actually scroll — `maxOffset ==
 fills the whole track — matching a real scrollbar's own convention for "you
 can see everything already," and requiring no special-case branch.
 
-Default glyphs (not CSS-configurable in this pass — see non-goals): track
-`"│"`, thumb `"█"`.
+Default glyphs — `"│"` (track) and `"█"` (thumb) — and the default 1-column
+gutter width are now CSS-configurable via `::scrollbar`/`::scrollbar-track`/
+`::scrollbar-thumb`; see "Scrollbar pseudo-elements" immediately below for
+the mechanism and CSS.md's own "Scrollbar pseudo-elements" section for the
+user-facing reference.
+
+### Scrollbar pseudo-elements: `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`
+
+**Reuses the existing `::before`/`::after`/`::marker` pseudo-element
+machinery, not a new mechanism.** `cssengine`'s pseudo-element handling was
+already generic over the pseudo-element name: `cascade.PseudoElement(n,
+which)` (`cascade.go`) matches any rule whose selector ends in `::which`
+against a real node `n`, with full cascade/specificity/`!important`
+resolution, and `specificity()` (`selector.go`) already scores any non-empty
+`pseudoElem` the same way regardless of its name. The only actual gate was
+`parseSimpleSelector`'s pseudo-element name whitelist (`selector.go`, the
+`case "before", "after", "marker":` switch) — widened to also accept
+`"scrollbar"`, `"scrollbar-track"`, and `"scrollbar-thumb"`. Everything else
+below is new call sites in `internal/render`, not new `cssengine` logic.
+
+**Matched against the scrollable element itself**, exactly like `::before`
+is matched against the element it decorates — `.log-pane::scrollbar-thumb {
+… }` scopes to one pane; a bare `::scrollbar-thumb { … }` (implicit
+universal selector, same as bare `::before` already works) applies to every
+scrollable element. This is a deliberate divergence from real CSS's
+`::-webkit-scrollbar-thumb` (element-and-vendor-prefix-scoped only) toward
+something closer to `::selection`'s scoping model — htmlterm has no
+cross-browser vendor-prefix convention to converge on, so there's no reason
+to imitate one.
+
+**`::scrollbar { width }`** (`Engine.scrollbarGutterWidth`, `block.go`)
+resolves a `width` declaration (same `ch`/bare-integer forms as any other
+[Size Value](../CSS.md#size-values); percentages are treated as unset —
+there's no meaningful "percentage of the gutter" concept) in place of the
+`ScrollbarGutterWidth` default constant, at the same point in
+`renderBlockContentBox` that already computes `gutterWidth` before wrapping
+(the "Mechanism: reserve a column, then append to it" section above still
+applies unchanged — reservation still happens up front, still narrows
+`innerW` before `wordWrapTokens` runs, just by a resolved width instead of a
+hardcoded `1`). `ScrollbarGutterWidth` (`htmlterm.ScrollbarGutterWidth`)
+remains exported and keeps its original meaning — the *default* gutter
+width — for pre-render callers (`Document.SetPreRendered`); a caller who
+also sets a custom `::scrollbar { width }` on the live pane is responsible
+for accounting for that override in its own pre-render pass, same as it
+already has to account for any other CSS that affects the live pane's
+content width.
+
+**`::scrollbar-track`/`::scrollbar-thumb`** (`Engine.resolveScrollbarStyle`,
+`block.go`) resolve `content` (via the same `parseCSSContentString` helper
+`::before`/`::after` use, so it accepts a quoted-string literal but falls
+back to the built-in default glyph when unset — `"none"`/`"normal"` and the
+`attr()`/`counter()`/quote tokens are all accepted syntactically but have no
+practical use here) plus `color`/`background-color`/`font-weight` (via
+`extractInlineStyle`, the same struct/rendering path ordinary inline text
+styling already uses) into a `scrollbarStyle{char, style}`. `block.go`'s
+existing `appendScrollbarColumn` call site resolves both once per gutter
+(not once per line) and passes them down; the function's own per-line loop
+picks `track` or `thumb` exactly as it always did, and now renders
+`style.render(strings.Repeat(char, gutterWidth), profile)` instead of a bare
+hardcoded character — the repeat is what makes a `width > 1` gutter show the
+same glyph across every reserved column rather than requiring a
+column-by-column pattern (no such per-column pattern concept exists; out of
+scope, not just unimplemented — `content` is one glyph, not a bitmap).
+
+**Not implemented / deliberately out of scope, same reasoning as
+`::marker`'s own property list:** `font-style`, `text-decoration`, and
+`opacity` on `::scrollbar-track`/`::scrollbar-thumb` — `extractInlineStyle`
+technically supports them since it's the same shared struct/function
+`::marker` and ordinary inline text use, so they're not blocked by any
+missing plumbing, just not called out in CSS.md's supported-properties list
+for this pseudo-element pair (matching `::marker`'s own documented subset)
+and not covered by tests here. A user relying on them is relying on
+undocumented behavior that happens to work, not a supported contract.
 
 ### Rejected alternative (scrollbar)
 
@@ -359,7 +436,8 @@ remains genuinely useful for an actual floating overlay (a real popup, per
 - A gutter/indicator for `overflow-y: auto` that only appears when content
   actually overflows — would need the two-pass wrap this design deliberately
   avoids; `auto` stays exactly as already shipped (functional, silent).
-- CSS-configurable glyphs/colors for the track/thumb characters.
+- `font-style`/`text-decoration`/`opacity` on `::scrollbar-track`/
+  `::scrollbar-thumb` — see "Scrollbar pseudo-elements" above.
 - Horizontal scrollbar-gutter reflow interaction with `text-overflow` at
   both edges of a doubly-clipped nested region (already a named Section 1
   non-goal; unchanged here).
@@ -443,3 +521,11 @@ Flexbox landed within that same boundary: `internal/render/flex.go` is new
 box/token-model layout code plus dispatch wiring in `render.go`/`inline.go`,
 and did not touch `Loop` or the event/focus layer beyond what Section 1
 already added.
+
+The scrollbar pseudo-elements landed within the same boundary too:
+`internal/cssengine/selector.go` (pseudo-element name whitelist) and
+`internal/render/block.go` (`scrollbarGutterWidth`/`resolveScrollbarStyle`/
+`appendScrollbarColumn`, and the two call sites that use them) are the only
+touched files — no changes to `cascade.go`'s `PseudoElement` (already
+generic over the pseudo-element name), `document.go`, `event.go`, or
+`Renderer`'s public contract.

@@ -40,6 +40,9 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "list-style ignores url image", prop: "list-style", val: `url("bullet image.png") circle inside`, want: map[string]string{
 			"list-style-type": "circle", "list-style-position": "inside",
 		}},
+		{name: "list-style symbols function", prop: "list-style", val: `symbols("🟥" "🟨" "🟦") inside`, want: map[string]string{
+			"list-style-type": `symbols("🟥" "🟨" "🟦")`, "list-style-position": "inside",
+		}},
 		{name: "background extracts named color", prop: "background", val: "red", want: map[string]string{"background-color": "red"}},
 		{name: "background extracts color among unsupported tokens", prop: "background", val: "url(bg.png) no-repeat center/cover #123456", want: map[string]string{"background-color": "#123456"}},
 		{name: "background extracts functional color", prop: "background", val: "rgb(255 0 0) fixed", want: map[string]string{"background-color": "rgb(255 0 0)"}},
@@ -389,6 +392,56 @@ func TestCascadePseudoElementImportant(t *testing.T) {
 	got := Cascade{Rules: rules}.PseudoElement(n, "before")
 	if got["content"] != `"high"` {
 		t.Fatalf(`PseudoElement()["content"] = %q, want %q (!important should win for pseudo-elements too)`, got["content"], `"high"`)
+	}
+}
+
+func TestPseudoElementScrollbarFamily(t *testing.T) {
+	rules, err := ParseStylesheet(`
+		::scrollbar { width: 1ch; }
+		.pane::scrollbar-track { content: "-"; color: gray; }
+		.pane::scrollbar-thumb { content: "="; background-color: blue; }
+	`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div id="a" class="pane">x</div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<div id="a"> not found`)
+	}
+	cascade := Cascade{Rules: rules}
+	if got := cascade.PseudoElement(n, "scrollbar")["width"]; got != "1ch" {
+		t.Errorf(`PseudoElement(n, "scrollbar")["width"] = %q, want "1ch"`, got)
+	}
+	track := cascade.PseudoElement(n, "scrollbar-track")
+	if track["content"] != `"-"` || track["color"] != "gray" {
+		t.Errorf(`PseudoElement(n, "scrollbar-track") = %v, want content "-" and color gray`, track)
+	}
+	thumb := cascade.PseudoElement(n, "scrollbar-thumb")
+	if thumb["content"] != `"="` || thumb["background-color"] != "blue" {
+		t.Errorf(`PseudoElement(n, "scrollbar-thumb") = %v, want content "=" and background-color blue`, thumb)
+	}
+}
+
+func TestPseudoElementScrollbarBareSelectorIsUniversal(t *testing.T) {
+	rules, err := ParseStylesheet(`::scrollbar-thumb { content: "#"; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<span id="a">x</span>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<span id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.PseudoElement(n, "scrollbar-thumb")
+	if got["content"] != `"#"` {
+		t.Errorf(`bare ::scrollbar-thumb matched against unrelated <span> = %v, want content "#"`, got)
 	}
 }
 
@@ -962,6 +1015,8 @@ func TestSelectorSpecificityUniversalAndRoot(t *testing.T) {
 		{sel: "*", want: specificityScore{}},
 		{sel: "*.hot", want: specificityScore{classes: 1}},
 		{sel: "*::before", want: specificityScore{elements: 1}},
+		{sel: "::scrollbar-thumb", want: specificityScore{elements: 1}},
+		{sel: ".pane::scrollbar-track", want: specificityScore{classes: 1, elements: 1}},
 		{sel: ":root", want: specificityScore{classes: 1}},
 		{sel: ":not(*)", want: specificityScore{}},
 		{sel: ":is(#a, .b)", want: specificityScore{ids: 1}},
