@@ -123,6 +123,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   Unicode super/subscript), `font-variant: small-caps`, `white-space` (all
   five values), `overflow-wrap`/`word-break`, `tab-size`, `visibility`,
   `opacity`.
+- **Wide characters:** column widths (wrapping, alignment, padding, table
+  sizing) account for double-width CJK and emoji glyphs via
+  `go-runewidth`, not a naive one-rune-one-column assumption.
 - **Generated content:** `::before`/`::after` with `content` (quoted
   strings, `attr()`, `counter()`/`counters()`, open/close-quote), CSS
   counters (`counter-reset`/`counter-increment`), `quotes`.
@@ -191,6 +194,15 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   as a color value, even though they'd be meaningful to this renderer
   specifically — use `#rrggbb` or a named color and let automatic
   downsampling handle the terminal's actual palette.
+- **`list-style-type`/`symbols()` implement only a small slice of the real
+  spec's predefined counter styles** — `disc`/`circle`/`square`/`decimal`/
+  `lower-alpha`/`upper-alpha`/`lower-roman`/`upper-roman`/a quoted
+  string/`symbols()`, versus the full
+  [CSS Counter Styles](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/list-style-type)
+  list (`armenian`, `georgian`, the CJK/Japanese/Korean variants, `hebrew`,
+  `devanagari`, `disclosure-open`/`disclosure-closed`, etc. — see "Not
+  Supported" below). `symbols()` itself is a real CSS Counter Styles
+  function, just without its `<symbols-type>` keyword or image arguments.
 
 ### Terminal-Native Additions
 
@@ -208,9 +220,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `::-webkit-scrollbar-*` in Chromium); this is htmlterm's own equivalent,
   including clickable cap buttons with no real precedent at all. See
   `docs/SCROLLBARS.md`.
-- **`list-style-type: symbols("a" "b" ...)`** — cycles a custom bullet list
-  per item; a simplified take on the real CSS Counter Styles spec's
-  `symbols()` function (no `<symbols-type>` keyword or image arguments).
 - **OSC 8 terminal hyperlinks** for `<a href>` — an actual terminal escape
   sequence, emitted automatically, not a CSS feature at all.
 
@@ -221,17 +230,25 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **CSS math/variables:** `calc()`, `min()`, `max()`, `clamp()`, custom
   properties (`--foo`).
 - **At-rules:** `@media`, `@font-face`, `@keyframes`, `@import`,
-  `@charset`, `@supports`, `@page`, etc. — the parser recognizes any
-  `@`-rule and skips it as a unit rather than erroring or corrupting the
-  rest of the stylesheet, but none of them do anything.
+  `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
+  styles), etc. — the parser recognizes any `@`-rule and skips it as a unit
+  rather than erroring or corrupting the rest of the stylesheet, but none
+  of them do anything.
 - **Pseudo-classes/elements beyond the supported list** — notably
   `:active` and any real mouse-hover semantics.
 - **Layout models:** `display: grid`, `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
-  `inline-flex`/`table`/`contents`/`none`; positioned layout
-  (`position: absolute/relative/fixed`, `z-index` as a general mechanism —
-  see `docs/RENDERING.md` for the one special-cased exception, `<select>`'s
-  popup); `float`/`clear`.
+  `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.
+- **Positioned layout:** `position: absolute/relative/fixed`, `z-index`, or
+  any CSS property surface for overlays in general — `<select>`'s dropdown
+  is the only overlay that exists today, and it's driven by Go code
+  (`select_popup.go`), not a general CSS positioning mechanism a document
+  author could invoke on arbitrary elements. The underlying compositing
+  primitives it's built on (line-splicing already-rendered output, shifting
+  a sub-rendered box's positions by an offset) are general-purpose and
+  reused elsewhere in the render engine, not select-specific internals — so
+  this is a "not built yet" gap, not an architectural wall. See
+  `docs/RENDERING.md`.
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.
 - **Flexbox gaps:** `flex-wrap`, `align-content`, applied `flex-shrink`
@@ -241,10 +258,25 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Table gaps:** `border-spacing`/cell padding (column separators are
   always exactly one character), multi-line cell content combined with
   `white-space: nowrap`.
+- **List gaps:** `list-style-image`; most of the real spec's predefined
+  `list-style-type` counter styles — `armenian`/`lower-armenian`/
+  `upper-armenian`, `georgian`, the CJK/Japanese/Korean variants
+  (`cjk-decimal`, `cjk-ideographic`, `japanese-formal`/`informal`,
+  `korean-hangul-formal`, etc.), `hebrew`, `devanagari` and the other
+  script-specific systems, `disclosure-open`/`disclosure-closed`,
+  `decimal-leading-zero`, `lower-greek` — only the small Western subset
+  listed above under "At a Glance" is implemented.
 - **`<select>` gaps:** `<optgroup>`, per-`<option>` border/padding/width —
   see `docs/SELECT.md`.
-- **Scrollbar gaps:** horizontal scrollbars (only `overflow-y` gets a
-  gutter) — see `docs/SCROLLBARS.md`.
+- **Horizontal scrolling doesn't exist at any layer, not just the
+  scrollbar widget.** `overflow-x: scroll`/`auto` create no scrollable
+  viewport at all — silently identical to `visible` (only `overflow-x:
+  hidden`/`clip` do anything, and that's a one-time truncation, not
+  scrolling); `overflow-y` is the only axis with real scroll-offset
+  behavior. There is correspondingly no horizontal scrollbar gutter/
+  gutter styling (see `docs/SCROLLBARS.md`) and, on the DOM/Events side, no
+  `ScrollLeft`/`SetScrollLeft` and no horizontal wheel delta (see DOM &
+  Events below).
 - **`font-size`** — there is no concept of font size at all; terminal
   glyphs are a fixed cell size.
 
@@ -328,6 +360,23 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   event names above are ever dispatched.
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-
   change observation API; a host must re-render after mutating.
+- **Horizontal scrolling** — `Document.ScrollTop`/`SetScrollTop` have no
+  `ScrollLeft`/`SetScrollLeft` counterpart, and `DispatchWheel(row, col,
+  delta int)` takes a single (vertical) delta with no horizontal axis at
+  all — matching `overflow-x` never creating a scrollable viewport in the
+  first place (see CSS above).
+- **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
+  which doesn't exist on Windows at all — a compile-time constraint there,
+  not just an unverified one. The rest of the interactive layer (raw
+  terminal mode via `golang.org/x/term`) is POSIX-oriented and hasn't been
+  verified on Windows either.
+- **Concurrent access.** A `Document` has no internal locking — `Loop.Run`'s
+  own goroutine is the only place that may ever mutate a `Document` or
+  trigger a repaint; timer callbacks and dispatched event handlers all run
+  there too. There's no DOM-level concurrency model to compare this against
+  (browsers are single-threaded per document too), but it's worth stating
+  plainly for Go callers: calling `Document` methods from multiple
+  goroutines is not safe.
 
 ---
 
@@ -338,6 +387,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **docs/SCROLLBARS.md** — scrollbar gutter styling in full.
 - **docs/SCROLLING.md** — the scrolling/viewport design.
 - **docs/INTERACTIVE.md** — the `Document`/`Element`/events design history.
+- **SECURITY.md** — a different axis from this doc (safety against
+  untrusted HTML/CSS, not fidelity to spec): terminal escape-sequence
+  stripping, and `StripHiddenInline`/`IgnoreDocumentCSS` for content a
+  browser would render invisibly but htmlterm can remove structurally.
 - **docs/RENDERING.md** — the rendering engine's own internals, including
   why popups (`<select>`'s dropdown) are the one exception to "no
   positioned layout."
