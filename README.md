@@ -29,7 +29,7 @@ See [CSS.md](./CSS.md) for the full supported surface:
 - **Layout and styling:** `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`
 - **Tables:** column sizing, wrapping, alignment, border styles, `<colgroup>` / `<col>`
 
-New to the project or wondering how something differs from a browser? [COMPATIBILITY.md](./COMPATIBILITY.md) is the orientation read — what's supported at a glance, what deviates from the W3C spec and why (text cells, not pixels), what's a terminal-native addition with no browser equivalent, and what's simply not implemented. CSS.md stays the exhaustive per-property reference.
+New to the project or wondering how something differs from a browser? [COMPATIBILITY.md](./COMPATIBILITY.md) is the orientation read across all three surfaces this project reinterprets — HTML, CSS, and the DOM/Events API: what's supported at a glance, what deviates from spec and why (text cells, not pixels; no scripting engine), what's a terminal-native addition with no browser equivalent, and what's simply not implemented. CSS.md stays the exhaustive per-property CSS reference.
 
 ## Install
 
