@@ -153,21 +153,24 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   transparency.
 - **`border-width`/`border-*-width`** parse without error but are always a
   no-op — a box-drawing character has no notion of line thickness separate
-  from the glyph itself. Use `border-style: thick` or a custom glyph
+  from the glyph itself. Use `border-style: heavy` or a custom glyph
   instead.
 - **`border-style` values don't match real CSS's keyword set.** Real CSS
   has `solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/
   `none`/`hidden`; htmlterm's are named ASCII-art presets instead —
-  `solid`/`rounded`/`thick`/`double`/`markdown`/`hidden`/`none` (only
+  `solid`/`rounded`/`heavy`/`double`/`markdown`/`hidden`/`none` (only
   `solid`/`double`/`none`/`hidden` overlap in name with real CSS, and even
   those pick a specific box-drawing character set rather than a line style).
+  `heavy` is deliberately not named `thick`, to avoid colliding with real
+  CSS's `border-width: thick` keyword.
 - **The `border`/`border-<edge>` shorthand is matched positionally, not by
-  CSS value type** — this engine's own `border-style` vocabulary includes
-  `thick`, which collides with real CSS's `thick` *border-width* keyword.
-  A consequence: the real-CSS two-value `<width> <style>` form (no color)
-  is indistinguishable from this engine's `<style> <color>` form and is
-  silently dropped — use the three-value form or set `border-style`
-  directly.
+  CSS value type** — real CSS's border shorthand allows `<width>`/
+  `<style>`/`<color>` in any order, and a real width keyword like `thick`
+  can't be distinguished from a style keyword by content alone once it's in
+  an unexpected slot. A consequence: the real-CSS two-value `<width>
+  <style>` form (no color) is indistinguishable from this engine's
+  `<style> <color>` form and is silently dropped — use the three-value form
+  or set `border-style` directly.
 - **`:hover` has no real pointer-hover meaning** — the only place it
   matches anything is `option:hover` inside an open `<select>` popup,
   repurposed to mean "the arrow-key-highlighted option" (see

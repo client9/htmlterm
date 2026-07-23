@@ -509,9 +509,12 @@ Shorthand for `border-style` plus `border-color` on the whole box (all four
 edges uniformly — there is no per-edge form of this shorthand; use the
 individual `border-top`/`border-right`/`border-bottom`/`border-left` and
 `border-*-color` longhands for that). Values are matched **positionally**,
-not by type, since this engine's `border-style` vocabulary includes `thick`,
-which collides with real CSS's `thick` border-width keyword — positional
-matching resolves `border: thick solid red` correctly regardless.
+not by type: real CSS's `border` shorthand allows `<width>`/`<style>`/
+`<color>` in any order, and a real width keyword like `thick` can't be
+distinguished from a style keyword by content alone once it's in an
+unexpected slot — positional matching sidesteps that, resolving
+`border: thick solid red` correctly (slot 0 of a 3-token value is always
+the ignored width) regardless of what `thick` means to either vocabulary.
 
 | Values | Meaning |
 |--------|---------|
@@ -531,15 +534,18 @@ silently dropped like any other unrecognized value. Set `border-style`
 directly instead. Not inherited.
 
 #### `border-style`
-`solid` | `rounded` | `thick` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
+`solid` | `rounded` | `heavy` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
+
+**Note:** these preset names are htmlterm's own vocabulary, not real CSS's `border-style` keyword set (`solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/`none`/`hidden`) — only `solid`/`double`/`none`/`hidden` overlap in name; `rounded`/`heavy`/`markdown` are terminal-specific box-drawing presets with no real-CSS equivalent. `heavy` (drawn with Unicode "Box Drawings Heavy" characters, e.g. `┏━┓`) was deliberately not named `thick`, to avoid colliding with real CSS's `border-width: thick` keyword — see [`border`](#border) above for why that distinction matters.
 
 #### `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width`
 Accepted (parsed without error) and always a no-op. Terminal box-drawing
 characters have no notion of a line-thickness distinct from the character
-itself — draw a thicker border with `border-style: thick` or a custom
-`border-top`/`border-left`/etc. character instead. These properties exist
-purely so real-world CSS (e.g. copy-pasted `border: 1px solid red`, split
-into its longhands) doesn't need to be edited before use. Not inherited.
+itself — draw a heavier-looking border with `border-style: heavy` or a
+custom `border-top`/`border-left`/etc. character instead. These properties
+exist purely so real-world CSS (e.g. copy-pasted `border: 1px solid red`,
+split into its longhands) doesn't need to be edited before use. Not
+inherited.
 
 #### `border-left`, `border-right`, `border-top`, `border-bottom`
 Each accepts **two different forms**, dispatched on whether the value is quoted:
@@ -883,7 +889,7 @@ with the properties below.
 |-------|-----------|
 | `solid` | `┌─┬─┐ │ │ ├─┼─┤ └─┴─┘` (default) |
 | `rounded` | `╭─┬─╮ │ │ ├─┼─┤ ╰─┴─╯` |
-| `thick` | `┏━┳━┓ ┃ ┃ ┣━╋━┫ ┗━┻━┛` |
+| `heavy` | `┏━┳━┓ ┃ ┃ ┣━╋━┫ ┗━┻━┛` |
 | `double` | `╔═╦═╗ ║ ║ ╠═╬═╣ ╚═╩═╝` |
 | `markdown` | `\| - \|` style; no top or bottom border |
 | `standard` | No outer frame, no column separators, `─` header underline, space between columns |

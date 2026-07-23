@@ -78,7 +78,7 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "border three values ignore leading width", prop: "border", val: "1px solid red", want: map[string]string{
 			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
 		}},
-		{name: "border three values with keyword width matching a style name still resolves positionally", prop: "border", val: "thick solid red", want: map[string]string{
+		{name: "border three values with real CSS width keyword still resolves positionally", prop: "border", val: "thick solid red", want: map[string]string{
 			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
 		}},
 		{name: "border functional color is not split on internal spaces", prop: "border", val: "solid rgb(255 0 0)", want: map[string]string{

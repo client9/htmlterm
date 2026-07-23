@@ -6,7 +6,7 @@ func TestBorderStyleOnBlocks(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "border-style:solid draws full box", html: `<div style="border-style:solid; width:100%">hi</div>`, width: 8, want: "┌──────┐\n│hi    │\n└──────┘\n"},
 		{name: "border-style:rounded draws rounded box", html: `<div style="border-style:rounded; width:100%">hi</div>`, width: 8, want: "╭──────╮\n│hi    │\n╰──────╯\n"},
-		{name: "border-style:thick draws thick box", html: `<div style="border-style:thick; width:100%">hi</div>`, width: 8, want: "┏━━━━━━┓\n┃hi    ┃\n┗━━━━━━┛\n"},
+		{name: "border-style:heavy draws heavy box", html: `<div style="border-style:heavy; width:100%">hi</div>`, width: 8, want: "┏━━━━━━┓\n┃hi    ┃\n┗━━━━━━┛\n"},
 		{name: "border-style:double draws double box", html: `<div style="border-style:double; width:100%">hi</div>`, width: 8, want: "╔══════╗\n║hi    ║\n╚══════╝\n"},
 		{name: "border-style:markdown draws only left/right bars", html: `<div style="border-style:markdown">hi</div>`, want: "|hi|\n"},
 		{name: "border-style:hidden draws no borders", html: `<div style="border-style:hidden">hi</div>`, want: "hi\n"},

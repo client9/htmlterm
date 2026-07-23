@@ -445,7 +445,7 @@ evoking the flat, non-glyph classic Mac/Windows scrollbar look — plain
 are not independently CSS-configurable through the `scrollbar-style`
 keyword itself — the design choice here is that `scrollbar-style` names a
 small, fixed set of *complete* presets (mirroring `border-style`'s own
-`solid`/`rounded`/`thick`/`double` preset model in spirit), not a
+`solid`/`rounded`/`heavy`/`double` preset model in spirit), not a
 parameterized shorthand; a different palette on `classic` is one
 `::scrollbar-thumb { background-color: … }` rule away, using the
 property-level override the merge already supports.

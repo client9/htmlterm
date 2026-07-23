@@ -276,7 +276,7 @@ func TestTableBorderStyles(t *testing.T) {
 		return `<table style="border-style:` + style + `"><tr><th style="width:3">H</th></tr><tr><td>A</td></tr></table>`
 	}
 	runCases(t, []renderCase{
-		{name: "thick border style", html: oneCol("thick"), want: "┏━━━┓\n┃H  ┃\n┣━━━┫\n┃A  ┃\n┗━━━┛\n"},
+		{name: "heavy border style", html: oneCol("heavy"), want: "┏━━━┓\n┃H  ┃\n┣━━━┫\n┃A  ┃\n┗━━━┛\n"},
 		{name: "double border style", html: oneCol("double"), want: "╔═══╗\n║H  ║\n╠═══╣\n║A  ║\n╚═══╝\n"},
 		{name: "markdown border style", html: oneCol("markdown"), want: "|H  |\n|---|\n|A  |\n"},
 		{name: "standard border style", html: oneCol("standard"), want: "H  \n───\nA  \n"},

@@ -87,7 +87,7 @@ func namedTableStyle(name string) (tableStyle, bool) {
 			bottom: &hBorder{"╰", "─", "┴", "╯"},
 			left:   "│", sep: "│", right: "│",
 		}, true
-	case "thick":
+	case "heavy":
 		return tableStyle{
 			top:    &hBorder{"┏", "━", "┳", "┓"},
 			header: &hBorder{"┣", "━", "╋", "┫"},
@@ -122,7 +122,7 @@ func namedTableStyle(name string) (tableStyle, bool) {
 // applyTableCSSToStyle applies border-* CSS declarations from a <table> element
 // to ts, returning the modified style. Supported properties:
 //
-//	border-style: solid | rounded | thick | double | markdown | standard | hidden | none
+//	border-style: solid | rounded | heavy | double | markdown | standard | hidden | none
 //	border-top/-right/-bottom/-left: same literal-glyph + shorthand grammar as
 //	  block elements (see resolveBorderEdgeChar) - a quoted string is a
 //	  literal character, an unquoted value is the standard CSS
