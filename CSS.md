@@ -51,7 +51,7 @@ styles.
 `:nth-child(<An+B>)`, `:nth-last-child(<An+B>)`, `:nth-of-type(<An+B>)`,
 `:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`,
 `:is(<selector-list>)`, `:where(<selector-list>)`, `:checked`,
-`:disabled`, `:required`, `:focus`. `:root` matches the document element
+`:disabled`, `:required`, `:focus`, `:hover`. `:root` matches the document element
 (`html` for parsed HTML documents/fragments). The `:nth-*` family accepts the
 full CSS `An+B` micro-syntax (`odd`, `even`, `3`, `2n`, `2n+1`, `-n+3`, etc.),
 matched against sibling position (`:nth-child`/`:nth-last-child`) or position
@@ -75,6 +75,9 @@ the real HTML `checked`/`disabled`/`required` attributes' presence. `:focus`
 matches whichever element `Element.Focus` (see the package godoc's events
 section) most recently marked focused; it has no meaning against
 `Renderer.Render`'s one-shot rendering, only against a live `Document`.
+`:hover` has no meaning for real pointer movement in a terminal; the only
+place it matches anything is `option:hover` inside an open `<select>` popup
+— see `docs/SELECT.md`.
 
 **Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::scrollbar`,
 `::scrollbar-track`, and `::scrollbar-thumb` (all also accepted with a single
@@ -95,7 +98,7 @@ match), `[attr~=val]` (whitespace-separated word), `[attr|=val]` (exact value
 or value followed by `-`), `[attr^=val]` (prefix), `[attr$=val]` (suffix), and
 `[attr*=val]` (substring).
 
-**Not supported:** `:hover`, `:active`, and other pseudo-classes beyond those
+**Not supported:** `:active`, and other pseudo-classes beyond those
 listed above.
 
 ---
@@ -178,7 +181,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `input` | Void element; content is synthesized from attributes, not children (default: `display: inline-block`). `type="checkbox"` → `☐`/`☑` based on the `checked` attribute; `type="radio"` → `○`/`●`; `type="submit"`/`"reset"`/`"button"` → `[ Label ]` using `value` (falling back to "Submit"/"Reset"/"Button"); `type="hidden"` → nothing; every other type (including the default, unset type) → `[value]`, falling back to `[placeholder]` when `value` is absent. `Element.Value()`/`SetValue()`/`Checked()`/`SetChecked()` read and write the exact attributes this renders from. |
 | `button` | Renders its children normally, wrapped in brackets via the UA stylesheet's `button::before { content: "[ "; }` / `button::after { content: " ]"; }` (default: `display: inline-block`). |
 | `textarea` | Multi-line bordered box (default: `display: block; border-style: solid; padding-left: 1; padding-right: 1`). Shows the `value` attribute if set (matching `Element.Value()`/`SetValue()`); otherwise falls back to its child text, with one leading newline right after the opening tag ignored, per the HTML spec's default-value rule. |
-| `select` | Void of its own text content; content is synthesized from `<option>` children (default: `display: inline-block`). Closed state shows the selected option's label (the first `<option selected>`, else the first `<option>`) bracketed with a disclosure indicator, e.g. `[ Banana ▾]`. On a live `Document` (not plain `Renderer.Render`, which has no interactivity), clicking or pressing Enter/Space while focused opens a dropdown popup listing every `<option>`, reverse-video styled and positioned directly beneath the control — see `docs/RENDERING.md`'s "Popups / z-order" section for the compositing mechanism. Clicking an option selects it and closes the popup; Escape closes it without changing the selection; ArrowUp/ArrowDown change the selection directly whether the popup is open or closed. `<option>` elements nested inside an `<optgroup>` are not supported — only a `<select>`'s direct `<option>` children are read. `Element.Value()`/`SetValue()` read and write the selected option's `value` attribute (falling back to its text content), mirroring `HTMLSelectElement.value`. |
+| `select` | Void of its own text content; content is synthesized from `<option>` children (default: `display: inline-block`). Closed state shows the selected option's label bracketed with a disclosure indicator, e.g. `[ Banana ▾]`, styled like any other inline-block element. On a live `Document`, clicking or pressing Enter/Space while focused opens a dropdown popup listing every `<option>`, independently styleable via CSS. `Element.Value()`/`SetValue()` read and write the selected option's `value` attribute, mirroring `HTMLSelectElement.value`. **See `docs/SELECT.md`** for the full styling reference (popup border/padding/margin/width, per-option colors, `option:hover`, fallback behavior) and interactive keybindings. |
 
 ---
 

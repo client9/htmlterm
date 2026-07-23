@@ -263,7 +263,57 @@ hit-testing code of their own. If there isn't already enough room below the
 select for every option, the popup either grows the document with extra
 blank rows (natural/automatic height) or clips to whatever room remains
 (an `Options.Height`-fixed viewport, so as not to exceed the caller's
-requested size) — see `compositeOpenSelects`'s `canGrow` parameter.
+requested size) — see `compositeOpenSelects`'s `canGrow` parameter. When
+clipping is forced, option rows are dropped first, then the bottom
+border/padding, and the top border/padding last, so a clipped popup never
+renders headless.
+
+**CSS-styled popups**: the popup's rows are no longer unconditionally
+reverse-video wrapped — `overlay_box.go`'s `resolveOverlayBoxStyle` resolves
+the `<select>`'s own cascaded declarations (via `Engine.resolveDecls`, the
+same cascade every other element uses) into an `overlayBoxStyle`: border
+(`resolveBoxBorders`), padding (`parsePaddingLen`), `margin-left`/`margin-top`
+(`resolveMarginSide`/`parseMargin` — `margin-right`/`margin-bottom` have no
+effect on a floating overlay with nothing following it to push against),
+width (`resolveWidthConstraints`), and a base `inlineStyle`
+(`extractInlineStyle`) for background-color/color. `drawOverlayFrame` splices
+the border/padding rows around the option rows the same way
+`renderBlockContentBox` composes a real block box's border+padding, just by
+hand rather than through the full box-tree pipeline — the popup still has no
+node of its own in the box tree, so it can't be routed through that pipeline
+directly (see this section's opening paragraph: it's still a line-splice
+overlay, not a real box).
+
+Each `<option>` row resolves its own `background-color`/`color`
+(`resolveOptionRowStyle` in `select_popup.go`), falling back to the
+`<select>`'s own base style for whichever of foreground/background it
+doesn't set itself. The `▸`-highlighted (arrow-key) row is exposed to CSS as
+`option:hover` — a repurposing of the `:hover` pseudo-class via the same
+synthetic-attribute mechanism `:focus` already uses (`cssengine.Cascade`'s
+`FocusAttr` gets a sibling `HoverAttr`, wired to `Engine.selectHighlightAttr`
+in `render/cascade.go`'s `cascade()`); `option[selected]` needs no engine
+change at all, since attribute selectors already match generically. Only
+when nothing in that chain (`<select>`, `<option>`, `option:hover`) sets a
+color does a row fall back to the historical hardcoded
+`"\x1b[7m"`/`"\x1b[27m"` reverse-video wrap — `TestSelectPopupComposition`
+pins that this fallback still renders byte-identically to before CSS support
+existed.
+
+Adding border/padding shifts each option's synthetic `Rect` by the border
+and padding columns/rows — the `Rect` recorded for hit-testing is the
+content sub-rectangle only (excluding the border/padding), so a click that
+lands on the popup's own chrome rather than an option's text is not
+misattributed to that option. Per-option border/padding/width are not
+supported — every row shares the popup's own content width, matching a real
+`<select>`'s option list, which is uniform width regardless of a browser's
+own OS-native rendering of individual rows.
+
+`overlay_box.go`'s primitives (`overlayBoxStyle`, `resolveOverlayBoxStyle`,
+`drawOverlayFrame`) are deliberately not select-specific — they're written so
+a future overlay (a tooltip, a context menu — see `docs/INTERACTIVE.md`'s
+"Popups / z-order beyond `<select>`" gap) can resolve and draw its own
+bordered/padded box against its own trigger node the same way, with only its
+own per-row/per-item content styling staying bespoke.
 
 ### Public API
 

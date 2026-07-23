@@ -584,10 +584,10 @@ func TestAttrSelectorBracketInsideQuotedValue(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector(`[title="a]b"]`)
-	if !matchSelector(findElementByID(doc, "a"), parts, "") {
+	if !matchSelector(findElementByID(doc, "a"), parts, "", "") {
 		t.Errorf(`[title="a]b"] should match #a`)
 	}
-	if matchSelector(findElementByID(doc, "b"), parts, "") {
+	if matchSelector(findElementByID(doc, "b"), parts, "", "") {
 		t.Errorf(`[title="a]b"] should not match #b`)
 	}
 }
@@ -627,7 +627,7 @@ func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, ""); got != tc.want {
+		if got := matchSelector(n, parts, "", ""); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "p:not(.a):is(.b, .c)", tc.id, got, tc.want)
 		}
 	}
@@ -666,7 +666,7 @@ func TestNotWithSelectorList(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, ""); got != tc.want {
+		if got := matchSelector(n, parts, "", ""); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "a:not(.a, .b)", tc.id, got, tc.want)
 		}
 	}
@@ -709,7 +709,7 @@ func TestNotPreservesArgumentCase(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, ""); got != tc.want {
+		if got := matchSelector(n, parts, "", ""); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:not(.Foo)", tc.id, got, tc.want)
 		}
 	}
@@ -735,10 +735,10 @@ func TestIsPreservesIDCase(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector("div:is(#MyId)")
-	if !matchSelector(findElementByID(doc, "MyId"), parts, "") {
+	if !matchSelector(findElementByID(doc, "MyId"), parts, "", "") {
 		t.Errorf(`div:is(#MyId) should match id="MyId"`)
 	}
-	if matchSelector(findElementByID(doc, "myid"), parts, "") {
+	if matchSelector(findElementByID(doc, "myid"), parts, "", "") {
 		t.Errorf(`div:is(#MyId) should not match id="myid"`)
 	}
 }
@@ -761,7 +761,7 @@ func TestNthChildArgumentStillMatchesRegardlessOfCase(t *testing.T) {
 		{"l3", true},
 	}
 	for _, tc := range tests {
-		if got := matchSelector(findElementByID(doc, tc.id), parts, ""); got != tc.want {
+		if got := matchSelector(findElementByID(doc, tc.id), parts, "", ""); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "li:NTH-CHILD(2N+1)", tc.id, got, tc.want)
 		}
 	}
@@ -792,7 +792,7 @@ func TestAttrSelectorNameIsCaseInsensitive(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector("div[DATA-FOO]")
-	if !matchSelector(findElementByID(doc, "d1"), parts, "") {
+	if !matchSelector(findElementByID(doc, "d1"), parts, "", "") {
 		t.Errorf(`div[DATA-FOO] should match data-foo attribute`)
 	}
 }
@@ -948,7 +948,7 @@ func TestStructuralPseudoClasses(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, ""); got != tc.want {
+			if got := matchSelector(n, parts, "", ""); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -999,7 +999,7 @@ func TestGeneralSiblingCombinator(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, ""); got != tc.want {
+			if got := matchSelector(n, parts, "", ""); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -1094,7 +1094,7 @@ func TestIsWherePseudoClasses(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, ""); got != tc.want {
+			if got := matchSelector(n, parts, "", ""); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -1110,5 +1110,41 @@ func TestIsWherePseudoClasses(t *testing.T) {
 	// :is() takes the specificity of its most specific argument.
 	if got := specificity(parseSelector(":is(.a, #b, span)")); got != (specificityScore{ids: 1}) {
 		t.Fatalf("specificity(%q) = %#v, want {ids:1}", ":is(.a, #b, span)", got)
+	}
+}
+
+// TestHoverPseudoMatchesSyntheticAttr mirrors :focus's own synthetic-attribute
+// mechanism (matchPseudo's "focus" case): :hover has no real meaning in a
+// terminal, so it's repurposed to match whichever node carries the caller's
+// chosen hoverAttr — the render engine wires this to its
+// selectHighlightAttr, making `option:hover` mean "the arrow-key-highlighted
+// option in an open <select> popup" (see render.Engine.cascade).
+func TestHoverPseudoMatchesSyntheticAttr(t *testing.T) {
+	doc, err := html.Parse(strings.NewReader(`<p id="a" data-hl>x</p><p id="b">y</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("p:hover")
+	if !matchSelector(findElementByID(doc, "a"), parts, "", "data-hl") {
+		t.Errorf("p:hover should match #a, which carries the hover attr")
+	}
+	if matchSelector(findElementByID(doc, "b"), parts, "", "data-hl") {
+		t.Errorf("p:hover should not match #b, which lacks the hover attr")
+	}
+	// With no hoverAttr configured (the default zero value), :hover never
+	// matches anything — same convention :focus already has via focusAttr.
+	if matchSelector(findElementByID(doc, "a"), parts, "", "") {
+		t.Errorf("p:hover should not match #a when no hoverAttr is configured")
+	}
+
+	cascade := Cascade{
+		Rules:     []Rule{{parts: parseSelector("p:hover"), decls: map[string]declValue{"background-color": {value: "green"}}}},
+		HoverAttr: "data-hl",
+	}
+	if got := cascade.Resolve(findElementByID(doc, "a"))["background-color"]; got != "green" {
+		t.Errorf(`Cascade{HoverAttr: "data-hl"}.Resolve(#a)["background-color"] = %q, want "green"`, got)
+	}
+	if _, ok := cascade.Resolve(findElementByID(doc, "b"))["background-color"]; ok {
+		t.Errorf(`Cascade.Resolve(#b) should not pick up the p:hover rule (no hover attr)`)
 	}
 }

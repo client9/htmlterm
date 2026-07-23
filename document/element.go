@@ -213,7 +213,7 @@ func (e *Element) Children() []*Element {
 // Document.QuerySelector (see CSS.md), including comma-separated selector
 // groups.
 func (e *Element) Matches(sel string) bool {
-	return cssengine.ParseSelectorGroup(sel).Match(e.node, focusAttr)
+	return cssengine.ParseSelectorGroup(sel).Match(e.node, focusAttr, "")
 }
 
 // Closest returns the nearest element in e's own inclusive ancestor chain
@@ -226,7 +226,7 @@ func (e *Element) Matches(sel string) bool {
 func (e *Element) Closest(sel string) *Element {
 	group := cssengine.ParseSelectorGroup(sel)
 	for n := e.node; n != nil; n = n.Parent {
-		if n.Type == html.ElementNode && group.Match(n, focusAttr) {
+		if n.Type == html.ElementNode && group.Match(n, focusAttr, "") {
 			return &Element{node: n, doc: e.doc}
 		}
 	}

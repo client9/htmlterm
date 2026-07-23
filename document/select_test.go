@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/client9/htmlterm"
 	"github.com/client9/htmlterm/document"
 )
 
@@ -65,6 +66,55 @@ func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 	}
 	if strings.Contains(out, "Apple") {
 		t.Errorf("popup still rendered after selecting an option, want it closed: %q", out)
+	}
+}
+
+// TestSelectPopupStyledWithBorderPaddingStillClickable is an end-to-end
+// regression for the popup's CSS-driven border/padding: opening the popup
+// through a real click (not the internal render package's own unit tests)
+// must produce a bordered popup in the rendered output, and clicking an
+// option's Rect — now offset by the border+padding columns/rows — must still
+// hit exactly that option, matching real DOM click behavior for a styled
+// dropdown.
+func TestSelectPopupStyledWithBorderPaddingStillClickable(t *testing.T) {
+	src := `<select id="s" style="border: solid; padding: 1">
+<option value="a">Apple</option>
+<option value="b" selected>Banana</option>
+<option value="c">Cherry</option>
+</select>`
+	doc, err := document.ParseDocument(src, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	sel := doc.GetElementByID("s")
+	rect, ok := sel.Rect()
+	if !ok {
+		t.Fatalf("Rect(sel) not found")
+	}
+
+	if !doc.DispatchClick(rect.Row, rect.Col) {
+		t.Fatalf("click on closed select did not hit it")
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "─") {
+		t.Fatalf("popup did not render its CSS border: %q", out)
+	}
+
+	cherryRect, ok := doc.QuerySelector(`option[value="c"]`).Rect()
+	if !ok {
+		t.Fatalf("no Rect recorded for the Cherry option while open")
+	}
+	if !doc.DispatchClick(cherryRect.Row, cherryRect.Col) {
+		t.Fatalf("click on Cherry option (offset by border+padding) did not hit it")
+	}
+	if got := sel.Value(); got != "c" {
+		t.Errorf("sel.Value() = %q, want %q", got, "c")
 	}
 }
 

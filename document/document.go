@@ -1028,7 +1028,7 @@ func (d *Document) walkMatching(sel string, visit func(n *html.Node) bool) {
 	var walk func(n *html.Node) bool
 	walk = func(n *html.Node) bool {
 		if n.Type == html.ElementNode {
-			if group.Match(n, focusAttr) {
+			if group.Match(n, focusAttr, "") {
 				if !visit(n) {
 					return false
 				}

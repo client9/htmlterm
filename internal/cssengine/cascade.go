@@ -13,6 +13,13 @@ type Cascade struct {
 	Rules        []Rule
 	IgnoreInline bool
 	FocusAttr    string
+	// HoverAttr is a synthetic marker attribute, matched the same way
+	// FocusAttr drives :focus: a node carrying HoverAttr matches :hover.
+	// Real terminal output has no pointer to hover with, so this is
+	// repurposed by the render engine to mean "the arrow-key-highlighted
+	// <option> in an open <select> popup" (see render.Engine's
+	// selectHighlightAttr) rather than true mouse hover.
+	HoverAttr string
 
 	// Cache, if non-nil, memoizes Direct's per-node result across every
 	// Resolve/Direct call sharing this map. Resolve's ancestor walk calls
@@ -169,7 +176,7 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 	}
 	var matches []ruleMatch
 	for _, rl := range c.Rules {
-		if matchSelector(n, rl.parts, c.FocusAttr) {
+		if matchSelector(n, rl.parts, c.FocusAttr, c.HoverAttr) {
 			matches = append(matches, ruleMatch{specificity(rl.parts), rl.decls})
 		}
 	}
@@ -210,7 +217,7 @@ func (c Cascade) PseudoElement(n *html.Node, which string) map[string]string {
 		// than mutating it in place the way the pre-caching code used to.
 		parts := append([]selectorPart(nil), rl.parts...)
 		parts[len(parts)-1].pseudoElem = ""
-		if matchSelector(n, parts, c.FocusAttr) {
+		if matchSelector(n, parts, c.FocusAttr, c.HoverAttr) {
 			matches = append(matches, ruleMatch{specificity(parts), rl.decls})
 		}
 	}

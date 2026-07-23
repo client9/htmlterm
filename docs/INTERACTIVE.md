@@ -31,7 +31,15 @@ full — see that document's own migration-step history. With it in place:
 - The popup column-splicing primitive (`spliceColumns`) is **done and
   wired**: `select_popup.go`'s `compositeOpenSelects` is its first (and so
   far only) caller, driving `<select>`'s dropdown — see RENDERING.md's
-  "Popups / z-order" section.
+  "Popups / z-order" section. The popup is also **CSS-styled**: border,
+  padding, margin-left/margin-top, width, and background-color/color on
+  `<select>`/`<option>` (falling back to the historical reverse-video wrap
+  when none of those are set), plus `option:hover` for the arrow-key-
+  highlighted row via a synthetic-attribute pseudo-class (the same mechanism
+  `:focus` already uses, see `cssengine.Cascade.HoverAttr`). The
+  border/padding/margin resolution and frame-drawing live in
+  `overlay_box.go`, factored out as a non-select-specific primitive any
+  future overlay can reuse (see "Popups / z-order beyond `<select>`" below).
 - The event system (below) is **done**.
 
 ## Phase 1 (done): `Document` + `Element`
@@ -276,8 +284,11 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
 ## Also deferred, not on the critical path
 
 - **Popups / z-order beyond `<select>`:** `<select>`'s dropdown is now
-  implemented — see RENDERING.md's "Popups / z-order" section and
-  `select_popup.go`. Any *other* floating/overlay use case (a tooltip, a
-  context menu, a modal) would reuse the same `spliceColumns`-based
-  compositing pattern, but none of those has a driving use case yet, so
-  nothing beyond `<select>` is built.
+  implemented, including CSS styling — see RENDERING.md's "Popups / z-order"
+  section, `select_popup.go`, and `overlay_box.go`. Any *other*
+  floating/overlay use case (a tooltip, a context menu, a modal) would reuse
+  the same `spliceColumns`-based compositing pattern, and can resolve its own
+  border/padding/margin/width/base-color geometry via `overlay_box.go`'s
+  `resolveOverlayBoxStyle`/`drawOverlayFrame` — deliberately factored out
+  non-select-specific for exactly this — but none of those has a driving use
+  case yet, so nothing beyond `<select>` is built.
