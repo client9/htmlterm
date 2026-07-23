@@ -4,6 +4,11 @@ htmlterm renders a restricted subset of HTML+CSS to terminal strings.
 This document lists every selector form, HTML element, and CSS property
 that is recognized. Anything not listed here is silently ignored.
 
+This is the exhaustive, property-by-property reference. For an orientation
+read instead — what's supported at a glance, what deviates from the W3C
+spec and why, what's a terminal-native addition with no browser equivalent,
+and what's simply not implemented — see **[COMPATIBILITY.md](./COMPATIBILITY.md)**.
+
 ---
 
 ## Selectors
