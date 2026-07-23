@@ -701,7 +701,7 @@ type scrollbarStyle struct {
 // ScrollbarGutterWidth is the default column width reserved for the
 // scrollbar gutter when overflow-y:scroll is set and no ::scrollbar width
 // declaration overrides it — see docs/SCROLLING.md's "Scrollbar gutter and
-// indicator" and CSS.md's "Scrollbar pseudo-elements" section. Exported (via
+// indicator" and docs/SCROLLBARS.md. Exported (via
 // htmlterm.ScrollbarGutterWidth) so callers who pre-render content outside a
 // scrollable Document/Renderer pass (e.g. to cache an expensive layout, then
 // splice it into a live scrollable pane via Document.SetPreRendered) can

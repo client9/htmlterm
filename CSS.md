@@ -86,8 +86,7 @@ element's content; they require the `content` property. `::marker` styles the li
 prefix (bullet or number) of an `<li>` element; supported properties are `color`,
 `background-color`, `font-weight`, `font-style`, and `text-decoration`.
 `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb` style the scrollbar gutter
-drawn by `overflow-y: scroll` — see [Scrollbar pseudo-elements](#scrollbar-pseudo-elements)
-below.
+drawn by `overflow-y: scroll` — see `docs/SCROLLBARS.md`.
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
 `li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`, etc. A bare
 `::scrollbar-thumb { … }` (no element/class/id prefix) matches every scrollable
@@ -388,125 +387,9 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 
 - **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
 - **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). No visible scrollbar/indicator is drawn.
-- **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved gutter (default 1 column wide) with a track and thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one. The gutter's width and the track/thumb glyphs/colors are styled via `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb` — see [Scrollbar pseudo-elements](#scrollbar-pseudo-elements) below.
+- **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved gutter (default 1 column wide) with a track and thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one. **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*`, `scrollbar-style` presets, cap-button click behavior).
 
-See `docs/SCROLLING.md` for the full design (including why `auto` deliberately never gets an indicator).
-
-### Scrollbar pseudo-elements
-
-`overflow-y: scroll`'s gutter is styled with five pseudo-elements, matched
-against the scrollable element itself (so they can be scoped, e.g.
-`.log-pane::scrollbar-thumb { … }`, or left bare to apply to every scrollable
-element):
-
-| Pseudo-element | Supported properties | Default |
-|---|---|---|
-| `::scrollbar` | `width` (see [Size Values](#size-values); percentages are ignored) | `width: 1ch` (UA stylesheet) |
-| `::scrollbar-track` | `content`, `color`, `background-color`, `font-weight` | `content: "│"` (the `block` [`scrollbar-style`](#scrollbar-style) preset — see below) |
-| `::scrollbar-thumb` | `content`, `color`, `background-color`, `font-weight` | `content: "█"` (same) |
-| `::scrollbar-cap-start` | `content`, `color`, `background-color`, `font-weight` | `content: "▲"` (the `block` preset — see below) |
-| `::scrollbar-cap-end` | `content`, `color`, `background-color`, `font-weight` | `content: "▼"` (same) |
-
-`content` takes the same quoted-string form `::before`/`::after` accept (see
-[`content`](#content) below) and is expected to resolve to exactly one
-character per reserved column — there is no re-wrap pass to correct a
-too-wide glyph, so a multi-column `content` value will misalign the gutter.
-When `::scrollbar { width }` reserves more than one column, the resolved
-track/thumb glyph is repeated across every reserved column, not spread
-across them individually.
-
-```css
-::scrollbar       { width: 1ch; }
-::scrollbar-track { content: "│"; color: gray; background: transparent; font-weight: normal; }
-::scrollbar-thumb { content: "█"; color: white; background: blue; font-weight: bold; }
-```
-
-Scoping to one pane:
-
-```css
-#log::scrollbar-thumb { content: "▓"; color: #ff9e64; }
-```
-
-#### `scrollbar-style`
-
-`block` (default) | `shaded` | `classic` | `ascii` | `line`. Shorthand set on the *scrollable*
-element (not on `::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*`
-themselves) that picks a built-in track/thumb/cap glyph (and, for `classic`,
-background color) preset, without writing out `::scrollbar-track`/
-`::scrollbar-thumb`/`::scrollbar-cap-start`/`::scrollbar-cap-end` rules by
-hand:
-
-| Value | Track | Thumb | Cap start | Cap end |
-|---|---|---|---|---|
-| `block` | `"│"` | `"█"` | `"▲"` | `"▼"` |
-| `shaded` | `"░"` | `"█"` | `"▲"` | `"▼"` |
-| `classic` | `" "` on `background-color: #444444` | `" "` on `background-color: #aaaaaa` | `"▲"` on `background-color: #444444`, `color: #ffffff` | `"▼"` (same colors) |
-| `ascii` | `"\|"` | `"#"` | `"^"` | `"v"` |
-| `line` | `"│"` | `"┃"` | `"▲"` | `"▼"` |
-
-`ascii` uses only plain 7-bit ASCII characters — no box-drawing or block
-glyphs — for terminals/fonts with unreliable Unicode rendering. `line` is
-`block` with a thinner thumb — a bold vertical line (`"┃"`) against the same
-thin track (`"│"`) rather than `block`'s full solid `"█"` thumb.
-
-An unrecognized or unset value falls back to `block`. Any property an
-`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-start`/
-`::scrollbar-cap-end` rule sets directly still overrides just that one
-property from the preset — the preset only fills in whatever the rule
-doesn't mention:
-
-```css
-/* shaded preset's track glyph ("░"), but a custom thumb color on top */
-#log { scrollbar-style: shaded; }
-#log::scrollbar-thumb { color: #ff9e64; }
-```
-
-Not inherited (matches `overflow`'s own non-inherited treatment — a
-`scrollbar-style` set on a non-scrollable ancestor has no scroll box of its
-own to apply to).
-
-#### Scrollbar cap buttons: `::scrollbar-cap-start` / `::scrollbar-cap-end`
-
-Arrow-button cells at the very top (`start`) and bottom (`end`) of the
-gutter — named `start`/`end` rather than `top`/`bottom` to stay meaningful if
-a horizontal scrollbar is added later, matching WebKit's own
-`::-webkit-scrollbar-button:start`/`:end` convention. **On by default
-(opt-out)**: every `scrollbar-style` preset supplies an arrow glyph for both
-ends (see the table above), so `overflow-y: scroll` alone is enough to get
-cap buttons. Override just the glyph/color:
-
-```css
-#log::scrollbar-cap-start { content: "▲"; color: #ff9e64; }
-#log::scrollbar-cap-end   { content: "▼"; color: #ff9e64; }
-```
-
-Opt back out per element with `content: none` (the same convention
-`::before`/`::after` already use to suppress injection):
-
-```css
-#log::scrollbar-cap-start { content: none; }
-#log::scrollbar-cap-end   { content: none; }
-```
-
-When active, a cap claims its end's row entirely (the track/thumb never
-draws there), and the thumb's size/position is computed against the
-remaining interior rows so it never overlaps a cap. If the gutter is too
-short to spare a row per active cap, both caps are dropped for that render
-(not just the one that doesn't fit) and ordinary track/thumb rendering
-applies for the whole column — the same "silently drop the added chrome
-when there's no room" behavior `overflow: scroll`'s gutter reservation
-itself already has. This also means a short gutter (e.g. `height: 2`) shows
-plain track/thumb with no caps, even without an explicit `content: none` —
-there's simply no room.
-
-**Clickable**, on a live `Document`: clicking a cap's cell scrolls its pane
-by one line (matching `ArrowUp`/`ArrowDown`'s own step), the same way a real
-scrollbar arrow button does. Not meaningful against `Renderer.Render`'s
-one-shot rendering, only against a live `Document` (same restriction
-`:focus` and `Element.Focus` already have). A click on a cap does not
-dispatch a `"click"` `Event` on the scrollable element — a cap is rendering
-chrome, not real element content, so it mirrors `Document.DispatchWheel`'s
-direct-scroll behavior rather than an ordinary element click.
+See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` deliberately never gets an indicator).
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.

@@ -52,8 +52,8 @@ an explicit non-goal ("CSS-configurable glyphs/colors for the track/thumb
 characters"), have since shipped too, as `::scrollbar`/`::scrollbar-track`/
 `::scrollbar-thumb` plus a `scrollbar-style: block|shaded|classic|ascii|line` shorthand
 that presets those three pseudo-elements' glyphs/colors in one declaration
-— see "Scrollbar pseudo-elements" below for that design and CSS.md's own
-"Scrollbar pseudo-elements" section for the user-facing reference. Clickable
+— see "Scrollbar pseudo-elements" below for that design and
+`docs/SCROLLBARS.md` for the user-facing reference. Clickable
 arrow-cap buttons at the two ends of the track — `::scrollbar-cap-start`/
 `::scrollbar-cap-end`, on by default and included in every `scrollbar-style`
 preset — have since shipped too; see "Scrollbar cap buttons" below. The rest
@@ -348,8 +348,7 @@ can see everything already," and requiring no special-case branch.
 Default glyphs — `"│"` (track) and `"█"` (thumb) — and the default 1-column
 gutter width are now CSS-configurable via `::scrollbar`/`::scrollbar-track`/
 `::scrollbar-thumb`; see "Scrollbar pseudo-elements" immediately below for
-the mechanism and CSS.md's own "Scrollbar pseudo-elements" section for the
-user-facing reference.
+the mechanism and `docs/SCROLLBARS.md` for the user-facing reference.
 
 ### Scrollbar pseudo-elements: `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`
 
