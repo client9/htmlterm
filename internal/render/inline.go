@@ -280,7 +280,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					if childDecls["visibility"] == "hidden" {
 						bx = blankVisibleContentBox(bx)
 					}
-					pushBoxDirect(bx, tablePositions, 0, c)
+					pushBoxDirect(bx, tablePositions, parseMargin(childDecls["margin-top"]), c)
+					tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
 				} else {
 					savedDepth := r.quoteDepth
 					bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
@@ -288,7 +289,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						r.quoteDepth = savedDepth
 						bx = blankVisibleContentBox(bx)
 					}
-					pushBoxDirect(bx, subPositions, 0, c)
+					pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
+					tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
 				}
 				continue
 			}

@@ -113,10 +113,14 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 			switch n.Data {
 			case "table":
 				if isTableLayoutDisplay(decls["display"]) {
+					if hasContent(tokens) {
+						tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+					}
 					tableContent, tablePositions := r.renderTable(n, r.width)
 					bx := newBox(strings.TrimSuffix(tableContent, "\n"))
 					tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: tablePositions})
 					tokens = append(tokens, wrapToken{brk: true})
+					tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
 				} else {
 					tokens = r.renderRootDisplayTokens(tokens, n)
 				}

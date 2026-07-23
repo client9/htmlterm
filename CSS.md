@@ -173,7 +173,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 | `table` | See table section below. Defaults to `display: table`; set `display: block` with block `tr`/`td` rules to linearize table markup as ordinary document flow. |
 | `caption` | Table caption (default: `display: block; text-align: center`). Rendered above the table, centered over the full table width. |
 | `colgroup` | Column group; direct child of `<table>`. A `span` attribute (default 1) applies the group's own `style=` across that many columns when no `<col>` children are present. Style via `style=` or CSS selectors. |
-| `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS; the legacy `width` HTML attribute is ignored (see [Cell Sizing](#css-properties--cell-sizing-th-td) below). Cell-level declarations take priority over `<col>` declarations. |
+| `col` | Column descriptor inside `<colgroup>`. `span` attribute (default 1) repeats the column's declarations across N consecutive columns. Supports `width`, `min-width`, `max-width`, `text-align`, `color`, `background-color`, `font-weight`, `font-style`, `text-decoration` via `style=` or CSS; the legacy `width` HTML attribute is ignored (see [Cell Sizing and Table Borders](#css-properties--cell-sizing-th-td-and-table-borders-table) below, and `docs/TABLES.md`). Cell-level declarations take priority over `<col>` declarations. |
 | `thead`, `tbody`, `tfoot` | Transparent wrappers inside `<table>` |
 | `tr` | Table row; first `<tr>` containing `<th>` is the header |
 | `th`, `td` | Table cells. `colspan`/`rowspan` HTML attributes (not CSS - these predate CSS and have no CSS equivalent) merge a cell across multiple columns/rows: `colspan` widens the cell to the combined width of the columns it spans (reclaiming their interior separator as content space, and growing those columns if the cell's own content needs more room than they'd otherwise have); `rowspan` renders as one genuinely merged box spanning multiple rows - unbroken border, content flowing continuously down through the rows it covers, `vertical-align` centering/bottom-aligning across the whole merged block rather than any single row. `rowspan="0"` spans every remaining row in the table. A header row's own `rowspan` is clamped to 1 (this engine recognizes only a single header row, so a header cell can't merge into data rows). |
@@ -591,8 +591,8 @@ and `border-left-color`.
 | `A B C D` | top = `A`, right = `B`, bottom = `C`, left = `D` |
 
 The single-value form (`border-color: #555555`) also doubles as the `<table>`
-border-color property described in [CSS Properties — Table Borders](#css-properties--table-borders),
-which colors the whole table frame uniformly rather than per edge. Not inherited.
+border-color property (see `docs/TABLES.md`), which colors the whole table
+frame uniformly rather than per edge. Not inherited.
 
 #### `border-top-left-corner`
 `"<string>"` | `'<string>'`. Quoted character placed at the left end of the top border rule. Falls back to the `border-top` fill character when unset. Not inherited.
@@ -834,135 +834,31 @@ minus the sum of all separator characters.
 
 ---
 
-## CSS Properties — Cell Sizing (`th`, `td`)
+## CSS Properties — Cell Sizing (`th`, `td`) and Table Borders (`table`)
 
 The legacy `width` HTML attribute on `<th>`/`<td>` is ignored — in real-world
 markup (especially HTML email) it's almost always a pixel value, and there's
 no reliable way to convert pixels to terminal columns. Use CSS `width`
 instead (`width: 14` for a fixed character count, or `width: 25%`).
 
-| Property | Example | Notes |
-|----------|---------|-------|
-| `width` | `width: 14` or `width: 25%` | Fixed or percentage column width; immune to expand/shrink |
-| `min-width` | `min-width: 8` or `min-width: 10%` | Column will not shrink below this value |
-| `max-width` | `max-width: 40` or `max-width: 30%` | Column will not expand beyond this value |
-| `white-space` | `nowrap` \| `normal` | Controls cell line-wrapping. Default `normal`: content word-wraps across multiple lines. Set to `nowrap` to clip to a single line using `text-overflow` instead. |
-| `text-overflow` | `clip` \| `ellipsis` \| `"‹str›"` | How overflowing text is indicated when `white-space: nowrap`. Default `ellipsis` (`…`). `clip` cuts with no marker; a quoted string (e.g. `text-overflow: "+"`) uses that as the marker. Not inherited. Ignored when `white-space: normal`. |
-| `vertical-align` | `top` \| `middle` \| `bottom` | Vertical placement of the cell's content within the row height. Default `top`. `bottom` pins content to the last line of the row; `middle` centres it. Not inherited. Only meaningful when rows contain multi-line cells of differing heights. |
+| Property | Applies to | Notes |
+|----------|------------|-------|
+| `width`/`min-width`/`max-width` | `th`/`td` | Fixed or percentage column width; fixed/percentage columns are immune to the table's expand/shrink pass |
+| `white-space` | `th`/`td` | `normal` (default) word-wraps; `nowrap` clips to one line via `text-overflow` instead |
+| `text-overflow` | `th`/`td` | Truncation marker when `white-space: nowrap`; default `ellipsis` |
+| `vertical-align` | `th`/`td` | `top` (default) \| `middle` \| `bottom`, within the row's own height |
+| `border-style` | `table` | Whole-frame preset (`solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`) |
+| `border-top`/`-right`/`-bottom`/`-left`, `border-*-color` | `table` | Literal glyph or shorthand grammar, same as block elements |
+| `border-top-mid`/`-bottom-mid`/`-left-mid`/`-right-mid`/`border-center`, `border-*-corner` | `table` | Junction/corner glyph overrides |
+| `border-header`/`border-columns`/`border-rows` | `table` | On/off edge toggles |
+| `caption-side` | `table` | `top` (default) \| `bottom` |
 
-### Multi-line cells
-
-When `white-space: normal` is set on a cell (or an ancestor whose value is
-inherited), the cell content word-wraps at the column boundary instead of
-being truncated. Words that are longer than the column width are hard-broken
-at the column edge. All cells in the same row are padded to the same height
-(the tallest cell in that row); shorter cells are padded with blank lines.
-
-```css
-/* All data cells in this table wrap instead of truncating */
-table.wrap td { white-space: normal; }
-```
-
-`white-space: normal` can also be set on the `<table>` element itself — since
-`white-space` is inherited, every `<td>` and `<th>` in the table will pick it
-up unless overridden on a specific cell.
-
-If both absolute and percentage forms of `min-width`/`max-width` were somehow
-set (e.g. via cascade), the more restrictive value wins.
-
-Column widths are determined from header constraints plus the maximum natural
-content width across all rows. Fixed and percentage columns are immune to the
-table-level expand/shrink resizing pass.
-
----
-
-## CSS Properties — Table Borders (`table`)
-
-These apply only to `<table>` elements and control the visual frame.
-
-### `border-style`
-
-Sets the complete border character set. Individual edges can be overridden
-with the properties below.
-
-| Value | Appearance |
-|-------|-----------|
-| `solid` | `┌─┬─┐ │ │ ├─┼─┤ └─┴─┘` (default) |
-| `rounded` | `╭─┬─╮ │ │ ├─┼─┤ ╰─┴─╯` |
-| `heavy` | `┏━┳━┓ ┃ ┃ ┣━╋━┫ ┗━┻━┛` |
-| `double` | `╔═╦═╗ ║ ║ ╠═╬═╣ ╚═╩═╝` |
-| `markdown` | `\| - \|` style; no top or bottom border |
-| `standard` | No outer frame, no column separators, `─` header underline, space between columns |
-| `hidden` / `none` | No borders; space between columns |
-
-### `border-top`, `border-right`, `border-bottom`, `border-left`
-
-Same two-form grammar as the identically-named [block element properties](#border-left-border-right-border-top-border-bottom):
-a quoted string is a literal glyph override for that outer edge; a bareword
-value is the standard CSS shorthand (`<style>`, `<style> <color>`, or
-`<width> <style> <color>`, width ignored), where `<style>` is a
-[`border-style`](#border-style) preset name and only that one edge's glyph
-is taken from it. `none` (bareword, or a value that resolves to no glyph)
-removes that edge's line entirely, corners included.
-
-```css
-table { border-top: "═"; }              /* literal glyph */
-table { border-top: double; }           /* double preset's top glyph only - rest of the table stays whatever border-style set */
-table { border-top: 1px double red; }   /* same glyph, red; "1px" ignored */
-table { border-style: markdown; border-top: solid; }  /* adds a top edge markdown doesn't have by default */
-```
-
-For `border-left`/`border-right` specifically, resolving to no glyph (`none`)
-also clears that side's corner and header/row-separator junction glyphs on
-every line — "no left border" means the whole left frame, not just the
-plain vertical divider in data rows.
-
-Internal separator lines (the header divider and between-row dividers) always
-reuse `border-top`'s resolved fill character rather than having their own —
-every built-in preset already keeps these identical, and a table with two
-different dash styles isn't a realistic use case.
-
-### `border-top-mid`, `border-bottom-mid`, `border-left-mid`, `border-right-mid`, `border-center`
-`"<string>"` | `'<string>'`. Literal-glyph-only (no shorthand grammar — these
-have no real-CSS analog to converge toward, the same reasoning as block's
-`border-*-corner` properties). Override the junction characters a preset
-normally supplies:
-
-| Property | Position |
-|----------|----------|
-| `border-top-mid` | T-junction where a column separator meets the outer top border (e.g. `┬`) |
-| `border-bottom-mid` | T-junction where a column separator meets the outer bottom border (e.g. `┴`) |
-| `border-left-mid` | T-junction where the header divider or a row divider meets the left edge (e.g. `├`) — header and row dividers always share this glyph, so one property covers both |
-| `border-right-mid` | T-junction where the header divider or a row divider meets the right edge (e.g. `┤`) — same header/row sharing |
-| `border-center` | Cross-junction at internal column/row intersections (e.g. `┼`) — same header/row sharing |
-
-Not inherited.
-
-### `border-top-left-corner`, `border-top-right-corner`, `border-bottom-left-corner`, `border-bottom-right-corner`
-`"<string>"` | `'<string>'`. Literal-glyph-only override for one outer corner
-(e.g. `┌`), identical model to the block element properties of the same
-name. Not inherited.
-
-### Edge toggles
-
-Each of these accepts `none` to disable, or any other value to enable.
-
-| Property | Controls |
-|----------|---------|
-| `border-header: none` | Separator line between header and data rows |
-| `border-columns: none` | Vertical separator between columns |
-| `border-rows: solid` | Horizontal separator between every data row (off by default) |
-
-### Border color
-
-| Property | Example | Notes |
-|----------|---------|-------|
-| `border-color` | `border-color: #555566` | ANSI color fallback for any border character without its own edge-specific override below. Applied directly (no fallback available) to internal separator lines, which have no per-edge color property. |
-| `border-top-color`, `border-right-color`, `border-bottom-color`, `border-left-color` | `border-top-color: #ff0000` | Per-edge override, same as the identically-named block element properties. Falls back to `border-color` when unset. |
-
-### `caption-side`
-
-`top` (default) | `bottom`. Controls where the `<caption>` element is rendered relative to the table rows. `top` renders the caption above the top border; `bottom` renders it below the bottom border. Set on the `<table>` element (via CSS rule or `style=` attribute). Not inherited.
+**See `docs/TABLES.md`** for the full table styling reference — every
+property above with real rendered examples of each `border-style` preset and
+junction override, the multi-line-cell wrapping model, and how
+`margin`/`padding` behave on `<table>` itself (padding genuinely works,
+matching real CSS's `border-collapse: separate` model — a fact easy to miss
+since most real-world tables never rely on it).
 
 ---
 

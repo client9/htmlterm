@@ -74,6 +74,23 @@ func TestTableMarginPadding(t *testing.T) {
 	})
 }
 
+// TestTableVerticalMargin covers margin-top/margin-bottom on <table>, both
+// at the root and nested inside a block - previously silently ignored in
+// both dispatch paths (render.go's root-level "table" case and inline.go's
+// nested-child "table" case each skipped straight to rendering the table's
+// own box, unlike the "ol"/"ul"/"menu"/"block"/"flex" cases right next to
+// them, which all consult margin-top/margin-bottom via the same
+// ensureBreaks/pushBoxDirect convention tested here).
+func TestTableVerticalMargin(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "root: larger margin wins the collapse", html: `<table style="margin-bottom:2; border-style:hidden"><tr><td>above</td></tr></table><table style="margin-top:1; border-style:hidden"><tr><td>below</td></tr></table>`, want: "above\n\n\nbelow\n"},
+		{name: "root: equal margins collapse to one blank line", html: `<table style="margin-bottom:1; border-style:hidden"><tr><td>above</td></tr></table><table style="margin-top:1; border-style:hidden"><tr><td>below</td></tr></table>`, want: "above\n\nbelow\n"},
+		{name: "root: leading margin-top has no effect on the first element", html: `<table style="margin-top:5; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "hi\n"},
+		{name: "nested: margin-top separates a table from preceding inline content", html: `<div>before<table style="margin-top:2; border-style:hidden"><tr><td>mid</td></tr></table>after</div>`, want: "before\n\n\nmid\nafter\n"},
+		{name: "nested: margin-top/margin-bottom collapse with surrounding <p> margins", html: `<div><p>above</p><table style="margin-top:1; margin-bottom:1; border-style:hidden"><tr><td>mid</td></tr></table><p>below</p></div>`, want: "above\n\nmid\n\nbelow\n\n"},
+	})
+}
+
 func TestTable(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "two-column hidden-border table", html: `<table style="border-style:hidden"><tr><td style="width:3">A</td><td style="width:5">Hello</td></tr></table>`, width: 40, want: "A   Hello\n"},
