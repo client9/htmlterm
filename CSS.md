@@ -852,13 +852,16 @@ instead (`width: 14` for a fixed character count, or `width: 25%`).
 | `border-top-mid`/`-bottom-mid`/`-left-mid`/`-right-mid`/`border-center`, `border-*-corner` | `table` | Junction/corner glyph overrides |
 | `border-header`/`border-columns`/`border-rows` | `table` | On/off edge toggles |
 | `caption-side` | `table` | `top` (default) \| `bottom` |
+| `border-collapse: separate` | `table` | Opt-in: real per-cell `border`/`border-style`/etc. on `th`/`td`, standard CSS semantics |
+| `border-spacing` | `table` | Gap between cell boxes; only meaningful under `border-collapse: separate` |
 
 **See `docs/TABLES.md`** for the full table styling reference — every
 property above with real rendered examples of each `border-style` preset and
-junction override, the multi-line-cell wrapping model, and how
+junction override, the multi-line-cell wrapping model, how
 `margin`/`padding` behave on `<table>` itself (padding genuinely works,
 matching real CSS's `border-collapse: separate` model — a fact easy to miss
-since most real-world tables never rely on it).
+since most real-world tables never rely on it), and `border-collapse:
+separate`'s real per-cell border support.
 
 ---
 
@@ -945,4 +948,4 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
-- `border-spacing` / cell padding (column separator is always a single character)
+- `border-collapse: collapse` (real per-cell border-conflict resolution and junction-glyph synthesis) — `border-spacing` and real per-cell borders are supported under `border-collapse: separate`, see `docs/TABLES.md`

@@ -576,6 +576,14 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 
 	colDecls := r.collectColDecls(n)
 	tableDecls := r.resolveDecls(n)
+	if tableDecls["border-collapse"] == "separate" {
+		// Opt-in only: per-cell independent borders + border-spacing gaps,
+		// reusing the same generic block-border machinery any other element
+		// uses instead of this file's tableStyle preset model — see
+		// table_separate.go and docs/TABLES.md. Unset or "collapse" both
+		// fall through to the unchanged legacy path below.
+		return r.renderTableSeparate(n, availWidth, tableDecls)
+	}
 	ts := applyTableCSSToStyle(namedTableStyleDefault(), tableDecls)
 	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%" && !r.measuringNaturalWidth
 

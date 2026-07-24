@@ -429,6 +429,19 @@ func expandShorthand(prop, val string) map[string]string {
 		default:
 			return map[string]string{prop: val}
 		}
+	case "border-spacing":
+		// <length> alone applies to both axes; <length> <length> is
+		// horizontal then vertical, per the real CSS2 grammar (the reverse
+		// order from "gap"'s row-then-column convention above).
+		tokens := strings.Fields(val)
+		switch len(tokens) {
+		case 1:
+			return map[string]string{"border-spacing-x": tokens[0], "border-spacing-y": tokens[0]}
+		case 2:
+			return map[string]string{"border-spacing-x": tokens[0], "border-spacing-y": tokens[1]}
+		default:
+			return map[string]string{prop: val}
+		}
 	case "flex":
 		return expandFlexShorthand(val)
 	case "margin-block-start":

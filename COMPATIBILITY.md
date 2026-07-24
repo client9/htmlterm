@@ -135,9 +135,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Tables:** column sizing (fixed/percentage/min/max), multi-line cell
   wrapping, `vertical-align`, 6 named border-style presets, per-edge border
   overrides, junction/corner glyph overrides, `colspan`/`rowspan`,
-  `<colgroup>`/`<col>`, `caption-side`, and (surprisingly, given real
-  browsers rarely use it) `padding`/`margin` on `<table>` itself — see
-  `docs/TABLES.md`.
+  `<colgroup>`/`<col>`, `caption-side`, `padding`/`margin` on `<table>`
+  itself (surprisingly, given real browsers rarely use it), and
+  `border-collapse: separate` — real per-cell `border` on `th`/`td` plus
+  `border-spacing`, standard CSS semantics — see `docs/TABLES.md`.
 - **Flexbox:** a deliberate single-row/single-column subset — `flex-direction`,
   `justify-content`, `align-items`/`align-self`, `order`, `gap`, `flex-grow`,
   `flex-basis`, the `flex` shorthand. See CSS.md's Flexbox section for the
@@ -185,7 +186,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   choice for ASCII-art rendering specifically (a dangling corner glyph with
   no vertical rule to connect to would look broken, not correct) — see
   `docs/TABLES.md` for a rendered example and how to get a literal
-  one-sided-rule look instead.
+  one-sided-rule look instead. Only applies to the default shared-frame
+  model — under `border-collapse: separate`, each cell's own
+  `border-left`/`border-right` behaves exactly like any other block
+  element's (no side effects on other edges).
 - **`:hover` has no real pointer-hover meaning** — the only place it
   matches anything is `option:hover` inside an open `<select>` popup,
   repurposed to mean "the arrow-key-highlighted option" (see
@@ -271,14 +275,14 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   (parsed, never applied), main-axis distribution in `column` direction,
   `baseline` alignment, `margin: auto` on a flex item — see CSS.md's
   Flexbox section for the full reasoning per gap.
-- **Table gaps:** no `border-collapse`/`border-spacing` at all — the gap
-  between columns is always exactly the frame's own separator character (0
-  or 1 columns, toggled by `border-columns`, never a configurable width),
-  and there's no equivalent spacing control between rows either; multi-line
-  cell content combined with `white-space: nowrap` — see `docs/TABLES.md`
-  for the full reasoning (including why table-level `padding` working, per
-  above, means a configurable `border-spacing` isn't architecturally out of
-  reach if ever needed — it just isn't exposed as a property today).
+- **Table gaps:** `border-collapse: collapse` (real per-cell border-conflict
+  resolution and junction-glyph synthesis) — `border-collapse: separate`
+  with `border-spacing` and real per-cell borders on `th`/`td` are
+  supported (see `docs/TABLES.md`); the *default* (unset `border-collapse`)
+  shared-frame model still has no spacing control of its own, only the
+  `border-columns`/`border-rows` on/off toggles. Multi-line cell content
+  combined with `white-space: nowrap` remains unsupported under either
+  model.
 - **List gaps:** `list-style-image`; most of the real spec's predefined
   `list-style-type` counter styles — `armenian`/`lower-armenian`/
   `upper-armenian`, `georgian`, the CJK/Japanese/Korean variants
