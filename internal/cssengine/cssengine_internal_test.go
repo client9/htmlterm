@@ -105,6 +105,43 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "flex number then basis defaults shrink to 1", prop: "flex", val: "1 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
 		{name: "flex three values are grow shrink basis", prop: "flex", val: "1 2 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
 		{name: "flex invalid arity falls back", prop: "flex", val: "1 2 3 4", want: map[string]string{"flex": "1 2 3 4"}},
+
+		// CSS-wide keywords (inherit/unset/initial): every longhand a
+		// shorthand covers gets the same keyword, rather than the
+		// shorthand's own normal value grammar misparsing or silently
+		// dropping it.
+		{name: "margin inherit expands to all four sides", prop: "margin", val: "inherit", want: map[string]string{
+			"margin-top": "inherit", "margin-right": "inherit", "margin-bottom": "inherit", "margin-left": "inherit",
+		}},
+		{name: "margin unset expands to all four sides", prop: "margin", val: "unset", want: map[string]string{
+			"margin-top": "unset", "margin-right": "unset", "margin-bottom": "unset", "margin-left": "unset",
+		}},
+		{name: "border inherit expands to style and color longhands", prop: "border", val: "inherit", want: map[string]string{
+			"border-style": "inherit", "border-color": "inherit",
+			"border-top-color": "inherit", "border-right-color": "inherit", "border-bottom-color": "inherit", "border-left-color": "inherit",
+		}},
+		{name: "border-color unset expands to bare key and four sides", prop: "border-color", val: "unset", want: map[string]string{
+			"border-color": "unset", "border-top-color": "unset", "border-right-color": "unset", "border-bottom-color": "unset", "border-left-color": "unset",
+		}},
+		{name: "border-top inherit passes through as itself", prop: "border-top", val: "inherit", want: map[string]string{"border-top": "inherit"}},
+		{name: "list-style unset expands to type and position", prop: "list-style", val: "unset", want: map[string]string{
+			"list-style-type": "unset", "list-style-position": "unset",
+		}},
+		{name: "background initial expands to background-color", prop: "background", val: "initial", want: map[string]string{"background-color": "initial"}},
+		{name: "flex inherit expands to grow shrink basis", prop: "flex", val: "inherit", want: map[string]string{
+			"flex-grow": "inherit", "flex-shrink": "inherit", "flex-basis": "inherit",
+		}},
+		{name: "flex unset expands to grow shrink basis", prop: "flex", val: "unset", want: map[string]string{
+			"flex-grow": "unset", "flex-shrink": "unset", "flex-basis": "unset",
+		}},
+		{name: "flex initial keeps its own real shorthand value, not the CSS-wide keyword", prop: "flex", val: "initial", want: map[string]string{
+			"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto",
+		}},
+		{name: "plain longhand inherit passes through unchanged", prop: "color", val: "inherit", want: map[string]string{"color": "inherit"}},
+		{name: "plain longhand unset passes through unchanged", prop: "color", val: "unset", want: map[string]string{"color": "unset"}},
+		{name: "keyword case is normalized", prop: "margin", val: "INHERIT", want: map[string]string{
+			"margin-top": "inherit", "margin-right": "inherit", "margin-bottom": "inherit", "margin-left": "inherit",
+		}},
 	}
 
 	for _, tc := range tests {
@@ -373,6 +410,148 @@ func TestCascadeIgnoreInlineSkipsImportantInline(t *testing.T) {
 	got := Cascade{Rules: rules, IgnoreInline: true}.Direct(n)
 	if got["color"] != "red" {
 		t.Fatalf(`Direct()["color"] = %q, want "red" (IgnoreInline should skip inline style regardless of !important)`, got["color"])
+	}
+}
+
+func TestCascadeInherit(t *testing.T) {
+	rules, err := ParseStylesheet(`div { color: red; } p { color: inherit; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div>outer<p id="a">inner</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Resolve(n)
+	if got["color"] != "red" {
+		t.Fatalf(`Resolve()["color"] = %q, want "red" (inherit should take the parent's own resolved value)`, got["color"])
+	}
+}
+
+func TestCascadeInheritMultiLevelChain(t *testing.T) {
+	// Grandparent declares color; parent doesn't declare it at all; child
+	// says inherit. Must still resolve through the parent's own implicit
+	// inheritance fill-in - the case that motivated recursive Resolve calls
+	// instead of a flat multi-ancestor walk.
+	rules, err := ParseStylesheet(`#gp { color: green; } #child { color: inherit; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div id="gp"><div id="parent"><p id="child">x</p></div></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "child")
+	if n == nil {
+		t.Fatal(`#child not found`)
+	}
+	got := Cascade{Rules: rules}.Resolve(n)
+	if got["color"] != "green" {
+		t.Fatalf(`Resolve()["color"] = %q, want "green" (inherit should chain through an ancestor that doesn't declare the property at all)`, got["color"])
+	}
+}
+
+func TestCascadeUnsetOnInheritableProperty(t *testing.T) {
+	rules, err := ParseStylesheet(`div { color: red; } p { color: unset; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div>outer<p id="a">inner</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Resolve(n)
+	if got["color"] != "red" {
+		t.Fatalf(`Resolve()["color"] = %q, want "red" (unset on an inheritable property should behave like inherit)`, got["color"])
+	}
+}
+
+func TestCascadeUnsetOnNonInheritableProperty(t *testing.T) {
+	// The motivating case: a broader rule sets border-style, a more
+	// specific rule says unset - the final resolved value must be absent,
+	// not the broader rule's value (border-style is not inheritable, so
+	// unset behaves like initial here, not like inherit).
+	rules, err := ParseStylesheet(`td { border-style: solid; } td.x { border-style: unset; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<table><tr><td id="a" class="x">x</td></tr></table>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`#a not found`)
+	}
+	got := Cascade{Rules: rules}.Resolve(n)
+	if v, exists := got["border-style"]; exists {
+		t.Fatalf(`Resolve()["border-style"] = %q, want absent (unset on a non-inheritable property must not fall back to the broader rule's value)`, v)
+	}
+}
+
+func TestCascadeInitial(t *testing.T) {
+	// initial resolves to absent regardless of inheritability - both an
+	// inheritable property (color) and a non-inheritable one (border-style).
+	rules, err := ParseStylesheet(`div { color: red; border-style: solid; } p { color: initial; border-style: initial; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div><p id="a">x</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: rules}.Resolve(n)
+	if _, exists := got["color"]; exists {
+		t.Fatalf(`Resolve()["color"] = %q, want absent (initial reverts regardless of inheritability)`, got["color"])
+	}
+	if _, exists := got["border-style"]; exists {
+		t.Fatalf(`Resolve()["border-style"] = %q, want absent`, got["border-style"])
+	}
+}
+
+func TestCascadeInheritUnsetAtDocumentRoot(t *testing.T) {
+	// No parent element to inherit from - must fall back to absent rather
+	// than panicking.
+	rules, err := ParseStylesheet(`html { color: inherit; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<p>x</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	// doc's own root html element has no parent ElementNode (its parent is
+	// the Document node, Type != html.ElementNode).
+	var htmlNode *html.Node
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "html" {
+			htmlNode = n
+			return
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	if htmlNode == nil {
+		t.Fatal("<html> not found")
+	}
+	got := Cascade{Rules: rules}.Resolve(htmlNode)
+	if v, exists := got["color"]; exists {
+		t.Fatalf(`Resolve()["color"] = %q, want absent (inherit at the document root has no parent to take from)`, v)
 	}
 }
 

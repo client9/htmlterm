@@ -78,27 +78,97 @@ var inheritableProps = map[string]bool{
 	"quotes":              true,
 }
 
+// cssWideKeyword returns the normalized keyword ("inherit", "unset", or
+// "initial") if v is exactly one of them (case-insensitive), else "". These
+// are CSS's own cascade-reset keywords, valid on any property:
+//   - inherit: always take the parent element's own resolved value.
+//   - unset: inherit if the property is normally inheritable, otherwise
+//     initial.
+//   - initial: revert to the property's own specified default - which, for
+//     nearly every property in this engine, already just means "absent"
+//     (every reader already treats a missing key as its own default).
+//
+// "revert" is not implemented: it requires distinguishing UA-stylesheet
+// origin from author origin, which this cascade doesn't model.
+func cssWideKeyword(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "inherit", "unset", "initial":
+		return strings.ToLower(strings.TrimSpace(v))
+	}
+	return ""
+}
+
 // Resolve returns the winning CSS declarations for node n, merging all
-// matching rules by ascending specificity, then filling missing inheritable
-// properties from the nearest ancestor that directly declares them.
+// matching rules by ascending specificity, resolving any inherit/unset/
+// initial keyword among n's own direct declarations, then filling missing
+// inheritable properties from the nearest ancestor element's own resolved
+// value.
 func (c Cascade) Resolve(n *html.Node) map[string]string {
 	// Copy rather than reuse c.Direct(n) directly: when c.Cache is set, that
-	// map is the shared, cached result for n and must not be mutated by the
-	// inherited-property fill-in below, or a later Direct(n) call (e.g. from
-	// this same node's own use as an ancestor of something else, or a
-	// caller's own directDecls-style lookup) would see leaked inherited
-	// values as if they were n's own direct declarations.
+	// map is the shared, cached result for n and must not be mutated below,
+	// or a later Direct(n) call (e.g. from this same node's own use as an
+	// ancestor of something else, or a caller's own directDecls-style
+	// lookup) would see leaked inherited values as if they were n's own
+	// direct declarations.
 	direct := c.Direct(n)
 	result := make(map[string]string, len(direct))
 	maps.Copy(result, direct)
-	for anc := n.Parent; anc != nil; anc = anc.Parent {
-		if anc.Type != html.ElementNode {
+
+	// Nearest ancestor element's own fully-resolved declarations - computed
+	// lazily (only if something below actually needs it) and once, shared
+	// by both the keyword substitution and the inheritance fill-in. Fully
+	// resolved (not just Direct) so any inherit/unset chain the ancestor
+	// itself has is already reflected before n ever looks at it.
+	var parentResolved map[string]string
+	parentComputed := false
+	getParentResolved := func() map[string]string {
+		if !parentComputed {
+			parentComputed = true
+			for anc := n.Parent; anc != nil; anc = anc.Parent {
+				if anc.Type == html.ElementNode {
+					parentResolved = c.Resolve(anc)
+					break
+				}
+			}
+		}
+		return parentResolved
+	}
+
+	// Resolve n's own direct declarations first, so a literal "inherit"/
+	// "unset"/"initial" string never leaks out to a caller. forcedAbsent
+	// tracks properties explicitly resolved to "stay absent" here (initial,
+	// unset on a non-inheritable property, or inherit/unset with no
+	// ancestor value to take) - the fill-in pass below must not treat these
+	// as "never declared" and re-inherit them anyway.
+	forcedAbsent := make(map[string]bool)
+	for prop, val := range direct {
+		kw := cssWideKeyword(val)
+		if kw == "" {
 			continue
 		}
-		for prop, val := range c.Direct(anc) {
-			if inheritableProps[prop] {
-				if _, exists := result[prop]; !exists {
-					result[prop] = val
+		if kw == "inherit" || (kw == "unset" && inheritableProps[prop]) {
+			if pv, ok := getParentResolved()[prop]; ok {
+				result[prop] = pv
+				continue
+			}
+		}
+		// unset on a non-inheritable property, initial, or inherit/unset
+		// with no ancestor value to take: falls back to absent, and stays
+		// absent - not eligible for the implicit inheritance fill-in below.
+		delete(result, prop)
+		forcedAbsent[prop] = true
+	}
+
+	// Fill in any inheritable property n doesn't declare at all, from the
+	// nearest ancestor element's own resolved value - a single recursive
+	// lookup, since that value already reflects everything further up the
+	// tree (equivalent to the real-CSS rule that a parent's own computed
+	// value is all a child ever needs to inherit from).
+	if pr := getParentResolved(); pr != nil {
+		for prop := range inheritableProps {
+			if _, exists := result[prop]; !exists && !forcedAbsent[prop] {
+				if v, ok := pr[prop]; ok {
+					result[prop] = v
 				}
 			}
 		}

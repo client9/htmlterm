@@ -113,7 +113,7 @@ listed above.
 The following properties inherit from parent to child when no direct rule
 applies to the child element:
 
-`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility` · `opacity` · `quotes`
+`color` · `font-weight` · `font-style` · `font-variant` · `text-decoration` · `text-align` · `white-space` · `text-transform` · `overflow-wrap` · `word-break` · `text-indent` · `tab-size` · `visibility` · `opacity` · `quotes` · `list-style-position`
 
 Inheritance is resolved by walking up the ancestor chain and taking the value
 from the nearest ancestor that sets the property directly. For example,
@@ -121,7 +121,37 @@ from the nearest ancestor that sets the property directly. For example,
 without needing `tr.unseen td { font-weight: bold }`.
 
 To explicitly cancel an inherited value, set the property to its `normal` (or
-`none`) reset on the child element.
+`none`) reset on the child element, or use `unset`/`initial` (below) if the
+property has no such reset keyword of its own.
+
+### CSS-wide keywords: `inherit`, `unset`, `initial`
+
+These are recognized on **any** property, not just the inheritable list
+above:
+
+- **`inherit`** — always take the value from the parent element's own
+  resolved value for that property, regardless of whether the property is
+  normally inheritable (e.g. `border-style: inherit` forces inheritance on a
+  property that wouldn't otherwise propagate).
+- **`unset`** — acts as `inherit` if the property is one of the inheritable
+  properties listed above; otherwise acts as `initial`.
+- **`initial`** — reverts the property to its own specified default,
+  ignoring any rule that would otherwise apply, at any specificity. This is
+  the one that answers "a broader rule set this property; how does a more
+  specific selector cancel it without knowing what value to fall back to?"
+  — e.g. `td { border-style: solid; } td.plain { border-style: initial; }`
+  leaves `.plain` cells with no border at all, rather than needing to know
+  and repeat whatever "no border" looks like.
+
+`revert` (CSS's fourth cascade-reset keyword, which reverts to the
+user-agent stylesheet specifically) is **not implemented** — it requires
+distinguishing UA-stylesheet origin from author-stylesheet origin, which
+this cascade doesn't model.
+
+These keywords resolve against real elements (`Cascade.Resolve`); they are
+**not** currently supported inside `::before`/`::after`/`::marker`/scrollbar
+pseudo-element declarations, which use a separate inheritance mechanism (see
+`internal/render/inline.go`'s `mergeInlineStyle`).
 
 ---
 

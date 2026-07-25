@@ -110,6 +110,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `:first/last/only-child`, `:first/last/only-of-type`, `:empty`, `:not()`,
   `:is()`, `:where()`, `:checked`, `:disabled`, `:required`, `:focus`.
   Specificity and `!important` both work per spec.
+- **Cascade keywords:** `inherit`, `unset`, and `initial` are recognized on
+  any property, not just the usual inheritable set — see CSS.md's
+  Inheritance section.
 - **Colors:** every CSS Color Level 4 format — hex (3/4/6/8-digit), named
   colors (full W3C list), `rgb()`/`rgba()`, `hsl()`/`hsla()`, `hwb()` —
   downsampled automatically to the terminal's actual color capability
@@ -254,6 +257,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   of them do anything.
 - **Pseudo-classes/elements beyond the supported list** — notably
   `:active` and any real mouse-hover semantics.
+- **`revert`** (the fourth CSS-wide cascade keyword, alongside `inherit`/
+  `unset`/`initial`, which are supported) — reverting to the user-agent
+  stylesheet's value requires distinguishing UA-stylesheet origin from
+  author-stylesheet origin, which this cascade doesn't model.
+  `inherit`/`unset`/`initial` are also not supported inside
+  `::before`/`::after`/`::marker`/scrollbar pseudo-element declarations,
+  which resolve inheritance through a separate mechanism.
 - **Layout models:** `display: grid`, `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.

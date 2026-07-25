@@ -284,6 +284,51 @@ func copyDecls(m map[string]declValue) map[string]declValue {
 	return cp
 }
 
+// shorthandLonghands maps each shorthand property name to the longhand keys
+// it expands to, for expandCSSWideKeyword's short-circuiting. A property not
+// listed here is treated as an ordinary longhand (or a shorthand whose own
+// normal parsing already passes inherit/unset/initial through unchanged),
+// mapping to itself.
+var shorthandLonghands = map[string][]string{
+	"margin":         {"margin-top", "margin-right", "margin-bottom", "margin-left"},
+	"padding":        {"padding-top", "padding-right", "padding-bottom", "padding-left"},
+	"border":         {"border-style", "border-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color"},
+	"border-color":   {"border-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color"},
+	"overflow":       {"overflow-x", "overflow-y"},
+	"gap":            {"row-gap", "column-gap"},
+	"border-spacing": {"border-spacing-x", "border-spacing-y"},
+	// flex is deliberately absent: expandShorthand routes "flex" straight to
+	// expandFlexShorthand without consulting this table, since that
+	// function needs to keep its own literal "initial" special-casing (see
+	// its doc comment) rather than the generic kw-for-every-longhand rule.
+	"list-style": {"list-style-type", "list-style-position"},
+	"background": {"background-color"},
+}
+
+// expandCSSWideKeyword returns the longhand expansion of val when val is
+// exactly "inherit"/"unset"/"initial", short-circuiting a shorthand's own
+// normal value grammar - which would otherwise misparse these keywords
+// (e.g. expandFlexShorthand("inherit") would assign only flex-basis,
+// dropping flex-grow/flex-shrink) or silently drop them entirely
+// (expandListStyleShorthand/expandBackgroundShorthand return an empty map
+// for any unrecognized token). ok is false when val isn't a CSS-wide
+// keyword, meaning the caller should fall through to its normal parsing.
+func expandCSSWideKeyword(prop, val string) (result map[string]string, ok bool) {
+	kw := cssWideKeyword(val)
+	if kw == "" {
+		return nil, false
+	}
+	longhands, known := shorthandLonghands[prop]
+	if !known {
+		longhands = []string{prop}
+	}
+	result = make(map[string]string, len(longhands))
+	for _, lh := range longhands {
+		result[lh] = kw
+	}
+	return result, true
+}
+
 // expandShorthand expands a CSS shorthand property or logical spacing alias
 // into its physical longhand equivalents. Returns a map with one or more
 // property→value pairs. For other properties, the map contains only the
@@ -293,6 +338,16 @@ func copyDecls(m map[string]declValue) map[string]declValue {
 // extraction, list-style. Supported logical aliases are the block/inline
 // start/end forms for margin and padding.
 func expandShorthand(prop, val string) map[string]string {
+	// flex is excluded here: it's routed to expandFlexShorthand below, which
+	// handles inherit/unset/initial itself (its own grammar already treats
+	// the literal token "initial" as a real, spec-correct shorthand value,
+	// which expandCSSWideKeyword's generic "initial" handling must not
+	// shadow - see expandFlexShorthand's own doc comment).
+	if prop != "flex" {
+		if kwResult, ok := expandCSSWideKeyword(prop, val); ok {
+			return kwResult
+		}
+	}
 	var sides [4]string // top, right, bottom, left
 	switch prop {
 	case "margin", "padding":
@@ -465,6 +520,9 @@ func expandShorthand(prop, val string) map[string]string {
 }
 
 func expandBackgroundShorthand(val string) map[string]string {
+	if kwResult, ok := expandCSSWideKeyword("background", val); ok {
+		return kwResult
+	}
 	for _, tok := range splitCSSComponentValues(val) {
 		tok = strings.TrimSpace(tok)
 		if tok != "" && parseCSSColor(tok) {
@@ -484,6 +542,14 @@ func expandBackgroundShorthand(val string) map[string]string {
 // longhand but htmlterm's renderer does not yet apply it (items are never
 // shrunk below their resolved basis) — see CSS.md's Flexbox section.
 func expandFlexShorthand(val string) map[string]string {
+	// inherit/unset only - "initial" is deliberately left to the switch
+	// below: flex's own grammar already treats the literal token "initial"
+	// as a real, spec-correct shorthand value (grow:0 shrink:1 basis:auto,
+	// which happens to equal each longhand's own real initial value), so
+	// expandCSSWideKeyword's generic "initial" handling must not shadow it.
+	if kw := cssWideKeyword(val); kw == "inherit" || kw == "unset" {
+		return map[string]string{"flex-grow": kw, "flex-shrink": kw, "flex-basis": kw}
+	}
 	tokens := strings.Fields(val)
 	switch strings.ToLower(val) {
 	case "none":
@@ -517,6 +583,9 @@ func isCSSNumberToken(s string) bool {
 }
 
 func expandListStyleShorthand(val string) map[string]string {
+	if kwResult, ok := expandCSSWideKeyword("list-style", val); ok {
+		return kwResult
+	}
 	decls := make(map[string]string)
 	for _, tok := range splitCSSComponentValues(val) {
 		tok = strings.TrimSpace(tok)
