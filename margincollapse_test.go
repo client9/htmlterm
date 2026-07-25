@@ -59,7 +59,7 @@ func TestMarginCollapse(t *testing.T) {
 		},
 		{
 			name: "table cell with a first block child does not leak a leading blank line",
-			html: `<table><tr><td><h2 style="margin-top:1">first in cell</h2></td></tr></table>`,
+			html: `<table style="border:solid; border-spacing:0"><tr><td><h2 style="margin-top:1">first in cell</h2></td></tr></table>`,
 			want: "┌─────────────┐\n│first in cell│\n└─────────────┘\n",
 		},
 		{

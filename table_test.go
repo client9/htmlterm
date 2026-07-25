@@ -18,7 +18,7 @@ func trimRightPerLine(s string) string {
 
 func TestTextOverflow(t *testing.T) {
 	cell := func(attrs, content string) string {
-		return `<table style="border-style:hidden"><tr><td ` + attrs + `>` + content + `</td></tr></table>`
+		return `<table style="border-spacing:0"><tr><td ` + attrs + `>` + content + `</td></tr></table>`
 	}
 	runCases(t, []renderCase{
 		{name: "ellipsis truncates with … when nowrap set", html: cell(`style="white-space:nowrap;width:5"`, "Hello World"), want: "Hell…\n"},
@@ -27,13 +27,13 @@ func TestTextOverflow(t *testing.T) {
 		{name: "no truncation when content fits", html: cell(`style="white-space:nowrap;width:11"`, "Hello World"), want: "Hello World\n"},
 		{name: "ellipsis on exact fit needs no truncation", html: cell(`style="white-space:nowrap;width:5"`, "Hello"), want: "Hello\n"},
 		{name: "clip width=1 takes first rune", html: cell(`style="white-space:nowrap; text-overflow:clip;width:1"`, "Hello"), want: "H\n"},
-		{name: "text-overflow via CSS class", css: `.clip td { white-space: nowrap; text-overflow: clip; }`, html: `<table class="clip" style="border-style:hidden"><tr><td style="width:5">Hello World</td></tr></table>`, want: "Hello\n"},
+		{name: "text-overflow via CSS class", css: `.clip td { white-space: nowrap; text-overflow: clip; }`, html: `<table class="clip" style="border-spacing:0"><tr><td style="width:5">Hello World</td></tr></table>`, want: "Hello\n"},
 		{name: "no white-space set wraps instead of truncating", html: cell(`style="width:5"`, "Hello World"), want: "Hello\nWorld\n"},
 	})
 }
 
 func TestTableCellPadding(t *testing.T) {
-	hidden := `style="border-style:hidden"`
+	hidden := `style="border-spacing:0"`
 	runCases(t, []renderCase{
 		{name: "padding-left indents cell content", html: `<table ` + hidden + `><tr><td style="padding-left:1;width:6">ab</td></tr></table>`, want: " ab   \n"},
 		{name: "padding-right adds space after cell content", html: `<table ` + hidden + `><tr><td style="padding-right:1;width:6">ab</td></tr></table>`, want: "ab    \n"},
@@ -45,7 +45,7 @@ func TestTableCellPadding(t *testing.T) {
 		{name: "padding-top 2 adds two blank lines above", html: `<table ` + hidden + `><tr><td style="padding-top:2;width:4">X</td></tr></table>`, want: "    \n    \nX   \n"},
 		{name: "padding-top with padding-left", html: `<table ` + hidden + `><tr><td style="padding-top:1; padding-left:1;width:6">ab</td></tr></table>`, want: "      \n ab   \n"},
 		{name: "all four sides of padding", html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1; padding-top:1; padding-bottom:1;width:7">ab</td></tr></table>`, want: "       \n ab    \n       \n"},
-		{name: "padding-top in one cell raises row height for sibling", html: `<table ` + hidden + `><tr><td style="padding-top:1;width:3">X</td><td style="width:3">Y</td></tr></table>`, want: "    Y  \nX      \n"},
+		{name: "padding-top in one cell raises row height for sibling", html: `<table ` + hidden + `><tr><td style="padding-top:1;width:3">X</td><td style="width:3">Y</td></tr></table>`, want: "   Y  \nX     \n"},
 		{name: "padding-left on th header", html: `<table ` + hidden + `><tr><th style="padding-left:1;width:7">Name</th></tr><tr><td style="width:7">val</td></tr></table>`, want: " Name  \nval    \n"},
 		{name: "padding-top on th header adds blank row before header text", html: `<table ` + hidden + `><tr><th style="padding-top:1;width:4">Hi</th></tr><tr><td style="width:4">ok</td></tr></table>`, want: "    \nHi  \nok  \n"},
 		{name: "padding-left with wrapping cell", html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:normal;width:7">Hello World</td></tr></table>`, want: " Hello \n World \n"},
@@ -54,23 +54,23 @@ func TestTableCellPadding(t *testing.T) {
 }
 
 func TestTableMarginPadding(t *testing.T) {
-	hidden := `style="border-style:hidden"`
+	hidden := `style="border-spacing:0"`
 	runCases(t, []renderCase{
-		{name: "margin-left indents entire table", html: `<table style="margin-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
-		{name: "margin-right adds trailing space", html: `<table style="margin-right:2; border-style:hidden"><tr><td style="width:4">hi</td></tr></table>`, want: "hi    \n"},
-		{name: "margin-left and margin-right both set", html: `<table style="margin-left:2; margin-right:2; border-style:hidden"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "  hi  \n"},
-		{name: "margin-left percent resolves against available width", html: `<table style="margin-left:50%; border-style:hidden"><tr><td>hi</td></tr></table>`, width: 10, want: "     hi\n"},
-		{name: "padding-left adds space inside margin", html: `<table style="padding-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
-		{name: "padding and margin combine on the left", html: `<table style="margin-left:1; padding-left:2; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "   hi\n"},
-		{name: "padding-top adds a blank line before the table", html: `<table style="padding-top:1; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "  \nhi\n"},
-		{name: "padding-bottom adds a blank line after the table", html: `<table style="padding-bottom:1; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "hi\n  \n"},
-		{name: "margin and padding shrink column sizing for width:100% table", html: `<table style="width:100%; margin-left:2; margin-right:2; padding-left:1; padding-right:1; border-style:hidden"><tr><td>x</td></tr></table>`, width: 10, want: "   x      \n"},
+		{name: "margin-left indents entire table", html: `<table style="margin-left:2; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
+		{name: "margin-right adds trailing space", html: `<table style="margin-right:2; border-spacing:0"><tr><td style="width:4">hi</td></tr></table>`, want: "hi    \n"},
+		{name: "margin-left and margin-right both set", html: `<table style="margin-left:2; margin-right:2; border-spacing:0"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "  hi  \n"},
+		{name: "margin-left percent resolves against available width", html: `<table style="margin-left:50%; border-spacing:0"><tr><td>hi</td></tr></table>`, width: 10, want: "     hi\n"},
+		{name: "padding-left adds space inside margin", html: `<table style="padding-left:2; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "  hi\n"},
+		{name: "padding and margin combine on the left", html: `<table style="margin-left:1; padding-left:2; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "   hi\n"},
+		{name: "padding-top adds a blank line before the table", html: `<table style="padding-top:1; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "  \nhi\n"},
+		{name: "padding-bottom adds a blank line after the table", html: `<table style="padding-bottom:1; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "hi\n  \n"},
+		{name: "margin and padding shrink column sizing for width:100% table", html: `<table style="width:100%; margin-left:2; margin-right:2; padding-left:1; padding-right:1; border-spacing:0"><tr><td>x</td></tr></table>`, width: 10, want: "   x      \n"},
 		{name: "no margin or padding leaves table unchanged", html: `<table ` + hidden + `><tr><td>hi</td></tr></table>`, want: "hi\n"},
 		// margin: auto on a table centers it (or pushes it to one side),
 		// matching the same behavior already supported for block elements.
-		{name: "margin auto both centers table", html: `<table style="margin:0 auto; border-style:hidden"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "    hi    \n"},
-		{name: "margin-left auto pushes table right", html: `<table style="margin-left:auto; border-style:hidden"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "        hi\n"},
-		{name: "margin-right auto fills trailing space", html: `<table style="margin-right:auto; border-style:hidden"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "hi        \n"},
+		{name: "margin auto both centers table", html: `<table style="margin:0 auto; border-spacing:0"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "    hi    \n"},
+		{name: "margin-left auto pushes table right", html: `<table style="margin-left:auto; border-spacing:0"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "        hi\n"},
+		{name: "margin-right auto fills trailing space", html: `<table style="margin-right:auto; border-spacing:0"><tr><td style="width:2">hi</td></tr></table>`, width: 10, want: "hi        \n"},
 	})
 }
 
@@ -83,32 +83,32 @@ func TestTableMarginPadding(t *testing.T) {
 // ensureBreaks/pushBoxDirect convention tested here).
 func TestTableVerticalMargin(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "root: larger margin wins the collapse", html: `<table style="margin-bottom:2; border-style:hidden"><tr><td>above</td></tr></table><table style="margin-top:1; border-style:hidden"><tr><td>below</td></tr></table>`, want: "above\n\n\nbelow\n"},
-		{name: "root: equal margins collapse to one blank line", html: `<table style="margin-bottom:1; border-style:hidden"><tr><td>above</td></tr></table><table style="margin-top:1; border-style:hidden"><tr><td>below</td></tr></table>`, want: "above\n\nbelow\n"},
-		{name: "root: leading margin-top has no effect on the first element", html: `<table style="margin-top:5; border-style:hidden"><tr><td>hi</td></tr></table>`, want: "hi\n"},
-		{name: "nested: margin-top separates a table from preceding inline content", html: `<div>before<table style="margin-top:2; border-style:hidden"><tr><td>mid</td></tr></table>after</div>`, want: "before\n\n\nmid\nafter\n"},
-		{name: "nested: margin-top/margin-bottom collapse with surrounding <p> margins", html: `<div><p>above</p><table style="margin-top:1; margin-bottom:1; border-style:hidden"><tr><td>mid</td></tr></table><p>below</p></div>`, want: "above\n\nmid\n\nbelow\n\n"},
+		{name: "root: larger margin wins the collapse", html: `<table style="margin-bottom:2; border-spacing:0"><tr><td>above</td></tr></table><table style="margin-top:1; border-spacing:0"><tr><td>below</td></tr></table>`, want: "above\n\n\nbelow\n"},
+		{name: "root: equal margins collapse to one blank line", html: `<table style="margin-bottom:1; border-spacing:0"><tr><td>above</td></tr></table><table style="margin-top:1; border-spacing:0"><tr><td>below</td></tr></table>`, want: "above\n\nbelow\n"},
+		{name: "root: leading margin-top has no effect on the first element", html: `<table style="margin-top:5; border-spacing:0"><tr><td>hi</td></tr></table>`, want: "hi\n"},
+		{name: "nested: margin-top separates a table from preceding inline content", html: `<div>before<table style="margin-top:2; border-spacing:0"><tr><td>mid</td></tr></table>after</div>`, want: "before\n\n\nmid\nafter\n"},
+		{name: "nested: margin-top/margin-bottom collapse with surrounding <p> margins", html: `<div><p>above</p><table style="margin-top:1; margin-bottom:1; border-spacing:0"><tr><td>mid</td></tr></table><p>below</p></div>`, want: "above\n\nmid\n\nbelow\n\n"},
 	})
 }
 
 func TestTable(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "two-column hidden-border table", html: `<table style="border-style:hidden"><tr><td style="width:3">A</td><td style="width:5">Hello</td></tr></table>`, width: 40, want: "A   Hello\n"},
-		{name: "display table uses table renderer", html: `<table style="display:table; border-style:hidden"><tr><td style="width:2">A</td><td style="width:2">B</td></tr></table>`, width: 40, want: "A  B \n"},
+		{name: "two-column hidden-border table", html: `<table style="border-spacing:0"><tr><td style="width:3">A</td><td style="width:5">Hello</td></tr></table>`, width: 40, want: "A  Hello\n"},
+		{name: "display table uses table renderer", html: `<table style="display:table; border-spacing:0"><tr><td style="width:2">A</td><td style="width:2">B</td></tr></table>`, width: 40, want: "A B \n"},
 		{name: "display block linearizes table descendants", css: `table, tr, td { display: block; } td { white-space: normal; width: auto; } td + td { margin-top: 1; } h2 { font-weight: normal; margin-bottom: 1; } h2::before { content: "## "; }`, html: `<table><tr><td><h2>Left Headline very long and keeps going</h2></td><td><h2>Right Headline very long and keeps going</h2></td></tr></table>`, width: 60, want: "## Left Headline very long and keeps going\n\n## Right Headline very long and keeps going\n"},
-		{name: "comment before table border style none is ignored", css: `/* table, tr, td { display: block; } */ table { border-style: none; }`, html: `<table><tr><td style="width:2">A</td><td style="width:2">B</td></tr></table>`, width: 40, want: "A  B \n"},
-		{name: "normal border style: single header and data row", html: `<table><tr><th style="width:3">H1</th><th style="width:4">H2</th></tr><tr><td>A</td><td>Long</td></tr></table>`, width: 40, want: "┌───┬────┐\n│H1 │H2  │\n├───┼────┤\n│A  │Long│\n└───┴────┘\n"},
-		{name: "table width:100% expands flexible column", css: `table { width: 100%; border-style: hidden; }`, html: `<table><tr><td style="width:5">fixed</td><td>flex</td></tr></table>`, width: 20, want: "fixed flex          \n"},
-		{name: "table border-left none overrides border-style deterministically", css: `table { border-style: solid; border-left: none; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, width: 40, want: "───┬───┐\nA  │B  │\n───┴───┘\n"},
-		{name: "html width attribute on td is ignored, CSS width wins", html: `<table style="border-style:hidden"><tr><td width="1" style="width:50%">abc</td><td>xy</td></tr></table>`, width: 20, want: "abc       xy\n"},
-		{name: "table min-width and max-width influence flexible columns", html: `<table style="border-style:hidden; width:100%"><tr><td style="min-width:6">a</td><td style="max-width:4">bb</td></tr></table>`, width: 16, want: "a           bb  \n"},
-		{name: "later row can define additional columns", html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`, want: "A  \nB C\n"},
-		{name: "display none table cell is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td><td class="gone">B</td><td>C</td></tr></table>`, want: "A C\n"},
-		{name: "display none table row is skipped", css: `.gone { display: none; }`, html: `<table style="border-style:hidden"><tr><td>A</td></tr><tr class="gone"><td>B</td></tr><tr><td>C</td></tr></table>`, want: "A\nC\n"},
-		{name: "thead row is header, tbody th row is not", html: `<table><thead><tr><th style="width:3">H</th></tr></thead><tbody><tr><th style="width:3">R</th></tr></tbody></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│R  │\n└───┘\n"},
-		{name: "no thead: first all-th row is implicit header", html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">D</td></tr></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│D  │\n└───┘\n"},
+		{name: "comment before table border style none is ignored", css: `/* table, tr, td { display: block; } */ table { border-spacing: 0; }`, html: `<table><tr><td style="width:2">A</td><td style="width:2">B</td></tr></table>`, width: 40, want: "A B \n"},
+		{name: "normal border style: single header and data row", css: collapseGridCSS, html: `<table><tr><th style="width:3">H1</th><th style="width:4">H2</th></tr><tr><td>A</td><td>Long</td></tr></table>`, width: 40, want: "┌───┬────┐\n│H1 │H2  │\n├───┼────┤\n│A  │Long│\n└───┴────┘\n"},
+		{name: "table width:100% expands flexible column", css: `table { width: 100%; border-spacing: 0; }`, html: `<table><tr><td style="width:5">fixed</td><td>flex</td></tr></table>`, width: 20, want: "fixedflex           \n"},
+		{name: "table border-left none strips just the vertical rule, keeping corners (unified with block border handling)", css: `table { border-style: solid; border-left: none; border-spacing:0; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, width: 40, want: "┌─────┐\nA  B  │\n└─────┘\n"},
+		{name: "html width attribute on td is ignored, CSS width wins", html: `<table style="border-spacing:0"><tr><td width="1" style="width:50%">abc</td><td>xy</td></tr></table>`, width: 20, want: "abc       xy\n"},
+		{name: "table min-width and max-width influence flexible columns", html: `<table style="border-spacing:0; width:100%"><tr><td style="min-width:6">a</td><td style="max-width:4">bb</td></tr></table>`, width: 16, want: "a           bb  \n"},
+		{name: "later row can define additional columns", html: `<table style="border-spacing:0"><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`, want: "A \nBC\n"},
+		{name: "display none table cell is skipped", css: `.gone { display: none; }`, html: `<table style="border-spacing:0"><tr><td>A</td><td class="gone">B</td><td>C</td></tr></table>`, want: "AC\n"},
+		{name: "display none table row is skipped", css: `.gone { display: none; }`, html: `<table style="border-spacing:0"><tr><td>A</td></tr><tr class="gone"><td>B</td></tr><tr><td>C</td></tr></table>`, want: "A\nC\n"},
+		{name: "thead row is header, tbody th row is not", css: collapseGridCSS, html: `<table><thead><tr><th style="width:3">H</th></tr></thead><tbody><tr><th style="width:3">R</th></tr></tbody></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│R  │\n└───┘\n"},
+		{name: "no thead: first all-th row is implicit header", css: collapseGridCSS, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">D</td></tr></table>`, width: 40, want: "┌───┐\n│H  │\n├───┤\n│D  │\n└───┘\n"},
 		// tfoot all-<th> rows must NOT be promoted to implicit headers.
-		{name: "tfoot all-th row is not promoted to implicit header", html: `<table><tfoot><tr><th style="width:3">F</th></tr></tfoot><tbody><tr><td style="width:3">D</td></tr></tbody></table>`, width: 40, want: "┌───┐\n│F  │\n│D  │\n└───┘\n"},
+		{name: "tfoot all-th row is not promoted to implicit header", css: collapseGridCSS, html: `<table><tfoot><tr><th style="width:3">F</th></tr></tfoot><tbody><tr><td style="width:3">D</td></tr></tbody></table>`, width: 40, want: "┌───┐\n│F  │\n├───┤\n│D  │\n└───┘\n"},
 	})
 }
 
@@ -126,22 +126,22 @@ func TestNestedTablesInCells(t *testing.T) {
 		return trimRightPerLine(stripANSI(got))
 	}
 
-	got := render("", `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
-	if got != "┌─┐\n│x│\n└─┘\n" {
-		t.Fatalf("nested table did not render as table:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
+	got := render(`table { border:solid; border-spacing:0; }`, `<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "┌───┐\n│┌─┐│\n││x││\n│└─┘│\n└───┘\n" {
+		t.Fatalf("nested table did not render as table:\ngot  %q\nwant %q", got, "┌───┐\n│┌─┐│\n││x││\n│└─┘│\n└───┘\n")
 	}
 
-	got = render(`table { border-style: solid; }`, `<table style="border-style:hidden"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
-	if got != "┌─┐\n│x│\n└─┘\n" {
-		t.Fatalf("nested table did not apply table CSS:\ngot  %q\nwant %q", got, "┌─┐\n│x│\n└─┘\n")
+	got = render(`table { border-style: solid; }`, `<table style="border-spacing:0"><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	if got != "┌───┐\n│┌─┐│\n││x││\n│└─┘│\n└───┘\n" {
+		t.Fatalf("nested table did not apply table CSS:\ngot  %q\nwant %q", got, "┌───┐\n│┌─┐│\n││x││\n│└─┘│\n└───┘\n")
 	}
 
-	got = render(`table { border-style: none; }`, `<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
+	got = render(`table { border-spacing: 0; }`, `<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
 	if got != "x\n" {
 		t.Fatalf("nested borderless table was not compact:\ngot  %q\nwant %q", got, "x\n")
 	}
 
-	got = render(`table { border-style: none; } table::before { content: "<TABLE>"; } table::after { content: "</TABLE>"; } tr::before { content: "<TR>"; } tr::after { content: "</TR>"; } td::before { content: "<TD>"; } td::after { content: "</TD>"; }`,
+	got = render(`table { border-spacing: 0; } table::before { content: "<TABLE>"; } table::after { content: "</TABLE>"; } tr::before { content: "<TR>"; } tr::after { content: "</TR>"; } td::before { content: "<TD>"; } td::after { content: "</TD>"; }`,
 		`<table><tr><td><table><tr><td>x</td></tr></table></td></tr></table>`)
 	if got != "<TD>\n<TD>x</TD>\n</TD>\n" {
 		t.Fatalf("nested table structural pseudo-elements leaked:\ngot  %q\nwant %q", got, "<TD>\n<TD>x</TD>\n</TD>\n")
@@ -155,7 +155,7 @@ func TestNestedTablesInCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	got2, err := r.Render(`<table style="width:100%"><tr><td><table style="width:100%"><tr><td>Hi</td></tr></table></td></tr></table>`)
+	got2, err := r.Render(`<table style="width:100%; border:solid; border-spacing:0"><tr><td><table style="width:100%; border:solid; border-spacing:0"><tr><td>Hi</td></tr></table></td></tr></table>`)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -170,11 +170,11 @@ func TestNestedTablesInCells(t *testing.T) {
 	// trailing spaces (see plainInlineText in table_render.go). Deliberately
 	// not trimming trailing spaces here — that's exactly what regressed.
 	// Padding sits inside the border, margin outside it.
-	r3, err := htmlterm.New(htmlterm.Options{Width: 30})
+	r3, err := htmlterm.New(htmlterm.Options{Width: 32})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	got3, err := r3.Render(`<table style="border-style:hidden"><tr><td><table style="margin-left:2; margin-right:2; padding-left:2; padding-right:2" ><tr><td>hi</td></tr></table></td></tr></table>`)
+	got3, err := r3.Render(`<table style="border-spacing:0"><tr><td><table style="border:solid; border-spacing:0; margin-left:2; margin-right:2; padding-left:2; padding-right:2" ><tr><td>hi</td></tr></table></td></tr></table>`)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestNestedTablesInCells(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	got5, err := r5.Render(`<table style="width:100%; border-style:hidden"><tr><td></td><td>Hi</td></tr></table>`)
+	got5, err := r5.Render(`<table style="width:100%; border-spacing:0"><tr><td></td><td>Hi</td></tr></table>`)
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestTablePreservesInlineChildStyling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.Render(`<table style="border-style:hidden"><tr><td><b>B</b> C</td></tr></table>`)
+	got, err := r.Render(`<table style="border-spacing:0"><tr><td><b>B</b> C</td></tr></table>`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,71 +237,62 @@ func TestTablePreservesInlineChildStyling(t *testing.T) {
 
 func TestTableMultiLine(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "white-space:normal wraps cell content", html: `<table style="border-style:hidden"><tr><td style="white-space:normal;width:5">Hello World</td></tr></table>`, want: "Hello\nWorld\n"},
-		{name: "white-space:nowrap still truncates", html: `<table style="border-style:hidden"><tr><td style="white-space:nowrap;width:5">Hello World</td></tr></table>`, want: "Hell…\n"},
-		{name: "multi-column row where one cell wraps", html: `<table style="border-style:hidden"><tr><td style="width:3">A</td><td style="white-space:normal;width:5">Hi there</td></tr></table>`, want: "A   Hi   \n    there\n"},
-		{name: "long word is hard-broken", html: `<table style="border-style:hidden"><tr><td style="white-space:normal;width:4">Superlongword</td></tr></table>`, want: "Supe\nrlon\ngwor\nd   \n"},
-		{name: "short content still fits on one line", html: `<table style="border-style:hidden"><tr><td style="white-space:normal;width:10">Hello</td></tr></table>`, want: "Hello     \n"},
-		{name: "wrapping with bordered table", html: `<table><tr><th style="width:5">Name</th></tr><tr><td style="white-space:normal;width:5">Al Bob</td></tr></table>`, want: "┌─────┐\n│Name │\n├─────┤\n│Al   │\n│Bob  │\n└─────┘\n"},
-		{name: "table cell preserves br line breaks", html: `<table style="border-style:hidden"><tr><td style="width:4">a<br>b</td></tr></table>`, want: "a   \nb   \n"},
-		{name: "table cell skips display none descendants", html: `<table style="border-style:hidden"><tr><td style="width:4"><span style="display:none">x</span>y</td></tr></table>`, want: "y   \n"},
-		{name: "percentage block children in cells fit page width", css: `h2::before { content: "## "; } table { border-style: none; } td { width: 100%; white-space: normal; } td::after { content: "\A"; }`, html: `<table><tr><td><h2>Left Headline Very Long and Takes Up Space</h2></td><td><h2>Right Headline is also very long and takes up space</h2></td></tr></table>`, width: 30, want: "## Left        ## Right       \nHeadline Very  Headline is    \nLong and Takes also very long \nUp Space       and takes up   \n               space          \n"},
+		{name: "white-space:normal wraps cell content", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:5">Hello World</td></tr></table>`, want: "Hello\nWorld\n"},
+		{name: "white-space:nowrap still truncates", html: `<table style="border-spacing:0"><tr><td style="white-space:nowrap;width:5">Hello World</td></tr></table>`, want: "Hell…\n"},
+		{name: "multi-column row where one cell wraps", html: `<table style="border-spacing:0"><tr><td style="width:3">A</td><td style="white-space:normal;width:5">Hi there</td></tr></table>`, want: "A  Hi   \n   there\n"},
+		{name: "long word is hard-broken", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:4">Superlongword</td></tr></table>`, want: "Supe\nrlon\ngwor\nd   \n"},
+		{name: "short content still fits on one line", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:10">Hello</td></tr></table>`, want: "Hello     \n"},
+		{name: "wrapping with bordered table", css: collapseGridCSS, html: `<table><tr><th style="width:5">Name</th></tr><tr><td style="white-space:normal;width:5">Al Bob</td></tr></table>`, want: "┌─────┐\n│Name │\n├─────┤\n│Al   │\n│Bob  │\n└─────┘\n"},
+		{name: "table cell preserves br line breaks", html: `<table style="border-spacing:0"><tr><td style="width:4">a<br>b</td></tr></table>`, want: "a   \nb   \n"},
+		{name: "table cell skips display none descendants", html: `<table style="border-spacing:0"><tr><td style="width:4"><span style="display:none">x</span>y</td></tr></table>`, want: "y   \n"},
+		{name: "percentage block children in cells fit page width", css: `h2::before { content: "## "; } table { border-spacing: 0; } td { width: 100%; white-space: normal; } td::after { content: "\A"; }`, html: `<table><tr><td><h2>Left Headline Very Long and Takes Up Space</h2></td><td><h2>Right Headline is also very long and takes up space</h2></td></tr></table>`, width: 30, want: "## Left        ## Right       \nHeadline Very  Headline is    \nLong and Takes also very long \nUp Space       and takes up   \n               space          \n"},
 	})
 }
 
 func TestTableVerticalAlign(t *testing.T) {
-	hidden := `style="border-style:hidden"`
+	hidden := `style="border-spacing:0"`
 	runCases(t, []renderCase{
-		{name: "vertical-align default is top", html: `<table ` + hidden + `><tr><td style="width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "X  A B\n   C D\n   E  \n"},
-		{name: "vertical-align:top", html: `<table ` + hidden + `><tr><td style="vertical-align:top;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "X  A B\n   C D\n   E  \n"},
-		{name: "vertical-align:bottom", html: `<table ` + hidden + `><tr><td style="vertical-align:bottom;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "   A B\n   C D\nX  E  \n"},
-		{name: "vertical-align:middle", html: `<table ` + hidden + `><tr><td style="vertical-align:middle;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "   A B\nX  C D\n   E  \n"},
-		{name: "vertical-align:bottom two-line tall cell", html: `<table ` + hidden + `><tr><td style="vertical-align:bottom;width:2">X</td><td style="white-space:normal;width:3">A B C D</td></tr></table>`, want: "   A B\nX  C D\n"},
+		{name: "vertical-align default is top", html: `<table ` + hidden + `><tr><td style="width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "X A B\n  C D\n  E  \n"},
+		{name: "vertical-align:top", html: `<table ` + hidden + `><tr><td style="vertical-align:top;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "X A B\n  C D\n  E  \n"},
+		{name: "vertical-align:bottom", html: `<table ` + hidden + `><tr><td style="vertical-align:bottom;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "  A B\n  C D\nX E  \n"},
+		{name: "vertical-align:middle", html: `<table ` + hidden + `><tr><td style="vertical-align:middle;width:2">X</td><td style="white-space:normal;width:3">A B C D E</td></tr></table>`, want: "  A B\nX C D\n  E  \n"},
+		{name: "vertical-align:bottom two-line tall cell", html: `<table ` + hidden + `><tr><td style="vertical-align:bottom;width:2">X</td><td style="white-space:normal;width:3">A B C D</td></tr></table>`, want: "  A B\nX C D\n"},
 	})
 }
 
-func TestTableBorderCSS(t *testing.T) {
-	runCases(t, []renderCase{
-		{name: "border-rows solid adds separators between data rows", css: `table { border-style: solid; border-rows: solid; }`, html: `<table><tr><td style="width:3">A</td></tr><tr><td style="width:3">B</td></tr></table>`, want: "┌───┐\n│A  │\n├───┤\n│B  │\n└───┘\n"},
-		{name: "border-header none suppresses header divider", css: `table { border-style: solid; border-header: none; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "┌───┐\n│H  │\n│A  │\n└───┘\n"},
-		{name: "border-columns none removes cell separators in rows", css: `table { border-style: solid; border-columns: none; }`, html: `<table><tr><td style="width:2">A</td><td style="width:2">B</td></tr></table>`, want: "┌──┬──┐\n│A B │\n└──┴──┘\n"},
-		{name: "border-rows none on a table that had row separators enabled", css: `table { border-style: solid; border-rows: solid; border-rows: none; }`, html: `<table><tr><td style="width:3">A</td></tr><tr><td style="width:3">B</td></tr></table>`, want: "┌───┐\n│A  │\n│B  │\n└───┘\n"},
-		{name: "border-left none removes left outer edge and corners", css: `table { border-style: solid; border-left: none; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "───┐\nH  │\n───┤\nA  │\n───┘\n"},
-		{name: "border-right none removes right outer edge and corners", css: `table { border-style: solid; border-right: none; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "┌───\n│H  \n├───\n│A  \n└───\n"},
-	})
-}
-
+// TestTableBorderEdgeShorthand covers the table's own border (border-top/
+// border-left/etc. shorthand and per-corner overrides) via the same
+// resolveBoxBorders primitive any block element uses (see layout_test.go
+// for the exhaustive shorthand-grammar coverage) - these cases just confirm
+// <table> dispatches into that shared machinery correctly. The old
+// border-*-mid/border-center junction-override properties and the
+// border-header/border-columns/border-rows toggles they were tested with
+// (TestTableBorderCSS) no longer exist: border-collapse:collapse resolves
+// junction glyphs from real per-cell borders instead (see
+// TestTableBorderStyles and table_collapse_test.go).
 func TestTableBorderEdgeShorthand(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "border-top literal glyph on a table", css: `table { border-top: "═"; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "┌═══┬═══┐\n│A  │B  │\n└───┴───┘\n"},
-		{name: "border-top shorthand style-only picks that preset's top glyph", css: `table { border-top: double; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "┌═══┬═══┐\n│A  │B  │\n└───┴───┘\n"},
-		{name: "border-top shorthand width-style-color drops width", css: `table { border-top: 1px double red; }`, html: `<table><tr><td style="width:3">A</td></tr></table>`, want: "┌═══┐\n│A  │\n└───┘\n"},
-		{name: "border-top:none on a solid table removes just the top edge (regression parity with block's fix)", css: `table { border-style: solid; border-top: none; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "│A  │B  │\n└───┴───┘\n"},
-		{name: "border-top shorthand resurrects a top edge on a preset with none by default", css: `table { border-style: markdown; border-top: solid; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "───\n|H  |\n|───|\n|A  |\n"},
-		{name: "internal separator fill reuses border-top's overridden fill", css: `table { border-top: double; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "┌═══┐\n│H  │\n├═══┤\n│A  │\n└───┘\n"},
-		{name: "border-top-mid overrides the outer top T-junction", css: `table { border-top-mid: 'v'; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "┌───v───┐\n│A  │B  │\n└───┴───┘\n"},
-		{name: "border-bottom-mid overrides the outer bottom T-junction", css: `table { border-bottom-mid: '^'; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "┌───┬───┐\n│A  │B  │\n└───^───┘\n"},
-		{name: "border-left-mid overrides the header/row-separator left junction", css: `table { border-left-mid: 'L'; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "┌───┐\n│H  │\nL───┤\n│A  │\n└───┘\n"},
-		{name: "border-right-mid overrides the header/row-separator right junction", css: `table { border-right-mid: 'R'; }`, html: `<table><tr><th style="width:3">H</th></tr><tr><td style="width:3">A</td></tr></table>`, want: "┌───┐\n│H  │\n├───R\n│A  │\n└───┘\n"},
-		{name: "border-center overrides the header/row-separator cross junction", css: `table { border-center: '+'; }`, html: `<table><tr><th style="width:3">H</th><th style="width:3">I</th></tr><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "┌───┬───┐\n│H  │I  │\n├───+───┤\n│A  │B  │\n└───┴───┘\n"},
-		{name: "table outer corners can be overridden independently", css: `table { border-top-left-corner: '1'; border-top-right-corner: '2'; border-bottom-left-corner: '3'; border-bottom-right-corner: '4'; }`, html: `<table><tr><td style="width:3">A</td></tr></table>`, want: "1───2\n│A  │\n3───4\n"},
+		{name: "border-top literal glyph on a table's own border", css: `table { border-top: "═"; border-spacing:0; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "══════\nA  B  \n"},
+		{name: "border-top:none on a solid table removes just the top edge (regression parity with block's fix)", css: `table { border-style: solid; border-top: none; border-spacing:0; }`, html: `<table><tr><td style="width:3">A</td><td style="width:3">B</td></tr></table>`, want: "│A  B  │\n└──────┘\n"},
+		{name: "table's own outer corners can be overridden independently", css: `table { border-top-left-corner: '1'; border-top-right-corner: '2'; border-bottom-left-corner: '3'; border-bottom-right-corner: '4'; border-style:solid; border-spacing:0; }`, html: `<table><tr><td style="width:3">A</td></tr></table>`, want: "1───2\n│A  │\n3───4\n"},
 	})
 }
 
 func TestTableBorderStyles(t *testing.T) {
-	oneCol := func(style string) string {
-		return `<table style="border-style:` + style + `"><tr><th style="width:3">H</th></tr><tr><td>A</td></tr></table>`
+	oneColCSS := func(style string) string {
+		return `table { border-collapse: collapse; border-style: ` + style + `; } td, th { border-style: ` + style + `; }`
 	}
+	html := `<table><tr><th style="width:3">H</th></tr><tr><td>A</td></tr></table>`
 	runCases(t, []renderCase{
-		{name: "heavy border style", html: oneCol("heavy"), want: "┏━━━┓\n┃H  ┃\n┣━━━┫\n┃A  ┃\n┗━━━┛\n"},
-		{name: "double border style", html: oneCol("double"), want: "╔═══╗\n║H  ║\n╠═══╣\n║A  ║\n╚═══╝\n"},
-		{name: "markdown border style", html: oneCol("markdown"), want: "|H  |\n|---|\n|A  |\n"},
-		{name: "standard border style", html: oneCol("standard"), want: "H  \n───\nA  \n"},
+		{name: "heavy border style", css: oneColCSS("heavy"), html: html, want: "┏━━━┓\n┃H  ┃\n┣━━━┫\n┃A  ┃\n┗━━━┛\n"},
+		{name: "double border style", css: oneColCSS("double"), html: html, want: "╔═══╗\n║H  ║\n╠═══╣\n║A  ║\n╚═══╝\n"},
+		{name: "markdown border style", css: oneColCSS("markdown"), html: html, want: "|H  |\n|A  |\n"},
+		{name: "standard border style", css: oneColCSS("standard"), html: html, want: "H  \nA  \n"},
 	})
 }
 
 func TestTableCellTextAlign(t *testing.T) {
-	hidden := `style="border-style:hidden"`
+	hidden := `style="border-spacing:0"`
 	runCases(t, []renderCase{
 		{name: "text-align right in cell", html: `<table ` + hidden + `><tr><td style="text-align:right;width:6">hi</td></tr></table>`, want: "    hi\n"},
 		{name: "text-align center in cell", html: `<table ` + hidden + `><tr><td style="text-align:center;width:6">hi</td></tr></table>`, want: "  hi  \n"},
@@ -322,7 +313,7 @@ func TestTableCellTextAlign(t *testing.T) {
 func TestDeeplyNestedTablesRenderQuickly(t *testing.T) {
 	const depth = 18
 	html := `<table><tr><td>leaf</td><td>leaf2</td></tr></table>`
-	for i := 0; i < depth; i++ {
+	for range depth {
 		html = `<table><tr><td></td><td>` + html + `</td></tr></table>`
 	}
 
@@ -392,7 +383,7 @@ func TestColWidthAttrIgnored(t *testing.T) {
 		{
 			name: "col width attribute has no effect, CSS width does",
 			css:  `.narrow { color: #888888; }`,
-			html: `<table style="border-style:hidden"><colgroup><col class="narrow" width="50"></colgroup><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			html: `<table style="border-spacing:0"><colgroup><col class="narrow" width="50"></colgroup><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
 			want: "Name \nAlice\n",
 		},
 	})

@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
 )
 
@@ -418,11 +417,26 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 	if grid.numCols == 0 {
 		return 0
 	}
-	ts := applyTableCSSToStyle(namedTableStyleDefault(), tableDecls)
-	sepW := runeLen(ts.sep)
-	overhead := runeLen(ts.left) + (grid.numCols-1)*sepW + runeLen(ts.right)
+	// Approximates whichever border mode actually applies (separate's own
+	// per-column border-width overhead, reused regardless of collapse/
+	// separate) - this is only ever a shrink-to-fit natural-width estimate
+	// for a nested table, immediately superseded by that table's own real
+	// render, so it doesn't need to be mode-exact.
+	spacingX := parseSpacingLen(tableDecls["border-spacing-x"])
+	colBorderW := r.separateColumnBorderOverhead(grid, colDecls, grid.numCols)
+	overhead := (grid.numCols + 1) * spacingX
+	for _, w := range colBorderW {
+		overhead += w
+	}
+	tbl, tbr, _, _, _, _, _, _ := resolveBoxBorders(tableDecls)
+	if tbl.char != "" {
+		overhead += runeLen(tbl.char)
+	}
+	if tbr.char != "" {
+		overhead += runeLen(tbr.char)
+	}
 	colsEst := r.gridColumnConstraints(grid, colDecls)
-	measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, sepW)
+	measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, spacingX)
 	widths := sizeColumns(measured, naturalWidthCap, false)
 
 	total := overhead
@@ -572,139 +586,16 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 // full renderer width at the top level, or the containing cell's content
 // width for a nested table).
 func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.Node]Rect) {
-	var captionText string
-
-	colDecls := r.collectColDecls(n)
 	tableDecls := r.resolveDecls(n)
-	if tableDecls["border-collapse"] == "separate" {
-		// Opt-in only: per-cell independent borders + border-spacing gaps,
-		// reusing the same generic block-border machinery any other element
-		// uses instead of this file's tableStyle preset model — see
-		// table_separate.go and docs/TABLES.md. Unset or "collapse" both
-		// fall through to the unchanged legacy path below.
-		return r.renderTableSeparate(n, availWidth, tableDecls)
+	if tableDecls["border-collapse"] == "collapse" {
+		return r.renderTableCollapse(n, availWidth, tableDecls)
 	}
-	ts := applyTableCSSToStyle(namedTableStyleDefault(), tableDecls)
-	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%" && !r.measuringNaturalWidth
-
-	// margin-left/right and padding-left/right/top/bottom on the <table>
-	// itself: margin is blank space outside the rendered table block,
-	// padding is blank space inside it (between the margin and the table's
-	// own border/cell content). Percentages resolve against the width
-	// available before either is subtracted, matching renderBlockContent.
-	// A margin side of "auto" resolves to 0 here (isAuto tracks it) and is
-	// filled in later, once the table's final rendered width is known — see
-	// the splitAutoMargins call below.
-	origAvailWidth := availWidth
-	tableML, mlAuto := resolveMarginSide(tableDecls["margin-left"], availWidth)
-	tableMR, mrAuto := resolveMarginSide(tableDecls["margin-right"], availWidth)
-	tablePL := parsePaddingLen(tableDecls["padding-left"])
-	tablePR := parsePaddingLen(tableDecls["padding-right"])
-	tablePT := parsePaddingLen(tableDecls["padding-top"])
-	tablePB := parsePaddingLen(tableDecls["padding-bottom"])
-	availWidth = max(1, availWidth-tableML-tableMR-tablePL-tablePR)
-
-	grid := r.resolveTableGrid(n)
-	numCols := grid.numCols
-	if numCols == 0 {
-		return "", nil
-	}
-	sepW := runeLen(ts.sep)
-	overhead := runeLen(ts.left) + (numCols-1)*sepW + runeLen(ts.right)
-
-	// Estimate final column widths up front (from CSS constraints alone, no
-	// cell content) so cell content that wraps itself (e.g. a nested <p> or
-	// table) can be given its real final width as a wrap budget, rather than
-	// wrapping once at a guess and again later at the true column width.
-	colsEst := r.gridColumnConstraints(grid, colDecls)
-	estWidths := estimateColumnWidths(colsEst, availWidth-overhead, fullWidth)
-	if estWidths == nil {
-		// CSS constraints alone weren't enough to estimate (two or more
-		// unconstrained flex columns) - measure each cell's real natural
-		// width up front instead of guessing.
-		measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, sepW)
-		estWidths = sizeColumns(measured, availWidth-overhead, fullWidth)
-	}
-	fallbackCellWidth := max(1, (availWidth-overhead)/numCols)
-
-	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && c.Data == "caption" {
-			captionWidth := max(1, availWidth-overhead)
-			savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
-			r.nestedTableWidth, r.nestedTableWidthSet = fallbackCellWidth, true
-			captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
-			r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
-			break
-		}
-	}
-
-	r.fillGridCellTokens(grid, colDecls, estWidths, sepW, fallbackCellWidth)
-
-	cols := buildGridColumns(grid, numCols, sepW)
-	widths := sizeColumns(cols, availWidth-overhead, fullWidth)
-	fillGridCellLines(grid, widths, sepW)
-
-	// Horizontal border lines (┌───┐ etc.) need to span the padding area too,
-	// so padding reads as being inside the border, not merged with the
-	// outer margin. Extend the first/last column's share of the line with
-	// the border's own fill character; this only affects the horizontal
-	// rule, not actual column content widths.
-	borderWidths := widths
-	if tablePL > 0 || tablePR > 0 {
-		borderWidths = append([]int(nil), widths...)
-		borderWidths[0] += tablePL
-		borderWidths[len(borderWidths)-1] += tablePR
-	}
-
-	// tableW is the table's own final rendered width (border box, including
-	// its padding but not its margin) — used both to center the caption and,
-	// below, to resolve any margin-left/right: auto into concrete blank space.
-	tableW := sum(widths) + overhead + tablePL + tablePR
-	if mlAuto || mrAuto {
-		remaining := origAvailWidth - tableW - tableML - tableMR
-		tableML, tableMR = splitAutoMargins(remaining, tableML, tableMR, mlAuto, mrAuto)
-	}
-
-	captionSide := tableDecls["caption-side"]
-	var out strings.Builder
-	// rowOffset tracks how many lines have been written to out so far, so
-	// each row's own (0-based) position map can be shifted into the table's
-	// coordinate space as it's appended — the same incremental
-	// shift-and-merge every other box-producing call site uses (see
-	// wraptoken.go's mergePositions doc comment), just driven by line counts
-	// instead of a box's width/height since out is a plain strings.Builder,
-	// not a box.
-	var positions map[*html.Node]Rect
-	rowOffset := 0
-	if captionText != "" && captionSide != "bottom" {
-		// Center caption over the table width (default: top), including padding.
-		out.WriteString(centerText(captionText, tableW) + "\n")
-		rowOffset++
-	}
-	out.WriteString(drawHBorder(borderWidths, ts.top, colorOrFallback(ts.topColor, ts.color), r.profile))
-	rowOffset++
-	for i := 0; i < tablePT; i++ {
-		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
-		rowOffset++
-	}
-
-	bodyStr, bodyPos := r.renderTableBody(grid, widths, borderWidths, ts, tablePL, tablePR)
-	out.WriteString(bodyStr)
-	positions = mergePositions(positions, bodyPos, rowOffset, 0)
-	rowOffset += strings.Count(bodyStr, "\n")
-
-	for i := 0; i < tablePB; i++ {
-		out.WriteString(blankBoxRow(widths, numCols, ts, r.profile, tablePL, tablePR))
-		rowOffset++
-	}
-	out.WriteString(drawHBorder(borderWidths, ts.bottom, colorOrFallback(ts.bottomColor, ts.color), r.profile))
-	if captionText != "" && captionSide == "bottom" {
-		out.WriteString(centerText(captionText, tableW) + "\n")
-	}
-	if len(positions) > 0 && tableML > 0 {
-		positions = mergePositions(nil, positions, 0, tableML)
-	}
-	return wrapTableMargin(out.String(), tableML, tableMR), positions
+	// Real CSS's border-collapse initial value is "separate" - unset and
+	// explicit "separate" are therefore the same thing, not two branches;
+	// separate's own model (table_separate.go) is already spec-correct for
+	// the borderless-by-default case, since it has no fallback border logic
+	// of its own. See docs/TABLES.md.
+	return r.renderTableSeparate(n, availWidth, tableDecls)
 }
 
 // nbsp is U+00A0 (non-breaking space). A real &nbsp; HTML entity decodes to
@@ -713,27 +604,6 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 // Render's final pass normalizes it to a plain space in the returned string,
 // since terminals don't distinguish breaking from non-breaking spaces.
 const nbsp = " "
-
-// wrapTableMargin applies the <table> element's own margin-left/right as
-// blank space outside its fully-rendered text (padding is applied inside the
-// border box itself, in the main body of renderTable, since CSS padding sits
-// between the border and the content, not outside the border like margin).
-// Plain spaces are safe on both sides: when this table is nested inside
-// another table's cell, the outer table embeds it as a box token (see
-// renderInlineAccTokens), never as flattened text passed through
-// plainInlineText's trailing-space trim — so nothing here needs protecting
-// from trimming the way it did before cells were token-based.
-func wrapTableMargin(s string, ml, mr int) string {
-	if ml > 0 || mr > 0 {
-		s = applyLineEdges(s, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
-	}
-	return s
-}
-
-func namedTableStyleDefault() tableStyle {
-	ts, _ := namedTableStyle("solid")
-	return ts
-}
 
 // buildGridColumns rebuilds each column's constraints from its cells' final,
 // already-rendered tokens (natural width) and per-cell CSS constraints —
@@ -820,220 +690,4 @@ func fillGridCellLines(g tableGrid, widths []int, sepW int) {
 			cell.lines = append(cell.lines, make([]string, pb)...)
 		}
 	}
-}
-
-// renderTableBody renders every row of a resolved grid — header separator
-// and (span-aware) interior row separators included — as one continuous
-// block. widths are the final per-column content widths (used to size each
-// cell's own content); borderWidths are the same widths with the table's own
-// left/right padding folded into the first/last entries (used only for the
-// header/row-separator rule lines, matching how the outer top/bottom
-// borders already extend into that padding).
-//
-// A rowspan cell's content flows continuously through every row it spans
-// (tracked via `consumed`, each cell's own running count of lines already
-// emitted in earlier rows of its span) and the interior separator between
-// two rows it spans is drawn with that column's segment blanked instead of
-// ruled (see drawRowSepWithSpans) — together giving the cell a single,
-// visually unbroken box rather than one broken up by every row boundary it
-// crosses. A colspan cell's own row similarly draws no interior separator
-// between the columns it spans, and its content is only emitted once, at its
-// leftmost (anchor) column, across the combined width of every column it
-// spans.
-func (r *Engine) renderTableBody(g tableGrid, widths, borderWidths []int, ts tableStyle, boxPL, boxPR int) (string, map[*html.Node]Rect) {
-	numCols := g.numCols
-	numRows := len(g.rows)
-	if numRows == 0 {
-		return "", nil
-	}
-	sepW := runeLen(ts.sep)
-	cells := uniqueCells(g)
-
-	// Row-height resolution, two passes: first, every rowSpan==1 cell sets
-	// its own row's local height directly (today's behavior, unchanged).
-	localHeight := make([]int, numRows)
-	for _, cell := range cells {
-		if cell.rowSpan == 1 {
-			if h := len(cell.lines); h > localHeight[cell.rowStart] {
-				localHeight[cell.rowStart] = h
-			}
-		}
-	}
-	for i := range localHeight {
-		if localHeight[i] < 1 {
-			localHeight[i] = 1
-		}
-	}
-	// Second, a rowSpan>1 cell that needs more lines than its spanned rows
-	// already provide grows those rows (evenly, remainder to the first) to
-	// fit - processed in rowStart order (uniqueCells' own order) so later,
-	// overlapping spans see already-adjusted heights from earlier ones.
-	for _, cell := range cells {
-		if cell.rowSpan <= 1 {
-			continue
-		}
-		need := len(cell.lines)
-		have := 0
-		for rr := cell.rowStart; rr < cell.rowStart+cell.rowSpan; rr++ {
-			have += localHeight[rr]
-		}
-		if need > have {
-			deficit := need - have
-			base := deficit / cell.rowSpan
-			rem := deficit % cell.rowSpan
-			for i := 0; i < cell.rowSpan; i++ {
-				add := base
-				if i < rem {
-					add++
-				}
-				localHeight[cell.rowStart+i] += add
-			}
-		}
-	}
-
-	mergedHeight := make(map[*tableCell]int, len(cells))
-	for _, cell := range cells {
-		h := 0
-		for rr := cell.rowStart; rr < cell.rowStart+cell.rowSpan; rr++ {
-			h += localHeight[rr]
-		}
-		mergedHeight[cell] = h
-	}
-	// alignOffset generalizes the old per-row vertical-align offset across a
-	// cell's whole merged block (mergedHeight) instead of just its own row -
-	// for a rowSpan==1 cell mergedHeight equals localHeight[rowStart], so
-	// this degenerates to exactly the old per-row behavior.
-	alignOffset := func(cell *tableCell) int {
-		extra := mergedHeight[cell] - len(cell.lines)
-		if extra <= 0 {
-			return 0
-		}
-		switch cell.verticalAlign {
-		case "bottom":
-			return extra
-		case "middle":
-			return extra / 2
-		default:
-			return 0
-		}
-	}
-	spanContentWidth := func(cell *tableCell) int {
-		w := (cell.colSpan - 1) * sepW
-		for i := cell.colStart; i < cell.colStart+cell.colSpan && i < len(widths); i++ {
-			w += widths[i]
-		}
-		return w
-	}
-
-	paintLeft := makePainter(colorOrFallback(ts.leftColor, ts.color), r.profile)
-	paintSep := makePainter(ts.color, r.profile)
-	paintRight := makePainter(colorOrFallback(ts.rightColor, ts.color), r.profile)
-
-	var out strings.Builder
-	var positions map[*html.Node]Rect
-	consumed := make(map[*tableCell]int, len(cells))
-	rowOffset := 0
-
-	for row := 0; row < numRows; row++ {
-		h := localHeight[row]
-		for lineIdx := 0; lineIdx < h; lineIdx++ {
-			var sb strings.Builder
-			sb.WriteString(paintLeft(ts.left))
-			if boxPL > 0 {
-				sb.WriteString(strings.Repeat(" ", boxPL))
-			}
-			for c := 0; c < numCols; c++ {
-				cell := g.rows[row][c]
-				if c > 0 {
-					prev := g.rows[row][c-1]
-					if !(cell != nil && prev == cell) {
-						sb.WriteString(paintSep(ts.sep))
-					}
-				}
-				if cell != nil && cell.colStart != c {
-					continue // mid-colspan continuation: already drawn at its anchor column
-				}
-				if cell == nil {
-					// Short row: no cell at this column at all - blank fill
-					// of the column's own width, same as a zero-value cell.
-					var w int
-					if c < len(widths) {
-						w = widths[c]
-					}
-					sb.WriteString(strings.Repeat(" ", w))
-					continue
-				}
-				contentW := spanContentWidth(cell)
-				pl, pr, cw := clampCellPadding(contentW, cell.paddingLeft, cell.paddingRight)
-				absPos := consumed[cell] + lineIdx
-				var line string
-				if idx := absPos - alignOffset(cell); idx >= 0 && idx < len(cell.lines) {
-					line = cell.lines[idx]
-				}
-				rendered := cell.cellStyle.render(alignLines(line, cell.textAlign, cw), r.profile)
-				if pl > 0 {
-					rendered = strings.Repeat(" ", pl) + rendered
-				}
-				if pr > 0 {
-					rendered += strings.Repeat(" ", pr)
-				}
-				sb.WriteString(rendered)
-			}
-			if boxPR > 0 {
-				sb.WriteString(strings.Repeat(" ", boxPR))
-			}
-			sb.WriteString(paintRight(ts.right))
-			out.WriteString(sb.String())
-			out.WriteString("\n")
-		}
-
-		// Position merge, only for cells anchored at this row (their content
-		// starts here; a rowspan continuation was already merged when its
-		// anchor row was processed).
-		colStart := runeLen(ts.left) + boxPL
-		for c := 0; c < numCols; c++ {
-			if c > 0 {
-				colStart += runeLen(ts.sep)
-			}
-			cell := g.rows[row][c]
-			if cell != nil && cell.rowStart == row && cell.colStart == c && len(cell.positions) > 0 {
-				pl, _, _ := clampCellPadding(spanContentWidth(cell), cell.paddingLeft, cell.paddingRight)
-				positions = mergePositions(positions, cell.positions, rowOffset+alignOffset(cell), colStart+pl)
-			}
-			if c < len(widths) {
-				colStart += widths[c]
-			}
-		}
-
-		seenThisRow := make(map[*tableCell]bool)
-		for c := 0; c < numCols; c++ {
-			cell := g.rows[row][c]
-			if cell == nil || seenThisRow[cell] {
-				continue
-			}
-			seenThisRow[cell] = true
-			consumed[cell] += h
-		}
-		rowOffset += h
-
-		if row == g.headerRow {
-			out.WriteString(drawHBorder(borderWidths, ts.header, ts.color, r.profile))
-			rowOffset++
-		} else if row < numRows-1 {
-			out.WriteString(drawRowSepWithSpans(borderWidths, g.rows[row], g.rows[row+1], ts.rowSep, ts.color, r.profile))
-			rowOffset++
-		}
-	}
-	return out.String(), positions
-}
-
-// blankBoxRow draws one bordered but content-free row (left border + blank
-// interior + right border), used to render padding-top/padding-bottom on a
-// <table>: unlike margin, CSS padding sits inside the border box, so these
-// rows must still carry the left/right border characters.
-func blankBoxRow(widths []int, numCols int, ts tableStyle, p colorprofile.Profile, boxPL, boxPR int) string {
-	paintLeft := makePainter(colorOrFallback(ts.leftColor, ts.color), p)
-	paintRight := makePainter(colorOrFallback(ts.rightColor, ts.color), p)
-	interior := sum(widths) + (numCols-1)*runeLen(ts.sep) + boxPL + boxPR
-	return paintLeft(ts.left) + strings.Repeat(" ", interior) + paintRight(ts.right) + "\n"
 }

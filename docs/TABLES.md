@@ -7,251 +7,189 @@ border, only a chosen set of glyphs). This page pulls together everything
 about styling a table's frame and cells in one place; CSS.md's own table
 entries are one-line pointers here.
 
+**A bare `<table>` with no CSS at all renders completely borderless**,
+matching a real browser exactly (`border-style`'s initial value is `none`;
+`border-collapse`'s initial value is `separate`). There is no hidden
+fallback "default look" here — every visible border comes from CSS you
+actually wrote.
+
 ## Quick reference
 
 | Property | Applies to | Notes |
 |---|---|---|
-| `border-style` | `<table>` | Whole-frame preset — see below. Not a real-CSS property name reused; htmlterm's own vocabulary. |
-| `border-top`/`-right`/`-bottom`/`-left` | `<table>` | Literal glyph or shorthand grammar, same as block elements |
-| `border-top-mid`/`-bottom-mid`/`-left-mid`/`-right-mid`/`border-center` | `<table>` | Junction glyph overrides — no real-CSS equivalent |
-| `border-top-left-corner` etc. | `<table>` | Corner glyph overrides |
-| `border-header`/`border-columns`/`border-rows` | `<table>` | On/off edge toggles — no real-CSS equivalent |
-| `border-color`, `border-*-color` | `<table>` | Whole-frame / per-edge color |
+| `border-style` | `<table>`, `<th>`/`<td>` | Whole-box preset — see below. Not a real-CSS property value set; htmlterm's own vocabulary |
+| `border-top`/`-right`/`-bottom`/`-left` | `<table>`, `<th>`/`<td>` | Literal glyph or shorthand grammar, same as block elements |
+| `border-top-left-corner` etc. | `<table>`, `<th>`/`<td>` | Corner glyph overrides |
+| `border-color`, `border-*-color` | `<table>`, `<th>`/`<td>` | Whole-box / per-edge color |
 | `margin`, `padding` | `<table>` | Work like any block element — see "Margin and padding" below |
 | `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing |
 | `white-space`, `text-overflow` | `<th>`/`<td>` | Wrapping vs. truncation |
 | `vertical-align` | `<th>`/`<td>` | Content placement within row height |
-| `caption-side` | `<table>` | Caption above/below the frame |
-| `border-collapse: separate` | `<table>` | Opt-in: real per-cell `border`/`border-style`/etc. on `<th>`/`<td>`, real CSS semantics — see "`border-collapse: separate`" below |
-| `border-spacing` | `<table>` | Gap between cell boxes, only meaningful under `border-collapse: separate` |
+| `caption-side` | `<table>` | Caption above/below the table |
+| `border-collapse: separate` | `<table>` | The real-CSS default (also what unset falls back to): every `<th>`/`<td>` gets its own independent border box — see "`border-collapse: separate`" below |
+| `border-collapse: collapse` | `<table>` | Adjacent cell/table borders merge into shared lines via real conflict resolution — see "`border-collapse: collapse`" below |
+| `border-spacing` | `<table>` | Gap between cell boxes under `border-collapse: separate`. Default `0` |
 
 ## Border-style presets
 
 **Not a real CSS property value set.** Real CSS's `border-style` is a
 per-edge line-style keyword (`solid`/`dashed`/`dotted`/`groove`/`ridge`/
-`inset`/`outset`/`double`/`none`/`hidden`) — htmlterm's `border-style` on
-`<table>` instead names a *complete whole-table-frame preset*
+`inset`/`outset`/`double`/`none`/`hidden`) — htmlterm's `border-style`
+instead names a *complete glyph-set preset*
 (`solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`).
 Only the *concept* of "solid"/"double"/"hidden"/"none" carries the name
 over from real CSS; `rounded`/`heavy`/`markdown`/`standard` are
 htmlterm-specific, and even the overlapping names pick a specific
 box-drawing character set rather than a line style. This is a deliberate
 design choice, not an accident: writing out a dozen individual glyph
-properties for every table would be unusable, and the realistic set of
-table "looks" is small enough that a handful of named presets covers it.
+properties for every border would be unusable, and the realistic set of
+"looks" is small enough that a handful of named presets covers it.
 Individual `border-*` properties on the same element still override the
-preset for that one edge.
+preset for that one edge. This property is not table-specific — it's the
+same one any block element uses; a `<table>`/`<th>`/`<td>` box just uses it
+like any other bordered box would.
+
+The examples below all use `border-collapse: collapse` with the same
+`border-style` set on the table and its cells, since that's how you get a
+full shared grid out of these presets (see "`border-collapse: collapse`"
+below for why a table-level preset alone doesn't reach into its cells):
 
 ```css
-table { border-style: solid; }   /* default */
+table, td, th { border-style: solid; }
+table { border-collapse: collapse; }
 ```
 ```
 ┌──────┬───┐
 │Name  │Qty│
 ├──────┼───┤
 │Apple │3  │
+├──────┼───┤
 │Banana│5  │
 └──────┴───┘
 ```
 
 ```css
-table { border-style: rounded; }
+table, td, th { border-style: rounded; }
+table { border-collapse: collapse; }
 ```
 ```
 ╭──────┬───╮
 │Name  │Qty│
 ├──────┼───┤
 │Apple │3  │
+├──────┼───┤
 │Banana│5  │
 ╰──────┴───╯
 ```
 
 ```css
-table { border-style: heavy; }
+table, td, th { border-style: heavy; }
+table { border-collapse: collapse; }
 ```
 ```
 ┏━━━━━━┳━━━┓
 ┃Name  ┃Qty┃
 ┣━━━━━━╋━━━┫
 ┃Apple ┃3  ┃
+┣━━━━━━╋━━━┫
 ┃Banana┃5  ┃
 ┗━━━━━━┻━━━┛
 ```
 
 ```css
-table { border-style: double; }
+table, td, th { border-style: double; }
+table { border-collapse: collapse; }
 ```
 ```
 ╔══════╦═══╗
 ║Name  ║Qty║
 ╠══════╬═══╣
 ║Apple ║3  ║
+╠══════╬═══╣
 ║Banana║5  ║
 ╚══════╩═══╝
 ```
 
 ```css
-table { border-style: markdown; }
+table, td, th { border-style: markdown; }
+table { border-collapse: collapse; }
 ```
 ```
 |Name  |Qty|
-|------|---|
 |Apple |3  |
 |Banana|5  |
 ```
 
-```css
-table { border-style: standard; }  /* no outer frame, no column rules */
-```
-```
-Name   Qty
-────── ───
-Apple  3  
-Banana 5  
-```
+`markdown` only supplies left/right glyphs (no top/bottom), so it never
+draws any row divider on its own — including the header-separator row real
+Markdown tables have — add an explicit `border-bottom` on the cells that
+need one if you want a divider.
 
 ```css
-table { border-style: hidden; }  /* (or "none") no borders at all */
+table, td, th { border-style: standard; }
+table { border-collapse: collapse; }
 ```
 ```
-Name   Qty
-Apple  3  
-Banana 5  
-```
-
-## Edge toggles
-
-**Not real CSS properties.** `border-header`, `border-columns`, and
-`border-rows` have no equivalent at all in the spec — real CSS has no
-on/off toggle for a table's internal rule lines. They exist here because
-htmlterm's table border model has no per-cell `border` at all: `<th>`/`<td>`
-never read a `border*` declaration in table-layout mode (only `<table>`
-itself does — see "Border-style presets" above), so there's no independent
-cell edge to set to `none` the way real CSS would turn off one row's or
-column's divider. In real CSS you'd get "no header divider" by setting
-`border-bottom: none` on the header cells, or "no column dividers" via
-`border-collapse` and per-cell `border: none` — options that don't exist
-here since cells don't carry their own border in the first place. These
-three properties are the table-level escape hatch that compensates for
-that: on/off switches for the internal rule lines a whole-frame preset
-draws by default, since there's no cell-level lever to pull instead.
-
-```css
-table { border-rows: solid; }   /* off by default */
-```
-```
-┌──────┬───┐
-│Name  │Qty│
-├──────┼───┤
-│Apple │3  │
-├──────┼───┤
-│Banana│5  │
-└──────┴───┘
+Name  Qty
+Apple 3  
+Banana5  
 ```
 
-```css
-table { border-header: none; }
-```
-```
-┌──────┬───┐
-│Name  │Qty│
-│Apple │3  │
-│Banana│5  │
-└──────┴───┘
-```
+`standard` supplies no glyphs on any edge at all — it's a documented
+no-op preset, useful mainly as an explicit "no border" marker distinct
+from simply not setting `border-style`. With no border glyphs anywhere,
+there's also no `border-spacing` gap to space columns apart under
+`collapse` (that's a `separate`-mode-only property) — hence `Banana`/`5`
+touching directly above.
 
-```css
-table { border-columns: none; }
-```
-```
-┌──────┬───┐
-│Name  Qty│
-├──────┼───┤
-│Apple 3  │
-│Banana5  │
-└──────┴───┘
-```
-
-Note in that last example: the top/bottom border still draws the `┬`/`┴`
-junction glyphs even though the column divider itself is gone (a minor,
-harmless visual inconsistency — `border-columns: none` only removes the
-vertical rule in the body, not the outer frame's own junction characters).
-
-## Junction and corner glyph overrides
-
-`border-top-mid`/`border-bottom-mid`/`border-left-mid`/`border-right-mid`/
-`border-center` override the individual T-junction and cross-junction
-characters a preset supplies — again, no real-CSS analog (CSS has no notion
-of styling where a divider "joins" a border):
-
-```css
-table {
-  border-top-mid: "╥"; border-bottom-mid: "╨";
-  border-left-mid: "╠"; border-right-mid: "╣";
-  border-center: "╫";
-}
-```
-```
-┌──────╥───┐
-│Name  │Qty│
-╠──────╫───╣
-│Apple │3  │
-│Banana│5  │
-└──────╨───┘
-```
+## Corner glyph overrides
 
 `border-top-left-corner`/`border-top-right-corner`/
 `border-bottom-left-corner`/`border-bottom-right-corner` override one outer
-corner character each, the same literal-only model as the identically-named
-block-element properties.
-
-**A deviation from literal CSS semantics worth calling out explicitly:**
-setting `border-left: none` (or `border-right: none`) doesn't just remove
-that one vertical rule — it also clears that side's corner and every
-internal junction glyph (header divider, row dividers) on every horizontal
-line, not just the outer frame:
+corner character each — a literal-glyph-only property (no preset keywords),
+the same model on `<table>`/`<th>`/`<td>` as on any other block element:
 
 ```css
-table { border-left: none; }
+table {
+  border-style: solid; border-spacing: 0;
+  border-top-left-corner: '1'; border-top-right-corner: '2';
+  border-bottom-left-corner: '3'; border-bottom-right-corner: '4';
+}
 ```
 ```
-──────┬───┐
-Name  │Qty│
-──────┼───┤
-Apple │3  │
-Banana│5  │
-──────┴───┘
+1───2
+│A  │
+3───4
 ```
 
-Real CSS's `border-left: none` never touches the top/bottom border at all —
-in pixel rendering there's no "corner glyph" concept to begin with, since a
-border is just where two independent lines happen to meet in space. In
-ASCII art, though, leaving the `┌`/`├`/`└` corner and junction glyphs in
-place with no vertical rule for them to connect to would look like a
-dangling, disconnected character — so removing them is the deliberate,
-intentional interpretation of "no left frame at all" for this renderer, not
-an oversight. If you want a literal one-sided-rule look without touching the
-rest of the frame, use the corner-override properties above to substitute a
-plain fill character instead of `none`.
+**`border-left: none`/`border-right: none` keep that side's corners** even
+though the vertical rule itself disappears:
+
+```css
+table { border-style: solid; border-left: none; border-spacing: 0; }
+```
+```
+┌─────┐
+A  B  │
+└─────┘
+```
+
+This matches how any other bordered block element handles `border-left:
+none` in this renderer — a corner glyph is generated independently per
+corner from whichever of its two adjacent edges resolve to a real border
+(here, top and bottom still do), not tied to the side edge's own presence.
 
 ## `border-collapse: separate`
 
-Everything above (border-style presets, edge toggles, junction/corner
-glyphs) describes htmlterm's **default** table rendering: one shared frame
-drawn from a preset, with cells never reading their own `border*` CSS at
-all — which is also why `border-header`/`border-columns`/`border-rows`
-exist as non-standard escape hatches (see "Edge toggles" above).
-
-Setting `border-collapse: separate` on `<table>` switches to a completely
-different, **opt-in** model: every `<th>`/`<td>` gets its own real,
-independent border box — ordinary `border`/`border-style`/`border-color`
-CSS on the cell itself, resolved exactly the same way as on any other
-element — with `border-spacing` as the gap between adjacent cell boxes
-(and between the table's own border and its outermost cells). This is real
-CSS, not htmlterm-invented vocabulary: `border-header`/`border-columns`/
-`border-rows` have no meaning here, since there's no shared frame to toggle
-pieces of — you just don't set a border on a particular cell's edge,
-the same way you would on any block element.
+**The real-CSS default** (what unset `border-collapse` falls back to, since
+`separate` *is* CSS's own initial value): every `<th>`/`<td>` gets its own
+real, independent border box — ordinary `border`/`border-style`/
+`border-color` CSS on the cell itself, resolved exactly the same way as on
+any other element — with `border-spacing` as the gap between adjacent cell
+boxes (and between the table's own border and its outermost cells,
+including a table with zero columns of visible border at all, which is
+exactly what makes a bare `<table>` render borderless: no CSS anywhere
+means no cell ever gets a border box, full stop).
 
 ```css
 table { border-collapse: separate; border-spacing: 1; }
@@ -275,12 +213,18 @@ td, th { border: solid; padding-left: 1; padding-right: 1; }
 
 `border-spacing` takes one or two values — one applies to both axes; two
 are horizontal then vertical (the opposite order from `gap`'s row-then-
-column convention):
+column convention). **Default is `0`.** Real CSS defaults to `2px`, which is
+imperceptible against a typical line-height — but a terminal "row" of
+spacing is a full line (100% of a row's height, not the ~10% a pixel gap
+would be against real text), so a literal `1`-character default would read
+as a much more prominent gap than the real default it's meant to
+approximate, indistinguishable from leftover border structure even with no
+border set anywhere:
 
 ```css
+border-spacing: 0;      /* cell borders touch directly, no gap (the default) */
 border-spacing: 1;      /* 1 column and 1 row of spacing */
 border-spacing: 2 1;    /* 2 columns horizontal, 1 row vertical */
-border-spacing: 0;      /* cell borders touch directly, no gap */
 ```
 
 Cells with no border of their own render with no box at all — row height
@@ -307,9 +251,10 @@ every column/row it spans, including the `border-spacing` gap(s) between
 them (its border/background runs continuously through what would otherwise
 be a gap — there's no separate divider drawn through the middle of a single
 cell's own box, matching real CSS). `vertical-align`/`text-align` apply per
-cell exactly as they do in the default model. The table's own
+cell exactly as they do outside a table. The table's own
 `border`/`padding`/`margin` still wrap the whole assembled grid, exactly
-like any other block element.
+like any other block element (including the fact that a table's own
+`padding` genuinely works — see "Margin and padding" below).
 
 **Known simplifications** (documented, not accidental):
 
@@ -325,16 +270,91 @@ like any other block element.
   narrower than the exact combined width of the columns below/above it,
   padded with blank space to stay rectangular. Only noticeable with
   unusually thick borders combined with colspan.
-- **`border-collapse: collapse`** — the other half of real CSS's model
-  (adjacent cell borders merging into shared lines via conflict
-  resolution) is not implemented; `collapse` and unset both keep today's
-  default shared-frame rendering unchanged.
+
+## `border-collapse: collapse`
+
+The other real CSS border model: adjacent cell/table borders merge into
+**shared grid lines** instead of each cell keeping its own independent box.
+Real CSS's conflict-resolution algorithm (CSS 2.1 §17.6.2.1) picks a single
+winner for each shared line segment from whichever elements border it —
+htmlterm implements the same idea, adapted for its own style vocabulary and
+lack of real border thickness:
+
+1. **`hidden` always wins** — a `hidden` edge on either side suppresses that
+   shared segment outright, regardless of what the other side sets.
+2. **An edge with no border set (or explicit `none`) simply loses** — if
+   only one side has a real border, it wins by default; if neither does,
+   the segment is absent entirely (consuming no space at all — a
+   collapsed-mode table with no borders anywhere is exactly as borderless
+   as a `separate`-mode one with none).
+3. **Otherwise, style precedence decides**: `double` > `heavy` > `solid` >
+   `rounded` > `markdown`/`standard`/any literal-glyph style (real CSS's own
+   `border-width` "widest wins" tier is skipped entirely — border thickness
+   is a no-op deviation here, documented in COMPATIBILITY.md).
+4. **A same-style tie goes to the cell over the table** (matching real
+   CSS's own "cell beats table" rule at the tail of its hierarchy) — for two
+   adjacent cells' own borders it's an arbitrary but consistent
+   reading-order tie-break, since real CSS doesn't precisely specify that
+   case either.
+
+Each grid vertex (where up to 4 segments meet) gets a junction glyph
+synthesized from which of its arms are present and which style won each —
+`solid`/`heavy`/`double` each have a complete box-drawing character set
+covering every combination; `rounded` reuses `solid`'s interior junctions
+with its own glyphs only at the four true outer corners. `markdown`/
+`standard`/an unnamed literal-glyph style have no junction glyphs of their
+own at all, so a vertex where one of them won renders as a **blank space**
+instead — deliberately, not a gap to be filled in later: borrowing a
+box-drawing character from an unrelated style (say, solid's `┼` in the
+middle of an otherwise-ASCII `|`/`-` table) would look like an accidental
+mismatch, worse than no glyph at all. Set the junction position's own edges
+explicitly (or use one of the four named box-drawing presets) if you want a
+real character there. When a vertex's arms won with different styles, the
+highest-precedence style among them picks which style's junction table to
+consult for that one glyph — an approximation, not an attempt at an exact
+mixed-weight Unicode character for every combination.
+
+```css
+table { border-collapse: collapse; }
+td, th { border: solid; }
+```
+```html
+<table><tr><th colspan="2">Header</th></tr><tr><td>A</td><td>B</td></tr></table>
+```
+```
+┌───────┐
+│Header │
+├───┬───┤
+│A  │B  │
+└───┴───┘
+```
+
+Note the header cell's own interior: since it spans both columns, no
+divider is drawn through the middle of its box even though the column
+boundary is active below it — matching real CSS (`colspan`/`rowspan`
+suppress the interior grid-line segments they cover; only a spanning cell's
+own outer edges participate in conflict resolution).
+
+**Scope of what's compared**, matching the approved design (not a
+limitation to be fixed later, a deliberate boundary): only **cell-level and
+table-level** `border` declarations are considered. `<tr>`/`<thead>`/
+`<tbody>`/`<tfoot>`/`<col>`/`<colgroup>` borders are not consulted, even
+though real CSS's own collapse algorithm does include some of those in its
+full hierarchy. The legacy HTML `border`/`cellpadding`/`cellspacing`
+presentational attributes aren't read either — use the CSS properties
+above.
+
+**A real-CSS deviation worth calling out**: under `border-collapse:
+collapse`, the table's own `padding` has no effect (matching real CSS — "the
+table does not have padding, though its cells do") — only the table's own
+`margin` and its own `border` (merged into the grid like any other cell's,
+not a separate wrapping frame) apply at the table level.
 
 ## Margin and padding
 
 `margin`/`padding` on `<table>` itself work exactly like any other block
-element — including the case that's easy to assume doesn't apply to tables
-at all:
+element under `border-collapse: separate` (the default) — including the
+case that's easy to assume doesn't apply to tables at all:
 
 ```css
 table { padding: 1; border-style: solid; }
@@ -342,30 +362,29 @@ table { padding: 1; border-style: solid; }
 
 Padding adds blank space *inside* the border, between the frame and the
 outermost cells — this is genuinely how real CSS's `border-collapse:
-separate` (the actual default, contrary to the common assumption that
-tables have no meaningful padding) behaves too; it's just rarely used
-because most real-world tables reach for `border-spacing`/cell padding
-instead of table-level `padding`. `margin-left`/`margin-right`, including
-`margin: auto` centering, work the same way they do for other block
-elements (see CSS.md's `margin` entries) — and `auto`-centering a `<table>`
-specifically is one of the few auto-margin cases real browsers support
-without requiring extra tricks, which htmlterm matches.
+separate` model behaves too; it's just rarely used because most real-world
+tables reach for `border-spacing`/cell padding instead of table-level
+`padding`. `margin-left`/`margin-right`, including `margin: auto`
+centering, work the same way they do for other block elements (see
+CSS.md's `margin` entries) — and `auto`-centering a `<table>` specifically
+is one of the few auto-margin cases real browsers support without
+requiring extra tricks, which htmlterm matches. Under `border-collapse:
+collapse`, `padding` on the table itself has no effect (see above) — only
+`margin` does.
 
 `margin-top`/`margin-bottom` also work like any other block element:
 collapsing with adjacent siblings' margins the same way (larger value wins),
 whether the `<table>` is at the document root or nested inside another
-block. All of this applies identically whether or not
-`border-collapse: separate` is set — the table's own margin/padding always
-wrap the assembled grid the same way, regardless of border model.
+block, under either border model.
 
 ## Not supported
 
-- **`border-collapse: collapse`** — see the previous section; real
-  per-cell border-conflict resolution and junction-glyph synthesis aren't
-  implemented, only `separate`.
-- **The default (shared-frame) model has no `border-spacing`/per-cell
-  border at all** — that's exactly what opting into
-  `border-collapse: separate` gets you instead; see above.
+- **`border-collapse: collapse`'s conflict resolution only considers
+  cell-level and table-level `border`** — `<tr>`/`<thead>`/`<tbody>`/
+  `<tfoot>`/`<col>`/`<colgroup>` borders aren't consulted; see above.
+- **The legacy HTML `border`/`cellpadding`/`cellspacing` presentational
+  attributes** aren't read — use `border-collapse`/`border-spacing`/cell
+  `padding` instead.
 - **Multi-line cell content combined with `white-space: nowrap`** — a
   `nowrap` cell is always clipped to one line (see `text-overflow`), never
   both non-wrapping and multi-line. Applies under both border models.

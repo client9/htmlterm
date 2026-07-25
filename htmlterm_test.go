@@ -380,7 +380,7 @@ func TestTableBorderEdgeColor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.Render(`<table style="border-top-color:#ff0000; border-left-color:#00ff00; border-right-color:#0000ff; border-bottom-color:#ffff00"><tr><td style="width:3">A</td></tr></table>`)
+	got, err := r.Render(`<table style="border-style:solid; border-spacing:0; border-top-color:#ff0000; border-left-color:#00ff00; border-right-color:#0000ff; border-bottom-color:#ffff00"><tr><td style="width:3">A</td></tr></table>`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestTableBorderEdgeColor(t *testing.T) {
 		t.Fatalf("table per-edge color changed the box shape: %q", stripANSI(got))
 	}
 
-	got, err = r.Render(`<table style="border-color:#888888; border-top-color:#ff0000"><tr><td style="width:3">A</td></tr></table>`)
+	got, err = r.Render(`<table style="border-style:solid; border-color:#888888; border-top-color:#ff0000"><tr><td style="width:3">A</td></tr></table>`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -638,7 +638,7 @@ func TestDisplay_Contents(t *testing.T) {
 		{name: "contents inside a block container splices children into that container", html: `<div><span style="display:contents"><p>one</p><p>two</p></span></div>`, want: "one\n\ntwo\n"},
 		{name: "contents element's own margin/padding/border is ignored", html: `<span style="display:contents; margin-left:4; padding-left:4; border-left:'|'">text</span>`, want: "text"},
 		{name: "display:none on a contents child still hides it", html: `<span style="display:contents"><p>a</p><p style="display:none">b</p><p>c</p></span>`, want: "a\n\nc\n"},
-		{name: "contents on a table cell child does not error", html: `<table><tr><td><span style="display:contents">x</span></td></tr></table>`, want: "┌─┐\n│x│\n└─┘\n"},
+		{name: "contents on a table cell child does not error", html: `<table style="border:solid; border-spacing:0"><tr><td><span style="display:contents">x</span></td></tr></table>`, want: "┌─┐\n│x│\n└─┘\n"},
 	})
 }
 
@@ -738,40 +738,40 @@ func TestColGroup(t *testing.T) {
 	runCases(t, []renderCase{
 		{
 			name:  "col width-attr sets fixed column width",
-			html:  `<table style="border-style:none"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
 			width: 40,
-			want:  "Name   Age \nAlice  30  \n",
+			want:  "Name  Age \nAlice 30  \n",
 		},
 		{
 			name:  "col style width sets fixed column width",
-			html:  `<table style="border-style:none"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup><col style="width:6"><col style="width:4"></colgroup><tr><th>Name</th><th>Age</th></tr><tr><td>Alice</td><td>30</td></tr></table>`,
 			width: 40,
-			want:  "Name   Age \nAlice  30  \n",
+			want:  "Name  Age \nAlice 30  \n",
 		},
 		{
 			name:  "col span covers multiple columns",
-			html:  `<table style="border-style:none"><colgroup><col span="2" style="width:6"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup><col span="2" style="width:6"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
 			width: 40,
-			want:  "A      B     \nfoo    bar   \n",
+			want:  "A     B     \nfoo   bar   \n",
 		},
 		{
 			name:  "colgroup span with no col children",
-			html:  `<table style="border-style:none"><colgroup span="2" style="width:5"></colgroup><tr><th>X</th><th>Y</th></tr><tr><td>a</td><td>b</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup span="2" style="width:5"></colgroup><tr><th>X</th><th>Y</th></tr><tr><td>a</td><td>b</td></tr></table>`,
 			width: 40,
-			want:  "X     Y    \na     b    \n",
+			want:  "X    Y    \na    b    \n",
 		},
 		{
 			name:  "cell style overrides col style",
-			html:  `<table style="border-style:none"><colgroup><col style="width:10"></colgroup><tr><th style="width:6">Name</th></tr><tr><td>Alice</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup><col style="width:10"></colgroup><tr><th style="width:6">Name</th></tr><tr><td>Alice</td></tr></table>`,
 			width: 40,
 			want:  "Name  \nAlice \n",
 		},
 		{
 			name:  "col css selector sets column width",
 			css:   `col.narrow { width: 5; }`,
-			html:  `<table style="border-style:none"><colgroup><col class="narrow"><col class="narrow"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><colgroup><col class="narrow"><col class="narrow"></colgroup><tr><th>A</th><th>B</th></tr><tr><td>foo</td><td>bar</td></tr></table>`,
 			width: 40,
-			want:  "A     B    \nfoo   bar  \n",
+			want:  "A    B    \nfoo  bar  \n",
 		},
 	})
 }
@@ -996,16 +996,16 @@ func TestVisibilityHidden(t *testing.T) {
 		{
 			name:  "visibility hidden table cell shows blank",
 			css:   `.secret { visibility: hidden; }`,
-			html:  `<table style="border-style:none"><tr><th>A</th><th class="secret">B</th></tr></table>`,
+			html:  `<table style="border-spacing:0"><tr><th>A</th><th class="secret">B</th></tr></table>`,
 			width: 20,
-			want:  "A  \n",
+			want:  "A \n",
 		},
 		// A <br> inside a hidden cell still occupies its line in the row height;
 		// blanking must preserve line count, not collapse the cell to one line.
 		{
 			name:  "visibility hidden table cell with br preserves line count",
 			css:   `.secret { visibility: hidden; }`,
-			html:  `<table style="border-style:none"><tr><td class="secret">a<br>b</td></tr><tr><td>XX</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><tr><td class="secret">a<br>b</td></tr><tr><td>XX</td></tr></table>`,
 			width: 20,
 			want:  "  \n  \nXX\n",
 		},
@@ -1060,13 +1060,13 @@ func TestCaptionSide(t *testing.T) {
 	runCases(t, []renderCase{
 		{
 			name:  "caption-side top is default (caption above table)",
-			html:  `<table style="border-style:none; caption-side:top"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			html:  `<table style="border-spacing:0; caption-side:top"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
 			width: 20,
 			want:  "Title\nName \nAlice\n",
 		},
 		{
 			name:  "caption-side bottom places caption below table",
-			html:  `<table style="border-style:none; caption-side:bottom"><caption>Footer</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			html:  `<table style="border-spacing:0; caption-side:bottom"><caption>Footer</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
 			width: 20,
 			want:  "Name \nAlice\nFooter\n",
 		},
@@ -1243,7 +1243,7 @@ func TestNewHTMLElements(t *testing.T) {
 		// template
 		{name: "template emits nothing at top level", html: `before<template><p>hidden</p></template>after`, want: "beforeafter"},
 		{name: "template emits nothing in inline content", html: `<p>before<template><span>hidden</span></template>after</p>`, want: "beforeafter\n\n"},
-		{name: "template emits nothing in table cells", html: `<table style="border-style:hidden"><tr><td style="width:11">before<template>hidden</template>after</td></tr></table>`, want: "beforeafter\n"},
+		{name: "template emits nothing in table cells", html: `<table style="border-spacing:0"><tr><td style="width:11">before<template>hidden</template>after</td></tr></table>`, want: "beforeafter\n"},
 		{name: "template style is inert", html: `<template><style>p { display: none; }</style></template><p>visible</p>`, want: "visible\n\n"},
 		{name: "template counters are inert", css: `body { counter-reset: n; } p { counter-increment: n; } p::before { content: counter(n) ". "; }`, html: `<p>a</p><template><p>hidden</p></template><p>b</p>`, want: "1. a\n\n2. b\n\n"},
 
@@ -1266,17 +1266,17 @@ func TestNewHTMLElements(t *testing.T) {
 		// caption — appears before the table; centered when table is wider than caption
 		{
 			name:  "table caption appears before table rows",
-			html:  `<table style="border-style:none"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
+			html:  `<table style="border-spacing:0"><caption>Title</caption><tr><th>Name</th></tr><tr><td>Alice</td></tr></table>`,
 			width: 20,
 			want:  "Title\nName \nAlice\n",
 		},
 		{
 			name:  "table caption centered when table is wider",
-			html:  `<table><caption>Hi</caption><tr><th style="width:10">Col</th></tr></table>`,
+			html:  `<table style="border:solid; border-spacing:0"><caption>Hi</caption><tr><th style="width:10">Col</th></tr></table>`,
 			width: 40,
 			// width=10 col, border-style:solid: overhead=│+│=2, tableW=12
 			// "Hi"(2) centered in 12: 5 left + "Hi" + 5 right
-			want: "     Hi     \n┌──────────┐\n│Col       │\n├──────────┤\n└──────────┘\n",
+			want: "     Hi     \n┌──────────┐\n│Col       │\n└──────────┘\n",
 		},
 	})
 }

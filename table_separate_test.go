@@ -14,8 +14,14 @@ func TestTableBorderCollapseSeparate(t *testing.T) {
 			want: "                    \n ┌────────┐ ┌─────┐ \n │ Name   │ │ Qty │ \n └────────┘ └─────┘ \n                    \n ┌────────┐ ┌─────┐ \n │ Apple  │ │ 3   │ \n └────────┘ └─────┘ \n                    \n ┌────────┐ ┌─────┐ \n │ Banana │ │ 5   │ \n └────────┘ └─────┘ \n                    \n",
 		},
 		{
-			name: "border-spacing unset (0) touches adjacent cell borders",
+			name: "border-spacing defaults to 0 when unset",
 			css:  `table { border-collapse: separate; } td, th { border: solid; }`,
+			html: `<table><tr><th>Name</th><th>Qty</th></tr><tr><td>Apple</td><td>3</td></tr></table>`,
+			want: "┌─────┐┌───┐\n│Name ││Qty│\n└─────┘└───┘\n┌─────┐┌───┐\n│Apple││3  │\n└─────┘└───┘\n",
+		},
+		{
+			name: "border-spacing: 0 explicitly touches adjacent cell borders",
+			css:  `table { border-collapse: separate; border-spacing: 0; } td, th { border: solid; }`,
 			html: `<table><tr><th>Name</th><th>Qty</th></tr><tr><td>Apple</td><td>3</td></tr></table>`,
 			want: "┌─────┐┌───┐\n│Name ││Qty│\n└─────┘└───┘\n┌─────┐┌───┐\n│Apple││3  │\n└─────┘└───┘\n",
 		},
@@ -61,17 +67,5 @@ func TestTableBorderCollapseSeparate(t *testing.T) {
 			width: 30,
 			want:  "                              \n ┌───────────┐ ┌────────────┐ \n │a          │ │b           │ \n └───────────┘ └────────────┘ \n                              \n",
 		},
-	})
-}
-
-// TestTableBorderCollapseUnsetOrCollapseUnchanged pins that "collapse" and an
-// unset border-collapse both keep the legacy shared-frame rendering path
-// completely untouched — border-collapse:separate is purely additive.
-func TestTableBorderCollapseUnsetOrCollapseUnchanged(t *testing.T) {
-	html := `<table><tr><th>Name</th><th>Qty</th></tr><tr><td>Apple</td><td>3</td></tr></table>`
-	const want = "┌─────┬───┐\n│Name │Qty│\n├─────┼───┤\n│Apple│3  │\n└─────┴───┘\n"
-	runCases(t, []renderCase{
-		{name: "unset border-collapse", html: html, want: want},
-		{name: "border-collapse: collapse", css: `table { border-collapse: collapse; }`, html: html, want: want},
 	})
 }

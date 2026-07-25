@@ -34,7 +34,7 @@ func TestSelectors(t *testing.T) {
 		{name: ":focus does not match without the reserved focus marker", css: `input:focus { display: none; }`, html: `<input value="a">`, want: "[a]"},
 		{name: ":nth-child(odd) matches 1st 3rd 5th element siblings", css: `p:nth-child(odd) { text-transform: uppercase; }`, html: `<div><p>one</p><p>two</p><p>three</p></div>`, want: "ONE\n\ntwo\n\nTHREE\n\n"},
 		{name: ":nth-child(even) matches 2nd 4th element siblings", css: `p:nth-child(even) { text-transform: uppercase; }`, html: `<div><p>one</p><p>two</p><p>three</p></div>`, want: "one\n\nTWO\n\nthree\n\n"},
-		{name: ":nth-child(odd) on table rows styles odd rows", css: `tr:nth-child(odd) td { text-transform: uppercase; }`, html: `<table style="border-style:hidden"><tr><td>r1</td></tr><tr><td>r2</td></tr><tr><td>r3</td></tr></table>`, want: "R1\nr2\nR3\n"},
+		{name: ":nth-child(odd) on table rows styles odd rows", css: `tr:nth-child(odd) td { text-transform: uppercase; }`, html: `<table style="border-spacing:0"><tr><td>r1</td></tr><tr><td>r2</td></tr><tr><td>r3</td></tr></table>`, want: "R1\nr2\nR3\n"},
 		{name: "[attr] presence selector hides elements with the attribute", css: `p[data-hide] { display: none; }`, html: `<p>visible</p><p data-hide>hidden</p><p>after</p>`, want: "visible\n\nafter\n\n"},
 		{name: "[attr] matches attribute with empty value", css: `span[data-mark] { text-transform: uppercase; }`, html: `<p><span data-mark="">marked</span> plain</p>`, want: "MARKED plain\n\n"},
 		{name: "[attr=val] exact-value selector", css: `p[data-style=big] { text-transform: uppercase; }`, html: `<p data-style="big">large</p><p data-style="small">tiny</p>`, want: "LARGE\n\ntiny\n\n"},
@@ -55,7 +55,7 @@ func TestSelectors(t *testing.T) {
 
 		// :not() pseudo-class
 		{name: ":not(element) excludes matching element", css: `p:not(h2) { text-transform: uppercase; }`, html: `<p>para</p><h2>head</h2>`, want: "PARA\n\nhead\n"},
-		{name: ":not(.class) excludes elements with the class", css: `td:not(.highlight) { text-transform: uppercase; }`, html: `<table style="border-style:hidden"><tr><td>plain</td><td class="highlight">hi</td></tr></table>`, want: "PLAIN hi\n"},
+		{name: ":not(.class) excludes elements with the class", css: `td:not(.highlight) { text-transform: uppercase; }`, html: `<table style="border-spacing:0"><tr><td>plain</td><td class="highlight">hi</td></tr></table>`, want: "PLAINhi\n"},
 		{name: ":not(element) with type matches everything else", css: `li:not(.skip) { text-transform: uppercase; }`, html: `<ul><li>one</li><li class="skip">two</li><li>three</li></ul>`, want: "    • ONE\n    • two\n    • THREE\n"},
 		{name: ":not() combined with element selector", css: `p:not(.muted) { text-transform: uppercase; }`, html: `<p>normal</p><p class="muted">quiet</p><p>also</p>`, want: "NORMAL\n\nquiet\n\nALSO\n\n"},
 		{name: "id specificity beats many classes", css: `#x { text-transform: lowercase; } .a.b.c.d.e.f.g.h.i.j.k { text-transform: uppercase; }`, html: `<p id="x" class="a b c d e f g h i j k">MiX</p>`, want: "mix\n\n"},

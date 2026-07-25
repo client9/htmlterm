@@ -462,7 +462,7 @@ func TestDocumentRectFormControlInsideTableCell(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect() ok = false, want true (rendered: %q)", out)
 	}
-	want := document.Rect{Row: 1, Col: 1, Width: 1, Height: 1} // "│☑│" — checkbox inside the border
+	want := document.Rect{Row: 0, Col: 0, Width: 1, Height: 1} // bare table, no CSS: no border, no border-spacing gap
 	if rect != want {
 		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
 	}

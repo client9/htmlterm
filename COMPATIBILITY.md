@@ -134,11 +134,14 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   start>`.
 - **Tables:** column sizing (fixed/percentage/min/max), multi-line cell
   wrapping, `vertical-align`, 6 named border-style presets, per-edge border
-  overrides, junction/corner glyph overrides, `colspan`/`rowspan`,
-  `<colgroup>`/`<col>`, `caption-side`, `padding`/`margin` on `<table>`
-  itself (surprisingly, given real browsers rarely use it), and
-  `border-collapse: separate` — real per-cell `border` on `th`/`td` plus
-  `border-spacing`, standard CSS semantics — see `docs/TABLES.md`.
+  and corner-glyph overrides, `colspan`/`rowspan`, `<colgroup>`/`<col>`,
+  `caption-side`, `padding`/`margin` on `<table>` itself (surprisingly,
+  given real browsers rarely use it). A bare `<table>` with no CSS renders
+  completely borderless, matching a real browser. Both real
+  `border-collapse` modes are supported: `separate` (the default) gives
+  every `th`/`td` its own independent border box plus `border-spacing`;
+  `collapse` merges adjacent cell/table borders into shared lines via real
+  conflict resolution and junction-glyph synthesis — see `docs/TABLES.md`.
 - **Flexbox:** a deliberate single-row/single-column subset — `flex-direction`,
   `justify-content`, `align-items`/`align-self`, `order`, `gap`, `flex-grow`,
   `flex-basis`, the `flex` shorthand. See CSS.md's Flexbox section for the
@@ -178,18 +181,11 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   <style>` form (no color) is indistinguishable from this engine's
   `<style> <color>` form and is silently dropped — use the three-value form
   or set `border-style` directly.
-- **`<table>`'s `border-left: none`/`border-right: none` remove more than
-  the one rule they name** — every corner and internal junction glyph
-  (header divider, row dividers) on that side, across every horizontal
-  line, not just the outer frame's own corner. Real CSS's `border-left:
-  none` never touches unrelated border segments; this is a deliberate
-  choice for ASCII-art rendering specifically (a dangling corner glyph with
-  no vertical rule to connect to would look broken, not correct) — see
-  `docs/TABLES.md` for a rendered example and how to get a literal
-  one-sided-rule look instead. Only applies to the default shared-frame
-  model — under `border-collapse: separate`, each cell's own
-  `border-left`/`border-right` behaves exactly like any other block
-  element's (no side effects on other edges).
+- **`border-left: none`/`border-right: none` keep that side's corners** even
+  though the vertical rule itself is gone (`┌────┐` with no `│` down the
+  left side, not `────┐`) — the same convention any block element's border
+  already uses; `<table>`'s own border unifies with that shared machinery
+  (see `docs/TABLES.md`).
 - **`:hover` has no real pointer-hover meaning** — the only place it
   matches anything is `option:hover` inside an open `<select>` popup,
   repurposed to mean "the arrow-key-highlighted option" (see
@@ -226,13 +222,15 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   a quoted string sets that exact character directly, this engine's
   original (and still primary) way to use arbitrary box-drawing characters
   that have no named-preset equivalent.
-- **`border-*-mid`, `border-center`, `border-*-corner`** — junction and
-  corner glyph overrides for tables and boxes; real CSS has no per-junction
-  border styling concept at all. **`border-style` on `<table>`** (a
-  whole-frame preset — `solid`/`rounded`/`heavy`/`double`/`markdown`/
-  `standard`/`hidden`/`none`) and the **`border-header`/`border-columns`/
-  `border-rows` edge toggles** are the same kind of addition, applied to
-  tables specifically — see `docs/TABLES.md` for examples of every preset.
+- **`border-*-corner`** — literal corner-glyph overrides for any bordered
+  box; real CSS has no per-corner styling concept at all. **`border-style`**
+  naming a *complete glyph-set preset* (`solid`/`rounded`/`heavy`/`double`/
+  `markdown`/`standard`/`hidden`/`none`) rather than a real-CSS line-style
+  keyword is the same kind of addition — see `docs/TABLES.md` for examples
+  of every preset, and its "`border-collapse: collapse`" section for how
+  htmlterm ranks these presets against each other when adjacent
+  cells/tables disagree (a conflict-resolution model real CSS also has, but
+  keyed to its own line-style vocabulary, not this one).
 - **`scrollbar-style: block|shaded|classic|ascii|line`** and
   **`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/
   `::scrollbar-cap-start`/`::scrollbar-cap-end`** — real CSS has no
@@ -275,14 +273,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   (parsed, never applied), main-axis distribution in `column` direction,
   `baseline` alignment, `margin: auto` on a flex item — see CSS.md's
   Flexbox section for the full reasoning per gap.
-- **Table gaps:** `border-collapse: collapse` (real per-cell border-conflict
-  resolution and junction-glyph synthesis) — `border-collapse: separate`
-  with `border-spacing` and real per-cell borders on `th`/`td` are
-  supported (see `docs/TABLES.md`); the *default* (unset `border-collapse`)
-  shared-frame model still has no spacing control of its own, only the
-  `border-columns`/`border-rows` on/off toggles. Multi-line cell content
-  combined with `white-space: nowrap` remains unsupported under either
-  model.
+- **Table gaps:** `border-collapse: collapse`'s conflict resolution only
+  considers cell-level and table-level `border` — `tr`/`thead`/`tbody`/
+  `tfoot`/`col`/`colgroup` borders aren't consulted. The legacy HTML
+  `border`/`cellpadding`/`cellspacing` presentational attributes on
+  `<table>` aren't read either (use the CSS equivalents). Multi-line cell
+  content combined with `white-space: nowrap` remains unsupported under
+  either border model. See `docs/TABLES.md`.
 - **List gaps:** `list-style-image`; most of the real spec's predefined
   `list-style-type` counter styles — `armenian`/`lower-armenian`/
   `upper-armenian`, `georgian`, the CJK/Japanese/Korean variants

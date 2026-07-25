@@ -6,6 +6,27 @@ import (
 	"golang.org/x/net/html"
 )
 
+// defaultBorderSpacing is border-spacing's value when unset. Real browsers
+// default to 2px, imperceptible against a typical line-height - but a
+// terminal "row" of spacing is a full line (100% of a row's height, not
+// ~10%), so a literal 1-character default reads as a much more prominent
+// gap than the real default it's meant to approximate (visually
+// indistinguishable from leftover border structure even with no border set
+// anywhere). 0 is the terminal-scale-correct default; anyone who wants
+// breathing room between cells sets border-spacing explicitly.
+const defaultBorderSpacing = 0
+
+// parseSpacingLen parses one axis of border-spacing, defaulting to
+// defaultBorderSpacing when the declaration is unset (parsePaddingLen alone
+// would default an unset value to 0, which is correct for ordinary padding
+// but not for border-spacing's own, different initial value).
+func parseSpacingLen(v string) int {
+	if strings.TrimSpace(v) == "" {
+		return defaultBorderSpacing
+	}
+	return parsePaddingLen(v)
+}
+
 // renderTableSeparate renders n under `border-collapse: separate`: every
 // <td>/<th> gets its own independently bordered box, built from the same
 // generic block-border primitives any other element uses
@@ -25,15 +46,15 @@ import (
 // border-spacing gaps, wrap the table's own border/padding/margin around
 // the result) is new.
 //
-// Purely additive and opt-in: renderTable only calls into this when
-// tableDecls["border-collapse"] == "separate"; unset or "collapse" both
-// keep the legacy path completely untouched.
+// This is also the real CSS default: border-collapse's initial value is
+// separate, so renderTable dispatches here for both unset and explicit
+// "separate" — only "collapse" goes anywhere else (table_collapse.go).
 func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls map[string]string) (string, map[*html.Node]Rect) {
 	colDecls := r.collectColDecls(n)
 	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%" && !r.measuringNaturalWidth
 
-	spacingX := parsePaddingLen(tableDecls["border-spacing-x"])
-	spacingY := parsePaddingLen(tableDecls["border-spacing-y"])
+	spacingX := parseSpacingLen(tableDecls["border-spacing-x"])
+	spacingY := parseSpacingLen(tableDecls["border-spacing-y"])
 
 	origAvailWidth := availWidth
 	tableML, mlAuto := resolveMarginSide(tableDecls["margin-left"], availWidth)

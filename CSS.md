@@ -847,21 +847,18 @@ instead (`width: 14` for a fixed character count, or `width: 25%`).
 | `white-space` | `th`/`td` | `normal` (default) word-wraps; `nowrap` clips to one line via `text-overflow` instead |
 | `text-overflow` | `th`/`td` | Truncation marker when `white-space: nowrap`; default `ellipsis` |
 | `vertical-align` | `th`/`td` | `top` (default) \| `middle` \| `bottom`, within the row's own height |
-| `border-style` | `table` | Whole-frame preset (`solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`) |
-| `border-top`/`-right`/`-bottom`/`-left`, `border-*-color` | `table` | Literal glyph or shorthand grammar, same as block elements |
-| `border-top-mid`/`-bottom-mid`/`-left-mid`/`-right-mid`/`border-center`, `border-*-corner` | `table` | Junction/corner glyph overrides |
-| `border-header`/`border-columns`/`border-rows` | `table` | On/off edge toggles |
+| `border-style` | `table`, `th`/`td` | Whole-box preset (`solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`), same property used by any block element. Real-CSS default is `none` — a bare `<table>` with no CSS renders completely borderless, matching a real browser |
+| `border-top`/`-right`/`-bottom`/`-left`, `border-*-color`, `border-*-corner` | `table`, `th`/`td` | Literal glyph or shorthand grammar, same as block elements |
 | `caption-side` | `table` | `top` (default) \| `bottom` |
-| `border-collapse: separate` | `table` | Opt-in: real per-cell `border`/`border-style`/etc. on `th`/`td`, standard CSS semantics |
-| `border-spacing` | `table` | Gap between cell boxes; only meaningful under `border-collapse: separate` |
+| `border-collapse: separate` \| `collapse` | `table` | Real CSS semantics — `separate` (the default) gives every `th`/`td` its own independent border box plus `border-spacing`; `collapse` merges adjacent cell/table borders into shared lines via real conflict resolution |
+| `border-spacing` | `table` | Gap between cell boxes under `border-collapse: separate` (default `0`) |
 
 **See `docs/TABLES.md`** for the full table styling reference — every
-property above with real rendered examples of each `border-style` preset and
-junction override, the multi-line-cell wrapping model, how
-`margin`/`padding` behave on `<table>` itself (padding genuinely works,
-matching real CSS's `border-collapse: separate` model — a fact easy to miss
-since most real-world tables never rely on it), and `border-collapse:
-separate`'s real per-cell border support.
+property above with real rendered examples of each `border-style` preset,
+the multi-line-cell wrapping model, how `margin`/`padding` behave on
+`<table>` itself (padding genuinely works under `border-collapse: separate`,
+matching real CSS — a fact easy to miss since most real-world tables never
+rely on it), and both `border-collapse` modes' real per-cell border support.
 
 ---
 
@@ -948,4 +945,5 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
-- `border-collapse: collapse` (real per-cell border-conflict resolution and junction-glyph synthesis) — `border-spacing` and real per-cell borders are supported under `border-collapse: separate`, see `docs/TABLES.md`
+- `border-collapse: collapse`'s conflict resolution only considers cell-level and table-level `border`; `tr`/`thead`/`tbody`/`tfoot`/`col`/`colgroup` borders are not consulted — see `docs/TABLES.md`
+- The legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes on `<table>` (use CSS `border-collapse`/`border-spacing`/cell `padding` instead)

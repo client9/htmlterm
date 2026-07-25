@@ -9,43 +9,29 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// hBorder describes one horizontal separator line drawn between rows.
-// An empty fill means the border is omitted entirely (same as nil *hBorder).
+// hBorder describes one horizontal outer-edge rule (top or bottom) for a
+// generic border box. An empty fill means the border is omitted entirely
+// (same as nil *hBorder).
 type hBorder struct {
-	left  string // leftmost character
+	left  string // leftmost (corner) character
 	fill  string // repeated fill character
-	mid   string // column junction character
-	right string // rightmost character
+	right string // rightmost (corner) character
 }
 
-// tableStyle controls every border character in a rendered table.
+// tableStyle controls the outer border characters a named preset supplies
+// for a generic border box (block element, or a single cell under
+// border-collapse:separate) — resolveBoxBorders (block.go) is the only
+// remaining consumer of this data (the legacy per-table shared-frame model
+// this struct originally also served — sep/header/rowSep fields, drawn by
+// table_render.go's now-deleted renderTableBody — was retired in favor of
+// real per-cell borders; see table_separate.go/table_collapse.go, and
+// docs/TABLES.md).
 type tableStyle struct {
 	top    *hBorder // outer top border (nil = omit)
-	header *hBorder // header/data separator (nil = omit)
-	rowSep *hBorder // between data rows (nil = omit)
 	bottom *hBorder // outer bottom border (nil = omit)
-	left   string   // left edge of each data row ("" = none)
-	sep    string   // column separator in data rows ("" = none)
-	right  string   // right edge of each data row ("" = none)
+	left   string   // left edge ("" = none)
+	right  string   // right edge ("" = none)
 	color  string   // ANSI color fallback for any edge without its own override below
-
-	// Per-edge color overrides (border-top-color etc., mirroring block
-	// elements' border-*-color). Empty means "use color" - internal lines
-	// (header/rowSep/sep) have no per-edge override and always use color
-	// directly, since there's no CSS property that targets just them.
-	topColor    string
-	rightColor  string
-	bottomColor string
-	leftColor   string
-}
-
-// colorOrFallback returns specific if set, else fallback - resolves a
-// per-edge border-*-color override against the table's uniform border-color.
-func colorOrFallback(specific, fallback string) string {
-	if specific != "" {
-		return specific
-	}
-	return fallback
 }
 
 // edgeGlyphTop, edgeGlyphBottom, edgeGlyphLeft, edgeGlyphRight extract the
@@ -70,222 +56,46 @@ func edgeGlyphBottom(ts tableStyle) string {
 func edgeGlyphLeft(ts tableStyle) string  { return ts.left }
 func edgeGlyphRight(ts tableStyle) string { return ts.right }
 
-// namedTableStyle returns the preset for a given border-style value.
+// namedTableStyle returns the preset for a given border-style value —
+// htmlterm's own whole-box vocabulary (not real CSS's per-edge line-style
+// keywords), used by resolveBoxBorders (block.go) for any border box:
+// block elements, and per-cell borders under border-collapse:separate.
+// table_collapse.go's junction-glyph tables are built from the same
+// characters directly (kept in sync by hand, not derived from this
+// function), since real collapsed-border junctions need the full T/cross
+// combinations this struct no longer carries.
 func namedTableStyle(name string) (tableStyle, bool) {
 	switch name {
 	case "solid":
 		return tableStyle{
-			top:    &hBorder{"┌", "─", "┬", "┐"},
-			header: &hBorder{"├", "─", "┼", "┤"},
-			bottom: &hBorder{"└", "─", "┴", "┘"},
-			left:   "│", sep: "│", right: "│",
+			top:    &hBorder{"┌", "─", "┐"},
+			bottom: &hBorder{"└", "─", "┘"},
+			left:   "│", right: "│",
 		}, true
 	case "rounded":
 		return tableStyle{
-			top:    &hBorder{"╭", "─", "┬", "╮"},
-			header: &hBorder{"├", "─", "┼", "┤"},
-			bottom: &hBorder{"╰", "─", "┴", "╯"},
-			left:   "│", sep: "│", right: "│",
+			top:    &hBorder{"╭", "─", "╮"},
+			bottom: &hBorder{"╰", "─", "╯"},
+			left:   "│", right: "│",
 		}, true
 	case "heavy":
 		return tableStyle{
-			top:    &hBorder{"┏", "━", "┳", "┓"},
-			header: &hBorder{"┣", "━", "╋", "┫"},
-			bottom: &hBorder{"┗", "━", "┻", "┛"},
-			left:   "┃", sep: "┃", right: "┃",
+			top:    &hBorder{"┏", "━", "┓"},
+			bottom: &hBorder{"┗", "━", "┛"},
+			left:   "┃", right: "┃",
 		}, true
 	case "double":
 		return tableStyle{
-			top:    &hBorder{"╔", "═", "╦", "╗"},
-			header: &hBorder{"╠", "═", "╬", "╣"},
-			bottom: &hBorder{"╚", "═", "╩", "╝"},
-			left:   "║", sep: "║", right: "║",
+			top:    &hBorder{"╔", "═", "╗"},
+			bottom: &hBorder{"╚", "═", "╝"},
+			left:   "║", right: "║",
 		}, true
 	case "markdown":
-		return tableStyle{
-			header: &hBorder{"|", "-", "|", "|"},
-			left:   "|", sep: "|", right: "|",
-		}, true
-	case "standard":
-		// No outer frame, no column separators; header underlined with ─.
-		// Columns separated by a single space.
-		return tableStyle{
-			header: &hBorder{"", "─", " ", ""},
-			sep:    " ",
-		}, true
-	case "hidden", "none":
-		return tableStyle{sep: " "}, true
+		return tableStyle{left: "|", right: "|"}, true
+	case "standard", "hidden", "none":
+		return tableStyle{}, true
 	}
 	return tableStyle{}, false
-}
-
-// applyTableCSSToStyle applies border-* CSS declarations from a <table> element
-// to ts, returning the modified style. Supported properties:
-//
-//	border-style: solid | rounded | heavy | double | markdown | standard | hidden | none
-//	border-top/-right/-bottom/-left: same literal-glyph + shorthand grammar as
-//	  block elements (see resolveBorderEdgeChar) - a quoted string is a
-//	  literal character, an unquoted value is the standard CSS
-//	  <style>/<style> <color>/<width> <style> <color> shorthand, where
-//	  <style> is a border-style preset name. An edge resolving to "" (an
-//	  explicit none/hidden style) removes that whole line, corners included
-//	  - for border-left/border-right this also clears the corresponding
-//	  corner/junction glyph on every horizontal line, matching the
-//	  "no left/right frame at all" meaning "none" has always had here.
-//	border-top/-right/-bottom/-left-color: per-edge color override
-//	border-top-mid/border-bottom-mid: T-junction character where a column
-//	  separator meets the outer top/bottom border
-//	border-left-mid/border-right-mid: T-junction character where an internal
-//	  (header or row) separator meets the left/right edge - header and
-//	  rowSep always share this glyph, so one property covers both
-//	border-center: cross-junction character at internal column/row
-//	  intersections - same header/rowSep sharing as border-*-mid above
-//	border-top-left-corner/border-top-right-corner/border-bottom-left-corner/
-//	  border-bottom-right-corner: outer corner character override, same
-//	  literal-only model as the identically-named block element properties
-//	border-columns: none                (removes column separator)
-//	border-rows: solid                  (enables row separators)
-//	border-header: none                 (removes header separator)
-//	border-color: <color>               (fallback for any edge without its own override)
-func applyTableCSSToStyle(ts tableStyle, decls map[string]string) tableStyle {
-	if val := decls["border-style"]; val != "" {
-		if ns, ok := namedTableStyle(val); ok {
-			ts = ns
-		}
-	}
-
-	topChar, topPresent := resolveBorderEdgeChar(decls["border-top"], edgeGlyphTop)
-	if topPresent {
-		switch {
-		case topChar == "":
-			ts.top = nil
-		case ts.top != nil:
-			ts.top.fill = topChar
-		default:
-			ts.top = &hBorder{fill: topChar}
-		}
-	}
-	bottomChar, bottomPresent := resolveBorderEdgeChar(decls["border-bottom"], edgeGlyphBottom)
-	if bottomPresent {
-		switch {
-		case bottomChar == "":
-			ts.bottom = nil
-		case ts.bottom != nil:
-			ts.bottom.fill = bottomChar
-		default:
-			ts.bottom = &hBorder{fill: bottomChar}
-		}
-	}
-	leftChar, leftPresent := resolveBorderEdgeChar(decls["border-left"], edgeGlyphLeft)
-	if leftPresent {
-		ts.left = leftChar
-		if leftChar == "" {
-			for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
-				if b != nil {
-					b.left = ""
-				}
-			}
-		}
-	}
-	rightChar, rightPresent := resolveBorderEdgeChar(decls["border-right"], edgeGlyphRight)
-	if rightPresent {
-		ts.right = rightChar
-		if rightChar == "" {
-			for _, b := range []*hBorder{ts.top, ts.header, ts.rowSep, ts.bottom} {
-				if b != nil {
-					b.right = ""
-				}
-			}
-		}
-	}
-
-	// Internal separator lines reuse the outer top border's own fill
-	// character rather than getting an independent property: every
-	// built-in preset already keeps these identical, and a table with two
-	// different dash styles in one frame isn't a real use case.
-	if ts.top != nil {
-		if ts.header != nil {
-			ts.header.fill = ts.top.fill
-		}
-		if ts.rowSep != nil {
-			ts.rowSep.fill = ts.top.fill
-		}
-	}
-
-	if val := decls["border-top-color"]; val != "" {
-		ts.topColor = val
-	}
-	if val := decls["border-right-color"]; val != "" {
-		ts.rightColor = val
-	}
-	if val := decls["border-bottom-color"]; val != "" {
-		ts.bottomColor = val
-	}
-	if val := decls["border-left-color"]; val != "" {
-		ts.leftColor = val
-	}
-
-	if decls["border-columns"] == "none" {
-		ts.sep = ""
-	}
-	if val := decls["border-rows"]; val != "" {
-		if val == "none" {
-			ts.rowSep = nil
-		} else if ts.rowSep == nil {
-			ts.rowSep = &hBorder{"├", "─", "┼", "┤"}
-		}
-	}
-	if decls["border-header"] == "none" {
-		ts.header = nil
-	}
-
-	if v := parseCSSString(decls["border-top-mid"]); v != "" && ts.top != nil {
-		ts.top.mid = v
-	}
-	if v := parseCSSString(decls["border-bottom-mid"]); v != "" && ts.bottom != nil {
-		ts.bottom.mid = v
-	}
-	if v := parseCSSString(decls["border-left-mid"]); v != "" {
-		if ts.header != nil {
-			ts.header.left = v
-		}
-		if ts.rowSep != nil {
-			ts.rowSep.left = v
-		}
-	}
-	if v := parseCSSString(decls["border-right-mid"]); v != "" {
-		if ts.header != nil {
-			ts.header.right = v
-		}
-		if ts.rowSep != nil {
-			ts.rowSep.right = v
-		}
-	}
-	if v := parseCSSString(decls["border-center"]); v != "" {
-		if ts.header != nil {
-			ts.header.mid = v
-		}
-		if ts.rowSep != nil {
-			ts.rowSep.mid = v
-		}
-	}
-	if v := parseCSSString(decls["border-top-left-corner"]); v != "" && ts.top != nil {
-		ts.top.left = v
-	}
-	if v := parseCSSString(decls["border-top-right-corner"]); v != "" && ts.top != nil {
-		ts.top.right = v
-	}
-	if v := parseCSSString(decls["border-bottom-left-corner"]); v != "" && ts.bottom != nil {
-		ts.bottom.left = v
-	}
-	if v := parseCSSString(decls["border-bottom-right-corner"]); v != "" && ts.bottom != nil {
-		ts.bottom.right = v
-	}
-
-	if val := decls["border-color"]; val != "" {
-		ts.color = val
-	}
-	return ts
 }
 
 // colConstraints holds horizontal sizing constraints for one table column.
@@ -509,57 +319,6 @@ func drawHRule(segments []int, fill, color, left, junction, right string, p colo
 	}
 	sb.WriteString(paint(right))
 	return sb.String()
-}
-
-// drawHBorder renders one horizontal separator row given the computed column
-// widths. Returns "" if b is nil (border omitted).
-func drawHBorder(widths []int, b *hBorder, color string, p colorprofile.Profile) string {
-	if b == nil {
-		return ""
-	}
-	return drawHRule(widths, b.fill, color, b.left, b.mid, b.right, p) + "\n"
-}
-
-// drawRowSepWithSpans draws the interior row-separator rule between row
-// index r (aboveRow) and r+1 (belowRow), blanking (space instead of
-// fill/junction) any column segment where the same *tableCell occupies both
-// rows at that column — i.e. a rowspan passing through this boundary, so its
-// border reads as one continuous box rather than being cut by the rule. A
-// junction between two columns is blanked only when both are mid-span of
-// that same passthrough cell (a colspan within it); a junction between two
-// different passthrough cells (adjacent, independent rowspans) still draws
-// normally, since that's a genuine column boundary. Returns "" if b is nil
-// (separator omitted), matching drawHBorder.
-func drawRowSepWithSpans(widths []int, aboveRow, belowRow []*tableCell, b *hBorder, color string, p colorprofile.Profile) string {
-	if b == nil {
-		return ""
-	}
-	paint := makePainter(color, p)
-	var sb strings.Builder
-	sb.WriteString(paint(b.left))
-	passthrough := func(i int) bool {
-		if i < 0 || i >= len(aboveRow) || i >= len(belowRow) {
-			return false
-		}
-		return aboveRow[i] != nil && aboveRow[i] == belowRow[i]
-	}
-	for i, w := range widths {
-		if passthrough(i) {
-			sb.WriteString(strings.Repeat(" ", w))
-		} else {
-			sb.WriteString(paint(strings.Repeat(b.fill, w)))
-		}
-		if i < len(widths)-1 {
-			samePassthroughCell := passthrough(i) && passthrough(i+1) && aboveRow[i] == aboveRow[i+1]
-			if samePassthroughCell {
-				sb.WriteString(strings.Repeat(" ", runeLen(b.mid)))
-			} else {
-				sb.WriteString(paint(b.mid))
-			}
-		}
-	}
-	sb.WriteString(paint(b.right))
-	return sb.String() + "\n"
 }
 
 // makePainter returns a function that applies a border color if set.
