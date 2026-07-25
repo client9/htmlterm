@@ -20,6 +20,7 @@ actually wrote.
 | `border-style` | `<table>`, `<th>`/`<td>` | Whole-box preset — see below. Not a real-CSS property value set; htmlterm's own vocabulary |
 | `border-top`/`-right`/`-bottom`/`-left` | `<table>`, `<th>`/`<td>` | Literal glyph or shorthand grammar, same as block elements |
 | `border-top-left-corner` etc. | `<table>`, `<th>`/`<td>` | Corner glyph overrides |
+| `border-top-junction`/`-right`/`-bottom`/`-left`/`-center`, `border-top-left-junction` etc. | `<table>` only | Literal junction-glyph overrides under `border-collapse: collapse` — see "Junction and corner overrides" below |
 | `border-color`, `border-*-color` | `<table>`, `<th>`/`<td>` | Whole-box / per-edge color |
 | `margin`, `padding` | `<table>` | Work like any block element — see "Margin and padding" below |
 | `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing |
@@ -292,10 +293,35 @@ lack of real border thickness:
    `border-width` "widest wins" tier is skipped entirely — border thickness
    is a no-op deviation here, documented in COMPATIBILITY.md).
 4. **A same-style tie goes to the cell over the table** (matching real
-   CSS's own "cell beats table" rule at the tail of its hierarchy) — for two
-   adjacent cells' own borders it's an arbitrary but consistent
-   reading-order tie-break, since real CSS doesn't precisely specify that
-   case either.
+   CSS's own "cell beats table" rule at the tail of its hierarchy). For two
+   adjacent cells' own borders — a case real CSS doesn't precisely specify
+   — the tie goes to the *earlier* element in reading order: the row above
+   wins a horizontal tie, the column to the left wins a vertical one.
+   Verified directly against Firefox, Safari, and Chrome (not just an
+   arbitrary choice this engine made up) — all three converge on the same
+   behavior.
+
+**Worked example of that tie-break:**
+
+```css
+th { border-bottom: "═"; }
+td { border-top: "╌"; }
+```
+
+Both are literal glyphs, which always share the same lowest precedence tier
+regardless of which glyph they are (rule 3) — so at the boundary between a
+header row and the body row below it, this is a genuine tie, and rule 4
+picks the *earlier* cell: `th`'s `═` wins, matching how a real browser
+renders this. If you actually want the *later* cell to win instead (the
+opposite of the default), only declare the edge on that side and leave the
+earlier side's edge unset — with `th` no longer setting `border-bottom` at
+all, rule 2 applies instead of rule 4 (only one side has a real border, so
+it wins outright, no tie to break):
+
+```css
+/* th leaves border-bottom unset */
+td { border-top: "╌"; }
+```
 
 Each grid vertex (where up to 4 segments meet) gets a junction glyph
 synthesized from which of its arms are present and which style won each —
@@ -307,12 +333,14 @@ own at all, so a vertex where one of them won renders as a **blank space**
 instead — deliberately, not a gap to be filled in later: borrowing a
 box-drawing character from an unrelated style (say, solid's `┼` in the
 middle of an otherwise-ASCII `|`/`-` table) would look like an accidental
-mismatch, worse than no glyph at all. Set the junction position's own edges
-explicitly (or use one of the four named box-drawing presets) if you want a
-real character there. When a vertex's arms won with different styles, the
-highest-precedence style among them picks which style's junction table to
-consult for that one glyph — an approximation, not an attempt at an exact
-mixed-weight Unicode character for every combination.
+mismatch, worse than no glyph at all. See "Junction and corner overrides"
+below for how to supply a real character there instead. When a vertex's
+arms won with different styles, the highest-precedence style among them
+picks which style's junction table to consult for that one glyph — an
+approximation, not an attempt at an exact mixed-weight Unicode character
+for every combination (e.g. a real single-weight vertical divider meeting a
+double-weight horizontal one would, in principle, want a mixed glyph like
+`╞`; this renders the whole vertex in double's own glyph set instead).
 
 ```css
 table { border-collapse: collapse; }
@@ -334,6 +362,72 @@ divider is drawn through the middle of its box even though the column
 boundary is active below it — matching real CSS (`colspan`/`rowspan`
 suppress the interior grid-line segments they cover; only a spanning cell's
 own outer edges participate in conflict resolution).
+
+## Junction and corner overrides
+
+`border-*-corner` (`border-top-left-corner`/`border-top-right-corner`/
+`border-bottom-left-corner`/`border-bottom-right-corner`) already works
+under `border-collapse: collapse` for the table's own true 4 outer
+corners, the same as it does on any other bordered box — set on the
+`<table>` itself:
+
+```css
+table {
+  border-collapse: collapse; border-style: solid;
+  border-top-left-corner: '1'; border-top-right-corner: '2';
+  border-bottom-left-corner: '3'; border-bottom-right-corner: '4';
+}
+```
+```
+1───2
+│A  │
+3───4
+```
+
+For a glyph anywhere else in the grid — a T-junction, a cross, or a
+corner-shape that isn't the table's own outer corner (jagged row lengths
+can produce one; see below) — 9 table-level-only properties supply a
+literal override, one per arm-combination shape, named after
+`border-top-left-corner`'s own word order (location first):
+`border-top-junction`/`border-right-junction`/`border-bottom-junction`/
+`border-left-junction` (the 4 T-shapes — named for which side of the table
+the divider meets, not which arm is missing) and `border-center-junction`
+(the interior 4-arm cross), plus `border-top-left-junction`/
+`border-top-right-junction`/`border-bottom-left-junction`/
+`border-bottom-right-junction` (corner-shapes). Unlike `border-*-corner`,
+these apply to **every occurrence of that shape anywhere in the grid**, not
+one specific position:
+
+```css
+table { border-collapse: collapse; border-top: "="; border-top-junction: '+'; }
+td { border-left: "|"; border-right: "|"; }
+```
+```html
+<table><tr><td>A</td><td>B</td></tr></table>
+```
+```
+ =+= 
+|A|B|
+```
+
+This is exactly the escape hatch for the "blank space" case above: a
+`markdown`/`standard`/literal-glyph border gets a real junction character
+by naming it directly, rather than the engine trying to guess one from an
+unrelated style's glyph set. Each is a plain CSS property (quoted-string
+value only, no named-preset keyword support, matching `border-*-corner`'s
+own literal-only grammar) — `unset`/`inherit`/`initial` all work on them
+with no special handling, the same as any other property. There is
+currently no shorthand to set several at once (a possible future
+addition); write out the ones you need. **Table-level only** — no per-cell
+equivalent exists yet, a deliberate initial scope: a T-junction/cross is
+inherently shared between 2–4 adjacent cells, and no compelling per-cell
+use case has come up to justify designing the extra conflict-resolution
+tier that would need (see "Not supported" below).
+
+If both a `border-*-corner` and a `border-*-junction` could apply at the
+same true outer-corner vertex, `border-*-corner` wins (the more specific
+of the two); `border-*-junction` is the fallback there, and the only
+option everywhere else.
 
 **Scope of what's compared**, matching the approved design (not a
 limitation to be fixed later, a deliberate boundary): only **cell-level and
@@ -388,6 +482,10 @@ block, under either border model.
 - **Multi-line cell content combined with `white-space: nowrap`** — a
   `nowrap` cell is always clipped to one line (see `text-overflow`), never
   both non-wrapping and multi-line. Applies under both border models.
+- **`border-*-junction` has no per-cell equivalent** — table-level only;
+  see "Junction and corner overrides" above for why.
+- **No `border-junctions` shorthand** for setting several junction
+  properties at once — a possible future addition, not built yet.
 
 ## See Also
 

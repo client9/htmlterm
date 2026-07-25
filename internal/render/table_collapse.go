@@ -8,8 +8,9 @@ import (
 
 // stylePrecedence ranks htmlterm's own border-style vocabulary for
 // collapsed-border conflict resolution — CSS 2.1 §17.6.2.1 has its own
-// fixed ranking (double > solid > dashed > outset > ...) for real CSS
-// keywords; htmlterm needs its own since the preset vocabulary differs.
+// fixed ranking for real CSS keywords (double > solid > dashed > dotted >
+// ridge > outset > groove > inset); htmlterm needs its own since the
+// preset vocabulary differs.
 // Border-width is a no-op deviation here (documented in COMPATIBILITY.md),
 // so the spec's "widest wins" tier is skipped entirely — this ranking,
 // plus "hidden always wins"/"absent loses", is the whole tie-break.
@@ -38,17 +39,26 @@ type edgeCandidate struct {
 // edgeStyleName returns the named border-style (solid/rounded/heavy/
 // double/markdown/standard/hidden/none) that determines edgeProp's glyph,
 // mirroring resolveBoxBorders' own per-edge-then-whole-box precedence:
-// border-top/-right/-bottom/-left wins if it names a real style, else the
-// whole-box border-style falls back. Empty means the edge's glyph (if
+// border-top/-right/-bottom/-left wins if it's explicitly set at all, else
+// the whole-box border-style falls back. Empty means the edge's glyph (if
 // any) came from a literal quoted character instead — resolveBoxBorders
 // still resolves its actual character correctly either way; this is only
 // ever consulted for conflict-resolution precedence and junction-table
 // selection, both of which need a name, not a glyph.
+//
+// The edge-specific branch must stop here even when it isn't a named style
+// (a literal glyph, or an unrecognized token) - falling through to
+// border-style in that case would incorrectly borrow the whole box's style
+// name for precedence purposes, even though border-style plays no part in
+// this edge's actual rendered glyph (resolveBoxBorders only ever consults
+// border-style for an edge that has no explicit declaration of its own at
+// all - see resolveBorderEdgeChar/resolveBoxBorders' own !present gating).
 func edgeStyleName(decls map[string]string, edgeProp string) string {
 	if v := strings.TrimSpace(decls[edgeProp]); v != "" {
 		if _, ok := namedTableStyle(v); ok {
 			return v
 		}
+		return ""
 	}
 	if v := strings.TrimSpace(decls["border-style"]); v != "" {
 		if _, ok := namedTableStyle(v); ok {
@@ -64,10 +74,11 @@ func edgeStyleName(decls map[string]string, edgeProp string) string {
 // the "widest wins" tier is skipped entirely). Ties are broken in favor of
 // second — callers order their arguments so whichever side should win a
 // tie is passed second: (table, cell) for a perimeter segment (real CSS's
-// "cell beats table"), or (earlier, later) in reading order for a
-// cell-vs-cell interior segment (an arbitrary but consistent convention —
-// real CSS's own tie-break for same-level sources isn't precisely
-// specified either).
+// spec-mandated "cell beats table" color hierarchy), or (later, earlier)
+// in reading order for a cell-vs-cell interior segment - real CSS doesn't
+// specify this exact case, but real browsers (Firefox/Safari/Chrome,
+// checked directly) consistently give it to the earlier element: the row
+// above wins a horizontal tie, the column to the left wins a vertical one.
 func resolveSegmentBorder(first, second edgeCandidate) edgeCandidate {
 	if first.style == "hidden" || second.style == "hidden" {
 		return edgeCandidate{}
@@ -177,6 +188,28 @@ var junctionGlyphTables = map[string][16]string{
 	"rounded": roundedJunctions,
 	"heavy":   heavyJunctions,
 	"double":  doubleJunctions,
+}
+
+// namedJunctionProps maps an arm-presence mask to the table-level
+// `border-*-junction` longhand that can supply a literal glyph override for
+// that shape, wherever it occurs in the grid (not just the table's own
+// outer corners - see border-*-corner for that narrower, position-specific
+// case). Naming mirrors border-top-left-corner's own word order (location
+// first, "junction"/"corner" last), matching real CSS's border-top-left-
+// radius precedent. Two-arm straight-through masks (jUp|jDown, jLeft|
+// jRight) and single-arm dead-ends are deliberately absent - those already
+// just render as the fill character continuing, not a distinct junction
+// shape worth its own override.
+var namedJunctionProps = map[int]string{
+	jDown | jRight:               "border-top-left-junction",
+	jDown | jLeft:                "border-top-right-junction",
+	jUp | jRight:                 "border-bottom-left-junction",
+	jUp | jLeft:                  "border-bottom-right-junction",
+	jDown | jLeft | jRight:       "border-top-junction",
+	jUp | jLeft | jRight:         "border-bottom-junction",
+	jUp | jDown | jRight:         "border-left-junction",
+	jUp | jDown | jLeft:          "border-right-junction",
+	jUp | jDown | jLeft | jRight: "border-center-junction",
 }
 
 // junctionGlyph returns the box-drawing character for a grid vertex with
@@ -333,7 +366,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 	for _, cell := range cells {
 		cellEdges[cell] = r.cellFourEdges(cell.node, colDecls, cell.colStart)
 	}
-	tbl, tbr, tbt, tbb, _, _, _, _ := resolveBoxBorders(tableDecls)
+	tbl, tbr, tbt, tbb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(tableDecls)
 	tableEdges := [4]edgeCandidate{
 		{tbt, edgeStyleName(tableDecls, "border-top")},
 		{tbr, edgeStyleName(tableDecls, "border-right")},
@@ -366,7 +399,11 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 			case below == nil:
 				first, second = tableEdges[2], cellEdges[above][2]
 			default:
-				first, second = cellEdges[above][2], cellEdges[below][0]
+				// Same-type (cell-vs-cell) tie: the earlier row wins,
+				// confirmed against real browsers (see docs/TABLES.md) -
+				// so above is passed second to win resolveSegmentBorder's
+				// "ties favor second" rule.
+				first, second = cellEdges[below][0], cellEdges[above][2]
 			}
 			hSeg[rl][c] = resolveSegmentBorder(first, second)
 		}
@@ -397,7 +434,11 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 			case right == nil:
 				first, second = tableEdges[1], cellEdges[left][1]
 			default:
-				first, second = cellEdges[left][1], cellEdges[right][3]
+				// Same-type (cell-vs-cell) tie: the earlier (left) column
+				// wins, confirmed against real browsers (see
+				// docs/TABLES.md) - so left is passed second to win
+				// resolveSegmentBorder's "ties favor second" rule.
+				first, second = cellEdges[right][3], cellEdges[left][1]
 			}
 			vSeg[cl][rr] = resolveSegmentBorder(first, second)
 		}
@@ -559,7 +600,44 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 				winner = a
 			}
 		}
-		glyph := junctionGlyph(winner.style, up, down, left, right)
+		mask := 0
+		if up {
+			mask |= jUp
+		}
+		if down {
+			mask |= jDown
+		}
+		if left {
+			mask |= jLeft
+		}
+		if right {
+			mask |= jRight
+		}
+		glyph := ""
+		switch {
+		// border-*-corner: most specific - only the table's own true 4
+		// outer corners, gated on the mask actually being that 2-arm
+		// corner shape (never a dead-end/absent at these positions).
+		case rl == 0 && cl == 0 && mask == jDown|jRight && tlCorner != "":
+			glyph = tlCorner
+		case rl == 0 && cl == numCols && mask == jDown|jLeft && trCorner != "":
+			glyph = trCorner
+		case rl == numRows && cl == 0 && mask == jUp|jRight && blCorner != "":
+			glyph = blCorner
+		case rl == numRows && cl == numCols && mask == jUp|jLeft && brCorner != "":
+			glyph = brCorner
+		}
+		if glyph == "" {
+			// border-*-junction: a shape-class default, wherever this exact
+			// arm combination occurs anywhere in the grid (including, as a
+			// fallback, the table's own outer corners above).
+			if propName, ok := namedJunctionProps[mask]; ok {
+				glyph = parseCSSString(tableDecls[propName])
+			}
+		}
+		if glyph == "" {
+			glyph = junctionGlyph(winner.style, up, down, left, right)
+		}
 		return makePainter(winner.border.color, r.profile)(glyph)
 	}
 

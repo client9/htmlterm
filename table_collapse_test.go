@@ -74,6 +74,24 @@ func TestTableBorderCollapseCollapse(t *testing.T) {
 			want: "|H|I|\n - - \n|A|B|\n",
 		},
 		{
+			// Regression: edgeStyleName used to fall through to the cell's
+			// own whole-box border-style whenever its edge-specific
+			// declaration wasn't a *named* style, even though a literal
+			// glyph is just as much an explicit override as a named one -
+			// so a cell with both `border: solid` and a literal
+			// `border-left` incorrectly got "solid"'s precedence for that
+			// edge (real precedence 3) instead of "" (unnamed, precedence
+			// 0), letting its literal glyph wrongly win every tie against a
+			// genuinely-solid neighbor - including the table's own outer
+			// edge and the adjacent cell's own unset-but-solid-by-default
+			// edge. Every divider here (outer and interior) must render the
+			// real "solid" style, not the stray literal.
+			name: "a cell's literal-glyph edge override doesn't borrow its own whole-box border-style's precedence",
+			css:  `table { border-collapse: collapse; border: solid; } td, th { border: solid; } td, th { border-left: "┆"; }`,
+			html: `<table><tr><td>A</td><td>B</td></tr></table>`,
+			want: "┌─┬─┐\n│A│B│\n└─┴─┘\n",
+		},
+		{
 			name: "colspan suppresses the interior segment its own box covers",
 			css:  `table { border-collapse: collapse; } td, th { border: solid; }`,
 			html: `<table><tr><th colspan="2">Header</th></tr><tr><td>A</td><td>B</td></tr></table>`,
@@ -84,6 +102,71 @@ func TestTableBorderCollapseCollapse(t *testing.T) {
 			css:  `table { border-collapse: collapse; } td, th { border: solid; }`,
 			html: `<table><tr><td rowspan="2">Tall</td><td>Top</td></tr><tr><td>Bottom</td></tr></table>`,
 			want: "┌────┬──────┐\n│Tall│Top   │\n│    ├──────┤\n│    │Bottom│\n└────┴──────┘\n",
+		},
+	})
+}
+
+// TestTableBorderCollapseCorners covers border-*-corner under
+// border-collapse:collapse - previously silently ignored (composeCollapsedGrid
+// discarded resolveBoxBorders' corner return values), now consulted for the
+// table's own true 4 outer corners, same as border-collapse:separate's own
+// table box and plain blocks already do.
+func TestTableBorderCollapseCorners(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "table's own outer corners can be overridden under collapse (regression: previously silently ignored)",
+			css: `table { border-collapse: collapse; border-style: solid; border-spacing:0;
+				border-top-left-corner: '1'; border-top-right-corner: '2';
+				border-bottom-left-corner: '3'; border-bottom-right-corner: '4'; }`,
+			html: `<table><tr><td>A</td></tr></table>`,
+			want: "1─2\n│A│\n3─4\n",
+		},
+	})
+}
+
+// TestTableBorderCollapseJunctions covers the border-*-junction family: a
+// literal-glyph override for a T-shape/cross/corner-shape wherever that
+// exact arm combination occurs in the grid, table-level only - the
+// counterpart to the named style presets' own built-in junction tables, for
+// custom/literal borders that otherwise render junctions as blank space
+// (see docs/TABLES.md).
+func TestTableBorderCollapseJunctions(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "border-top-junction overrides the T-shape where a column divider meets the table's own top edge",
+			css:  `table { border-collapse: collapse; border-top: "="; border-top-junction: '+'; } td { border-left: "|"; border-right: "|"; }`,
+			html: `<table><tr><td>A</td><td>B</td></tr></table>`,
+			want: " =+= \n|A|B|\n",
+		},
+		{
+			name: "border-center-junction overrides an interior 4-arm cross",
+			css:  `table { border-collapse: collapse; border-center-junction: '+'; } td, th { border: solid; }`,
+			html: `<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>`,
+			want: "┌─┬─┐\n│A│B│\n├─+─┤\n│C│D│\n└─┴─┘\n",
+		},
+		{
+			name: "border-top-right-junction overrides a corner-shape wherever it occurs, not just the table's own outer corner",
+			// row0 is jagged (1 cell, row1 has 2). Both marked vertices are
+			// genuine top-right-shaped corners away from the table's true
+			// top-right corner (far right of row0's own line, which stays
+			// blank here since row0 doesn't reach that far): one where
+			// row0's own short top edge ends, one where row0's short right
+			// edge meets row1's column divider below it.
+			css:  `table { border-collapse: collapse; border-top-right-junction: '+'; } td, th { border: solid; }`,
+			html: `<table><tr><td>A</td></tr><tr><td>B</td><td>C</td></tr></table>`,
+			want: "┌─+ \n│A│  \n├─┼─+\n│B│C│\n└─┴─┘\n",
+		},
+		{
+			name: "unset reverts border-center-junction back to the computed glyph",
+			css:  `table { border-collapse: collapse; border-center-junction: '+'; } table.x { border-center-junction: unset; } td, th { border: solid; }`,
+			html: `<table class="x"><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>`,
+			want: "┌─┬─┐\n│A│B│\n├─┼─┤\n│C│D│\n└─┴─┘\n",
+		},
+		{
+			name: "a vertex whose shape has no matching override falls through to the computed glyph unchanged",
+			css:  `table { border-collapse: collapse; border-center-junction: '+'; } td, th { border: solid; }`,
+			html: `<table><tr><th colspan="2">Header</th></tr><tr><td>A</td><td>B</td></tr></table>`,
+			want: "┌───────┐\n│Header │\n├───┬───┤\n│A  │B  │\n└───┴───┘\n",
 		},
 	})
 }
@@ -105,4 +188,56 @@ func TestTableBorderCollapseColor(t *testing.T) {
 	if strings.Contains(got, "\x1b[38;2;255;0;0m") {
 		t.Fatalf("table's border-color leaked through where the cell set its own: %q", got)
 	}
+}
+
+// TestTableBorderCollapseSameTypeTieBreak covers the cell-vs-cell (same
+// element type) tie-break direction: verified directly against Firefox,
+// Safari, and Chrome - a same-style tie goes to the *earlier* element in
+// reading order (the row above wins a horizontal tie, the column to the
+// left wins a vertical one), not the later one. This is a different rule
+// from - and doesn't affect - "cell beats table" (TestTableBorderCollapseColor
+// above), which is real CSS's own spec-mandated color hierarchy, not an
+// unspecified same-type tie.
+func TestTableBorderCollapseSameTypeTieBreak(t *testing.T) {
+	t.Run("horizontal: the row above wins a same-style tie, matching real browsers", func(t *testing.T) {
+		r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Both edges are solid (a genuine style tie), distinguishable only
+		// by th's explicit color - td sets no color at all, so if td's
+		// edge won instead, the boundary would render with no color code.
+		got, err := r.Render(`<table style="border-collapse:collapse"><tr><th style="border-bottom:solid;border-bottom-color:blue">H</th></tr><tr><td style="border-top:solid;border-bottom:solid">A</td></tr></table>`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "\x1b[38;2;0;0;255m") {
+			t.Fatalf("th's own (earlier, blue) edge should have won the tie over td's (later, uncolored) edge: %q", got)
+		}
+	})
+
+	t.Run("vertical: the left column wins a same-style tie, matching real browsers", func(t *testing.T) {
+		r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := r.Render(`<table style="border-collapse:collapse"><tr><th style="border-left:solid;border-right:solid;border-left-color:red;border-right-color:blue">A</th><th style="border-left:solid;border-right:solid;border-left-color:red;border-right-color:blue">B</th><th style="border-left:solid;border-right:solid;border-left-color:red;border-right-color:blue">C</th></tr></table>`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain := stripANSI(got)
+		if plain != "│A│B│C│\n" {
+			t.Fatalf("unexpected plain layout: %q", plain)
+		}
+		// Left exterior: cell beats table (unaffected by this fix) - red.
+		if !strings.Contains(got, "\x1b[38;2;255;0;0m│\x1b[m\x1b[1mA") {
+			t.Fatalf("left exterior should be red (cell beats table): %q", got)
+		}
+		// Both interior dividers: the left-hand cell's own right edge
+		// (blue) should win over the right-hand cell's own left edge
+		// (red) - matching the real-browser "earlier wins" result.
+		if strings.Count(got, "\x1b[38;2;0;0;255m│\x1b[m") != 3 {
+			t.Fatalf("expected exactly 3 blue dividers (2 interior + right exterior): %q", got)
+		}
+	})
 }

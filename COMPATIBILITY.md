@@ -234,6 +234,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   htmlterm ranks these presets against each other when adjacent
   cells/tables disagree (a conflict-resolution model real CSS also has, but
   keyed to its own line-style vocabulary, not this one).
+- **`border-*-junction`** (`border-top-junction`/`-right`/`-bottom`/
+  `-left`/`-center`, plus the 4 corner-shape variants) — a table-level-only
+  literal-glyph override for a T-junction/cross/corner-shape wherever that
+  exact arm combination occurs in a `border-collapse: collapse` grid; real
+  CSS has no equivalent concept at all (no notion of styling "where a
+  divider joins a border" independent of the border lines themselves). See
+  `docs/TABLES.md`'s "Junction and corner overrides".
 - **`scrollbar-style: block|shaded|classic|ascii|line`** and
   **`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/
   `::scrollbar-cap-start`/`::scrollbar-cap-end`** — real CSS has no
