@@ -188,7 +188,10 @@ added to `document.go`.
   implemented — no mouse-move/press tracking exists yet — but reserve the
   same attribute pattern (`data-htmlterm-hover`/`-active`) for whenever that
   work happens.
-- `Document.DispatchKey(key string)` dispatches `"keydown"` to the focused
+- `Document.DispatchKey(key string)` (signature since extended to
+  `DispatchKey(key string, mods Modifiers)` — see `docs/SCROLLING.md`'s
+  "Input plumbing" update — the design below is otherwise unchanged)
+  dispatches `"keydown"` to the focused
   element; default actions: printable rune → append to a focused text-like
   `<input>`/`<textarea>`'s value, `"Backspace"` → drop the last rune, `" "`
   on a focused checkbox/radio → the same toggle as click's default action,

@@ -52,6 +52,10 @@ type Engine struct {
 	liveScrollOffsets  map[*html.Node]int
 	liveScrollViewport map[*html.Node]Viewport
 	liveContentOffsets map[*html.Node]int
+
+	scrollOffsetsX      map[*html.Node]int
+	liveScrollOffsetsX  map[*html.Node]int
+	liveScrollViewportX map[*html.Node]ViewportX
 }
 
 // Viewport records a scroll container's visible content-area geometry.
@@ -73,22 +77,46 @@ type Viewport struct {
 	CapEnd      bool
 }
 
+// ViewportX is Viewport's horizontal counterpart, recorded for an
+// overflow-x:scroll|auto element with an explicit width — see block.go's
+// hasScrollbarGutterX (docs/SCROLLING.md's horizontal-scrolling addendum).
+// Width/LeftOffset are the transpose of Height/TopOffset: LeftOffset is the
+// column shift from the element's own Rect.Col to where its content starts
+// (the same relationship colShift already has to Rect.Col elsewhere).
+// GutterRow/GutterHeight/CapStart/CapEnd are the transpose of
+// GutterCol/GutterWidth/CapStart/CapEnd: GutterRow is the row shift from
+// Rect.Row to the gutter row, only meaningful when GutterHeight > 0 (a
+// visible ::scrollbar-track-x/::scrollbar-thumb-x row was actually drawn
+// this frame). CapStart/CapEnd here mean the *left*/*right* cap
+// (::scrollbar-cap-start-x/::scrollbar-cap-end-x), not top/bottom.
+type ViewportX struct {
+	Width        int
+	LeftOffset   int
+	GutterRow    int
+	GutterHeight int
+	CapStart     bool
+	CapEnd       bool
+}
+
 // Request supplies per-frame state for RenderNode.
 type Request struct {
-	Width         int
-	Height        int
-	Rules         []cssengine.Rule
-	ScrollOffsets map[*html.Node]int
+	Width          int
+	Height         int
+	Rules          []cssengine.Rule
+	ScrollOffsets  map[*html.Node]int
+	ScrollOffsetsX map[*html.Node]int
 }
 
 // Result is the rendered output plus layout metadata needed by interactive
 // document hosts.
 type Result struct {
-	Output         string
-	Positions      map[*html.Node]Rect
-	ScrollOffsets  map[*html.Node]int
-	ScrollViewport map[*html.Node]Viewport
-	ContentOffsets map[*html.Node]int
+	Output          string
+	Positions       map[*html.Node]Rect
+	ScrollOffsets   map[*html.Node]int
+	ScrollViewport  map[*html.Node]Viewport
+	ScrollOffsetsX  map[*html.Node]int
+	ScrollViewportX map[*html.Node]ViewportX
+	ContentOffsets  map[*html.Node]int
 }
 
 // New parses opts.CSS/opts.Stylesheets and returns a reusable render engine.
@@ -208,6 +236,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		selectOpenAttr:      e.selectOpenAttr,
 		selectHighlightAttr: e.selectHighlightAttr,
 		scrollOffsets:       req.ScrollOffsets,
+		scrollOffsetsX:      req.ScrollOffsetsX,
 	}
 	if rr.width == 0 {
 		rr.width = e.width
@@ -250,11 +279,13 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		out += "\n"
 	}
 	return Result{
-		Output:         strings.ReplaceAll(out, nbsp, " "),
-		Positions:      positions,
-		ScrollOffsets:  rr.liveScrollOffsets,
-		ScrollViewport: rr.liveScrollViewport,
-		ContentOffsets: rr.liveContentOffsets,
+		Output:          strings.ReplaceAll(out, nbsp, " "),
+		Positions:       positions,
+		ScrollOffsets:   rr.liveScrollOffsets,
+		ScrollViewport:  rr.liveScrollViewport,
+		ScrollOffsetsX:  rr.liveScrollOffsetsX,
+		ScrollViewportX: rr.liveScrollViewportX,
+		ContentOffsets:  rr.liveContentOffsets,
 	}
 }
 
@@ -304,6 +335,7 @@ textarea                { display: block; border-style: solid; padding-left: 1; 
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }
 ::scrollbar             { width: 1ch; }
+::scrollbar-x           { height: 1; }
 title, meta, script, style: { display: none; }
 `
 

@@ -509,6 +509,86 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 	return lines, carry
 }
 
+// visibleWindowCarry returns the [offset, offset+width) visible-column
+// window of s — wide-rune/ANSI-aware, and, like splitAtVisualWidthCarry's
+// internal chunk boundaries, self-contained: an SGR/OSC8 span still open at
+// offset is reopened at the window's start and closed at its end. Used for
+// overflow-x: scroll|auto's horizontal scroll-offset slicing (see
+// docs/SCROLLING.md), where offset can land anywhere within a line — unlike
+// splitAtVisualWidthCarry, which only ever chops a string into sequential
+// chunks from column 0. A wide rune straddling either boundary is dropped
+// entirely rather than split, the same rule visiblePrefixWithTrailingEscapes
+// already applies at its own single (right) boundary.
+func visibleWindowCarry(s string, offset, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	carry := ansiCarry{}
+	col := 0
+	prevWidth := 0
+	i := 0
+	for i < len(runes) && col < offset {
+		ch := runes[i]
+		if ch == '\x1b' {
+			j := consumeANSI(runes, i)
+			carry.apply(string(runes[i:j]))
+			i = j
+			continue
+		}
+		var w int
+		if ch == variationSelector16 {
+			w = vs16WidthCorrection(prevWidth)
+			prevWidth = 0
+		} else {
+			w = runeVisualWidth(ch)
+			prevWidth = w
+		}
+		if col+w > offset {
+			i++
+			col += w
+			break
+		}
+		col += w
+		i++
+	}
+	var out strings.Builder
+	if !carry.empty() {
+		out.WriteString(carry.openSeq())
+	}
+	visible := 0
+	prevWidth = 0
+	for i < len(runes) && visible < width {
+		ch := runes[i]
+		if ch == '\x1b' {
+			j := consumeANSI(runes, i)
+			seq := string(runes[i:j])
+			out.WriteString(seq)
+			carry.apply(seq)
+			i = j
+			continue
+		}
+		var w int
+		if ch == variationSelector16 {
+			w = vs16WidthCorrection(prevWidth)
+			prevWidth = 0
+		} else {
+			w = runeVisualWidth(ch)
+			prevWidth = w
+		}
+		if visible+w > width {
+			break
+		}
+		out.WriteRune(ch)
+		visible += w
+		i++
+	}
+	if !carry.empty() {
+		out.WriteString(carry.closeSeq())
+	}
+	return out.String()
+}
+
 // spliceColumns overwrites visible columns [col, col+width) of line with
 // replacement, preserving line's ANSI styling for the untouched prefix/
 // suffix and re-carrying any open span across the splice boundary — the

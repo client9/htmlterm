@@ -61,6 +61,11 @@ of the "explicit non-goals for the scrollbar" listed
 below remain out of scope (`tabindex`/`autofocus` handling, named separately
 under Section 3, likewise remain unimplemented).
 
+**Horizontal scrolling has since shipped too** — see "Section 2 — Horizontal
+scrolling" below. It reuses the same offset/clamp/gutter/pseudo-element
+machinery as Section 1, transposed onto the width axis, rather than a
+parallel design.
+
 ## Why scrolling was sequenced before flexbox
 
 This was the rationale at the time scrolling was designed and built, before
@@ -245,10 +250,9 @@ child's rows for free, the same way any other layout change already does.
   since keyboard scrolling (unlike wheel) has no click coordinate to
   hit-test from.
 
-**Update, ahead of Section 1 gaining a horizontal counterpart:** two pieces
-of input plumbing this section will need have landed early, as prep rather
-than as part of horizontal scrolling itself (no `scrollOffsetsX`/`ScrollLeft`
-state exists yet — see "Explicit non-goals for v1" below, still current):
+**Update:** two pieces of input plumbing landed ahead of horizontal
+scrolling itself, as prep rather than as part of it — both now put to use
+by Section 2 below:
 
 - `Event` gained `ShiftKey`/`CtrlKey`/`AltKey`/`MetaKey bool` fields
   (`event.go`), set from a new `Modifiers` struct threaded through
@@ -262,17 +266,16 @@ state exists yet — see "Explicit non-goals for v1" below, still current):
   `keyName`'s existing job for key names.
 - `DispatchWheel`'s signature changed from `(row, col, delta int)` to
   `(row, col, deltaX, deltaY int)`, mirroring a real `WheelEvent`'s
-  `deltaX`/`deltaY` pair. `deltaX` is accepted but not yet applied to
-  anything — landing the signature now (a breaking change, but this is
-  pre-1.0) avoids a second breaking change once horizontal scroll-offset
-  state exists. `tcell_loop.go`'s new `wheelDelta(tcell.ButtonMask) (dx,
-  dy int)` reads tcell's `WheelUp`/`WheelDown`/`WheelLeft`/`WheelRight` bits
-  independently (previously only `WheelUp`/`WheelDown` were read at all —
-  `WheelLeft`/`WheelRight` existed in tcell but nothing consumed them); a
-  Shift-held vertical wheel notch with no horizontal bit set is remapped
-  from `deltaY` into `deltaX`, the common browser/terminal fallback
-  convention for wheel hardware that never reports a horizontal axis
-  directly.
+  `deltaX`/`deltaY` pair — landing the signature ahead of the horizontal
+  scroll-offset state it now drives (a breaking change, but this is
+  pre-1.0) avoided a second breaking change later. `tcell_loop.go`'s new
+  `wheelDelta(tcell.ButtonMask) (dx, dy int)` reads tcell's `WheelUp`/
+  `WheelDown`/`WheelLeft`/`WheelRight` bits independently (previously only
+  `WheelUp`/`WheelDown` were read at all — `WheelLeft`/`WheelRight` existed
+  in tcell but nothing consumed them); a Shift-held vertical wheel notch
+  with no horizontal bit set is remapped from `deltaY` into `deltaX`, the
+  common browser/terminal fallback convention for wheel hardware that never
+  reports a horizontal axis directly.
 
 ### Scrollbar gutter and indicator
 
@@ -631,12 +634,157 @@ means nested scrollable regions need no special-case code.
 
 ### Explicit non-goals for v1
 
-- Horizontal scroll offset.
+- Horizontal scroll offset — **shipped since, see Section 2 below.**
 - "Sticky to bottom" auto-follow for growing content (e.g. a log tail) —
   numeric clamping survives content mutation, but nothing auto-follows;
   that would be a separate opt-in behavior.
 - Doubly-clipped nested regions' `text-overflow` marker interaction at
   both edges.
+
+## Section 2 — Horizontal scrolling
+
+**Status: implemented**, reusing Section 1's offset/clamp/gutter/pseudo-
+element machinery transposed onto the width axis, rather than a parallel
+design — every subsection below names its vertical counterpart.
+
+### State
+
+`Document` gained `scrollOffsetsX map[*html.Node]int`, a plain parallel map
+to `scrollOffsets` (not a generalized `{x,y}` struct — matching the existing
+`ovX`/`ovY` split already being two separate fields, not one axis-keyed
+one). Applies to any element with `overflow-x:scroll|auto` and an *explicit
+width* (`hasExplicitWidth`, `block.go`) — the same role a resolved height
+plays for Section 1, but there's no equivalent to "no width source exists
+yet" the way flexbox once was for height, since block width resolution
+already existed. `nearestScrollableX` is its own ancestor walk (not an
+axis-parameterized version of `nearestScrollable`), since the nearest
+horizontally- and vertically-scrollable ancestors can legitimately differ
+for a nested pane.
+
+### Rendering
+
+Extends `renderBlockContentBox`'s existing `ovX` gate (previously just
+`hidden`/`clip` truncation, `block.go`) into a switch with a `scroll`/`auto`
+case mirroring Section 1's `ovY` switch. Unlike vertical, there's no
+separate "heightLines" concept to slice against: `innerW` already bounds
+normally-wrapped content, so the scroll/auto case only ever does anything
+for content `wordWrapTokens` couldn't shrink to fit (`white-space:pre`/
+`nowrap`, or an unbreakable overlong token) — **no explicit
+`white-space:nowrap` gate was needed**, unlike what Section 1's own original
+non-goal note assumed: a normally-wrapped box's own widest line already
+comes out `<= innerW`, which naturally clamps `offsetX` to 0 with no special
+case. The actual column-window slicing is a new primitive,
+`visibleWindowCarry(s string, offset, width int) string` (`textutil.go`),
+sibling to `splitAtVisualWidthCarry` — wide-rune/ANSI-aware, and, like that
+function's own internal chunk boundaries, self-contained (an open SGR/OSC8
+span at `offset` is reopened at the window's start and closed at its end).
+Position tracking mirrors Section 1's row shift exactly, transposed:
+`positions = mergePositions(nil, positions, 0, -offsetX)`.
+
+### Scrollbar gutter and indicator
+
+A **row**, not a column — `appendScrollbarRow` (`block.go`) is
+`appendScrollbarColumn`'s transpose: it appends `gutterHeight` identical
+rows below content (vertical's gutter instead repeats one glyph across
+`gutterWidth` *columns* per existing line, since its "thickness" axis and
+content's row axis are the same; horizontal's thickness axis — rows — is
+orthogonal to content's row axis, so there's no per-row content to differ
+by, hence "identical rows"). `ScrollbarGutterHeight`/`scrollbarGutterHeight`
+(reading a new `::scrollbar-x { height }`, a bare row count like the
+`height` property itself, not `::scrollbar`'s `ch`-unit `width`) are
+`ScrollbarGutterWidth`/`scrollbarGutterWidth`'s direct counterparts.
+
+Unlike the vertical gutter (reserved *before* wrapping, narrowing `innerW`),
+the horizontal gutter row needs no width reservation at all — it's simply
+appended as one more row after content, at the same pipeline point Section
+1's gutter column is appended (inside the `ovX` switch, before `padding-top`/
+`padding-bottom`/borders are applied later in the function) so it inherits
+the identical placement guarantee: `padding-bottom` rows get appended below
+it exactly like `padding-right` columns get appended outside the vertical
+gutter, so it sits "inside the border alongside padding-bottom," the
+transpose of Section 1's own placement reasoning.
+
+**Named restriction, not solved generically:** the gutter *row* is only
+drawn when `heightLines == 0` — i.e., this box has no explicit height (no
+vertical gutter/scroll region) of its own. A real GUI scrollbar's corner
+square (where a vertical and horizontal scrollbar meet) has no equivalent
+here; rather than pick an arbitrary glyph for that cell, simultaneous
+visible gutters on both axes are out of scope for now. The scroll offset
+and keyboard/wheel/click-cap plumbing all still work in that combination —
+only the drawn row is skipped, the same "silently drop the added chrome"
+precedent the gutter-too-narrow case already established. `ovX == "auto"`
+gets no visible row at all, matching `ovY == "auto"`'s own convention.
+
+### Scrollbar pseudo-elements: `::scrollbar-x` / `::scrollbar-track-x` / `::scrollbar-thumb-x` / `::scrollbar-cap-start-x` / `::scrollbar-cap-end-x`
+
+New pseudo-element names, not axis-suffixed instances of a shared cascade
+mechanism change: `selector.go`'s pseudo-element whitelist gained these five
+names alongside the five vertical ones, with zero other `cssengine` changes
+(the same "already generic over the pseudo-element name" fact Section 1's
+own pseudo-elements relied on). Separate names were necessary — not just a
+style preference — because one scrollable element can now have both a
+vertical and a horizontal gutter needing independently stylable glyphs;
+reusing `::scrollbar-track`/`::scrollbar-thumb` for both axes would give
+them no way to differ. `scrollbar-style` itself stays a single shared
+property: one preset supplies glyphs for whichever axis is actually active,
+via the same `resolveScrollbarStyle`/`resolveScrollbarCap` merge functions
+(extended to recognize the `-x` name variants, mapping to the same
+`preset.track`/`preset.thumb`/`preset.capStart`/`preset.capEnd` baseline) —
+no `scrollbar-style-x`.
+
+### Input plumbing
+
+- `DispatchWheel`'s `deltaX` (wired ahead of this feature, see the "Update"
+  note above) now actually scrolls: hit-test via `elementAt`, then apply
+  `deltaX`/`deltaY` independently to `nearestScrollableX(target)`/
+  `nearestScrollable(target)` — these can be two different elements, so
+  both axes are attempted per call rather than picking one.
+- `DispatchKey` gained an `ArrowLeft`/`ArrowRight` case, scrolling
+  `nearestScrollableX(focused)` by one column. These two keys were
+  previously completely unclaimed by `DispatchKey`'s switch (only
+  `ArrowUp`/`ArrowDown` were ever wired to anything, for both vertical
+  scrolling and `<select>` browsing) — exactly the reservation
+  `COMPATIBILITY.md` already alluded to ("arrow keys reserved for
+  select-popup/scroll navigation instead of caret"), now fulfilled. No
+  `Shift`/modifier gate was needed to disambiguate from anything else.
+- `Document.isFocusable`'s existing scroll-container tab-stop case (Section
+  3 below) checked only `d.scrollOffsets`; extended to also check
+  `d.scrollOffsetsX`, so a horizontally-only scrollable element with no
+  focusable descendant is just as Tab-reachable as a vertically-scrollable
+  one.
+- Click-to-scroll on the cap buttons: `tryScrollCapClickX` (`document.go`)
+  mirrors `tryScrollCapClick`, transposed — it hit-tests a column range
+  (`GutterRow`/`GutterHeight`, the row band the gutter occupies) against a
+  row range (`LeftOffset`/`Width`, the column band content occupies), i.e.
+  the geometry check swaps which axis is "the fixed band" and which is "the
+  two candidate positions," matching `CapStart`/`CapEnd` now meaning
+  left/right instead of top/bottom. Wired into `DispatchClick` as a second
+  early branch, right after the vertical one.
+- `render.ViewportX` (`engine.go`) is `Viewport`'s transpose:
+  `Width`/`LeftOffset` mirror `Height`/`TopOffset`; `GutterRow`/
+  `GutterHeight`/`CapStart`/`CapEnd` mirror `GutterCol`/`GutterWidth`/
+  `CapStart`/`CapEnd`. `Document.scrollViewportX`, `ScrollLeft`/
+  `SetScrollLeft` (mirroring `ScrollTop`/`SetScrollTop`) round out the
+  public surface.
+
+### Explicit non-goals (horizontal)
+
+- **Simultaneous visible gutters on both axes** — see "Scrollbar gutter and
+  indicator" above; the corner-cell problem a real GUI scrollbar solves
+  with a dedicated corner square isn't modeled here.
+- **Horizontal scroll-into-view** — Section 3's `scrollIntoView`/
+  `ScrollVisible` remain vertical-only; a focused descendant landing outside
+  a horizontally-scrolled ancestor's visible column range is not
+  auto-scrolled into view the way Section 3 already does for the vertical
+  axis.
+- **A "page"-sized horizontal step** — `DispatchKey`'s `ArrowLeft`/
+  `ArrowRight` step by one column each; there's no horizontal equivalent of
+  `PageUp`/`PageDown`'s viewport-height step.
+- **`Shift`+wheel as a *horizontal-scroll* trigger inside `Document`
+  itself** — the shift-remap convention (see the "Update" note above) lives
+  entirely in `tui/tcell_loop.go`, translating raw input before it ever
+  reaches `DispatchWheel`; `Document` has no modifier-aware wheel behavior
+  of its own.
 
 ## Section 3 — Focus: scroll-into-view is the one real gap
 
@@ -661,12 +809,14 @@ takeaway that this pays off in practice (every feature added under that
 constraint so far has been both easy to design and easy to explain).
 
 **Keyboard-accessible scroll containers (implemented):** `Document.isFocusable`
-also treats a scroll container (a key in `d.scrollOffsets`) as a tab stop when
+also treats a scroll container (a key in `d.scrollOffsets` **or**
+`d.scrollOffsetsX` — see Section 2) as a tab stop when
 it has no focusable descendant of its own (`hasFocusableDescendant`) —
 mirroring real browsers making an otherwise-keyboard-unreachable scrollable
 region focusable, so a pane with no button/input inside it (mouse-wheel-only
 otherwise) is still reachable via Tab, letting `DispatchKey`'s
-`PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` scroll it directly once focused. A
+`PageUp`/`PageDown`/`ArrowUp`/`ArrowDown`/`ArrowLeft`/`ArrowRight` scroll it
+directly once focused. A
 container that already has a focusable descendant (e.g. a pane with a button
 in it) is reached through that descendant instead and isn't also made its own
 redundant stop.
@@ -724,3 +874,22 @@ more whitelisted pseudo-element names) and `block.go`
 (`resolveScrollbarCap`, `appendScrollbarColumn`'s extended signature, and
 the `Viewport` construction site). No change to `cascade.go`'s
 `PseudoElement`, `event.go`, or `Renderer`'s public contract.
+
+Horizontal scrolling (Section 2) touched every layer the vertical feature
+already had a counterpart in, plus one new one (`textutil.go`, for
+`visibleWindowCarry`): `internal/cssengine/selector.go` (five more
+whitelisted `-x` pseudo-element names), `internal/render/textutil.go`
+(`visibleWindowCarry`), `internal/render/block.go`
+(`scrollbarGutterHeight`, `appendScrollbarRow`, `resolveScrollbarStyle`/
+`resolveScrollbarCap`'s `-x` name handling, and the `ovX` switch/`ViewportX`
+construction site in `renderBlockContentBox`), `internal/render/engine.go`
+(`ViewportX`, `Engine.scrollOffsetsX`/`liveScrollOffsetsX`/
+`liveScrollViewportX`, `Request.ScrollOffsetsX`, `Result.ScrollOffsetsX`/
+`ScrollViewportX`, the `::scrollbar-x { height: 1; }` UA default), and
+`document/document.go` (`scrollOffsetsX`/`scrollViewportX` fields,
+`ScrollLeft`/`SetScrollLeft`, `nearestScrollableX`, `tryScrollCapClickX`,
+`DispatchClick`'s second early branch, `DispatchWheel`'s `deltaX` handling,
+`DispatchKey`'s `ArrowLeft`/`ArrowRight` case, and `isFocusable`'s extended
+scroll-container check). No change to `cascade.go`'s `PseudoElement`,
+`event.go`, or `Renderer`'s public contract — same boundary the vertical
+feature stayed within.

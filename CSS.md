@@ -86,13 +86,18 @@ place it matches anything is `option:hover` inside an open `<select>` popup
 — see `docs/SELECT.md`.
 
 **Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::scrollbar`,
-`::scrollbar-track`, and `::scrollbar-thumb` (all also accepted with a single
-colon). `::before`/`::after` inject inline text at the start or end of an
+`::scrollbar-track`, `::scrollbar-thumb`, `::scrollbar-cap-start`,
+`::scrollbar-cap-end`, and their horizontal-scrollbar counterparts
+`::scrollbar-x`, `::scrollbar-track-x`, `::scrollbar-thumb-x`,
+`::scrollbar-cap-start-x`, `::scrollbar-cap-end-x` (all also accepted with a
+single colon). `::before`/`::after` inject inline text at the start or end of an
 element's content; they require the `content` property. `::marker` styles the list
 prefix (bullet or number) of an `<li>` element; supported properties are `color`,
 `background-color`, `font-weight`, `font-style`, and `text-decoration`.
-`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb` style the scrollbar gutter
-drawn by `overflow-y: scroll` — see `docs/SCROLLBARS.md`.
+`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-start`/
+`::scrollbar-cap-end` style the vertical scrollbar gutter drawn by
+`overflow-y: scroll`; the `-x`-suffixed names style the horizontal
+counterpart drawn by `overflow-x: scroll` — see `docs/SCROLLBARS.md`.
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
 `li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`, etc. A bare
 `::scrollbar-thumb { … }` (no element/class/id prefix) matches every scrollable
@@ -476,11 +481,11 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 `normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements, including `td` and `th`. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping; set it on a cell or ancestor to get single-line truncation (see `text-overflow`) instead of multi-line wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
 
 #### `overflow`, `overflow-x`, `overflow-y`
-`visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
+`visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping and scrolling; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
 
 - **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
-- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). No visible scrollbar/indicator is drawn.
-- **`scroll`** — same scrolling behavior as `auto`, **plus** an always-reserved gutter (default 1 column wide) with a track and thumb tracking the scroll position — drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (no column reserved, content unaffected) if the box is too narrow to spare one. **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*`, `scrollbar-style` presets, cap-button click behavior).
+- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Document.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**) is the same idea transposed: a live horizontal scroll offset (`Document.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
+- **`scroll`** — same scrolling behavior as `auto` per axis, **plus** an always-reserved gutter — a column (default 1 wide) for `overflow-y`, a row (default 1 tall) for `overflow-x` — with a track and thumb tracking the scroll position, drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (content unaffected) if the box is too narrow/short to spare one, or — for `overflow-x`'s gutter row specifically — if the element also has an explicit `height` of its own (both axes' visible gutters can't coexist yet; the scroll offsets themselves still work in that combination — see `docs/SCROLLING.md`). **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*` and their `-x` horizontal counterparts, `scrollbar-style` presets, cap-button click behavior).
 
 See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` deliberately never gets an indicator).
 

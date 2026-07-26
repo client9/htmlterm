@@ -443,17 +443,79 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
 
-	if (ovX == "hidden" || ovX == "clip") && hasExplicitWidth {
-		toVal := decls["text-overflow"]
-		if toVal == "" {
-			toVal = "clip"
+	// gutterHeightX/gutterRowX/capStartXDrawn/capEndXDrawn are declared here
+	// (not with := in the case below) so they survive past this switch's
+	// scope, for the ViewportX recording near the end of this function —
+	// mirroring hasScrollbarGutter/capStartDrawn/capEndDrawn's own reasoning
+	// above.
+	var gutterHeightX, gutterRowX int
+	var capStartXDrawn, capEndXDrawn bool
+	if hasExplicitWidth {
+		switch ovX {
+		case "hidden", "clip":
+			toVal := decls["text-overflow"]
+			if toVal == "" {
+				toVal = "clip"
+			}
+			suffix := textOverflowSuffix(toVal)
+			newLines := make([]string, len(b.lines))
+			for i, ln := range b.lines {
+				newLines[i] = truncateToWidth(ln, innerW, suffix)
+			}
+			b = box{lines: newLines, width: linesWidth(newLines)}
+		case "scroll", "auto":
+			// Unlike overflow-y's height gate, there's no separate
+			// "heightLines" concept to slice against here: innerW already
+			// bounds normally-wrapped content to begin with, so this only
+			// ever does something for content wordWrapTokens couldn't
+			// shrink to fit (white-space:pre/nowrap, or an unbreakable
+			// overlong token) — no white-space:nowrap gate is needed; a
+			// wrapped box's own maxLineWidth already comes out <= innerW,
+			// which naturally clamps offsetX to 0 (see docs/SCROLLING.md).
+			offsetX := r.scrollOffsetsX[n]
+			maxLineWidth := 0
+			for _, ln := range b.lines {
+				if w := ansiVisibleLen(ln); w > maxLineWidth {
+					maxLineWidth = w
+				}
+			}
+			maxOffsetX := max(0, maxLineWidth-innerW)
+			offsetX = min(max(offsetX, 0), maxOffsetX)
+			if r.liveScrollOffsetsX == nil {
+				r.liveScrollOffsetsX = map[*html.Node]int{}
+			}
+			r.liveScrollOffsetsX[n] = offsetX
+			lines := make([]string, len(b.lines))
+			for i, ln := range b.lines {
+				window := visibleWindowCarry(ln, offsetX, innerW)
+				if pad := innerW - ansiVisibleLen(window); pad > 0 {
+					window += strings.Repeat(" ", pad)
+				}
+				lines[i] = window
+			}
+			positions = mergePositions(nil, positions, 0, -offsetX)
+			// A visible horizontal gutter row is only drawn when ovX is
+			// exactly "scroll" (mirroring overflow-y's own "auto" gets no
+			// indicator" convention) and this box has no fixed height of
+			// its own: an active vertical gutter/scroll region already
+			// claims the box's bottom row for its own purposes, and this
+			// renderer has no corner-cell concept to let both visible
+			// gutters coexist there (the same problem a real GUI
+			// scrollbar solves with a dedicated corner square — see
+			// docs/SCROLLING.md). The offset/scrolling itself (above)
+			// still works in that combination; only the drawn indicator
+			// is skipped.
+			if heightLines == 0 && ovX == "scroll" {
+				gutterHeightX = r.scrollbarGutterHeight(n, decls)
+				trackX := r.resolveScrollbarStyle(n, decls, "scrollbar-track-x")
+				thumbX := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb-x")
+				capStartX, hasCapStartX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start-x")
+				capEndX, hasCapEndX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end-x")
+				gutterRowX = len(lines)
+				lines, capStartXDrawn, capEndXDrawn = appendScrollbarRow(lines, offsetX, maxLineWidth, innerW, gutterHeightX, trackX, thumbX, capStartX, capEndX, hasCapStartX, hasCapEndX, r.profile)
+			}
+			b = box{lines: lines, width: linesWidth(lines)}
 		}
-		suffix := textOverflowSuffix(toVal)
-		newLines := make([]string, len(b.lines))
-		for i, ln := range b.lines {
-			newLines[i] = truncateToWidth(ln, innerW, suffix)
-		}
-		b = box{lines: newLines, width: linesWidth(newLines)}
 	}
 
 	// closedBox is true when a top/bottom rule is combined with a right
@@ -684,6 +746,25 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			CapEnd:      capEndDrawn,
 		}
 	}
+	if hasExplicitWidth && (ovX == "scroll" || ovX == "auto") {
+		if r.liveScrollViewportX == nil {
+			r.liveScrollViewportX = map[*html.Node]ViewportX{}
+		}
+		// GutterRow mirrors GutterCol's own reasoning above, transposed:
+		// rowShift is where this box's own content starts (row-wise);
+		// gutterRowX is how many content rows came before the gutter row(s)
+		// were appended (0 if none were — GutterHeight being 0 already
+		// signals "not drawn" to document.go's tryScrollCapClickX either
+		// way). Only meaningful when GutterHeight > 0.
+		r.liveScrollViewportX[n] = ViewportX{
+			Width:        innerW,
+			LeftOffset:   colShift,
+			GutterRow:    rowShift + gutterRowX,
+			GutterHeight: gutterHeightX,
+			CapStart:     capStartXDrawn,
+			CapEnd:       capEndXDrawn,
+		}
+	}
 	return b, positions
 }
 
@@ -713,6 +794,14 @@ type scrollbarStyle struct {
 // live pane must account for that override itself — this constant only
 // reflects the built-in default.
 const ScrollbarGutterWidth = 1
+
+// ScrollbarGutterHeight is ScrollbarGutterWidth's horizontal-scrollbar
+// counterpart: the default row count reserved for a horizontal scrollbar
+// gutter when overflow-x:scroll is set (and no ::scrollbar-x height
+// declaration overrides it) on an element with an explicit width and no
+// height of its own — see the "scroll"/"auto" case in
+// renderBlockContentBox's overflow-x handling, and docs/SCROLLING.md.
+const ScrollbarGutterHeight = 1
 
 // scrollbarPreset is one named scrollbar-style's baseline ::scrollbar-track/
 // ::scrollbar-thumb declarations — the same shape pseudoElemDecls returns
@@ -792,9 +881,26 @@ func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string)
 	return ScrollbarGutterWidth
 }
 
+// scrollbarGutterHeight is scrollbarGutterWidth's horizontal counterpart:
+// resolves n's ::scrollbar-x { height } declaration (a bare row count — see
+// parseSizeVal — matching how the "height" property itself is parsed
+// elsewhere in this package, not the ch/column unit ::scrollbar's own width
+// uses), falling back to ScrollbarGutterHeight when unset, unparseable, or
+// non-positive. Percentage heights are treated as unset, mirroring
+// scrollbarGutterWidth's own percentage handling.
+func (r *Engine) scrollbarGutterHeight(n *html.Node, elemDecls map[string]string) int {
+	decls := r.pseudoElemDecls(n, "scrollbar-x", customPropSubset(elemDecls))
+	if abs, pct, ok := parseSizeVal(decls["height"]); ok && pct == 0 && abs > 0 {
+		return abs
+	}
+	return ScrollbarGutterHeight
+}
+
 // resolveScrollbarStyle resolves n's effective ::scrollbar-track or
-// ::scrollbar-thumb style (which is "scrollbar-track" or "scrollbar-thumb")
-// into a glyph plus text style. elemDecls is n's own resolved declarations
+// ::scrollbar-thumb style (which is "scrollbar-track"/"scrollbar-thumb", or
+// their horizontal-scrollbar counterparts "scrollbar-track-x"/
+// "scrollbar-thumb-x") into a glyph plus text style. elemDecls is n's own
+// resolved declarations
 // (renderBlockContentBox already has this as decls — not re-resolved here),
 // read only for scrollbar-style; it selects which scrollbarPresets entry
 // supplies the baseline (falling back to defaultScrollbarStyle when unset or
@@ -810,7 +916,7 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 		preset = scrollbarPresets[defaultScrollbarStyle]
 	}
 	base := preset.track
-	if which == "scrollbar-thumb" {
+	if which == "scrollbar-thumb" || which == "scrollbar-thumb-x" {
 		base = preset.thumb
 	}
 	merged := make(map[string]string, len(base))
@@ -821,8 +927,10 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 }
 
 // resolveScrollbarCap resolves n's effective ::scrollbar-cap-start or
-// ::scrollbar-cap-end style (which is "scrollbar-cap-start" or
-// "scrollbar-cap-end") into a glyph plus text style, the same
+// ::scrollbar-cap-end style (which is "scrollbar-cap-start"/
+// "scrollbar-cap-end", or their horizontal-scrollbar counterparts
+// "scrollbar-cap-start-x"/"scrollbar-cap-end-x") into a glyph plus text
+// style, the same
 // preset-baseline-plus-override merge resolveScrollbarStyle already does
 // for ::scrollbar-track/::scrollbar-thumb (elemDecls is n's own resolved
 // declarations, read only for scrollbar-style). Caps are opt-out, not
@@ -838,7 +946,7 @@ func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, 
 		preset = scrollbarPresets[defaultScrollbarStyle]
 	}
 	base := preset.capStart
-	if which == "scrollbar-cap-end" {
+	if which == "scrollbar-cap-end" || which == "scrollbar-cap-end-x" {
 		base = preset.capEnd
 	}
 	merged := make(map[string]string, len(base))
@@ -938,6 +1046,71 @@ func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, inne
 			ln += strings.Repeat(" ", pad)
 		}
 		out[i] = ln + g.style.render(strings.Repeat(g.char, gutterWidth), profile)
+	}
+	return out, hasCapStart, hasCapEnd
+}
+
+// appendScrollbarRow is appendScrollbarColumn's horizontal-scrollbar
+// counterpart: appends gutterHeight identical rows — each innerW columns
+// wide, one glyph per column (track.char or thumb.char, per the standard
+// proportional thumb formula, transposed onto the width axis) — below
+// lines. offsetX/maxLineWidth/innerW play the role offset/totalLines/
+// heightLines play for the vertical version; capStart/capEnd occupy the
+// leftmost/rightmost column of every gutter row instead of the topmost/
+// bottommost gutter row, with the same "not enough room ⇒ drop both caps"
+// rule appendScrollbarColumn already has (transposed: innerW-activeCaps < 1
+// instead of heightLines-activeCaps < 1). Every gutter row is identical
+// (unlike a >1-wide vertical gutter column, whose glyph is simply repeated
+// across its columns) since gutterHeight rows have no independent
+// column-axis content of their own to differ by.
+func appendScrollbarRow(lines []string, offsetX, maxLineWidth, innerW, gutterHeight int, track, thumb, capStart, capEnd scrollbarStyle, hasCapStart, hasCapEnd bool, profile colorprofile.Profile) ([]string, bool, bool) {
+	activeCaps := 0
+	if hasCapStart {
+		activeCaps++
+	}
+	if hasCapEnd {
+		activeCaps++
+	}
+	if activeCaps > 0 && innerW-activeCaps < 1 {
+		hasCapStart, hasCapEnd = false, false
+		activeCaps = 0
+	}
+	interior := innerW - activeCaps
+
+	thumbSize := interior
+	if maxLineWidth > innerW {
+		thumbSize = max(1, min(interior*interior/maxLineWidth, interior))
+	}
+	thumbStart := 0
+	if maxOffset := maxLineWidth - innerW; maxOffset > 0 {
+		thumbStart = offsetX * (interior - thumbSize) / maxOffset
+	}
+
+	capOffset := 0
+	if hasCapStart {
+		capOffset = 1
+	}
+	var row strings.Builder
+	for col := range innerW {
+		var g scrollbarStyle
+		switch {
+		case hasCapStart && col == 0:
+			g = capStart
+		case hasCapEnd && col == innerW-1:
+			g = capEnd
+		default:
+			g = track
+			if interiorIdx := col - capOffset; interiorIdx >= thumbStart && interiorIdx < thumbStart+thumbSize {
+				g = thumb
+			}
+		}
+		row.WriteString(g.style.render(g.char, profile))
+	}
+	rowStr := row.String()
+	out := make([]string, len(lines)+gutterHeight)
+	copy(out, lines)
+	for i := range gutterHeight {
+		out[len(lines)+i] = rowStr
 	}
 	return out, hasCapStart, hasCapEnd
 }

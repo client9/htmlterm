@@ -2,16 +2,20 @@
 
 A scrollbar gutter appears when `overflow-y: scroll` is set on an element
 with an explicit `height` (`overflow-y: auto` scrolls too, but draws no
-visible indicator at all — see `docs/SCROLLING.md` for why). This page covers
-everything about styling the gutter itself once you have one; CSS.md's own
-`overflow`/`overflow-y` entry is where the scrolling behavior (not the
-styling) is documented, with a one-line pointer here.
+visible indicator at all — see `docs/SCROLLING.md` for why). A horizontal
+counterpart appears when `overflow-x: scroll` is set on an element with an
+explicit `width` and no `height` of its own (see "Horizontal scrollbars"
+below). This page covers everything about styling the gutter itself once
+you have one; CSS.md's own `overflow`/`overflow-x`/`overflow-y` entry is
+where the scrolling behavior (not the styling) is documented, with a
+one-line pointer here.
 
 ## Quick reference
 
-Five pseudo-elements, all matched against the scrollable element itself
-(`.log-pane::scrollbar-thumb { … }`, or left bare — e.g. a top-level
-`::scrollbar-thumb { … }` — to apply to every scrollable element):
+Five pseudo-elements for the vertical scrollbar, all matched against the
+scrollable element itself (`.log-pane::scrollbar-thumb { … }`, or left bare
+— e.g. a top-level `::scrollbar-thumb { … }` — to apply to every scrollable
+element):
 
 | Pseudo-element | Supported properties | Default |
 |---|---|---|
@@ -76,6 +80,48 @@ Not inherited (matches `overflow`'s own non-inherited treatment — a
 `scrollbar-style` set on a non-scrollable ancestor has no scroll box of its
 own to apply to).
 
+## Horizontal scrollbars
+
+`overflow-x: scroll` on an element with an explicit `width` and **no
+explicit `height` of its own** draws a horizontal scrollbar row below its
+content — the transpose of the vertical gutter column, using the exact same
+five-pseudo-element/`scrollbar-style` mechanism above, with `-x`-suffixed
+names:
+
+| Pseudo-element | Supported properties | Default |
+|---|---|---|
+| `::scrollbar-x` | `height` (a bare row count — see CSS.md's [Size Values](../CSS.md#size-values); not the `ch`/column unit `::scrollbar`'s own `width` uses) | `height: 1` (UA stylesheet) |
+| `::scrollbar-track-x` | `content`, `color`, `background-color`, `font-weight` | `content: "│"` (the `block` `scrollbar-style` preset) |
+| `::scrollbar-thumb-x` | `content`, `color`, `background-color`, `font-weight` | `content: "█"` (same) |
+| `::scrollbar-cap-start-x` (left) | `content`, `color`, `background-color`, `font-weight` | `content: "▲"` (the `block` preset) |
+| `::scrollbar-cap-end-x` (right) | `content`, `color`, `background-color`, `font-weight` | `content: "▼"` (same) |
+
+```css
+#code { width: 60; overflow-x: scroll; white-space: nowrap; }
+#code::scrollbar-track-x { content: "─"; }
+#code::scrollbar-thumb-x { content: "━"; color: #ff9e64; }
+```
+
+`scrollbar-style` (below) is shared between axes — one preset supplies both
+the vertical and horizontal gutter's glyphs, since it's set on the
+scrollable element itself, not on a per-axis pseudo-element. Its default
+glyphs (`"│"`/`"█"`/`"▲"`/`"▼"`) look identical whichever axis they're drawn
+on, since the presets weren't designed with an orientation in mind; pick a
+horizontal-looking glyph (`"─"`/`"━"`) via an explicit
+`::scrollbar-track-x`/`::scrollbar-thumb-x` rule, same as the example above,
+if that matters for your presentation.
+
+**An element can have both a vertical and horizontal gutter's *scrolling*
+active at once, but not both gutters' *visible rows/columns drawn* at
+once** — an explicit `height` (needed for the vertical gutter row-count) and
+`overflow-x: scroll`'s own gutter row are mutually exclusive today, since
+there's no corner-cell glyph concept for where they'd meet (see
+`docs/SCROLLING.md`'s Section 2 for why). `overflow-x: scroll` with an
+explicit `height` set still scrolls horizontally via wheel/keyboard/
+`SetScrollLeft` — it just draws no visible row in that combination.
+`overflow-x: auto` never draws a visible row regardless, matching
+`overflow-y: auto`'s own convention.
+
 ## Cap buttons: `::scrollbar-cap-start` / `::scrollbar-cap-end`
 
 Arrow-button cells at the very top (`start`) and bottom (`end`) of the
@@ -118,16 +164,21 @@ dispatch a `"click"` `Event` on the scrollable element — a cap is rendering
 chrome, not real element content, so it mirrors `Document.DispatchWheel`'s
 direct-scroll behavior rather than an ordinary element click.
 
+`::scrollbar-cap-start-x`/`::scrollbar-cap-end-x` are the horizontal
+scrollbar's own left/right cap buttons — same on-by-default, `content: none`
+opt-out, and clickable-scrolls-by-one-column behavior, just at the two ends
+of the horizontal gutter row instead of the vertical gutter column.
+
 ## Not supported
 
-- Horizontal scrollbars — only `overflow-y` gets a gutter; there's no
-  `overflow-x` equivalent.
-- A `content` value wider than one character per reserved column — no
+- A `content` value wider than one character per reserved column/row — no
   re-wrap pass corrects a too-wide glyph, so it will misalign the gutter.
 - Per-cell blending/transparency between the gutter and the pane's own
-  content — the gutter is an opaque appended column, same "no per-cell
+  content — the gutter is an opaque appended column/row, same "no per-cell
   compositing" decision the popup overlay mechanism makes (see
   `docs/RENDERING.md`).
+- Simultaneous visible vertical and horizontal gutters on the same element
+  — see "Horizontal scrollbars" above.
 
 ## See also
 

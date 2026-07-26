@@ -57,6 +57,13 @@ type Document struct {
 	// are current scroll containers.
 	scrollViewport map[*html.Node]render.Viewport
 
+	// scrollOffsetsX/scrollViewportX are scrollOffsets/scrollViewport's
+	// horizontal-scrollbar counterparts — see nearestScrollableX,
+	// tryScrollCapClickX, and docs/SCROLLING.md's horizontal-scrolling
+	// addendum. Always non-nil, same as scrollOffsets.
+	scrollOffsetsX  map[*html.Node]int
+	scrollViewportX map[*html.Node]render.ViewportX
+
 	// contentOffsets holds, for every block element rendered as of the most
 	// recent Render call, the row shift from that element's own Rect.Row
 	// (its full CSS border box) down to its first actual content row — see
@@ -101,7 +108,7 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	return &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}}, nil
+	return &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}, scrollOffsetsX: map[*html.Node]int{}}, nil
 }
 
 func renderOptions(opts Options) render.Options {
@@ -136,14 +143,17 @@ func (d *Document) Render() (string, error) {
 		d.cachedRules = engine.DocumentRules(d.doc)
 	}
 	result := d.cachedEngine.RenderNode(d.doc, render.Request{
-		Width:         d.opts.Width,
-		Height:        d.opts.Height,
-		Rules:         d.cachedRules,
-		ScrollOffsets: d.scrollOffsets,
+		Width:          d.opts.Width,
+		Height:         d.opts.Height,
+		Rules:          d.cachedRules,
+		ScrollOffsets:  d.scrollOffsets,
+		ScrollOffsetsX: d.scrollOffsetsX,
 	})
 	d.positions = convertPositions(result.Positions)
 	d.scrollOffsets = result.ScrollOffsets
 	d.scrollViewport = result.ScrollViewport
+	d.scrollOffsetsX = result.ScrollOffsetsX
+	d.scrollViewportX = result.ScrollViewportX
 	d.contentOffsets = result.ContentOffsets
 	return result.Output, nil
 }
@@ -243,6 +253,29 @@ func (d *Document) SetScrollTop(el *Element, offset int) {
 	d.scrollOffsets[el.node] = offset
 }
 
+// ScrollLeft is ScrollTop's horizontal counterpart: reports el's current
+// horizontal scroll offset and whether el was (as of the most recent Render
+// call) an overflow-x:scroll|auto container with an explicit width.
+func (d *Document) ScrollLeft(el *Element) (int, bool) {
+	if el == nil {
+		return 0, false
+	}
+	offset, ok := d.scrollOffsetsX[el.node]
+	return offset, ok
+}
+
+// SetScrollLeft is SetScrollTop's horizontal counterpart: sets el's
+// horizontal scroll offset directly. The value is clamped to the valid
+// range on the next Render call, the same way DispatchWheel/DispatchKey-
+// driven scrolling is; it has no effect if el isn't (or hasn't yet been
+// rendered as) a horizontal scroll container.
+func (d *Document) SetScrollLeft(el *Element, offset int) {
+	if el == nil {
+		return
+	}
+	d.scrollOffsetsX[el.node] = offset
+}
+
 // nearestScrollable returns the nearest ancestor of n (inclusive) that was a
 // scroll container (overflow:scroll|auto with a resolved height) as of the
 // most recent Render call, or nil if none was. A node's presence as a key in
@@ -252,6 +285,22 @@ func (d *Document) nearestScrollable(n *html.Node) *html.Node {
 	chain := ancestorChain(n)
 	for i := len(chain) - 1; i >= 0; i-- {
 		if _, ok := d.scrollOffsets[chain[i]]; ok {
+			return chain[i]
+		}
+	}
+	return nil
+}
+
+// nearestScrollableX is nearestScrollable's horizontal counterpart: the
+// nearest ancestor of n (inclusive) that was an overflow-x:scroll|auto
+// container with an explicit width as of the most recent Render call. Kept
+// as its own ancestor walk (not a shared axis-parameterized helper) since
+// the nearest horizontally-scrollable ancestor and nearest
+// vertically-scrollable ancestor can legitimately differ for a nested pane.
+func (d *Document) nearestScrollableX(n *html.Node) *html.Node {
+	chain := ancestorChain(n)
+	for i := len(chain) - 1; i >= 0; i-- {
+		if _, ok := d.scrollOffsetsX[chain[i]]; ok {
 			return chain[i]
 		}
 	}
@@ -290,6 +339,38 @@ func (d *Document) tryScrollCapClick(scrollable *html.Node, row, col int) bool {
 		return true
 	case vp.CapEnd && row == bottom:
 		d.scrollOffsets[scrollable]++
+		return true
+	}
+	return false
+}
+
+// tryScrollCapClickX is tryScrollCapClick's horizontal counterpart: reports
+// whether (row, col) lands on scrollable's ::scrollbar-cap-start-x
+// (leftmost content column) or ::scrollbar-cap-end-x (rightmost content
+// column) cell — see render.ViewportX's doc comment — and if so, scrolls it
+// by one column and reports true. Same unclamped-write/no-Event-dispatch
+// shape as tryScrollCapClick.
+func (d *Document) tryScrollCapClickX(scrollable *html.Node, row, col int) bool {
+	vp, ok := d.scrollViewportX[scrollable]
+	if !ok || vp.GutterHeight == 0 {
+		return false
+	}
+	rect, ok := d.positions[scrollable]
+	if !ok {
+		return false
+	}
+	rowStart := rect.Row + vp.GutterRow
+	if row < rowStart || row > rowStart+vp.GutterHeight-1 {
+		return false
+	}
+	left := rect.Col + vp.LeftOffset
+	right := left + vp.Width - 1
+	switch {
+	case vp.CapStart && col == left:
+		d.scrollOffsetsX[scrollable]--
+		return true
+	case vp.CapEnd && col == right:
+		d.scrollOffsetsX[scrollable]++
 		return true
 	}
 	return false
@@ -340,8 +421,10 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // anywhere else, including on a disabled element or entirely outside every
 // element's Rect, dismisses it, matching a real dropdown's click-outside
 // behavior. A click landing on a scrollable ancestor's
-// ::scrollbar-cap-start/::scrollbar-cap-end cell (see tryScrollCapClick) is
-// handled before any of that — it scrolls by one line and returns, the same
+// ::scrollbar-cap-start/::scrollbar-cap-end cell (see tryScrollCapClick), or
+// a horizontally-scrollable ancestor's ::scrollbar-cap-start-x/
+// ::scrollbar-cap-end-x cell (see tryScrollCapClickX), is handled before any
+// of that — it scrolls by one line/column and returns, the same
 // no-event-dispatch shape DispatchWheel already has, since a cap is
 // rendering chrome, not real element content. Returns false if no element
 // was hit.
@@ -349,6 +432,9 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	target := d.elementAt(row, col)
 	d.closeSelectsExcept(target)
 	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
+		return true
+	}
+	if scrollableX := d.nearestScrollableX(target); scrollableX != nil && d.tryScrollCapClickX(scrollableX, row, col) {
 		return true
 	}
 	if target == nil {
@@ -378,33 +464,37 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 const wheelScrollLines = 3
 
 // DispatchWheel hit-tests (row, col) against the position map from the most
-// recent Render call, then scrolls the nearest scrollable ancestor (an
-// element that was an overflow:scroll|auto container with a resolved height
-// as of that Render call — see nearestScrollable) by deltaY wheel notches
-// vertically. The new offset is unclamped here; it's clamped to the valid
-// range on the next Render call (see block.go's overflow gate), the same
-// "Document holds the possibly-stale value, Renderer clamps it next frame"
-// pattern Rect's staleness already follows. Returns false if no element was
-// hit or it has no scrollable ancestor.
-//
-// deltaX is accepted (mirroring a real WheelEvent's deltaX/deltaY pair, and
-// letting a host like tui.Loop wire tcell's WheelLeft/WheelRight — or a
-// shift-held vertical wheel, its own terminal-input-translation convention —
-// straight through) but is not yet applied to anything: there is no
-// horizontal scroll-offset state in Document yet. It's a no-op today, wired
-// ahead of that feature landing rather than adding it as a second breaking
-// signature change later.
+// recent Render call, then scrolls the nearest scrollable ancestor on each
+// axis independently: deltaY wheel notches vertically against the nearest
+// overflow-y:scroll|auto ancestor with a resolved height (see
+// nearestScrollable), and deltaX wheel notches horizontally against the
+// nearest overflow-x:scroll|auto ancestor with an explicit width (see
+// nearestScrollableX) — these can legitimately be two different elements
+// for a nested pane. Either axis is a no-op if its own delta is 0 or no
+// matching scrollable ancestor exists; Returns true if at least one axis
+// actually scrolled. New offsets are unclamped here; they're clamped to
+// their valid range on the next Render call (see block.go's overflow
+// gates), the same "Document holds the possibly-stale value, Renderer
+// clamps it next frame" pattern Rect's staleness already follows.
 func (d *Document) DispatchWheel(row, col, deltaX, deltaY int) bool {
 	target := d.elementAt(row, col)
 	if target == nil {
 		return false
 	}
-	scrollable := d.nearestScrollable(target)
-	if scrollable == nil {
-		return false
+	scrolled := false
+	if deltaY != 0 {
+		if scrollable := d.nearestScrollable(target); scrollable != nil {
+			d.scrollOffsets[scrollable] += deltaY * wheelScrollLines
+			scrolled = true
+		}
 	}
-	d.scrollOffsets[scrollable] += deltaY * wheelScrollLines
-	return true
+	if deltaX != 0 {
+		if scrollable := d.nearestScrollableX(target); scrollable != nil {
+			d.scrollOffsetsX[scrollable] += deltaX * wheelScrollLines
+			scrolled = true
+		}
+	}
+	return scrolled
 }
 
 // DispatchResize dispatches a "resize" event targeting DocumentElement (the
@@ -577,6 +667,19 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 			}
 			d.scrollOffsets[scrollable] += step
 		}
+	case key == "ArrowLeft" || key == "ArrowRight":
+		// Previously unclaimed: ArrowLeft/ArrowRight are never used by
+		// isSelectControl's own arrow handling (ArrowUp/ArrowDown only, see
+		// above) or by text-entry caret movement (there's no caret — see
+		// COMPATIBILITY.md), so this was always the reserved landing spot
+		// for horizontal scrolling once it existed.
+		if scrollable := d.nearestScrollableX(target); scrollable != nil {
+			step := 1
+			if key == "ArrowLeft" {
+				step = -1
+			}
+			d.scrollOffsetsX[scrollable] += step
+		}
 	default:
 		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
 			setAttr(target, "value", nodeAttr(target, "value")+key)
@@ -634,11 +737,14 @@ func isFormFocusable(n *html.Node) bool {
 // call; see nearestScrollable) that has no focusable descendant of its own.
 // The scroll-container case exists so a scrollable region with no button/
 // input inside it is still Tab-reachable for keyboard-driven scrolling
-// (DispatchKey's PageUp/PageDown/ArrowUp/ArrowDown); a container that
-// already has a focusable descendant is reached through that descendant
-// instead, so it isn't also made its own redundant tab stop. Always false
-// for the scroll-container case before the first Render (d.scrollOffsets is
-// empty then, same staleness as Rect/ScrollVisible).
+// (DispatchKey's PageUp/PageDown/ArrowUp/ArrowDown/ArrowLeft/ArrowRight); a
+// container that already has a focusable descendant is reached through that
+// descendant instead, so it isn't also made its own redundant tab stop.
+// Checks both scrollOffsets and scrollOffsetsX, so a horizontally-only
+// scrollable element (overflow-x:scroll|auto with no vertical counterpart)
+// is just as reachable as a vertically-scrollable one. Always false for the
+// scroll-container case before the first Render (both maps are empty then,
+// same staleness as Rect/ScrollVisible).
 func (d *Document) isFocusable(n *html.Node) bool {
 	if isFormFocusable(n) {
 		return true
@@ -646,7 +752,9 @@ func (d *Document) isFocusable(n *html.Node) bool {
 	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
 		return false
 	}
-	if _, isScrollContainer := d.scrollOffsets[n]; !isScrollContainer {
+	_, scrollsY := d.scrollOffsets[n]
+	_, scrollsX := d.scrollOffsetsX[n]
+	if !scrollsY && !scrollsX {
 		return false
 	}
 	return !d.hasFocusableDescendant(n)

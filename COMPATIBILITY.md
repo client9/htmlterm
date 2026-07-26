@@ -326,16 +326,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **`<select>` gaps:** per-`<option>` (and per-group-label-row) border/
   padding/width, `<optgroup>` nested inside another `<optgroup>` — see
   `docs/SELECT.md`.
-- **Horizontal scrolling doesn't exist at any layer, not just the
-  scrollbar widget.** `overflow-x: scroll`/`auto` create no scrollable
-  viewport at all — silently identical to `visible` (only `overflow-x:
-  hidden`/`clip` do anything, and that's a one-time truncation, not
-  scrolling); `overflow-y` is the only axis with real scroll-offset
-  behavior. There is correspondingly no horizontal scrollbar gutter/
-  gutter styling (see `docs/SCROLLBARS.md`) and, on the DOM/Events side, no
-  `ScrollLeft`/`SetScrollLeft` — `DispatchWheel` does now carry a `deltaX`
-  and `Loop` wires `WheelLeft`/`WheelRight`/Shift+wheel to it, but nothing
-  yet consumes it (see DOM & Events below).
+- **Horizontal scroll-into-view on focus.** `overflow-x: scroll`/`auto`
+  (see "At a Glance" above and `docs/SCROLLBARS.md`) has real scroll-offset
+  behavior, a visible gutter, wheel/keyboard/click-cap input, and `Document.
+  ScrollLeft`/`SetScrollLeft` — but unlike the vertical axis, nothing
+  auto-scrolls a focused descendant into view when it falls outside a
+  horizontally-scrolled ancestor's visible column range (`Element.Focus`'s
+  scroll-into-view remains vertical-only).
 - **`font-size`** — there is no concept of font size at all; terminal
   glyphs are a fixed cell size.
 
@@ -389,14 +386,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **`DispatchWheel` mutates scroll position directly** and returns whether
   anything scrolled — unlike every other `Dispatch*` method, it does not
   dispatch a `"wheel"` `Event` a listener could observe or prevent. It
-  takes both a `deltaX` and `deltaY` (mirroring a real `WheelEvent`), but
-  `deltaX` is currently a no-op — there's no horizontal scroll-offset state
-  in `Document` yet (see "Not Supported" below); it's wired ahead of that
-  landing rather than as a second breaking signature change later. `Loop`
-  wires tcell's `WheelLeft`/`WheelRight` mouse buttons to `deltaX` directly,
-  and remaps a Shift-held vertical wheel notch to `deltaX` too (the common
-  browser/terminal fallback convention for input hardware that never
-  reports a horizontal wheel bit at all).
+  takes both a `deltaX` and `deltaY` (mirroring a real `WheelEvent`),
+  scrolling each axis's own nearest scrollable ancestor independently (they
+  can be two different elements for a nested pane). `Loop` wires tcell's
+  `WheelLeft`/`WheelRight` mouse buttons to `deltaX` directly, and remaps a
+  Shift-held vertical wheel notch to `deltaX` too (the common browser/
+  terminal fallback convention for input hardware that never reports a
+  horizontal wheel bit at all).
 - **Tab order is a fixed document-order walk** over form controls
   (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
   focusable scroll containers — there is no `tabindex` to reorder or add
@@ -405,10 +401,11 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 
 ### Terminal-Native Additions
 
-- **Scroll containers as tab stops:** an `overflow: auto|scroll` element
-  with a resolved height and no other focusable descendant automatically
-  becomes a keyboard tab stop, purely so `PageUp`/`PageDown`/arrow keys
-  have something to scroll once focused.
+- **Scroll containers as tab stops:** an `overflow-x`/`overflow-y`
+  `auto|scroll` element with an explicit width/resolved height respectively,
+  and no other focusable descendant, automatically becomes a keyboard tab
+  stop, purely so `PageUp`/`PageDown`/arrow keys have something to scroll
+  once focused.
 - **Scrollbar cap buttons** (`::scrollbar-cap-start`/`-end`) are clickable
   via `DispatchClick`, but deliberately do *not* dispatch a `"click"`
   `Event` on the scrollable element — they're rendering chrome, not real
@@ -431,13 +428,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   event names above are ever dispatched.
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-
   change observation API; a host must re-render after mutating.
-- **Horizontal scrolling** — `Document.ScrollTop`/`SetScrollTop` have no
-  `ScrollLeft`/`SetScrollLeft` counterpart, and `DispatchWheel`'s `deltaX`
-  parameter (see "Deviations from Spec" above) is accepted but not yet
-  applied to anything — matching `overflow-x` never creating a scrollable
-  viewport in the first place (see CSS above). The input-plumbing side
-  (`WheelLeft`/`WheelRight`/Shift+wheel, `Modifiers`) is wired ahead of the
-  scroll-offset state itself landing.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
   which doesn't exist on Windows at all — a compile-time constraint there,
   not just an unverified one. The rest of the interactive layer (raw
