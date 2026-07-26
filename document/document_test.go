@@ -469,7 +469,7 @@ func TestDocumentRectFormControlInsideTableCell(t *testing.T) {
 
 	// The whole point of a correct Rect: DispatchClick can actually reach
 	// the control.
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	cb := doc.GetElementByID("cb")
 	if !cb.Checked() {
 		t.Error("DispatchClick at the checkbox's Rect did not toggle it")
@@ -873,14 +873,14 @@ func TestDispatchWheelScrollsNearestScrollableAncestor(t *testing.T) {
 		t.Fatal("Rect(pane) ok = false, want true")
 	}
 
-	if got := doc.DispatchWheel(rect.Row, rect.Col, 1); !got {
+	if got := doc.DispatchWheel(rect.Row, rect.Col, 0, 1); !got {
 		t.Fatal("DispatchWheel over pane = false, want true")
 	}
 	if top, ok := doc.ScrollTop(pane); !ok || top <= 0 {
 		t.Errorf("ScrollTop(pane) after wheel-down = (%d, %v), want a positive offset", top, ok)
 	}
 
-	if got := doc.DispatchWheel(9999, 9999, 1); got {
+	if got := doc.DispatchWheel(9999, 9999, 0, 1); got {
 		t.Error("DispatchWheel at an unhit coordinate = true, want false")
 	}
 }
@@ -912,7 +912,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 		t.Fatalf("ScrollTop(pane) after reset = %d, want 0", before)
 	}
 
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -921,7 +921,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 		t.Errorf("ScrollTop(pane) after ArrowDown = %d, want > %d", afterArrow, before)
 	}
 
-	doc.DispatchKey("PageDown")
+	doc.DispatchKey("PageDown", document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -930,7 +930,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 		t.Errorf("ScrollTop(pane) after PageDown = %d, want > %d", afterPage, afterArrow)
 	}
 
-	doc.DispatchKey("PageUp")
+	doc.DispatchKey("PageUp", document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -1142,7 +1142,7 @@ func TestScrollContainerWithoutFocusableChildIsFocusable(t *testing.T) {
 	if !ok {
 		t.Fatal("ScrollTop(pane) ok = false, want true")
 	}
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -1663,7 +1663,7 @@ func TestScrollbarCapClickScrollsOneLine(t *testing.T) {
 		t.Fatalf("cap-end glyph not found in %q", out)
 	}
 	before, _ := doc.ScrollTop(pane)
-	if !doc.DispatchClick(capEndRow, capEndCol) {
+	if !doc.DispatchClick(capEndRow, capEndCol, document.Modifiers{}) {
 		t.Fatalf("DispatchClick on cap-end cell returned false")
 	}
 	if _, err := doc.Render(); err != nil {
@@ -1686,7 +1686,7 @@ func TestScrollbarCapClickScrollsOneLine(t *testing.T) {
 		t.Fatalf("cap-start glyph not found in %q", out)
 	}
 	beforeMax, _ := doc.ScrollTop(pane)
-	if !doc.DispatchClick(capStartRow, capStartCol) {
+	if !doc.DispatchClick(capStartRow, capStartCol, document.Modifiers{}) {
 		t.Fatalf("DispatchClick on cap-start cell returned false")
 	}
 	if _, err := doc.Render(); err != nil {
@@ -1722,7 +1722,7 @@ func TestScrollbarCapClickElsewhereInGutterDoesNotScroll(t *testing.T) {
 	trackRow, trackCol := capStartRow+1, capStartCol
 
 	before, _ := doc.ScrollTop(pane)
-	doc.DispatchClick(trackRow, trackCol)
+	doc.DispatchClick(trackRow, trackCol, document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}

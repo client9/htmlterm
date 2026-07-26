@@ -158,16 +158,16 @@ doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *htmlterm.
 	fmt.Println("submitted:", name.Value())
 })
 
-doc.DispatchKey("h")
-doc.DispatchKey("i")
-doc.DispatchKey("Enter") // fires "submit" — Enter on a focused text field is an implicit submit
+doc.DispatchKey("h", document.Modifiers{})
+doc.DispatchKey("i", document.Modifiers{})
+doc.DispatchKey("Enter", document.Modifiers{}) // fires "submit" — Enter on a focused text field is an implicit submit
 
 out, _ := doc.Render()
 fmt.Print(out)
 ```
 
 - **`Document`/`Element`** (`ParseDocument`, `GetElementByID`, `QuerySelector`/`QuerySelectorAll`, attribute get/set/remove, `ClassList`, `Value`/`SetValue`, `Checked`/`SetChecked`) — parse once, mutate and re-render repeatedly, instead of `Renderer.Render`'s parse-once-discard model.
-- **Events** — `Document.AddEventListener(el, type, capture, fn)` / `RemoveEventListener`, with `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`, dispatched through capture → target → bubble phases. `Document.DispatchClick(row, col)` and `DispatchKey(key)` hit-test/route input and run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter).
+- **Events** — `Document.AddEventListener(el, type, capture, fn)` / `RemoveEventListener`, with `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`, dispatched through capture → target → bubble phases; `Event` also carries `ShiftKey`/`CtrlKey`/`AltKey`/`MetaKey`. `Document.DispatchClick(row, col, mods)` and `DispatchKey(key, mods)` hit-test/route input and run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter).
 - **Focus and hit-testing** — `Element.Focus`/`Blur` (plus `Document.FocusNext`/`FocusPrev`/`FocusedElement`, which need whole-document state) manage a `:focus`-matching focused element; `Element.Rect()` returns an element's on-screen position and size (the CSS border box), recorded for free as a byproduct of rendering — useful for translating real mouse coordinates into `DispatchClick` calls.
 - **Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with sensible terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `<select>` is not yet supported (no dropdown-rendering concept exists).
 - **`Loop`** (`NewLoop`, `Loop.Run`) drives a `Document` against a real terminal: raw mode, SGR mouse reporting, keyboard/mouse decoding into `DispatchClick`/`DispatchKey` calls, and repaint after every event, timer fire, or terminal resize. `Loop.SetInterval`/`SetTimeout`/`ClearInterval`/`ClearTimeout` mirror `window.setInterval`/`setTimeout` for periodic updates (a spinner, a clock) that aren't triggered by user input at all. See [`cmd/htmlterm-tui`](./cmd/htmlterm-tui) for a complete runnable example (form + spinner + clock + a long paragraph that reflows live as you resize the terminal), and `docs/INTERACTIVE.md`/`docs/REPAINT.md` for the full design history, including known gaps (no `<select>` dropdown, no line-level diff repaint yet — every paint currently redraws the whole frame).

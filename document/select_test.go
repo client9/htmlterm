@@ -34,7 +34,7 @@ func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
 
-	if !doc.DispatchClick(rect.Row, rect.Col) {
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
 		t.Fatalf("click on closed select did not hit it")
 	}
 	out, err := doc.Render()
@@ -49,7 +49,7 @@ func TestSelectClickOpensThenClickOptionSelectsAndCloses(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for the Cherry option while open")
 	}
-	if !doc.DispatchClick(cherryRect.Row, cherryRect.Col) {
+	if !doc.DispatchClick(cherryRect.Row, cherryRect.Col, document.Modifiers{}) {
 		t.Fatalf("click on Cherry option did not hit it")
 	}
 
@@ -95,7 +95,7 @@ func TestSelectPopupStyledWithBorderPaddingStillClickable(t *testing.T) {
 		t.Fatalf("Rect(sel) not found")
 	}
 
-	if !doc.DispatchClick(rect.Row, rect.Col) {
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
 		t.Fatalf("click on closed select did not hit it")
 	}
 	out, err := doc.Render()
@@ -110,7 +110,7 @@ func TestSelectPopupStyledWithBorderPaddingStillClickable(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for the Cherry option while open")
 	}
-	if !doc.DispatchClick(cherryRect.Row, cherryRect.Col) {
+	if !doc.DispatchClick(cherryRect.Row, cherryRect.Col, document.Modifiers{}) {
 		t.Fatalf("click on Cherry option (offset by border+padding) did not hit it")
 	}
 	if got := sel.Value(); got != "c" {
@@ -122,13 +122,13 @@ func TestSelectClickTogglesOpenClosed(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
 	rect, _ := sel.Rect()
 
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
 		t.Fatalf("popup did not open on first click: %q", out)
 	}
 
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	out, _ = doc.Render()
 	if strings.Contains(out, "Apple") {
 		t.Errorf("popup still open after clicking the control a second time: %q", out)
@@ -139,13 +139,13 @@ func TestSelectKeyEnterOpensAndEscapeCloses(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
 	sel.Focus()
 
-	doc.DispatchKey("Enter")
+	doc.DispatchKey("Enter", document.Modifiers{})
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
 		t.Fatalf("popup did not open on Enter: %q", out)
 	}
 
-	doc.DispatchKey("Escape")
+	doc.DispatchKey("Escape", document.Modifiers{})
 	out, _ = doc.Render()
 	if strings.Contains(out, "Apple") {
 		t.Errorf("popup still open after Escape: %q", out)
@@ -159,20 +159,20 @@ func TestSelectKeyArrowsChangeSelectionWithoutOpening(t *testing.T) {
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
 
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "c" {
 		t.Errorf("after ArrowDown, Value() = %q, want %q", got, "c")
 	}
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "c" {
 		t.Errorf("ArrowDown past the last option should clamp: Value() = %q, want %q", got, "c")
 	}
-	doc.DispatchKey("ArrowUp")
-	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("after two ArrowUp, Value() = %q, want %q", got, "a")
 	}
-	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("ArrowUp past the first option should clamp: Value() = %q, want %q", got, "a")
 	}
@@ -198,9 +198,9 @@ func TestSelectArrowsWhileOpenDoNotCommitUntilConfirmed(t *testing.T) {
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
 
-	doc.DispatchKey("Enter") // open — starts selected on "b" (Banana)
-	doc.DispatchKey("ArrowDown")
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("Enter", document.Modifiers{}) // open — starts selected on "b" (Banana)
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "b" {
 		t.Errorf("browsing with the popup open should not move Value(): got %q, want %q", got, "b")
 	}
@@ -221,7 +221,7 @@ func TestSelectArrowsWhileOpenDoNotCommitUntilConfirmed(t *testing.T) {
 		t.Errorf("highlight marker should be on the browsed-to option (Cherry): %q", out)
 	}
 
-	doc.DispatchKey("Enter") // confirm
+	doc.DispatchKey("Enter", document.Modifiers{}) // confirm
 	if got := sel.Value(); got != "c" {
 		t.Errorf("after confirming, Value() = %q, want %q", got, "c")
 	}
@@ -245,9 +245,9 @@ func TestSelectEscapeAfterBrowsingDoesNotCommit(t *testing.T) {
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
 
-	doc.DispatchKey("Enter") // open
-	doc.DispatchKey("ArrowDown")
-	doc.DispatchKey("Escape")
+	doc.DispatchKey("Enter", document.Modifiers{}) // open
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
+	doc.DispatchKey("Escape", document.Modifiers{})
 
 	if got := sel.Value(); got != "b" {
 		t.Errorf("Escape after browsing should leave Value() unchanged: got %q, want %q", got, "b")
@@ -272,8 +272,8 @@ func TestSelectConfirmWithoutMovingFiresNoChange(t *testing.T) {
 	changed := 0
 	doc.AddEventListener(sel, "change", false, func(e *document.Event) { changed++ })
 
-	doc.DispatchKey("Enter") // open
-	doc.DispatchKey("Enter") // confirm immediately, no browsing
+	doc.DispatchKey("Enter", document.Modifiers{}) // open
+	doc.DispatchKey("Enter", document.Modifiers{}) // confirm immediately, no browsing
 
 	if got := sel.Value(); got != "b" {
 		t.Errorf("Value() = %q, want unchanged %q", got, "b")
@@ -286,8 +286,8 @@ func TestSelectConfirmWithoutMovingFiresNoChange(t *testing.T) {
 func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
 	sel.Focus()
-	doc.DispatchKey("Enter")
-	doc.DispatchKey("ArrowUp") // highlight moves to Apple
+	doc.DispatchKey("Enter", document.Modifiers{})
+	doc.DispatchKey("ArrowUp", document.Modifiers{}) // highlight moves to Apple
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestSelectClickOptionAfterArrowingConfirmsHighlighted(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for the Apple option while open")
 	}
-	if !doc.DispatchClick(appleRect.Row, appleRect.Col) {
+	if !doc.DispatchClick(appleRect.Row, appleRect.Col, document.Modifiers{}) {
 		t.Fatalf("click on Apple option did not hit it")
 	}
 	if got := sel.Value(); got != "a" {
@@ -312,7 +312,7 @@ func TestSelectClickOutsideClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<br><br><br><br><p id="p">unrelated text</p>`)
 	rect, _ := sel.Rect()
 
-	doc.DispatchClick(rect.Row, rect.Col) // open it
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) // open it
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
 		t.Fatalf("popup did not open: %q", out)
@@ -323,7 +323,7 @@ func TestSelectClickOutsideClosesPopup(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect(p) not found")
 	}
-	doc.DispatchClick(pRect.Row, pRect.Col) // click unrelated content
+	doc.DispatchClick(pRect.Row, pRect.Col, document.Modifiers{}) // click unrelated content
 	out, _ = doc.Render()
 	if strings.Contains(out, "Apple") {
 		t.Errorf("popup still open after clicking unrelated content: %q", out)
@@ -334,13 +334,13 @@ func TestSelectClickMissClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
 	rect, _ := sel.Rect()
 
-	doc.DispatchClick(rect.Row, rect.Col) // open it
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) // open it
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
 		t.Fatalf("popup did not open: %q", out)
 	}
 
-	if doc.DispatchClick(9999, 9999) {
+	if doc.DispatchClick(9999, 9999, document.Modifiers{}) {
 		t.Fatalf("DispatchClick unexpectedly hit an element at (9999, 9999)")
 	}
 	out, _ = doc.Render()
@@ -352,7 +352,7 @@ func TestSelectClickMissClosesPopup(t *testing.T) {
 func TestSelectFocusMovingAwayClosesPopup(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML+`<input id="i" type="text">`)
 	sel.Focus()
-	doc.DispatchKey("Enter")
+	doc.DispatchKey("Enter", document.Modifiers{})
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Apple") {
 		t.Fatalf("popup did not open: %q", out)
@@ -415,12 +415,12 @@ func TestSelectOptgroupOptionParticipatesInValueAndArrowNavigation(t *testing.T)
 	}
 
 	sel.Focus()
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "c" {
 		t.Errorf("after ArrowDown into the optgroup's last option, Value() = %q, want %q", got, "c")
 	}
-	doc.DispatchKey("ArrowUp")
-	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("ArrowUp back out of the optgroup to the loose option, Value() = %q, want %q", got, "a")
 	}
@@ -433,11 +433,11 @@ func TestSelectOptgroupDisabledOptionSkippedByArrowKeys(t *testing.T) {
 <option value="c">Cherry</option>
 </select>`)
 	sel.Focus()
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "c" {
 		t.Errorf("ArrowDown should skip the disabled option: Value() = %q, want %q", got, "c")
 	}
-	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("ArrowUp should skip the disabled option going back: Value() = %q, want %q", got, "a")
 	}
@@ -453,11 +453,11 @@ func TestSelectOptgroupDisabledCascadesToAllOptionsInIt(t *testing.T) {
 <option value="d">Date</option>
 </select>`)
 	sel.Focus()
-	doc.DispatchKey("ArrowDown")
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
 	if got := sel.Value(); got != "d" {
 		t.Errorf("ArrowDown should skip every option in the disabled optgroup: Value() = %q, want %q", got, "d")
 	}
-	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("ArrowUp should skip back over the disabled optgroup too: Value() = %q, want %q", got, "a")
 	}
@@ -469,7 +469,7 @@ func TestSelectClickOnDisabledOptionInOpenPopupIsInert(t *testing.T) {
 <option value="b" disabled>Banana</option>
 </select>`)
 	rect, _ := sel.Rect()
-	doc.DispatchClick(rect.Row, rect.Col) // open it
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) // open it
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Banana") {
 		t.Fatalf("popup did not open: %q", out)
@@ -479,7 +479,7 @@ func TestSelectClickOnDisabledOptionInOpenPopupIsInert(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for the disabled Banana option")
 	}
-	doc.DispatchClick(bananaRect.Row, bananaRect.Col)
+	doc.DispatchClick(bananaRect.Row, bananaRect.Col, document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("clicking a disabled option should not select it: Value() = %q, want %q", got, "a")
 	}
@@ -497,7 +497,7 @@ func TestSelectClickOnOptionInDisabledOptgroupIsInert(t *testing.T) {
 </optgroup>
 </select>`)
 	rect, _ := sel.Rect()
-	doc.DispatchClick(rect.Row, rect.Col) // open it
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) // open it
 	out, _ := doc.Render()
 	if !strings.Contains(out, "Banana") {
 		t.Fatalf("popup did not open: %q", out)
@@ -507,7 +507,7 @@ func TestSelectClickOnOptionInDisabledOptgroupIsInert(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for Banana (still hit-testable even though its group is disabled)")
 	}
-	doc.DispatchClick(bananaRect.Row, bananaRect.Col)
+	doc.DispatchClick(bananaRect.Row, bananaRect.Col, document.Modifiers{})
 	if got := sel.Value(); got != "a" {
 		t.Errorf("clicking an option inside a disabled optgroup should not select it: Value() = %q, want %q", got, "a")
 	}
@@ -530,8 +530,8 @@ func TestSelectEnterCannotConfirmAllDisabledOptions(t *testing.T) {
 </select>`)
 	sel.Focus()
 
-	doc.DispatchKey("Enter") // open - highlight seeds on Apple, the only "selected" option
-	doc.DispatchKey("Enter") // attempt to confirm the highlighted (disabled) option
+	doc.DispatchKey("Enter", document.Modifiers{}) // open - highlight seeds on Apple, the only "selected" option
+	doc.DispatchKey("Enter", document.Modifiers{}) // attempt to confirm the highlighted (disabled) option
 
 	out, err := doc.Render()
 	if err != nil {
@@ -548,7 +548,7 @@ func TestSelectDisabledClickIsInert(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect(sel) not found")
 	}
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	out, err := doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)

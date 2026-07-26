@@ -28,7 +28,7 @@ td { border: solid; }
 	clicked := 0
 	doc.AddEventListener(btn, "click", false, func(e *document.Event) { clicked++ })
 
-	if !doc.DispatchClick(rect.Row, rect.Col) {
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
 		t.Fatalf("click at the button's own Rect (%+v) did not hit it", rect)
 	}
 	if clicked != 1 {

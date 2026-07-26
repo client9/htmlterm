@@ -345,7 +345,7 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // no-event-dispatch shape DispatchWheel already has, since a cap is
 // rendering chrome, not real element content. Returns false if no element
 // was hit.
-func (d *Document) DispatchClick(row, col int) bool {
+func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	target := d.elementAt(row, col)
 	d.closeSelectsExcept(target)
 	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
@@ -357,7 +357,7 @@ func (d *Document) DispatchClick(row, col int) bool {
 	if nodeHasAttr(target, "disabled") {
 		return true
 	}
-	ev := d.dispatch(target, "click", "")
+	ev := d.dispatch(target, "click", "", mods)
 	if ev.DefaultPrevented() {
 		return true
 	}
@@ -365,7 +365,7 @@ func (d *Document) DispatchClick(row, col int) bool {
 	d.applySelectClick(target)
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
-			d.dispatch(form, "submit", "")
+			d.dispatch(form, "submit", "", Modifiers{})
 		}
 	}
 	return true
@@ -380,13 +380,21 @@ const wheelScrollLines = 3
 // DispatchWheel hit-tests (row, col) against the position map from the most
 // recent Render call, then scrolls the nearest scrollable ancestor (an
 // element that was an overflow:scroll|auto container with a resolved height
-// as of that Render call — see nearestScrollable) by delta wheel notches.
-// The new offset is unclamped here; it's clamped to the valid range on the
-// next Render call (see block.go's overflow gate), the same "Document holds
-// the possibly-stale value, Renderer clamps it next frame" pattern Rect's
-// staleness already follows. Returns false if no element was hit or it has
-// no scrollable ancestor.
-func (d *Document) DispatchWheel(row, col, delta int) bool {
+// as of that Render call — see nearestScrollable) by deltaY wheel notches
+// vertically. The new offset is unclamped here; it's clamped to the valid
+// range on the next Render call (see block.go's overflow gate), the same
+// "Document holds the possibly-stale value, Renderer clamps it next frame"
+// pattern Rect's staleness already follows. Returns false if no element was
+// hit or it has no scrollable ancestor.
+//
+// deltaX is accepted (mirroring a real WheelEvent's deltaX/deltaY pair, and
+// letting a host like tui.Loop wire tcell's WheelLeft/WheelRight — or a
+// shift-held vertical wheel, its own terminal-input-translation convention —
+// straight through) but is not yet applied to anything: there is no
+// horizontal scroll-offset state in Document yet. It's a no-op today, wired
+// ahead of that feature landing rather than adding it as a second breaking
+// signature change later.
+func (d *Document) DispatchWheel(row, col, deltaX, deltaY int) bool {
 	target := d.elementAt(row, col)
 	if target == nil {
 		return false
@@ -395,7 +403,7 @@ func (d *Document) DispatchWheel(row, col, delta int) bool {
 	if scrollable == nil {
 		return false
 	}
-	d.scrollOffsets[scrollable] += delta * wheelScrollLines
+	d.scrollOffsets[scrollable] += deltaY * wheelScrollLines
 	return true
 }
 
@@ -406,7 +414,7 @@ func (d *Document) DispatchWheel(row, col, delta int) bool {
 // SetSize already did; a listener reacts to the new size via Size/Rect.
 // There is no default action to prevent.
 func (d *Document) DispatchResize() {
-	d.dispatch(d.doc, "resize", "")
+	d.dispatch(d.doc, "resize", "", Modifiers{})
 }
 
 // applyCheckToggle runs the checkbox/radio default action for target: a
@@ -497,15 +505,19 @@ func nearestForm(n *html.Node) *html.Node {
 // or textarea) value. key follows the convention described in
 // docs/INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
 // or a named key from a fixed vocabulary ("Enter", "Backspace", "Tab",
-// "Escape", "ArrowUp"/"Down"/"Left"/"Right"). The host owns all
-// raw-terminal-byte-to-key-name translation; htmlterm never reads a
-// terminal itself. Returns false if nothing is focused.
-func (d *Document) DispatchKey(key string) bool {
+// "Escape", "ArrowUp"/"Down"/"Left"/"Right"). mods records which modifier
+// keys were held, mirroring a real KeyboardEvent's ctrlKey/shiftKey/altKey/
+// metaKey — copied onto the dispatched Event but not yet consulted by any
+// default action below (no default action currently distinguishes a
+// modified key from its bare form). The host owns all raw-terminal-byte-
+// to-key-name/modifier translation; htmlterm never reads a terminal itself.
+// Returns false if nothing is focused.
+func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	if d.focused == nil || key == "" {
 		return false
 	}
 	target := d.focused
-	ev := d.dispatch(target, "keydown", key)
+	ev := d.dispatch(target, "keydown", key, mods)
 	if ev.DefaultPrevented() {
 		return true
 	}
@@ -542,7 +554,7 @@ func (d *Document) DispatchKey(key string) bool {
 		setAttr(target, "value", nodeAttr(target, "value")+"\n")
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
 		if form := nearestForm(target); form != nil {
-			d.dispatch(form, "submit", "")
+			d.dispatch(form, "submit", "", Modifiers{})
 		}
 	case key == "PageUp" || key == "PageDown":
 		if scrollable := d.nearestScrollable(target); scrollable != nil {
@@ -686,10 +698,10 @@ func (d *Document) focus(el *Element) bool {
 		if isSelectControl(prev) {
 			d.closeSelectPopup(prev)
 		}
-		d.dispatch(prev, "blur", "")
+		d.dispatch(prev, "blur", "", Modifiers{})
 	}
 	d.scrollIntoView(el.node)
-	d.dispatch(el.node, "focus", "")
+	d.dispatch(el.node, "focus", "", Modifiers{})
 	return true
 }
 
@@ -786,7 +798,7 @@ func (d *Document) blur() {
 	if isSelectControl(prev) {
 		d.closeSelectPopup(prev)
 	}
-	d.dispatch(prev, "blur", "")
+	d.dispatch(prev, "blur", "", Modifiers{})
 }
 
 // FocusedElement returns the currently focused element, or nil if none.

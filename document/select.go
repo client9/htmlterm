@@ -229,7 +229,7 @@ func (d *Document) confirmSelectPopup(sel, opt *html.Node) {
 	removeAttr(sel, selectOpenAttr)
 	d.clearSelectHighlight(sel)
 	if selectValue(sel) != before {
-		d.dispatch(sel, "change", "")
+		d.dispatch(sel, "change", "", Modifiers{})
 	}
 }
 
@@ -266,7 +266,7 @@ func (d *Document) moveSelectSelection(sel *html.Node, down bool) {
 		removeAttr(o, "selected")
 	}
 	setAttr(options[next], "selected", "")
-	d.dispatch(sel, "change", "")
+	d.dispatch(sel, "change", "", Modifiers{})
 }
 
 // currentOrFirstOption returns sel's currently selected option, or its first

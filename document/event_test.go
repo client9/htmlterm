@@ -36,7 +36,7 @@ func TestEventDispatchCaptureTargetBubbleOrder(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect(inner) not found")
 	}
-	if !doc.DispatchClick(rect.Row, rect.Col) {
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
 		t.Fatalf("DispatchClick did not hit the button")
 	}
 
@@ -62,7 +62,7 @@ func TestEventStopPropagationStopsBubble(t *testing.T) {
 	doc.AddEventListener(outer, "click", false, func(e *document.Event) { outerCalled = true })
 
 	rect, _ := inner.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if outerCalled {
 		t.Error("outer listener ran after mid called StopPropagation, want it suppressed")
@@ -78,7 +78,7 @@ func TestEventStopImmediatePropagationSkipsSiblingListeners(t *testing.T) {
 	doc.AddEventListener(btn, "click", false, func(e *document.Event) { secondCalled = true })
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if secondCalled {
 		t.Error("second listener on the same node ran after StopImmediatePropagation, want it suppressed")
@@ -97,7 +97,7 @@ func TestDispatchClickHitTestsInnermostElement(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect(cb) not found")
 	}
-	if !doc.DispatchClick(rect.Row, rect.Col) {
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
 		t.Fatalf("DispatchClick did not hit anything")
 	}
 	if target != "input" {
@@ -107,7 +107,7 @@ func TestDispatchClickHitTestsInnermostElement(t *testing.T) {
 
 func TestDispatchClickReturnsFalseWhenNothingHit(t *testing.T) {
 	doc := mustParseDoc(t, `<p>hello</p>`)
-	if doc.DispatchClick(999, 999) {
+	if doc.DispatchClick(999, 999, document.Modifiers{}) {
 		t.Error("DispatchClick at an empty point returned true, want false")
 	}
 }
@@ -117,11 +117,11 @@ func TestDispatchClickTogglesCheckbox(t *testing.T) {
 	cb := doc.GetElementByID("cb")
 	rect, _ := cb.Rect()
 
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if !cb.Checked() {
 		t.Fatal("checkbox not checked after first click")
 	}
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if cb.Checked() {
 		t.Fatal("checkbox still checked after second click")
 	}
@@ -133,7 +133,7 @@ func TestDispatchClickPreventDefaultSuppressesToggle(t *testing.T) {
 	doc.AddEventListener(cb, "click", false, func(e *document.Event) { e.PreventDefault() })
 
 	rect, _ := cb.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if cb.Checked() {
 		t.Error("checkbox checked despite PreventDefault, want unchanged")
 	}
@@ -146,7 +146,7 @@ func TestDispatchClickRadioGroupScopedToForm(t *testing.T) {
 	r3 := doc.GetElementByID("r3")
 
 	rect, _ := r2.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if r1.Checked() {
 		t.Error("r1 still checked, want cleared by clicking sibling r2 in the same form")
@@ -168,7 +168,7 @@ func TestDispatchClickSubmitButtonFiresSubmitOnForm(t *testing.T) {
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if !submitted {
 		t.Error("clicking a bare <button> in a <form> did not fire submit")
@@ -184,7 +184,7 @@ func TestDispatchClickButtonTypeButtonDoesNotSubmit(t *testing.T) {
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if submitted {
 		t.Error("clicking <button type=button> fired submit, want no-op")
@@ -200,7 +200,7 @@ func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if !submitted {
 		t.Error("clicking input[type=submit] did not fire submit")
@@ -212,7 +212,7 @@ func TestDispatchClickDisabledCheckboxDoesNotToggle(t *testing.T) {
 	cb := doc.GetElementByID("cb")
 	rect, _ := cb.Rect()
 
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if cb.Checked() {
 		t.Error("disabled checkbox toggled on click, want no-op")
 	}
@@ -227,7 +227,7 @@ func TestDispatchClickDisabledSubmitButtonDoesNotSubmit(t *testing.T) {
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 
 	if submitted {
 		t.Error("clicking a disabled submit button fired submit, want no-op")
@@ -243,7 +243,7 @@ func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	doc.DispatchKey("Enter")
+	doc.DispatchKey("Enter", document.Modifiers{})
 
 	if !submitted {
 		t.Error("Enter in a text input inside a form did not fire submit")
@@ -257,7 +257,7 @@ func TestDispatchKeyEnterOutsideFormDoesNotSubmit(t *testing.T) {
 
 	// No form ancestor at all — DispatchKey should just not panic or fire
 	// anything; nothing to assert beyond "doesn't blow up".
-	if !doc.DispatchKey("Enter") {
+	if !doc.DispatchKey("Enter", document.Modifiers{}) {
 		t.Error("DispatchKey(Enter) returned false with a focused element")
 	}
 }
@@ -271,10 +271,10 @@ func TestDispatchKeyEnterOnTextareaInsertsNewlineInsteadOfSubmitting(t *testing.
 	submitted := false
 	doc.AddEventListener(form, "submit", false, func(e *document.Event) { submitted = true })
 
-	doc.DispatchKey("Enter")
-	doc.DispatchKey("a")
-	doc.DispatchKey("Enter")
-	doc.DispatchKey("b")
+	doc.DispatchKey("Enter", document.Modifiers{})
+	doc.DispatchKey("a", document.Modifiers{})
+	doc.DispatchKey("Enter", document.Modifiers{})
+	doc.DispatchKey("b", document.Modifiers{})
 
 	if submitted {
 		t.Error("Enter in a <textarea> fired submit, want a newline inserted instead")
@@ -376,12 +376,12 @@ func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	a := doc.GetElementByID("a")
 	a.Focus()
 
-	doc.DispatchKey("a")
-	doc.DispatchKey("b")
+	doc.DispatchKey("a", document.Modifiers{})
+	doc.DispatchKey("b", document.Modifiers{})
 	if got := a.Value(); got != "ab" {
 		t.Fatalf("value after typing = %q, want %q", got, "ab")
 	}
-	doc.DispatchKey("Backspace")
+	doc.DispatchKey("Backspace", document.Modifiers{})
 	if got := a.Value(); got != "a" {
 		t.Fatalf("value after Backspace = %q, want %q", got, "a")
 	}
@@ -392,7 +392,7 @@ func TestDispatchKeySpaceTogglesFocusedCheckbox(t *testing.T) {
 	cb := doc.GetElementByID("cb")
 	cb.Focus()
 
-	doc.DispatchKey(" ")
+	doc.DispatchKey(" ", document.Modifiers{})
 	if !cb.Checked() {
 		t.Fatal("checkbox not checked after space key")
 	}
@@ -403,7 +403,7 @@ func TestDispatchKeyTabMovesFocus(t *testing.T) {
 	a := doc.GetElementByID("a")
 	a.Focus()
 
-	doc.DispatchKey("Tab")
+	doc.DispatchKey("Tab", document.Modifiers{})
 	if got := doc.FocusedElement(); got == nil || got.ID() != "b" {
 		t.Errorf("FocusedElement() after Tab = %v, want b", got)
 	}
@@ -411,7 +411,7 @@ func TestDispatchKeyTabMovesFocus(t *testing.T) {
 
 func TestDispatchKeyReturnsFalseWhenNothingFocused(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
-	if doc.DispatchKey("a") {
+	if doc.DispatchKey("a", document.Modifiers{}) {
 		t.Error("DispatchKey with nothing focused returned true, want false")
 	}
 }
@@ -422,7 +422,7 @@ func TestDispatchKeyPreventDefaultSuppressesTyping(t *testing.T) {
 	a.Focus()
 	doc.AddEventListener(a, "keydown", false, func(e *document.Event) { e.PreventDefault() })
 
-	doc.DispatchKey("x")
+	doc.DispatchKey("x", document.Modifiers{})
 	if got := a.Value(); got != "" {
 		t.Errorf("value after PreventDefault-ed keydown = %q, want empty", got)
 	}
@@ -437,7 +437,7 @@ func TestRemoveEventListener(t *testing.T) {
 	doc.RemoveEventListener(h)
 
 	rect, _ := btn.Rect()
-	doc.DispatchClick(rect.Row, rect.Col)
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if called {
 		t.Error("listener ran after RemoveEventListener, want it gone")
 	}

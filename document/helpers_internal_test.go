@@ -135,7 +135,7 @@ func TestDocumentElementResizeDispatch(t *testing.T) {
 			t.Errorf("Event.Type = %q, want %q", e.Type, "resize")
 		}
 	})
-	doc.dispatch(doc.doc, "resize", "")
+	doc.dispatch(doc.doc, "resize", "", Modifiers{})
 	if !fired {
 		t.Error("resize listener did not fire")
 	}

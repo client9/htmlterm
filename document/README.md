@@ -26,9 +26,9 @@ doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *document.
     fmt.Println("submitted:", name.Value())
 })
 
-doc.DispatchKey("h")
-doc.DispatchKey("i")
-doc.DispatchKey("Enter") // fires "submit" — Enter on a focused text field is an implicit submit
+doc.DispatchKey("h", document.Modifiers{})
+doc.DispatchKey("i", document.Modifiers{})
+doc.DispatchKey("Enter", document.Modifiers{}) // fires "submit" — Enter on a focused text field is an implicit submit
 
 out, _ := doc.Render()
 fmt.Print(out)
@@ -42,7 +42,7 @@ fmt.Print(out)
 
 **Rendering and sizing** — `Document.Render() (string, error)`; `SetSize(width, height)`/`Size() (width, height int)` for live resize (see the root README's "Sizing and resize" section for `SizeAutomatic`/`SizeNatural` semantics); `DispatchResize()` re-renders at the current size and fires a `"resize"` event on `DocumentElement()` — there's no separate window-level concept in this package, so the document root doubles as that event's target.
 
-**Events** — `Document.AddEventListener(el, typ, capture, fn) ListenerHandle` / `RemoveEventListener(h)`, modeled on the DOM `Event` interface: capture → target → bubble dispatch phases, `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`. `Document.DispatchClick(row, col)`, `DispatchWheel(row, col, delta)`, and `DispatchKey(key)` hit-test/route input, run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter), and dispatch the corresponding native event.
+**Events** — `Document.AddEventListener(el, typ, capture, fn) ListenerHandle` / `RemoveEventListener(h)`, modeled on the DOM `Event` interface: capture → target → bubble dispatch phases, `Event.StopPropagation`/`StopImmediatePropagation`/`PreventDefault`/`DefaultPrevented`; `Event` also carries `ShiftKey`/`CtrlKey`/`AltKey`/`MetaKey`, mirroring a real DOM event's modifier-key booleans (zero for event types with no real modifier-key concept, e.g. `"submit"`/`"focus"`/`"blur"`/`"change"`). `Document.DispatchClick(row, col, mods Modifiers)`, `DispatchWheel(row, col, deltaX, deltaY int)`, and `DispatchKey(key string, mods Modifiers)` hit-test/route input, run built-in default actions (checkbox/radio toggle, focus traversal, text entry, implicit form submit on Enter), and dispatch the corresponding native event. `DispatchWheel`'s `deltaX` is accepted but not yet acted on — no horizontal scroll-offset state exists yet (see the root `COMPATIBILITY.md`'s "Horizontal scrolling" entries).
 
 **Focus** — `Element.Focus()`/`Blur()` (mirroring the DOM's `HTMLElement.focus`/`blur`) plus `Document.FocusNext()`/`FocusPrev()`/`FocusedElement()`, which need whole-document state, manage a single focused element matched by the `:focus` pseudo-class; focusable elements are form controls and other elements the built-in default actions know how to drive.
 

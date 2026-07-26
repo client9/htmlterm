@@ -245,6 +245,35 @@ child's rows for free, the same way any other layout change already does.
   since keyboard scrolling (unlike wheel) has no click coordinate to
   hit-test from.
 
+**Update, ahead of Section 1 gaining a horizontal counterpart:** two pieces
+of input plumbing this section will need have landed early, as prep rather
+than as part of horizontal scrolling itself (no `scrollOffsetsX`/`ScrollLeft`
+state exists yet — see "Explicit non-goals for v1" below, still current):
+
+- `Event` gained `ShiftKey`/`CtrlKey`/`AltKey`/`MetaKey bool` fields
+  (`event.go`), set from a new `Modifiers` struct threaded through
+  `dispatch`'s new `mods` parameter — mirroring a real DOM event's modifier
+  booleans. `DispatchClick`/`DispatchKey` both gained a `mods Modifiers`
+  parameter; every other `dispatch` call site (`"resize"`/`"submit"`/
+  `"focus"`/`"blur"`/`"change"`) passes the zero `Modifiers{}`, matching
+  real DOM's UIEvent-only modifier fields. `tui/tcell_loop.go`'s new
+  `modifiers(tcell.ModMask) document.Modifiers` helper is where the
+  package's tcell dependency translates raw modifier bits, mirroring
+  `keyName`'s existing job for key names.
+- `DispatchWheel`'s signature changed from `(row, col, delta int)` to
+  `(row, col, deltaX, deltaY int)`, mirroring a real `WheelEvent`'s
+  `deltaX`/`deltaY` pair. `deltaX` is accepted but not yet applied to
+  anything — landing the signature now (a breaking change, but this is
+  pre-1.0) avoids a second breaking change once horizontal scroll-offset
+  state exists. `tcell_loop.go`'s new `wheelDelta(tcell.ButtonMask) (dx,
+  dy int)` reads tcell's `WheelUp`/`WheelDown`/`WheelLeft`/`WheelRight` bits
+  independently (previously only `WheelUp`/`WheelDown` were read at all —
+  `WheelLeft`/`WheelRight` existed in tcell but nothing consumed them); a
+  Shift-held vertical wheel notch with no horizontal bit set is remapped
+  from `deltaY` into `deltaX`, the common browser/terminal fallback
+  convention for wheel hardware that never reports a horizontal axis
+  directly.
+
 ### Scrollbar gutter and indicator
 
 Status: designed here in detail, not yet implemented (see "Status" above).

@@ -333,8 +333,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   scrolling); `overflow-y` is the only axis with real scroll-offset
   behavior. There is correspondingly no horizontal scrollbar gutter/
   gutter styling (see `docs/SCROLLBARS.md`) and, on the DOM/Events side, no
-  `ScrollLeft`/`SetScrollLeft` and no horizontal wheel delta (see DOM &
-  Events below).
+  `ScrollLeft`/`SetScrollLeft` — `DispatchWheel` does now carry a `deltaX`
+  and `Loop` wires `WheelLeft`/`WheelRight`/Shift+wheel to it, but nothing
+  yet consumes it (see DOM & Events below).
 - **`font-size`** — there is no concept of font size at all; terminal
   glyphs are a fixed cell size.
 
@@ -371,19 +372,31 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Coordinates are terminal cells, not pixels.** `DispatchClick(row, col)`
   hit-tests against `Element.Rect()`'s row/column grid, not a
   `MouseEvent`'s `clientX`/`clientY`.
-- **`Event` carries far less than a real DOM event** — no modifier keys
-  (`ctrlKey`/`shiftKey`/`altKey`/`metaKey`), no `relatedTarget`, no
-  `button`, no `detail` (click count). `Event.Key` is a single UTF-8 rune
-  or one name from a fixed vocabulary (`"Enter"`, `"Backspace"`, `"Tab"`,
-  `"Escape"`, arrow keys) — the host translates raw terminal input into
-  these strings itself; htmlterm never reads a terminal directly outside
-  of `Loop`.
+- **`Event` carries less than a real DOM event, but does carry modifier
+  keys.** `ShiftKey`/`CtrlKey`/`AltKey`/`MetaKey` are set from the
+  `Modifiers` passed to `DispatchClick`/`DispatchKey` (zero/false for event
+  types with no real modifier-key concept — `"resize"`, `"submit"`,
+  `"focus"`, `"blur"`, `"change"` — matching real DOM's UIEvent-only
+  modifier fields). Still missing: `relatedTarget`, `button`, `detail`
+  (click count). `Event.Key` is a single UTF-8 rune or one name from a fixed
+  vocabulary (`"Enter"`, `"Backspace"`, `"Tab"`, `"Escape"`, arrow keys) —
+  the host translates raw terminal input into these strings (and raw
+  terminal modifier bits into `document.Modifiers`) itself; htmlterm never
+  reads a terminal directly outside of `Loop`.
 - **Only one click "kind" exists** — there's no `mousedown`/`mouseup`/
   `dblclick`/`contextmenu`/drag events, just a single synthesized
   `"click"` that hit-tests and runs default actions atomically.
 - **`DispatchWheel` mutates scroll position directly** and returns whether
   anything scrolled — unlike every other `Dispatch*` method, it does not
-  dispatch a `"wheel"` `Event` a listener could observe or prevent.
+  dispatch a `"wheel"` `Event` a listener could observe or prevent. It
+  takes both a `deltaX` and `deltaY` (mirroring a real `WheelEvent`), but
+  `deltaX` is currently a no-op — there's no horizontal scroll-offset state
+  in `Document` yet (see "Not Supported" below); it's wired ahead of that
+  landing rather than as a second breaking signature change later. `Loop`
+  wires tcell's `WheelLeft`/`WheelRight` mouse buttons to `deltaX` directly,
+  and remaps a Shift-held vertical wheel notch to `deltaX` too (the common
+  browser/terminal fallback convention for input hardware that never
+  reports a horizontal wheel bit at all).
 - **Tab order is a fixed document-order walk** over form controls
   (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
   focusable scroll containers — there is no `tabindex` to reorder or add
@@ -419,10 +432,12 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-
   change observation API; a host must re-render after mutating.
 - **Horizontal scrolling** — `Document.ScrollTop`/`SetScrollTop` have no
-  `ScrollLeft`/`SetScrollLeft` counterpart, and `DispatchWheel(row, col,
-  delta int)` takes a single (vertical) delta with no horizontal axis at
-  all — matching `overflow-x` never creating a scrollable viewport in the
-  first place (see CSS above).
+  `ScrollLeft`/`SetScrollLeft` counterpart, and `DispatchWheel`'s `deltaX`
+  parameter (see "Deviations from Spec" above) is accepted but not yet
+  applied to anything — matching `overflow-x` never creating a scrollable
+  viewport in the first place (see CSS above). The input-plumbing side
+  (`WheelLeft`/`WheelRight`/Shift+wheel, `Modifiers`) is wired ahead of the
+  scroll-offset state itself landing.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
   which doesn't exist on Windows at all — a compile-time constraint there,
   not just an unverified one. The rest of the interactive layer (raw

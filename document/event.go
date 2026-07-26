@@ -30,6 +30,18 @@ type ListenerHandle struct {
 	id   listenerID
 }
 
+// Modifiers records which keyboard modifier keys were held during an input
+// event, mirroring real DOM events' ctrlKey/shiftKey/altKey/metaKey
+// booleans. The host (e.g. tui.Loop) owns translating raw terminal
+// modifier reporting into this struct; htmlterm never reads a terminal
+// directly outside of tui.Loop.
+type Modifiers struct {
+	Shift bool
+	Ctrl  bool
+	Alt   bool
+	Meta  bool
+}
+
 // Event is passed to listeners registered via Document.AddEventListener,
 // modeled on the DOM Event interface's capture/target/bubble phases and
 // preventDefault/stopPropagation controls — see docs/INTERACTIVE.md's "Next:
@@ -43,6 +55,15 @@ type Event struct {
 	// Key is set for "keydown" events: either a single printable rune as a
 	// UTF-8 string, or a named key such as "Enter", "Backspace", "Tab".
 	Key string
+	// ShiftKey, CtrlKey, AltKey, MetaKey mirror the modifier keys held when
+	// the event was dispatched — set from the Modifiers passed to
+	// DispatchClick/DispatchKey; zero (false) for event types that don't
+	// carry one (e.g. "resize", "submit", "focus", "blur", "change"),
+	// matching real DOM's UIEvent-only modifier fields.
+	ShiftKey bool
+	CtrlKey  bool
+	AltKey   bool
+	MetaKey  bool
 
 	doc              *Document
 	current          *html.Node
@@ -133,9 +154,20 @@ func ancestorChain(n *html.Node) []*html.Node {
 // in capture order (root toward target), then target-phase order, then
 // bubble order (target toward root), honoring StopPropagation/
 // StopImmediatePropagation. key is copied into the returned Event's Key
-// field (used for "keydown").
-func (d *Document) dispatch(target *html.Node, typ, key string) *Event {
-	ev := &Event{Type: typ, Target: &Element{node: target, doc: d}, Key: key, doc: d}
+// field (used for "keydown"); mods is copied into its ShiftKey/CtrlKey/
+// AltKey/MetaKey fields (used for "click"/"keydown" — callers dispatching
+// an event type with no real modifier-key concept pass the zero Modifiers).
+func (d *Document) dispatch(target *html.Node, typ, key string, mods Modifiers) *Event {
+	ev := &Event{
+		Type:     typ,
+		Target:   &Element{node: target, doc: d},
+		Key:      key,
+		ShiftKey: mods.Shift,
+		CtrlKey:  mods.Ctrl,
+		AltKey:   mods.Alt,
+		MetaKey:  mods.Meta,
+		doc:      d,
+	}
 	chain := ancestorChain(target)
 
 	runNode := func(n *html.Node, wantCapture *bool) bool {

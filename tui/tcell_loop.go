@@ -97,17 +97,26 @@ func (l *Loop) Run() error {
 			if !ok {
 				continue
 			}
-			l.doc.DispatchKey(key)
+			l.doc.DispatchKey(key, modifiers(ev.Modifiers()))
 
 		case *tcell.EventMouse:
 			col, row := ev.Position()
+			buttons := ev.Buttons()
 			switch {
-			case ev.Buttons()&tcell.ButtonPrimary != 0:
-				l.doc.DispatchClick(row, col)
-			case ev.Buttons()&tcell.WheelUp != 0:
-				l.doc.DispatchWheel(row, col, -1)
-			case ev.Buttons()&tcell.WheelDown != 0:
-				l.doc.DispatchWheel(row, col, 1)
+			case buttons&tcell.ButtonPrimary != 0:
+				l.doc.DispatchClick(row, col, modifiers(ev.Modifiers()))
+			case buttons&(tcell.WheelUp|tcell.WheelDown|tcell.WheelLeft|tcell.WheelRight) != 0:
+				dx, dy := wheelDelta(buttons)
+				if ev.Modifiers()&tcell.ModShift != 0 && dy != 0 && dx == 0 {
+					// Shift+vertical-wheel is the common browser/terminal
+					// convention for horizontal scroll, a fallback for
+					// terminals/mice that never report WheelLeft/WheelRight
+					// directly (tcell defines those constants but plenty of
+					// real wheel hardware/terminal reporting only ever sends
+					// WheelUp/WheelDown).
+					dx, dy = dy, 0
+				}
+				l.doc.DispatchWheel(row, col, dx, dy)
 			default:
 				continue // ignored mouse report (release, drag, other button)
 			}
@@ -187,6 +196,42 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// modifiers translates tcell's raw modifier bitmask (as reported on both
+// EventKey and EventMouse) into document.Modifiers — the one place this
+// package's tcell dependency leaks a modifier-key concept into Document's
+// vocabulary, mirroring keyName's job for key names.
+func modifiers(mod tcell.ModMask) document.Modifiers {
+	return document.Modifiers{
+		Shift: mod&tcell.ModShift != 0,
+		Ctrl:  mod&tcell.ModCtrl != 0,
+		Alt:   mod&tcell.ModAlt != 0,
+		Meta:  mod&tcell.ModMeta != 0,
+	}
+}
+
+// wheelDelta translates tcell's wheel button bits into a (deltaX, deltaY)
+// pair matching a real WheelEvent's deltaX/deltaY — positive deltaY is
+// "down"/"away", positive deltaX is "right", matching DispatchWheel's own
+// convention (unchanged from its pre-horizontal vertical-only delta sign).
+// More than one wheel bit can't be set in practice (tcell reports one wheel
+// impulse at a time), but the bits are checked independently rather than in
+// a single switch so nothing breaks if that ever changes.
+func wheelDelta(buttons tcell.ButtonMask) (dx, dy int) {
+	if buttons&tcell.WheelUp != 0 {
+		dy -= 1
+	}
+	if buttons&tcell.WheelDown != 0 {
+		dy += 1
+	}
+	if buttons&tcell.WheelLeft != 0 {
+		dx -= 1
+	}
+	if buttons&tcell.WheelRight != 0 {
+		dx += 1
+	}
+	return dx, dy
 }
 
 // paint renders doc and writes it into the screen via the ANSI-line-to-cell
