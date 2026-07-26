@@ -590,7 +590,16 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 	case "checked":
 		return nodeHasAttr(n, "checked")
 	case "disabled":
-		return nodeHasAttr(n, "disabled")
+		// An <option>'s disabled state cascades from its containing
+		// <optgroup> too (matching HTMLOptionElement.disabled's real
+		// inherited-from-optgroup behavior — see document/select.go's
+		// optionDisabled, the interactivity-layer counterpart of this same
+		// rule), not just its own attribute.
+		if nodeHasAttr(n, "disabled") {
+			return true
+		}
+		return strings.EqualFold(n.Data, "option") && n.Parent != nil &&
+			strings.EqualFold(n.Parent.Data, "optgroup") && nodeHasAttr(n.Parent, "disabled")
 	case "required":
 		return nodeHasAttr(n, "required")
 	case "focus":

@@ -29,5 +29,7 @@ func TestFormControls(t *testing.T) {
 		{name: "select with no selected attribute falls back to the first option", html: `<select><option value="a">Apple</option><option value="b">Banana</option></select>`, want: "[ Apple ▾]"},
 		{name: "select with no options renders empty brackets", html: `<select></select>`, want: "[  ▾]"},
 		{name: "select in a label flows inline", html: `<label>Fruit: <select><option>Apple</option></select></label>`, want: "Fruit: [ Apple ▾]"},
+		{name: "select's closed-state display picks up an option nested inside an optgroup", html: `<select><optgroup label="Fruit"><option value="a">Apple</option><option value="b" selected>Banana</option></optgroup></select>`, want: "[ Banana ▾]"},
+		{name: "select falls back to the first option even when it's inside an optgroup", html: `<select><optgroup label="Fruit"><option value="a">Apple</option><option value="b">Banana</option></optgroup></select>`, want: "[ Apple ▾]"},
 	})
 }

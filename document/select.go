@@ -30,17 +30,74 @@ func isSelectControl(n *html.Node) bool {
 	return n.Type == html.ElementNode && strings.EqualFold(n.Data, "select")
 }
 
-// selectOptionNodes returns sel's direct <option> element children, in
-// document order — options nested inside an <optgroup> are not supported,
-// matching internal/render's formcontrol.go.
+// selectOptionNodes returns sel's <option> descendants usable for navigation,
+// in document order: direct <option> children, plus (one level deep) the
+// <option> children of any direct <optgroup> child — mirrors
+// internal/render's formcontrol.go (see docs/SELECT.md); the two packages
+// don't share code (see CLAUDE.md's package-split rationale), so this copy
+// must be kept in lockstep with that one.
 func selectOptionNodes(sel *html.Node) []*html.Node {
 	var out []*html.Node
 	for c := sel.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "option") {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		switch {
+		case strings.EqualFold(c.Data, "option"):
 			out = append(out, c)
+		case strings.EqualFold(c.Data, "optgroup"):
+			for gc := c.FirstChild; gc != nil; gc = gc.NextSibling {
+				if gc.Type == html.ElementNode && strings.EqualFold(gc.Data, "option") {
+					out = append(out, gc)
+				}
+			}
 		}
 	}
 	return out
+}
+
+// optionGroup returns opt's containing <optgroup>, or nil if opt is a direct
+// <option> child of its <select> (not grouped).
+func optionGroup(opt *html.Node) *html.Node {
+	if opt.Parent != nil && opt.Parent.Type == html.ElementNode && strings.EqualFold(opt.Parent.Data, "optgroup") {
+		return opt.Parent
+	}
+	return nil
+}
+
+// optionDisabled reports whether opt is disabled — its own disabled
+// attribute, or its containing <optgroup>'s (a group's disabled attribute
+// cascades to every option inside it, matching HTMLOptionElement.disabled's
+// real inherited-from-optgroup behavior).
+func optionDisabled(opt *html.Node) bool {
+	if nodeHasAttr(opt, "disabled") {
+		return true
+	}
+	if g := optionGroup(opt); g != nil && nodeHasAttr(g, "disabled") {
+		return true
+	}
+	return false
+}
+
+// nextEnabledOptionIndex returns the next (down) or previous (!down) index in
+// options relative to idx that isn't disabled (see optionDisabled), or -1 if
+// none remains in that direction — shared by moveSelectHighlight and
+// moveSelectSelection's arrow-key stepping, so a disabled <option> (bare or
+// via a disabled <optgroup>) is never landed on by keyboard navigation.
+func nextEnabledOptionIndex(options []*html.Node, idx int, down bool) int {
+	for {
+		if down {
+			idx++
+		} else {
+			idx--
+		}
+		if idx < 0 || idx >= len(options) {
+			return -1
+		}
+		if !optionDisabled(options[idx]) {
+			return idx
+		}
+	}
 }
 
 // optionValue returns opt's value attribute, falling back to its trimmed
@@ -153,8 +210,17 @@ func (d *Document) closeSelectPopup(sel *html.Node) {
 // changed (opening a popup and confirming the same already-selected option
 // without moving is a no-op, matching a real <select>). The default action
 // for clicking an option in an open select's popup, and for Enter/Space
-// while the popup is open (confirming whatever's currently highlighted).
+// while the popup is open (confirming whatever's currently highlighted). A
+// no-op (popup stays open, nothing changes) if opt is disabled (bare or via
+// a disabled <optgroup>) — enforced here, not just by applySelectClick's own
+// guard, so every path that can reach a highlighted-but-disabled option
+// (e.g. every option in the select being disabled, which lets
+// currentOrFirstOption's final fallback seed the highlight on one) is
+// covered too, not just a direct click.
 func (d *Document) confirmSelectPopup(sel, opt *html.Node) {
+	if optionDisabled(opt) {
+		return
+	}
 	before := selectValue(sel)
 	for _, o := range selectOptionNodes(sel) {
 		removeAttr(o, "selected")
@@ -192,24 +258,21 @@ func (d *Document) moveSelectSelection(sel *html.Node, down bool) {
 			break
 		}
 	}
-	switch {
-	case down && idx < len(options)-1:
-		idx++
-	case !down && idx > 0:
-		idx--
-	default:
+	next := nextEnabledOptionIndex(options, idx, down)
+	if next == -1 {
 		return
 	}
 	for _, o := range options {
 		removeAttr(o, "selected")
 	}
-	setAttr(options[idx], "selected", "")
+	setAttr(options[next], "selected", "")
 	d.dispatch(sel, "change", "")
 }
 
-// currentOrFirstOption returns sel's currently selected option, or its
-// first option if none is selected, or nil if it has no options — the
-// anchor point openSelectPopup starts highlighting from.
+// currentOrFirstOption returns sel's currently selected option, or its first
+// enabled option if none is selected (falling back to its first option at
+// all if every one is disabled), or nil if it has no options — the anchor
+// point openSelectPopup starts highlighting from.
 func currentOrFirstOption(sel *html.Node) *html.Node {
 	options := selectOptionNodes(sel)
 	if len(options) == 0 {
@@ -217,6 +280,11 @@ func currentOrFirstOption(sel *html.Node) *html.Node {
 	}
 	for _, o := range options {
 		if nodeHasAttr(o, "selected") {
+			return o
+		}
+	}
+	for _, o := range options {
+		if !optionDisabled(o) {
 			return o
 		}
 	}
@@ -281,21 +349,20 @@ func (d *Document) moveSelectHighlight(sel *html.Node, down bool) {
 			}
 		}
 	}
-	switch {
-	case down && idx < len(options)-1:
-		idx++
-	case !down && idx > 0:
-		idx--
-	default:
+	next := nextEnabledOptionIndex(options, idx, down)
+	if next == -1 {
 		return
 	}
-	d.setSelectHighlight(sel, options[idx])
+	d.setSelectHighlight(sel, options[next])
 }
 
 // applySelectClick runs the default action for a click that hit target,
 // where target may be an <option> inside an open select's popup (confirm
 // it, closing the popup) or a <select> itself (toggle its dropdown open/
-// closed). A no-op for any other target.
+// closed). A no-op for any other target, including a click on a disabled
+// option (bare or via a disabled <optgroup>) — the popup stays open and
+// nothing is confirmed, matching a real <select>; confirmSelectPopup itself
+// enforces this (see its own doc comment), not just this call site.
 func (d *Document) applySelectClick(target *html.Node) {
 	if opt := nearestOption(target); opt != nil {
 		if sel := nearestSelect(opt); sel != nil && nodeHasAttr(sel, selectOpenAttr) {

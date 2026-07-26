@@ -310,6 +310,110 @@ func TestSelectPopupClipsRowsBeforeTopBorderWhenNoRoomBelow(t *testing.T) {
 	}
 }
 
+func TestSelectPopupOptgroupLabelRowAndIndent(t *testing.T) {
+	src := `<select ` + defaultSelectOpenAttr + `>` +
+		`<option value="x">Loose</option>` +
+		`<optgroup label="Fruit">` +
+		`<option value="a">Apple</option>` +
+		`<option value="b" selected>Banana</option>` +
+		`</optgroup>` +
+		`</select>`
+	e, err := New(Options{Width: 20})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	got := stripPopupANSI(result.Output)
+	want := "[ Banana ▾]\n  Loose             \nFruit               \n    Apple           \n  ▸ Banana          "
+	if got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+	// The group label row is plain text with no reverse-video fallback
+	// wrapper (it isn't navigable/selectable, so it has nothing to visually
+	// distinguish itself from) - every option row still gets it, same as
+	// TestSelectPopupComposition.
+	lines := strings.Split(result.Output, "\n")
+	if len(lines) != 5 {
+		t.Fatalf("got %d lines, want 5:\n%q", len(lines), result.Output)
+	}
+	if strings.Contains(lines[2], "\x1b[7m") {
+		t.Errorf("group label row should not carry the reverse-video fallback: %q", lines[2])
+	}
+	for i, line := range []string{lines[1], lines[3], lines[4]} {
+		if !strings.Contains(line, "\x1b[7m") || !strings.Contains(line, "\x1b[27m") {
+			t.Errorf("option row %d missing reverse-video wrapper: %q", i, line)
+		}
+	}
+}
+
+func TestSelectPopupOptgroupDisabledSkipsOptions(t *testing.T) {
+	src := `<select ` + defaultSelectOpenAttr + `>` +
+		`<option value="a" selected>Apple</option>` +
+		`<optgroup label="Fruit" disabled>` +
+		`<option value="b">Banana</option>` +
+		`</optgroup>` +
+		`</select>`
+	e, err := New(Options{Width: 20})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	var bananaNode *html.Node
+	for n := range result.Positions {
+		if n.Data == "option" && selectOptionLabel(n) == "Banana" {
+			bananaNode = n
+		}
+	}
+	if bananaNode == nil {
+		t.Fatalf("expected a Rect recorded for the (still clickable-hit-testable) Banana option")
+	}
+}
+
+func TestSelectPopupOptionDisabledSelectorCascadesFromOptgroup(t *testing.T) {
+	// option:disabled must match an option whose own attribute isn't set but
+	// whose containing optgroup is disabled — the cssengine selector.go fix
+	// that makes :disabled cascade the same way document/select.go's
+	// optionDisabled helper does for interactivity.
+	src := `<style>option:disabled { color: red; }</style>` +
+		`<select ` + defaultSelectOpenAttr + `>` +
+		`<option>Apple</option>` +
+		`<optgroup label="Citrus" disabled>` +
+		`<option>Banana</option>` +
+		`</optgroup>` +
+		`</select>`
+	e, err := New(Options{Width: 20, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	lines := strings.Split(result.Output, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("got %d lines, want 4:\n%q", len(lines), result.Output)
+	}
+	// Apple: no override, keeps the reverse-video fallback. The group label
+	// row (line 2) is untouched by option:disabled (it targets <option>, not
+	// <optgroup>). Banana (line 3): disabled via its optgroup, should carry
+	// the red color instead of the reverse-video fallback.
+	if !strings.Contains(lines[1], "\x1b[7m") {
+		t.Errorf("Apple row should keep the reverse-video fallback: %q", lines[1])
+	}
+	if strings.Contains(lines[3], "\x1b[7m") {
+		t.Errorf("Banana row (disabled via its optgroup) should not be reverse-video: %q", lines[3])
+	}
+	if !strings.Contains(lines[3], "\x1b[") {
+		t.Errorf("Banana row (disabled via its optgroup) should carry option:disabled's red color: %q", lines[3])
+	}
+}
+
 func TestSelectPopupGrowsDocumentWhenNoRoomBelow(t *testing.T) {
 	src := `<select ` + defaultSelectOpenAttr + `><option>Apple</option><option>Banana</option><option>Cherry</option></select>`
 	e, err := New(Options{Width: 20})

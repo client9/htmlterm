@@ -65,14 +65,26 @@ func inputDisplayText(n *html.Node) string {
 	}
 }
 
-// selectOptionNodes returns n's direct <option> element children, in
-// document order. Options nested inside an <optgroup> are not supported —
-// see CSS.md's <select> entry.
+// selectOptionNodes returns n's <option> descendants usable for layout and
+// navigation, in document order: direct <option> children, plus (one level
+// deep) the <option> children of any direct <optgroup> child — real HTML
+// only ever nests <option> one level inside <optgroup>, never deeper. See
+// docs/SELECT.md.
 func selectOptionNodes(n *html.Node) []*html.Node {
 	var out []*html.Node
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "option") {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		switch {
+		case strings.EqualFold(c.Data, "option"):
 			out = append(out, c)
+		case strings.EqualFold(c.Data, "optgroup"):
+			for gc := c.FirstChild; gc != nil; gc = gc.NextSibling {
+				if gc.Type == html.ElementNode && strings.EqualFold(gc.Data, "option") {
+					out = append(out, gc)
+				}
+			}
 		}
 	}
 	return out

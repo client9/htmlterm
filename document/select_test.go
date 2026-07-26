@@ -400,6 +400,148 @@ func TestSelectValueFallsBackToOptionTextWithNoValueAttr(t *testing.T) {
 	_ = doc
 }
 
+const groupedFruitSelectHTML = `<select id="s">
+<option value="a">Apple</option>
+<optgroup label="Citrus">
+<option value="b" selected>Banana</option>
+<option value="c">Cherry</option>
+</optgroup>
+</select>`
+
+func TestSelectOptgroupOptionParticipatesInValueAndArrowNavigation(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, groupedFruitSelectHTML)
+	if got := sel.Value(); got != "b" {
+		t.Errorf("Value() = %q, want %q", got, "b")
+	}
+
+	sel.Focus()
+	doc.DispatchKey("ArrowDown")
+	if got := sel.Value(); got != "c" {
+		t.Errorf("after ArrowDown into the optgroup's last option, Value() = %q, want %q", got, "c")
+	}
+	doc.DispatchKey("ArrowUp")
+	doc.DispatchKey("ArrowUp")
+	if got := sel.Value(); got != "a" {
+		t.Errorf("ArrowUp back out of the optgroup to the loose option, Value() = %q, want %q", got, "a")
+	}
+}
+
+func TestSelectOptgroupDisabledOptionSkippedByArrowKeys(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, `<select id="s">
+<option value="a" selected>Apple</option>
+<option value="b" disabled>Banana</option>
+<option value="c">Cherry</option>
+</select>`)
+	sel.Focus()
+	doc.DispatchKey("ArrowDown")
+	if got := sel.Value(); got != "c" {
+		t.Errorf("ArrowDown should skip the disabled option: Value() = %q, want %q", got, "c")
+	}
+	doc.DispatchKey("ArrowUp")
+	if got := sel.Value(); got != "a" {
+		t.Errorf("ArrowUp should skip the disabled option going back: Value() = %q, want %q", got, "a")
+	}
+}
+
+func TestSelectOptgroupDisabledCascadesToAllOptionsInIt(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, `<select id="s">
+<option value="a" selected>Apple</option>
+<optgroup label="Citrus" disabled>
+<option value="b">Banana</option>
+<option value="c">Cherry</option>
+</optgroup>
+<option value="d">Date</option>
+</select>`)
+	sel.Focus()
+	doc.DispatchKey("ArrowDown")
+	if got := sel.Value(); got != "d" {
+		t.Errorf("ArrowDown should skip every option in the disabled optgroup: Value() = %q, want %q", got, "d")
+	}
+	doc.DispatchKey("ArrowUp")
+	if got := sel.Value(); got != "a" {
+		t.Errorf("ArrowUp should skip back over the disabled optgroup too: Value() = %q, want %q", got, "a")
+	}
+}
+
+func TestSelectClickOnDisabledOptionInOpenPopupIsInert(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, `<select id="s">
+<option value="a" selected>Apple</option>
+<option value="b" disabled>Banana</option>
+</select>`)
+	rect, _ := sel.Rect()
+	doc.DispatchClick(rect.Row, rect.Col) // open it
+	out, _ := doc.Render()
+	if !strings.Contains(out, "Banana") {
+		t.Fatalf("popup did not open: %q", out)
+	}
+
+	bananaRect, ok := doc.QuerySelector(`option[value="b"]`).Rect()
+	if !ok {
+		t.Fatalf("no Rect recorded for the disabled Banana option")
+	}
+	doc.DispatchClick(bananaRect.Row, bananaRect.Col)
+	if got := sel.Value(); got != "a" {
+		t.Errorf("clicking a disabled option should not select it: Value() = %q, want %q", got, "a")
+	}
+	out, _ = doc.Render()
+	if !strings.Contains(out, "Apple") || !strings.Contains(out, "\n") {
+		t.Errorf("popup should stay open after clicking a disabled option: %q", out)
+	}
+}
+
+func TestSelectClickOnOptionInDisabledOptgroupIsInert(t *testing.T) {
+	doc, sel := mustParseSelectDoc(t, `<select id="s">
+<option value="a" selected>Apple</option>
+<optgroup label="Citrus" disabled>
+<option value="b">Banana</option>
+</optgroup>
+</select>`)
+	rect, _ := sel.Rect()
+	doc.DispatchClick(rect.Row, rect.Col) // open it
+	out, _ := doc.Render()
+	if !strings.Contains(out, "Banana") {
+		t.Fatalf("popup did not open: %q", out)
+	}
+
+	bananaRect, ok := doc.QuerySelector(`option[value="b"]`).Rect()
+	if !ok {
+		t.Fatalf("no Rect recorded for Banana (still hit-testable even though its group is disabled)")
+	}
+	doc.DispatchClick(bananaRect.Row, bananaRect.Col)
+	if got := sel.Value(); got != "a" {
+		t.Errorf("clicking an option inside a disabled optgroup should not select it: Value() = %q, want %q", got, "a")
+	}
+}
+
+func TestSelectEnterCannotConfirmAllDisabledOptions(t *testing.T) {
+	// Every option disabled means currentOrFirstOption's "selected" branch
+	// seeds the popup's highlight onto Apple even though it's disabled -
+	// confirmSelectPopup must refuse to confirm it via Enter too, not just
+	// via a click (see its own doc comment). Since Apple is already the
+	// committed value, Value()/change alone can't distinguish "confirm
+	// refused" from "confirm ran but was a no-op value-wise" - the
+	// observable difference is whether Enter closes the popup at all:
+	// confirmSelectPopup's early return (for a disabled opt) skips its own
+	// removeAttr(sel, selectOpenAttr), so an unguarded confirm would have
+	// closed the popup even though nothing was actually confirmed.
+	doc, sel := mustParseSelectDoc(t, `<select id="s">
+<option value="a" selected disabled>Apple</option>
+<option value="b" disabled>Banana</option>
+</select>`)
+	sel.Focus()
+
+	doc.DispatchKey("Enter") // open - highlight seeds on Apple, the only "selected" option
+	doc.DispatchKey("Enter") // attempt to confirm the highlighted (disabled) option
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Banana") {
+		t.Errorf("popup should stay open after failing to confirm a disabled option: %q", out)
+	}
+}
+
 func TestSelectDisabledClickIsInert(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, `<select id="s" disabled><option>Apple</option><option selected>Banana</option></select>`)
 	rect, ok := sel.Rect()

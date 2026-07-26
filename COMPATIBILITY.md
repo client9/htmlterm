@@ -34,7 +34,7 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   including nesting), blockquotes, tables (`thead`/`tbody`/`tfoot`/`tr`/
   `th`/`td`/`colgroup`/`col`/`caption`, `colspan`/`rowspan`), forms
   (`form`/`fieldset`/`legend`/`label`/`input`/`button`/`textarea`/`select`/
-  `option`), HTML5 sectioning (`section`/`article`/`aside`/`header`/
+  `option`/`optgroup`), HTML5 sectioning (`section`/`article`/`aside`/`header`/
   `footer`/`main`/`nav`/`hgroup`/`search`), inline text-level semantics
   (`a`/`span`/`strong`/`em`/`b`/`i`/`u`/`s`/`del`/`ins`/`mark`/`small`/
   `sub`/`sup`/`code`/`kbd`/`samp`/`var`/`cite`/`dfn`/`abbr`/`q`), disclosure
@@ -87,8 +87,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   explicitly skipped during rendering; other unhandled elements aren't
   specifically stripped, they just fall back to generic inline treatment of
   whatever text content they happen to contain (usually none).
-- **`<optgroup>`** inside `<select>` — only a `<select>`'s direct `<option>`
-  children are read (see `docs/SELECT.md`).
 - **The legacy `width` HTML attribute** on table cells/columns — ignored in
   favor of CSS `width`; in real-world markup (especially HTML email) it's
   almost always a pixel value with no reliable pixel-to-column conversion.
@@ -255,6 +253,12 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `docs/SCROLLBARS.md`.
 - **OSC 8 terminal hyperlinks** for `<a href>` — an actual terminal escape
   sequence, emitted automatically, not a CSS feature at all.
+- **A plain `optgroup` selector** styles an open `<select>` popup's
+  `<optgroup label>` header row (`background-color`/`color`) — real CSS has
+  essentially no `<optgroup>` styling hook at all (browsers just bold+indent
+  the label via their own UA stylesheet, not something an author can
+  restyle); this is the same kind of repurposing `option:hover` already is.
+  See `docs/SELECT.md`.
 
 ### Not Supported
 
@@ -312,8 +316,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   script-specific systems, `disclosure-open`/`disclosure-closed`,
   `decimal-leading-zero`, `lower-greek` — only the small Western subset
   listed above under "At a Glance" is implemented.
-- **`<select>` gaps:** `<optgroup>`, per-`<option>` border/padding/width —
-  see `docs/SELECT.md`.
+- **`<select>` gaps:** per-`<option>` (and per-group-label-row) border/
+  padding/width, `<optgroup>` nested inside another `<optgroup>` — see
+  `docs/SELECT.md`.
 - **Horizontal scrolling doesn't exist at any layer, not just the
   scrollbar widget.** `overflow-x: scroll`/`auto` create no scrollable
   viewport at all — silently identical to `visible` (only `overflow-x:

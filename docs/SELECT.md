@@ -18,6 +18,9 @@ covers both; CSS.md's own `select` entry is a one-line pointer here.
 | `width`, `min-width`, `max-width` | ✅ | ✅ (overrides the natural label-driven width) | not supported (every row shares the popup's width) |
 | `:hover` | n/a | n/a | ✅ — matches the arrow-key-highlighted row (see below), not real mouse hover |
 | `[selected]` | n/a | n/a | ✅ — ordinary attribute selector, no special-casing needed |
+| `<optgroup>` grouping | n/a | ✅ — label header row + indented options (see below) | n/a |
+| `<optgroup label>` styling | n/a | ✅ via an `optgroup` selector (see below) | n/a |
+| `<optgroup disabled>` | n/a | n/a | ✅ — cascades to every option inside it |
 
 ## Closed control
 
@@ -73,6 +76,49 @@ htmlterm; it has no effect on any other element.
 `option[selected]` needs no special CSS support — it's an ordinary attribute
 selector, so `option[selected] { ... }` already works.
 
+### `<optgroup>`
+
+```html
+<select>
+  <option value="a">Apple</option>
+  <optgroup label="Citrus">
+    <option value="b">Banana</option>
+    <option value="c">Cherry</option>
+  </optgroup>
+</select>
+```
+
+An `<optgroup>`'s direct `<option>` children (one level of nesting only, same
+as real HTML) are included in the popup, indented two columns so they read as
+grouped under their header. The `label` attribute (if non-empty) renders as
+its own non-selectable, non-clickable header row above them — arrow-key
+navigation skips over it entirely (there's nothing to highlight), and it
+carries no synthetic `Rect`, so `DispatchClick`/hit-testing can never land on
+one. An `<optgroup>` with no `label` still groups and indents its options,
+just without a header row.
+
+Real CSS barely styles `<optgroup>` at all (browsers just bold+indent the
+label via their UA stylesheet, with no author-facing hook). htmlterm
+repurposes a plain `optgroup` selector as its own styling hook instead — the
+same kind of terminal-native convention `option:hover` already is:
+
+```css
+optgroup { color: gray; }
+```
+
+`optgroup`'s `background-color`/`color` style its label row the same way an
+`option`'s do for an option row (falling back to the `<select>`'s own
+resolved style for whichever it doesn't set) — no border/padding/width
+support on the label row itself, same restriction per-option rows already
+have.
+
+`<optgroup disabled>` cascades to every `<option>` inside it (matching
+`HTMLOptionElement.disabled`'s real inherited-from-optgroup behavior): arrow
+keys skip over every option in a disabled group, and clicking one in an open
+popup is inert (the popup stays open, nothing is selected). This also makes
+`option:disabled` match those options for styling purposes, not just ones
+carrying their own `disabled` attribute directly.
+
 ### Fallback styling
 
 If none of `<select>`, `<option>`, or `option:hover` sets a color anywhere in
@@ -83,10 +129,11 @@ that chain to opt into your own styling instead.
 
 ## Not supported
 
-- `<option>` elements nested inside an `<optgroup>` — only a `<select>`'s
-  direct `<option>` children are read.
-- Per-option `border`/`padding`/`width` — every row shares the popup's own
-  content width, matching a real `<select>`'s uniform-width option list.
+- `<optgroup>` nested inside another `<optgroup>` — real HTML doesn't allow
+  this either.
+- Per-option (and per-group-label-row) `border`/`padding`/`width` — every row
+  shares the popup's own content width, matching a real `<select>`'s
+  uniform-width option list.
 - `margin-right`/`margin-bottom` on the popup — there's nothing after a
   floating overlay for them to push against.
 

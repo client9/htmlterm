@@ -37,30 +37,74 @@ func (e *Engine) compositeOpenSelects(doc *html.Node, lines []string, positions 
 	return lines, positions
 }
 
-// compositeSelectPopup splices sel's option list directly beneath its own
-// Rect, styled per sel's/its <option>s' own CSS (background-color, color,
-// border, padding, margin, width on sel; background-color/color, plus
-// `option:hover` for the highlighted row, per option) via overlay_box.go's
+// popupRow is one row of an open <select>'s popup: either a navigable/
+// clickable option (opt non-nil) or a non-navigable <optgroup> label header
+// (opt nil, node the <optgroup> itself, for its own style lookup). indent is
+// the extra left-padding applied to options nested inside a group, so a
+// group's options visually sit under their header. See docs/SELECT.md.
+type popupRow struct {
+	opt    *html.Node
+	node   *html.Node
+	label  string
+	indent int
+}
+
+// buildPopupRows walks sel's direct children into the flat row list
+// compositeSelectPopup renders: a plain <option> becomes one option row; an
+// <optgroup> becomes one label row (only if it has a non-empty label
+// attribute — an unlabeled optgroup still contributes its options, just no
+// header) followed by one indented option row per <option> child. Mirrors
+// selectOptionNodes' one-level-deep descent into <optgroup>, but (unlike
+// that function) also emits the label rows selectOptionNodes has no need to
+// represent.
+func buildPopupRows(sel *html.Node) []popupRow {
+	var rows []popupRow
+	for c := sel.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type != html.ElementNode {
+			continue
+		}
+		switch {
+		case strings.EqualFold(c.Data, "option"):
+			rows = append(rows, popupRow{opt: c, node: c, label: selectOptionLabel(c)})
+		case strings.EqualFold(c.Data, "optgroup"):
+			if label := nodeAttr(c, "label"); label != "" {
+				rows = append(rows, popupRow{node: c, label: label})
+			}
+			for gc := c.FirstChild; gc != nil; gc = gc.NextSibling {
+				if gc.Type == html.ElementNode && strings.EqualFold(gc.Data, "option") {
+					rows = append(rows, popupRow{opt: gc, node: gc, label: selectOptionLabel(gc), indent: 2})
+				}
+			}
+		}
+	}
+	return rows
+}
+
+// compositeSelectPopup splices sel's row list (see popupRow/buildPopupRows)
+// directly beneath its own Rect, styled per sel's/its <option>s' (and
+// <optgroup>s', for label rows) own CSS (background-color, color, border,
+// padding, margin, width on sel; background-color/color, plus `option:hover`
+// for the highlighted row, per option) via overlay_box.go's
 // resolveOverlayBoxStyle/drawOverlayFrame, falling back to the historical
-// hardcoded reverse-video wrap for a marked row when nothing in that chain
-// sets color/background-color — see docs/RENDERING.md's "Popups / z-order"
-// for why this stays a line-splice overlay rather than a real box-tree node.
+// hardcoded reverse-video wrap for a marked option row when nothing in that
+// chain sets color/background-color (label rows get no such fallback — see
+// the render loop below) — see docs/RENDERING.md's "Popups / z-order" for
+// why this stays a line-splice overlay rather than a real box-tree node.
 // Does nothing if sel has no recorded Rect (not laid out this frame) or no
-// options, or renders as many options as fit — canGrow decides whether to
-// extend lines with extra blank rows past its current end (the document's
-// natural/automatic-height case) or clip to whatever room already exists
-// (the fixed-height case, so as not to exceed the caller's requested
-// viewport) — see compositeOpenSelects's doc comment. When clipping is
-// forced, option rows are dropped first, then the bottom border/padding,
-// and the top border/padding last — so a clipped popup never renders
-// headless.
+// rows, or renders as many rows as fit — canGrow decides whether to extend
+// lines with extra blank rows past its current end (the document's natural/
+// automatic-height case) or clip to whatever room already exists (the
+// fixed-height case, so as not to exceed the caller's requested viewport) —
+// see compositeOpenSelects's doc comment. When clipping is forced, rows
+// (option or label) are dropped first, then the bottom border/padding, and
+// the top border/padding last — so a clipped popup never renders headless.
 func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions map[*html.Node]Rect, canGrow bool) ([]string, map[*html.Node]Rect) {
 	rect, ok := positions[sel]
 	if !ok {
 		return lines, positions
 	}
-	options := selectOptionNodes(sel)
-	if len(options) == 0 {
+	rows := buildPopupRows(sel)
+	if len(rows) == 0 {
 		return lines, positions
 	}
 
@@ -68,11 +112,13 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	style := e.resolveOverlayBoxStyle(sel, popupAvail)
 
 	const marker = "▸ "
-	labels := make([]string, len(options))
 	naturalWidth := rect.Width
-	for i, opt := range options {
-		labels[i] = selectOptionLabel(opt)
-		if w := len([]rune(marker + labels[i])); w > naturalWidth {
+	for _, r := range rows {
+		w := len([]rune(r.label)) + r.indent
+		if r.opt != nil {
+			w += len([]rune(marker))
+		}
+		if w > naturalWidth {
 			naturalWidth = w
 		}
 	}
@@ -108,7 +154,7 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	topRows := overlayFrameRows(style, true)
 	bottomRows := overlayFrameRows(style, false)
 	startRow := rect.Row + rect.Height + style.mt
-	count := len(options)
+	count := len(rows)
 	totalRows := topRows + count + bottomRows
 
 	available := max(0, len(lines)-startRow)
@@ -151,32 +197,52 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	// setting selectOpenAttr directly in markup, with no live
 	// openSelectPopup call behind it, never gets one. The same highlight
 	// attribute also drives `option:hover` matching in the cascade (see
-	// cssengine.Cascade.HoverAttr) — resolveOptionRowStyle below picks up
+	// cssengine.Cascade.HoverAttr) — resolvePopupRowStyle below picks up
 	// any such rule automatically, with no separate lookup needed here.
+	// Group label rows (opt == nil) are never highlighted or marked — they
+	// aren't navigable, so neither state can ever apply to one.
 	highlightAttr := e.selectHighlightAttr
 	anyHighlighted := false
 	if highlightAttr != "" {
-		for _, opt := range options {
-			if nodeHasAttr(opt, highlightAttr) {
+		for _, r := range rows {
+			if r.opt != nil && nodeHasAttr(r.opt, highlightAttr) {
 				anyHighlighted = true
 				break
 			}
 		}
 	}
 	for i := range count {
-		opt := options[i]
+		r := rows[i]
+		if r.opt == nil {
+			// A group label header: plain text, no marker/highlight, and no
+			// reverse-video fallback (unlike option rows below) — that
+			// fallback exists specifically to make the highlighted/selected
+			// option visually distinct against a styleless popup, a
+			// non-navigable label row has nothing to distinguish itself from.
+			padded := padPlainToWidth(strings.Repeat(" ", r.indent)+r.label, innerW)
+			rowStyle := e.resolvePopupRowStyle(r.node, style.base)
+			rowContent := padded
+			if rowStyle.has() {
+				rowContent = rowStyle.render(padded, e.profile)
+			}
+			rowContent = strings.Repeat(" ", pl) + rowContent + strings.Repeat(" ", pr)
+			rowContent = applyOverlaySideBorders(rowContent, style.bl, style.br, e.profile)
+			lines[row] = spliceColumns(lines[row], col, boxWidth, rowContent)
+			row++
+			continue
+		}
 		marked := false
 		if anyHighlighted {
-			marked = nodeHasAttr(opt, highlightAttr)
+			marked = nodeHasAttr(r.opt, highlightAttr)
 		} else {
-			marked = nodeHasAttr(opt, "selected")
+			marked = nodeHasAttr(r.opt, "selected")
 		}
-		prefix := "  "
+		prefix := strings.Repeat(" ", r.indent+2)
 		if marked {
-			prefix = marker
+			prefix = strings.Repeat(" ", r.indent) + marker
 		}
-		padded := padPlainToWidth(prefix+labels[i], innerW)
-		rowStyle := e.resolveOptionRowStyle(opt, style.base)
+		padded := padPlainToWidth(prefix+r.label, innerW)
+		rowStyle := e.resolvePopupRowStyle(r.node, style.base)
 		// The historical fallback (no color/background-color anywhere in
 		// sel/opt/opt:hover's resolved decls) reverse-videos every row
 		// uniformly — not just the marked one — with the "▸ " prefix as the
@@ -190,7 +256,7 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 		rowContent = strings.Repeat(" ", pl) + rowContent + strings.Repeat(" ", pr)
 		rowContent = applyOverlaySideBorders(rowContent, style.bl, style.br, e.profile)
 		lines[row] = spliceColumns(lines[row], col, boxWidth, rowContent)
-		positions[opt] = Rect{Row: row, Col: col + blW + pl, Width: innerW, Height: 1}
+		positions[r.opt] = Rect{Row: row, Col: col + blW + pl, Width: innerW, Height: 1}
 		row++
 	}
 
@@ -200,14 +266,18 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	return lines, positions
 }
 
-// resolveOptionRowStyle resolves opt's own cascaded declarations (color/
+// resolvePopupRowStyle resolves n's own cascaded declarations (color/
 // background-color — including any matching `option:hover` declarations,
-// merged in by the normal cascade whenever opt carries e.selectHighlightAttr,
-// see cssengine.Cascade.HoverAttr) as this row's style, falling back to
-// popupBase (sel's own resolved style) for whichever of fg/bg opt doesn't
-// set itself.
-func (e *Engine) resolveOptionRowStyle(opt *html.Node, popupBase inlineStyle) inlineStyle {
-	s := extractInlineStyle(e.resolveDecls(opt))
+// merged in by the normal cascade whenever an option n carries
+// e.selectHighlightAttr, see cssengine.Cascade.HoverAttr) as this row's
+// style, falling back to popupBase (sel's own resolved style) for whichever
+// of fg/bg n doesn't set itself. Used for both option rows (n is the
+// <option>) and group label rows (n is the <optgroup>) — an `optgroup`
+// selector styling its label row this way has no real-CSS equivalent (real
+// CSS barely styles <optgroup> at all), the same kind of terminal-native
+// repurposing `option:hover` already is.
+func (e *Engine) resolvePopupRowStyle(n *html.Node, popupBase inlineStyle) inlineStyle {
+	s := extractInlineStyle(e.resolveDecls(n))
 	if s.fg == nil {
 		s.fg = popupBase.fg
 	}
