@@ -882,7 +882,8 @@ instead (`width: 14` for a fixed character count, or `width: 25%`).
 | `caption-side` | `table` | `top` (default) \| `bottom` |
 | `border-collapse: separate` \| `collapse` | `table` | Real CSS semantics — `separate` (the default) gives every `th`/`td` its own independent border box plus `border-spacing`; `collapse` merges adjacent cell/table borders into shared lines via real conflict resolution |
 | `border-spacing` | `table` | Gap between cell boxes under `border-collapse: separate` (default `0`) |
-| `border-top-junction`/`-right`/`-bottom`/`-left`/`-center`, `border-top-left-junction`/`-top-right`/`-bottom-left`/`-bottom-right` | `table` only | Literal junction-glyph override for a T-shape/cross/corner-shape, wherever that arm combination occurs anywhere in the grid, under `border-collapse: collapse` — no per-cell equivalent, no shorthand yet |
+| `border-top-junction`/`-right`/`-bottom`/`-left`/`-center` | `table`, `th`/`td` | Literal junction-glyph override for a T-shape/cross under `border-collapse: collapse` — a cell's own version applies at its own edges; no shorthand yet |
+| `border-top-left-junction`/`-top-right`/`-bottom-left`/`-bottom-right` | `table` only | Literal junction-glyph override for a corner-shape, wherever it occurs anywhere in the grid, under `border-collapse: collapse` — no cell-level equivalent (redundant with cell-level `border-*-corner`, which already covers "my own corner") |
 
 **See `docs/TABLES.md`** for the full table styling reference — every
 property above with real rendered examples of each `border-style` preset,
@@ -978,4 +979,4 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-collapse: collapse`'s conflict resolution only considers cell-level and table-level `border`; `tr`/`thead`/`tbody`/`tfoot`/`col`/`colgroup` borders are not consulted — see `docs/TABLES.md`
 - The legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes on `<table>` (use CSS `border-collapse`/`border-spacing`/cell `padding` instead)
-- `border-*-junction` on individual `th`/`td` cells, and a `border-junctions` shorthand — table-level-only, no shorthand yet; see `docs/TABLES.md`
+- The 4 corner-shape `border-*-junction` properties on individual `th`/`td` cells (redundant with cell-level `border-*-corner`), and a `border-junctions` shorthand — see `docs/TABLES.md`

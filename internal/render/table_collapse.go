@@ -212,6 +212,48 @@ var namedJunctionProps = map[int]string{
 	jUp | jDown | jLeft | jRight: "border-center-junction",
 }
 
+// cellShapeProps maps an arm-presence mask to the property name a CELL's
+// own declarations supply a literal glyph override through. Unlike the
+// table-level split between border-*-corner (one true literal position)
+// and border-*-junction (a shape-class default anywhere in the grid), a
+// single cell only has 4 corners total - there's no interior,
+// non-corner-shaped position belonging to just one cell - so "my own
+// top-left corner" and "wherever a top-left-shaped vertex occurs among my
+// own corners" are the same thing. This reuses border-*-corner's existing
+// 4 property names for the corner shapes (already documented, already
+// working under plain blocks/border-collapse:separate) rather than
+// inventing 4 new "-corner-junction" names, plus border-*-junction's
+// existing 5 non-diagonal names for the T-shapes and cross. No cell-level
+// equivalent of the 4 diagonal border-*-junction properties is needed -
+// see docs/TABLES.md.
+var cellShapeProps = map[int]string{
+	jDown | jRight:               "border-top-left-corner",
+	jDown | jLeft:                "border-top-right-corner",
+	jUp | jRight:                 "border-bottom-left-corner",
+	jUp | jLeft:                  "border-bottom-right-corner",
+	jDown | jLeft | jRight:       "border-top-junction",
+	jUp | jLeft | jRight:         "border-bottom-junction",
+	jUp | jDown | jRight:         "border-left-junction",
+	jUp | jDown | jLeft:          "border-right-junction",
+	jUp | jDown | jLeft | jRight: "border-center-junction",
+}
+
+// shapeOverride returns the literal glyph decls supplies for mask's shape
+// via props (cellShapeProps or namedJunctionProps), or "" if none. Always a
+// pure literal lookup (parseCSSString) - deliberately not
+// resolveBoxBorders' blended style-fallback corners, so a style that
+// didn't actually win the surrounding edges can never supply a mismatched
+// corner glyph (e.g. a table's own border-style:rounded must not paint
+// rounded corners around edges a cell's higher-precedence border-
+// style:heavy actually won - see docs/TABLES.md).
+func shapeOverride(decls map[string]string, props map[int]string, mask int) string {
+	name, ok := props[mask]
+	if !ok {
+		return ""
+	}
+	return parseCSSString(decls[name])
+}
+
 // junctionGlyph returns the box-drawing character for a grid vertex with
 // the given arm presence, in style's own glyph set. Returns "" when no arm
 // is present at all, and " " when arms are present but style has no
@@ -242,12 +284,15 @@ func junctionGlyph(style string, up, down, left, right bool) string {
 	return table[mask]
 }
 
-// cellFourEdges resolves cell's own top/right/bottom/left edgeCandidates
-// once (in that order), reusing resolveBoxBorders (the same primitive any
-// other border box uses) for the actual glyph/color and edgeStyleName for
-// the precedence/junction-table key.
-func (r *Engine) cellFourEdges(node *html.Node, colDecls []map[string]string, colStart int) [4]edgeCandidate {
-	decls := r.mergedCellDecls(node, colDecls, colStart)
+// cellFourEdgesFromDecls resolves a cell's own top/right/bottom/left
+// edgeCandidates once (in that order) from its already-merged
+// declarations, reusing resolveBoxBorders (the same primitive any other
+// border box uses) for the actual glyph/color and edgeStyleName for the
+// precedence/junction-table key. Takes decls directly (rather than
+// re-merging from node/colDecls/colStart) since composeCollapsedGrid
+// already computes each cell's merged decls once for its own cellDecls
+// map, needed separately for shapeOverride lookups.
+func cellFourEdgesFromDecls(decls map[string]string) [4]edgeCandidate {
 	bl, br, bt, bb, _, _, _, _ := resolveBoxBorders(decls)
 	return [4]edgeCandidate{
 		{bt, edgeStyleName(decls, "border-top")},
@@ -363,10 +408,13 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 	cells := uniqueCells(g)
 
 	cellEdges := make(map[*tableCell][4]edgeCandidate, len(cells))
+	cellDecls := make(map[*tableCell]map[string]string, len(cells))
 	for _, cell := range cells {
-		cellEdges[cell] = r.cellFourEdges(cell.node, colDecls, cell.colStart)
+		decls := r.mergedCellDecls(cell.node, colDecls, cell.colStart)
+		cellDecls[cell] = decls
+		cellEdges[cell] = cellFourEdgesFromDecls(decls)
 	}
-	tbl, tbr, tbt, tbb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(tableDecls)
+	tbl, tbr, tbt, tbb, _, _, _, _ := resolveBoxBorders(tableDecls)
 	tableEdges := [4]edgeCandidate{
 		{tbt, edgeStyleName(tableDecls, "border-top")},
 		{tbr, edgeStyleName(tableDecls, "border-right")},
@@ -614,27 +662,75 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 			mask |= jRight
 		}
 		glyph := ""
-		switch {
-		// border-*-corner: most specific - only the table's own true 4
-		// outer corners, gated on the mask actually being that 2-arm
-		// corner shape (never a dead-end/absent at these positions).
-		case rl == 0 && cl == 0 && mask == jDown|jRight && tlCorner != "":
-			glyph = tlCorner
-		case rl == 0 && cl == numCols && mask == jDown|jLeft && trCorner != "":
-			glyph = trCorner
-		case rl == numRows && cl == 0 && mask == jUp|jRight && blCorner != "":
-			glyph = blCorner
-		case rl == numRows && cl == numCols && mask == jUp|jLeft && brCorner != "":
-			glyph = brCorner
+		// Tier 1: a cell's own override, at its own corner - most specific,
+		// matching "cell beats table" for edges. Up to 4 cells can share an
+		// interior vertex (the quadrants around it); gathered in row-major
+		// order (above-left, above-right, below-left, below-right), which
+		// already matches "earlier wins" (verified against real browsers
+		// for edges - reused here, not reinvented), so the first non-empty
+		// override found wins. De-duplicated by pointer via a linear scan
+		// (at most 4 candidates, not worth a map allocation per vertex)
+		// since a colspan/rowspan cell can occupy two quadrants at once -
+		// and gated on (rl, cl) actually being one of that cell's own 4
+		// corner coordinates: occupying a quadrant isn't enough on its own,
+		// since a spanning cell also touches interior points along its own
+		// edges (e.g. a colspan-2 cell's own bottom edge, at the column
+		// boundary it spans over) that aren't corners of its box at all,
+		// and its override must not leak onto those.
+		var quadrants [4]*tableCell
+		if rl > 0 && cl > 0 {
+			quadrants[0] = g.rows[rl-1][cl-1]
 		}
-		if glyph == "" {
-			// border-*-junction: a shape-class default, wherever this exact
-			// arm combination occurs anywhere in the grid (including, as a
-			// fallback, the table's own outer corners above).
-			if propName, ok := namedJunctionProps[mask]; ok {
-				glyph = parseCSSString(tableDecls[propName])
+		if rl > 0 && cl < numCols {
+			quadrants[1] = g.rows[rl-1][cl]
+		}
+		if rl < numRows && cl > 0 {
+			quadrants[2] = g.rows[rl][cl-1]
+		}
+		if rl < numRows && cl < numCols {
+			quadrants[3] = g.rows[rl][cl]
+		}
+	quadrantLoop:
+		for i, cell := range quadrants {
+			if cell == nil {
+				continue
+			}
+			for _, prior := range quadrants[:i] {
+				if prior == cell {
+					continue quadrantLoop
+				}
+			}
+			ownCorner := (rl == cell.rowStart || rl == cell.rowStart+cell.rowSpan) &&
+				(cl == cell.colStart || cl == cell.colStart+cell.colSpan)
+			if !ownCorner {
+				continue
+			}
+			if v := shapeOverride(cellDecls[cell], cellShapeProps, mask); v != "" {
+				glyph = v
+				break
 			}
 		}
+		// Tier 2: border-*-corner, only at the table's own true 4 outer
+		// corners, gated on the mask actually being that 2-arm corner
+		// shape (never a dead-end/absent at these positions).
+		if glyph == "" {
+			switch {
+			case rl == 0 && cl == 0 && mask == jDown|jRight:
+				glyph = shapeOverride(tableDecls, cellShapeProps, mask)
+			case rl == 0 && cl == numCols && mask == jDown|jLeft:
+				glyph = shapeOverride(tableDecls, cellShapeProps, mask)
+			case rl == numRows && cl == 0 && mask == jUp|jRight:
+				glyph = shapeOverride(tableDecls, cellShapeProps, mask)
+			case rl == numRows && cl == numCols && mask == jUp|jLeft:
+				glyph = shapeOverride(tableDecls, cellShapeProps, mask)
+			}
+		}
+		// Tier 3: border-*-junction, a shape-class default wherever this
+		// exact arm combination occurs anywhere in the grid.
+		if glyph == "" {
+			glyph = shapeOverride(tableDecls, namedJunctionProps, mask)
+		}
+		// Tier 4: computed from whichever style actually won the arms.
 		if glyph == "" {
 			glyph = junctionGlyph(winner.style, up, down, left, right)
 		}

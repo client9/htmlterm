@@ -20,7 +20,8 @@ actually wrote.
 | `border-style` | `<table>`, `<th>`/`<td>` | Whole-box preset — see below. Not a real-CSS property value set; htmlterm's own vocabulary |
 | `border-top`/`-right`/`-bottom`/`-left` | `<table>`, `<th>`/`<td>` | Literal glyph or shorthand grammar, same as block elements |
 | `border-top-left-corner` etc. | `<table>`, `<th>`/`<td>` | Corner glyph overrides |
-| `border-top-junction`/`-right`/`-bottom`/`-left`/`-center`, `border-top-left-junction` etc. | `<table>` only | Literal junction-glyph overrides under `border-collapse: collapse` — see "Junction and corner overrides" below |
+| `border-top-junction`/`-right`/`-bottom`/`-left`/`-center` | `<table>`, `<th>`/`<td>` | Literal junction-glyph overrides (T-shapes/cross) under `border-collapse: collapse` — see "Junction and corner overrides" below |
+| `border-top-left-junction` etc. | `<table>` only | Literal junction-glyph overrides (corner-shapes anywhere in the grid) under `border-collapse: collapse` — no cell-level equivalent (redundant with cell-level `border-*-corner`) |
 | `border-color`, `border-*-color` | `<table>`, `<th>`/`<td>` | Whole-box / per-edge color |
 | `margin`, `padding` | `<table>` | Work like any block element — see "Margin and padding" below |
 | `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing |
@@ -366,10 +367,10 @@ own outer edges participate in conflict resolution).
 ## Junction and corner overrides
 
 `border-*-corner` (`border-top-left-corner`/`border-top-right-corner`/
-`border-bottom-left-corner`/`border-bottom-right-corner`) already works
-under `border-collapse: collapse` for the table's own true 4 outer
-corners, the same as it does on any other bordered box — set on the
-`<table>` itself:
+`border-bottom-left-corner`/`border-bottom-right-corner`) works under
+`border-collapse: collapse` on **both** `<table>` and `<th>`/`<td>`, the
+same as every other border property — on the table, it's the table's own
+true 4 outer corners:
 
 ```css
 table {
@@ -384,19 +385,32 @@ table {
 3───4
 ```
 
+On a cell, it means the same thing at cell scope: that cell's own corner,
+wherever it lands. A single cell only has 4 corners total — there's no
+"interior, non-corner position" belonging to just one cell the way the
+whole table has — so no separate cell-level property is needed for this;
+it's the exact same `border-top-left-corner` you'd set on any other
+bordered box.
+
 For a glyph anywhere else in the grid — a T-junction, a cross, or a
 corner-shape that isn't the table's own outer corner (jagged row lengths
-can produce one; see below) — 9 table-level-only properties supply a
-literal override, one per arm-combination shape, named after
-`border-top-left-corner`'s own word order (location first):
-`border-top-junction`/`border-right-junction`/`border-bottom-junction`/
-`border-left-junction` (the 4 T-shapes — named for which side of the table
-the divider meets, not which arm is missing) and `border-center-junction`
-(the interior 4-arm cross), plus `border-top-left-junction`/
-`border-top-right-junction`/`border-bottom-left-junction`/
-`border-bottom-right-junction` (corner-shapes). Unlike `border-*-corner`,
-these apply to **every occurrence of that shape anywhere in the grid**, not
-one specific position:
+can produce one; see below) — 9 properties supply a literal override, one
+per arm-combination shape, named after `border-top-left-corner`'s own word
+order (location first): `border-top-junction`/`border-right-junction`/
+`border-bottom-junction`/`border-left-junction` (the 4 T-shapes — named
+for which side of the table the divider meets, not which arm is missing)
+and `border-center-junction` (the interior 4-arm cross), plus
+`border-top-left-junction`/`border-top-right-junction`/
+`border-bottom-left-junction`/`border-bottom-right-junction`
+(corner-shapes). **The 5 T-shape/cross properties work on both `<table>`
+and `<th>`/`<td>`**; a cell's own version applies only at its own edges,
+wherever that shape actually occurs there. **The 4 corner-shape junction
+properties are table-only** — once cell-level `border-*-corner` covers "my
+own corner, whichever shape lands there," a cell-level
+`border-top-left-junction` would mean the exact same thing, so there's no
+separate property for it; at table scope the two remain genuinely
+different (one literal position vs. every occurrence of that shape), which
+is why both exist there.
 
 ```css
 table { border-collapse: collapse; border-top: "="; border-top-junction: '+'; }
@@ -418,16 +432,66 @@ value only, no named-preset keyword support, matching `border-*-corner`'s
 own literal-only grammar) — `unset`/`inherit`/`initial` all work on them
 with no special handling, the same as any other property. There is
 currently no shorthand to set several at once (a possible future
-addition); write out the ones you need. **Table-level only** — no per-cell
-equivalent exists yet, a deliberate initial scope: a T-junction/cross is
-inherently shared between 2–4 adjacent cells, and no compelling per-cell
-use case has come up to justify designing the extra conflict-resolution
-tier that would need (see "Not supported" below).
+addition); write out the ones you need.
 
-If both a `border-*-corner` and a `border-*-junction` could apply at the
-same true outer-corner vertex, `border-*-corner` wins (the more specific
-of the two); `border-*-junction` is the fallback there, and the only
-option everywhere else.
+**Precedence, most specific first:**
+
+1. A cell's own override, at its own corner/edge. Up to 4 cells can share
+   one interior vertex; if more than one sets a conflicting override for
+   the same shape there, the earlier cell in reading order wins (the same
+   rule — verified against real browsers — that resolves same-type edge
+   ties; see "`border-collapse: collapse`" above).
+2. `border-*-corner` set on the table — only at the table's own true 4
+   outer corners.
+3. `border-*-junction` set on the table — wherever that shape occurs
+   anywhere in the grid.
+4. The computed glyph from whichever style actually won the surrounding
+   edges (the pre-override behavior, unchanged).
+
+That order matters for correctness, not just priority: an earlier version
+of the table-level corner check read a table's own `border-style` preset's
+corner glyph as a fallback even when a *cell's* higher-precedence style
+had actually won the surrounding edges — producing a visibly mismatched
+corner (e.g. a `rounded` corner around a `heavy` box, if the table set
+`rounded` but a cell's own `heavy` correctly won the edges). The corner/
+junction override tiers now only ever consult an explicit literal value;
+the computed fallback (tier 4) is the only place a *style's own* glyph
+comes from, and it already correctly reflects whichever style won.
+
+**Real-world motivating example**: comfy-table-style ASCII tables (see
+https://github.com/Nukesor/comfy-table) give their header/body divider a
+distinct look — a seamless `=` run with `+` ends — while ordinary row
+dividers use `|`/`-`/`+`. Both dividers share the exact same arm-shapes
+(only which divider they are differs), so this is only reachable with
+per-cell overrides:
+
+```css
+table {
+  border-collapse: collapse; border: none;
+  border-top: "-"; border-bottom: "-";
+  border-center-junction: "+"; border-top-junction: "+"; border-bottom-junction: "+";
+  border-left-junction: "|"; border-right-junction: "|";
+  border-top-left-corner: "+"; border-top-right-corner: "+";
+  border-bottom-left-corner: "+"; border-bottom-right-corner: "+";
+}
+th, td { border-left: "|"; border-right: "|"; }
+th {
+  border-bottom: "=";
+  border-bottom-left-corner: "+"; border-bottom-right-corner: "+";
+  border-center-junction: "="; border-bottom-junction: "=";
+  border-left-junction: "+"; border-right-junction: "+";
+}
+td { border-bottom: "-"; }
+```
+```
++--+--+
+|H1|H2|
++=====+
+|a |b |
+|--+--|
+|c |d |
++--+--+
+```
 
 **Scope of what's compared**, matching the approved design (not a
 limitation to be fixed later, a deliberate boundary): only **cell-level and
@@ -482,8 +546,10 @@ block, under either border model.
 - **Multi-line cell content combined with `white-space: nowrap`** — a
   `nowrap` cell is always clipped to one line (see `text-overflow`), never
   both non-wrapping and multi-line. Applies under both border models.
-- **`border-*-junction` has no per-cell equivalent** — table-level only;
-  see "Junction and corner overrides" above for why.
+- **The 4 corner-shape `border-*-junction` properties have no cell-level
+  equivalent** — table-only; see "Junction and corner overrides" above for
+  why (a cell-level version would be redundant with cell-level
+  `border-*-corner`).
 - **No `border-junctions` shorthand** for setting several junction
   properties at once — a possible future addition, not built yet.
 

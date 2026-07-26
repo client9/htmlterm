@@ -124,6 +124,116 @@ func TestTableBorderCollapseCorners(t *testing.T) {
 	})
 }
 
+// TestTableBorderCollapseCellShapeOverrides covers cell-level
+// border-*-corner/border-*-junction under collapse - previously table-only,
+// the one inconsistent exception among border properties (every other one
+// already works on both <table> and <th>/<td>). A cell only has 4 corners
+// total, so this reuses border-*-corner's existing 4 names (rather than
+// inventing new ones) plus border-*-junction's existing 5 non-diagonal
+// names; the 4 diagonal junction properties stay table-only (see
+// docs/TABLES.md).
+func TestTableBorderCollapseCellShapeOverrides(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			// Regression: the table-level corner fix read tlCorner/etc.
+			// from resolveBoxBorders(tableDecls), which blends an explicit
+			// override with the table's own border-style preset's corner
+			// glyph as a fallback - firing regardless of whether that
+			// style actually won the surrounding edges. Here the table's
+			// own border-style is rounded (precedence 2), but td's own
+			// border-style is heavy (precedence 4) and correctly wins the
+			// edges - the corners must be heavy's own, not a mismatched
+			// rounded corner around heavy fill/edge characters.
+			name: "table's own weaker style must not supply a mismatched corner around a cell's own stronger style",
+			css:  `table { border-collapse: collapse; border-style: rounded; } td, th { border-style: heavy; }`,
+			html: `<table><tr><td>A</td></tr></table>`,
+			want: "┏━┓\n┃A┃\n┗━┛\n",
+		},
+		{
+			name: "a cell's own border-top-left-corner overrides at its own corner position",
+			css:  `table { border-collapse: collapse; border-style: solid; } td { border-top-left-corner: 'X'; }`,
+			html: `<table><tr><td>A</td></tr></table>`,
+			want: "X─┐\n│A│\n└─┘\n",
+		},
+		{
+			name: "a cell's own border-center-junction overrides at its own interior cross",
+			css:  `table { border-collapse: collapse; } td, th { border: solid; } th { border-center-junction: '+'; }`,
+			html: `<table><tr><th>H</th><th>I</th></tr><tr><td>A</td><td>B</td></tr></table>`,
+			want: "┌─┬─┐\n│H│I│\n├─+─┤\n│A│B│\n└─┴─┘\n",
+		},
+		{
+			name: "a cell's own corner override beats a conflicting table-level one",
+			css:  `table { border-collapse: collapse; border-style: solid; border-top-left-corner: 'T'; } td { border-top-left-corner: 'C'; }`,
+			html: `<table><tr><td>A</td></tr></table>`,
+			want: "C─┐\n│A│\n└─┘\n",
+		},
+		{
+			name: "two adjacent cells conflict at a shared vertex: the earlier (left) cell's override wins",
+			css: `table { border-collapse: collapse; } td, th { border: solid; }
+				td.left { border-top-junction: 'L'; } td.right { border-top-junction: 'R'; }`,
+			html: `<table><tr><td class="left">A</td><td class="right">B</td></tr><tr><td>C</td><td>D</td></tr></table>`,
+			want: "┌─L─┐\n│A│B│\n├─┼─┤\n│C│D│\n└─┴─┘\n",
+		},
+		{
+			// Regression: a colspan cell's own override must not leak onto
+			// interior points along its own edges that aren't one of its 4
+			// real corners. A (colspan=2) has no top-shaped vertex at any of
+			// its own corners (nothing above it) - its border-top-junction
+			// must not fire at the row0/row1 boundary between B and C, which
+			// is a point along A's own *bottom* edge, not a corner.
+			name: "a colspan cell's own override does not leak onto a vertex that isn't one of its own corners",
+			css:  `table { border-collapse: collapse; } td { border: solid; } td.a { border-top-junction: 'X'; }`,
+			html: `<table><tr><td class="a" colspan="2">A</td></tr><tr><td>B</td><td>C</td></tr></table>`,
+			want: "┌───┐\n│A  │\n├─┬─┤\n│B│C│\n└─┴─┘\n",
+		},
+		{
+			// Same bug class, rowspan axis: A (rowspan=2) has no left-shaped
+			// vertex at any of its own corners (it's the leftmost column
+			// entirely) - its border-left-junction must not fire at the
+			// vertex where B/C's boundary meets A's own *right* edge.
+			name: "a rowspan cell's own override does not leak onto a vertex that isn't one of its own corners",
+			css:  `table { border-collapse: collapse; } td { border: solid; } td.a { border-left-junction: 'X'; }`,
+			html: `<table><tr><td class="a" rowspan="2">A</td><td>B</td></tr><tr><td>C</td></tr></table>`,
+			want: "┌─┬─┐\n│A│B│\n│ ├─┤\n│ │C│\n└─┴─┘\n",
+		},
+	})
+}
+
+// TestTableBorderCollapseComfyTableStyle is an end-to-end reproduction of
+// the real comfy-table (https://github.com/Nukesor/comfy-table) ASCII
+// look that originally motivated cell-level shape overrides: the
+// header/body divider needs its own left/right ends and interior crosses,
+// distinct from what ordinary row dividers use - impossible with
+// table-level-only border-*-junction, since both dividers share the exact
+// same arm-presence shapes (only which *divider* differs). th supplies its
+// own overrides at its own edges/corners; ordinary rows keep the
+// table-level defaults.
+func TestTableBorderCollapseComfyTableStyle(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "header/body divider gets its own seamless '=' run with '+' ends, distinct from the ordinary '|--+--|' row divider",
+			css: `table {
+				border-collapse: collapse; border: none;
+				border-top: "-"; border-bottom: "-";
+				border-center-junction: "+"; border-top-junction: "+"; border-bottom-junction: "+";
+				border-left-junction: "|"; border-right-junction: "|";
+				border-top-left-corner: "+"; border-top-right-corner: "+";
+				border-bottom-left-corner: "+"; border-bottom-right-corner: "+";
+			}
+			th, td { border-left: "|"; border-right: "|"; }
+			th {
+				border-bottom: "=";
+				border-bottom-left-corner: "+"; border-bottom-right-corner: "+";
+				border-center-junction: "="; border-bottom-junction: "=";
+				border-left-junction: "+"; border-right-junction: "+";
+			}
+			td { border-bottom: "-"; }`,
+			html: `<table><tr><th>H1</th><th>H2</th></tr><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>`,
+			want: "+--+--+\n|H1|H2|\n+=====+\n|a |b |\n|--+--|\n|c |d |\n+--+--+\n",
+		},
+	})
+}
+
 // TestTableBorderCollapseJunctions covers the border-*-junction family: a
 // literal-glyph override for a T-shape/cross/corner-shape wherever that
 // exact arm combination occurs in the grid, table-level only - the
