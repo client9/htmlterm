@@ -977,6 +977,6 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, or positioned layout
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
-- `border-collapse: collapse`'s conflict resolution only considers cell-level and table-level `border`; `tr`/`thead`/`tbody`/`tfoot`/`col`/`colgroup` borders are not consulted — see `docs/TABLES.md`
+- `border-collapse: collapse`'s conflict resolution doesn't consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are consulted, via real conflict resolution against their column's cells) — see `docs/TABLES.md`
 - The legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes on `<table>` (use CSS `border-collapse`/`border-spacing`/cell `padding` instead)
 - The 4 corner-shape `border-*-junction` properties on individual `th`/`td` cells (redundant with cell-level `border-*-corner`), and a `border-junctions` shorthand — see `docs/TABLES.md`

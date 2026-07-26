@@ -351,3 +351,28 @@ func TestTableBorderCollapseSameTypeTieBreak(t *testing.T) {
 		}
 	})
 }
+
+// TestTableBorderCollapseColStyle covers a <col>'s own border participating
+// in real conflict resolution against its column's cells, instead of being
+// silently overridden outright by any cell-level border declaration on the
+// same property. Regression for a bug where mergedCellDecls' flat "col is a
+// fallback base, cell overrides" merge let a cell's lower-precedence style
+// win a property key it happened to also declare explicitly (border-right,
+// here), even though real CSS 2.1 §17.6.2.1 ranks style precedence
+// (double > solid) above element-type precedence (cell > col) - a <col>'s
+// higher-precedence style must still win against a cell that also set that
+// exact edge.
+func TestTableBorderCollapseColStyle(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "a col's higher-precedence style wins over a cell's own lower-precedence style on the same edge",
+			html: `<table style="border-collapse:collapse"><colgroup><col style="border-right:double"><col></colgroup><tr><td style="border-right:solid">A</td><td style="border-left:solid">B</td></tr></table>`,
+			want: "A║B\n",
+		},
+		{
+			name: "a cell's own border still wins when the col has no competing declaration on that edge",
+			html: `<table style="border-collapse:collapse"><colgroup><col><col></colgroup><tr><td style="border-right:solid">A</td><td>B</td></tr></table>`,
+			want: "A│B\n",
+		},
+	})
+}

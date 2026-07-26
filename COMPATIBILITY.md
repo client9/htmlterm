@@ -294,10 +294,11 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   (parsed, never applied), main-axis distribution in `column` direction,
   `baseline` alignment, `margin: auto` on a flex item — see CSS.md's
   Flexbox section for the full reasoning per gap.
-- **Table gaps:** `border-collapse: collapse`'s conflict resolution only
-  considers cell-level and table-level `border` — `tr`/`thead`/`tbody`/
-  `tfoot`/`col`/`colgroup` borders aren't consulted. The legacy HTML
-  `border`/`cellpadding`/`cellspacing` presentational attributes on
+- **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
+  consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
+  consulted, via real conflict resolution against their column's cells). The
+  legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes
+  on
   `<table>` aren't read either (use the CSS equivalents). Multi-line cell
   content combined with `white-space: nowrap` remains unsupported under
   either border model. See `docs/TABLES.md`.

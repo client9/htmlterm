@@ -493,13 +493,25 @@ td { border-bottom: "-"; }
 +--+--+
 ```
 
-**Scope of what's compared**, matching the approved design (not a
-limitation to be fixed later, a deliberate boundary): only **cell-level and
-table-level** `border` declarations are considered. `<tr>`/`<thead>`/
-`<tbody>`/`<tfoot>`/`<col>`/`<colgroup>` borders are not consulted, even
-though real CSS's own collapse algorithm does include some of those in its
-full hierarchy. The legacy HTML `border`/`cellpadding`/`cellspacing`
-presentational attributes aren't read either — use the CSS properties
+**Scope of what's compared, as currently implemented**: **cell-level,
+table-level, and `<col>`/`<colgroup>`** `border` declarations are
+considered — a `<col>`'s own border is resolved against the cells in its
+column via the same style-precedence conflict rules as any other pair of
+candidates (a `<col>`'s higher-precedence style, e.g. `double`, wins over a
+cell's own lower-precedence style, e.g. `solid`, even if the cell also
+declares that exact edge — style precedence outranks element-type
+precedence, matching real CSS's own tier ordering). `<tr>`/`<thead>`/
+`<tbody>`/`<tfoot>` borders are not consulted, even though real CSS's own
+collapse algorithm does include them in its full hierarchy — those elements
+are real DOM ancestors of their cells (unlike `<col>`/`<colgroup>`, which sit
+outside the row/cell tree entirely and need this resolution to reach their
+column's cells at all), and border on `tr`/`thead`/`tbody`/`tfoot` also has
+no effect under real CSS's `border-collapse: separate` — most real-world
+markup styles cell borders directly instead for exactly that
+cross-browser-inconsistency reason, so it wasn't judged worth the added
+conflict-resolution complexity. The legacy HTML
+`border`/`cellpadding`/`cellspacing` presentational attributes aren't read
+either — use the CSS properties
 above.
 
 **A real-CSS deviation worth calling out**: under `border-collapse:
@@ -537,9 +549,10 @@ block, under either border model.
 
 ## Not supported
 
-- **`border-collapse: collapse`'s conflict resolution only considers
-  cell-level and table-level `border`** — `<tr>`/`<thead>`/`<tbody>`/
-  `<tfoot>`/`<col>`/`<colgroup>` borders aren't consulted; see above.
+- **`border-collapse: collapse`'s conflict resolution doesn't consult
+  `<tr>`/`<thead>`/`<tbody>`/`<tfoot>` `border`** (`<col>`/`<colgroup>` are
+  consulted, via real conflict resolution against their column's cells); see
+  above.
 - **The legacy HTML `border`/`cellpadding`/`cellspacing` presentational
   attributes** aren't read — use `border-collapse`/`border-spacing`/cell
   `padding` instead.

@@ -302,6 +302,34 @@ func cellFourEdgesFromDecls(decls map[string]string) [4]edgeCandidate {
 	}
 }
 
+// resolveCellColEdges resolves cell's own four border edges against its
+// column's <col>/<colgroup> declarations (if any) via real CSS 2.1
+// §17.6.2.1 conflict resolution — same tiers resolveSegmentBorder already
+// implements for every other border conflict (hidden wins, absent loses,
+// then style precedence), with ties favoring the cell (real CSS's
+// element-type precedence ranks a cell above a column). This replaces
+// mergedCellDecls' flat "col is a fallback base, cell overrides outright"
+// merge for border purposes specifically: that flat merge let a cell with
+// any border declaration at all silently beat a <col>'s higher-precedence
+// style (e.g. a <col>'s border-style: double should out-rank a cell's
+// border-style: solid, since style precedence outranks element-type
+// precedence — the flat merge never gave the column's style a chance to
+// win that comparison at all). mergedCellDecls' own merge is left as-is for
+// every other property (width, background-color, etc.), where "more
+// specific wins outright" is the only conflict model that applies.
+func (r *Engine) resolveCellColEdges(cell *tableCell, colDecls []map[string]string) [4]edgeCandidate {
+	cellOwn := cellFourEdgesFromDecls(r.resolveDecls(cell.node))
+	if cell.colStart >= len(colDecls) || len(colDecls[cell.colStart]) == 0 {
+		return cellOwn
+	}
+	colOwn := cellFourEdgesFromDecls(colDecls[cell.colStart])
+	var out [4]edgeCandidate
+	for i := range out {
+		out[i] = resolveSegmentBorder(colOwn[i], cellOwn[i])
+	}
+	return out
+}
+
 // renderTableCollapse renders n under `border-collapse: collapse`: a
 // shared grid of horizontal/vertical lines between cells (and between the
 // outermost cells and the table's own border), each segment resolved
@@ -412,7 +440,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 	for _, cell := range cells {
 		decls := r.mergedCellDecls(cell.node, colDecls, cell.colStart)
 		cellDecls[cell] = decls
-		cellEdges[cell] = cellFourEdgesFromDecls(decls)
+		cellEdges[cell] = r.resolveCellColEdges(cell, colDecls)
 	}
 	tbl, tbr, tbt, tbb, _, _, _, _ := resolveBoxBorders(tableDecls)
 	tableEdges := [4]edgeCandidate{
