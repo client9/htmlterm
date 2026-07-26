@@ -134,7 +134,9 @@ above:
   normally inheritable (e.g. `border-style: inherit` forces inheritance on a
   property that wouldn't otherwise propagate).
 - **`unset`** — acts as `inherit` if the property is one of the inheritable
-  properties listed above; otherwise acts as `initial`.
+  properties listed above (custom properties — `--foo` — included, since
+  they're unconditionally inheritable; see "Custom Properties (Variables)"
+  below); otherwise acts as `initial`.
 - **`initial`** — reverts the property to its own specified default,
   ignoring any rule that would otherwise apply, at any specificity. This is
   the one that answers "a broader rule set this property; how does a more
@@ -152,6 +154,61 @@ These keywords resolve against real elements (`Cascade.Resolve`); they are
 **not** currently supported inside `::before`/`::after`/`::marker`/scrollbar
 pseudo-element declarations, which use a separate inheritance mechanism (see
 `internal/render/inline.go`'s `mergeInlineStyle`).
+
+---
+
+## Custom Properties (Variables)
+
+`--name: value;` declares a custom property; `var(--name)` and
+`var(--name, fallback)` read one back. Design rationale and implementation
+notes live in `docs/proposals/VARIABLES.md`.
+
+- **Case-sensitive**, unlike every other property name in this engine —
+  `--Foo` and `--foo` are two distinct properties.
+- **Inherit unconditionally, by name** — a descendant that never redeclares
+  `--brand` at all still sees an ancestor's value, the same as any of the
+  fixed inheritable properties above, except there's no fixed list: *every*
+  `--*` name inherits. A closer declaration overrides a farther one, same as
+  any other cascade.
+- **`var(--name, fallback)`** — the fallback is used when `--name` is
+  undefined anywhere in the tree (not just on the current element). Only the
+  first top-level comma is syntactic; everything after it up to the closing
+  `)` is fallback text verbatim, including further commas, nested `var()`
+  calls, and quoted strings — e.g. `var(--a, rgb(0, 0, 0))` or
+  `var(--a, var(--b, green))` both work as expected.
+- **`!important`** on a `--name` declaration participates in the cascade
+  exactly like any other property.
+- **Cyclic or otherwise unresolvable references resolve to `""`**, not an
+  error and not a hang (`--a: var(--b); --b: var(--a);` — both end up
+  empty). This approximates real CSS's "guaranteed-invalid value" rather
+  than implementing full invalid-at-computed-value-time
+  fallback-to-inherited/initial semantics.
+- **Works inside `::before`/`::after`/`::marker`/scrollbar pseudo-element
+  declarations** — e.g. `::before { content: var(--icon, "> "); }` —
+  unlike `inherit`/`unset`/`initial` (above), which pseudo-elements don't
+  support at all. var() resolution for pseudo-elements is a plain
+  substitution against the real element's already-resolved custom
+  properties, not a second inheritance mechanism, which is why it doesn't
+  share that limitation.
+
+**Known gaps, both accepted limitations rather than bugs:**
+
+- **Shorthand fan-out.** `expandShorthand` runs once at parse time, before
+  any per-node `var()` resolution is possible. `margin: var(--gap) var(--gap)`
+  (one `var()` per shorthand slot) works fine, since each token is opaque to
+  the whitespace splitter. But `margin: var(--sides)` expecting
+  `--sides: 1 2 3 4` to fan out into four independent sides does **not**
+  work — the shorthand expander already collapsed to the single-token "all
+  sides same" branch before the var had a value, so after substitution all
+  four sides get the same literal string `"1 2 3 4"`. Same category of
+  limitation as the existing two-token `border: <width> <style>` gap above.
+- **`counter-reset`/`counter-increment` only see a `var()` reference to a
+  custom property declared on the *same* element**, not one inherited from
+  an ancestor — these are non-inherited properties resolved via
+  `Cascade.Direct`, which (unlike `Resolve`) never walks ancestors at all,
+  for any property. `counter-reset: var(--n)` works when `--n` is set on
+  that same element; it silently no-ops if `--n` is only set on an
+  ancestor.
 
 ---
 

@@ -146,7 +146,7 @@ func (c Cascade) Resolve(n *html.Node) map[string]string {
 		if kw == "" {
 			continue
 		}
-		if kw == "inherit" || (kw == "unset" && inheritableProps[prop]) {
+		if kw == "inherit" || (kw == "unset" && (inheritableProps[prop] || isCustomProp(prop))) {
 			if pv, ok := getParentResolved()[prop]; ok {
 				result[prop] = pv
 				continue
@@ -172,6 +172,42 @@ func (c Cascade) Resolve(n *html.Node) map[string]string {
 				}
 			}
 		}
+		// Custom properties inherit unconditionally, by name, unlike the
+		// fixed inheritableProps whitelist above — so this can't just widen
+		// that loop's condition (prop there is only ever drawn from
+		// inheritableProps's own keys, never a "--*" name). This second loop
+		// walks the parent's own resolved keys instead, which is where any
+		// custom-property names actually live; pr is already computed above,
+		// so this reuses it rather than triggering a new ancestor walk.
+		for prop, v := range pr {
+			if !isCustomProp(prop) {
+				continue
+			}
+			if _, exists := result[prop]; !exists && !forcedAbsent[prop] {
+				result[prop] = v
+			}
+		}
+	}
+
+	// Final var() substitution: by this point result holds n's own +
+	// inherited custom properties (via the loop above, and via Direct(n)'s
+	// own same-element substitution already folded into `direct`) alongside
+	// every other cascaded property, any of which may still contain literal
+	// var(...) text referencing a custom property that's only defined on an
+	// ancestor. resolveCustomProps flattens result's own "--*" subset into
+	// fully-resolved values first (custom properties may reference other
+	// custom properties), then every property's value — custom or not — is
+	// substituted against that flattened environment. This is the "final"
+	// pass (substituteVarTokens, not substituteKnownVarTokens): by now
+	// "unresolved" really does mean unresolved anywhere in the tree, so an
+	// unresolvable reference collapsing to its fallback (or "") is correct
+	// here, unlike inside Direct().
+	resolvedVars := resolveCustomProps(result)
+	for prop, val := range result {
+		result[prop] = substituteVarTokens(val, func(name string) (string, bool) {
+			v, ok := resolvedVars[name]
+			return v, ok
+		})
 	}
 	return result
 }
@@ -260,6 +296,36 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 		}
 	}
 	result := flattenImportant(normal, important)
+
+	// Same-element-only var() resolution (Option A scope cut — see
+	// docs/proposals/VARIABLES.md): Direct() has no ancestor context, so
+	// this only resolves references to n's own custom-property
+	// declarations via substituteKnownVarTokens, which leaves anything else
+	// completely untouched rather than collapsing it to "" or a fallback —
+	// see that function's doc comment for why that distinction matters here.
+	//
+	// A custom property whose own raw value is a bare CSS-wide keyword
+	// ("--x: unset"/"inherit"/"initial") must be excluded from `own`: that
+	// keyword is only ever resolved by Resolve()'s own keyword-handling loop
+	// (just after `direct := c.Direct(n)`), which needs ancestor context
+	// Direct() doesn't have. Treating the literal text "unset" as if it
+	// were --x's real value here would let it leak into any other
+	// declaration that references --x via var() (e.g. "color: var(--x)"
+	// would resolve to the literal string "unset") before Resolve() ever
+	// gets a chance to resolve --x itself.
+	own := customPropSubset(result)
+	for prop, val := range own {
+		if cssWideKeyword(val) != "" {
+			delete(own, prop)
+		}
+	}
+	if len(own) > 0 {
+		resolvedOwn := resolveCustomProps(own)
+		for prop, val := range result {
+			result[prop] = substituteKnownVarTokens(val, resolvedOwn)
+		}
+	}
+
 	if c.Cache != nil {
 		c.Cache[n] = result
 	}
@@ -272,7 +338,19 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 // "scrollbar-cap-start", or "scrollbar-cap-end") on element n. Handles both
 // :before/:after (CSS2) and ::before/::after (CSS3) syntax for all of them,
 // not just before/after.
-func (c Cascade) PseudoElement(n *html.Node, which string) map[string]string {
+//
+// env is the custom-property environment to resolve any var() found in
+// these declarations against — typically customPropSubset(caller's own
+// already-resolved n's declarations). PseudoElement deliberately does not
+// call c.Resolve(n) itself to build this: every real caller already resolves
+// n's own declarations for its own purposes right next to its PseudoElement
+// call (see internal/render/cascade.go's pseudoElemDecls and its call
+// sites), and Resolve is not memoized the way Direct is — an internal
+// Resolve(n) here would silently double that cost for every element with a
+// pseudo-element. env's values are assumed already fully resolved (no
+// leftover var() text), which holds for anything produced by Resolve — so
+// this is a single substitution pass, no fixed-point/cycle logic of its own.
+func (c Cascade) PseudoElement(n *html.Node, which string, env map[string]string) map[string]string {
 	var matches []ruleMatch
 	for _, rl := range c.Rules {
 		if len(rl.parts) == 0 || rl.parts[len(rl.parts)-1].pseudoElem != which {
@@ -292,7 +370,18 @@ func (c Cascade) PseudoElement(n *html.Node, which string) map[string]string {
 		}
 	}
 	normal, important := mergeCascade(matches)
-	return flattenImportant(normal, important)
+	decls := flattenImportant(normal, important)
+	// env may be nil (a caller with nothing resolved yet, or that doesn't
+	// otherwise need it) - reading a nil map is safe and simply means every
+	// lookup misses, so a fallback (or "") is used, exactly as if no custom
+	// properties were in scope at all.
+	for prop, val := range decls {
+		decls[prop] = substituteVarTokens(val, func(name string) (string, bool) {
+			v, ok := env[name]
+			return v, ok
+		})
+	}
+	return decls
 }
 
 func rawContent(n *html.Node) string {

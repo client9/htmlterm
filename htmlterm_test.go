@@ -1451,3 +1451,35 @@ func TestMaxBlankLines(t *testing.T) {
 		t.Errorf("pre exemption across element boundary: got %q want %q", got, "a\n\n\nb\n\n\nnext\n")
 	}
 }
+
+func TestCustomPropertiesEndToEnd(t *testing.T) {
+	render := func(css, htmlStr string) string {
+		r, err := htmlterm.New(htmlterm.Options{Width: 40, Profile: colorprofile.TrueColor, CSS: css})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		got, err := r.Render(htmlStr)
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return got
+	}
+
+	// Same color, one via a literal, one via a variable declared at the
+	// root and inherited all the way down to <p> - the two renders must be
+	// byte-identical, proving var() resolution reaches all the way through
+	// Direct/Resolve/the render engine's own color handling, not just the
+	// cssengine-internal map.
+	literal := render(`p { color: #ff0000; }`, `<p>hi</p>`)
+	viaVar := render(`:root { --brand: #ff0000; } p { color: var(--brand); }`, `<p>hi</p>`)
+	if literal != viaVar {
+		t.Fatalf("var()-resolved color didn't match literal color:\n literal = %q\n viaVar  = %q", literal, viaVar)
+	}
+
+	// ::before content resolves var() with a fallback, end to end through
+	// the render engine's content-tokenizer.
+	got := stripANSI(render(`p::before { content: var(--icon, "> "); }`, `<p>hi</p>`))
+	if got != "> hi\n\n" {
+		t.Fatalf(`::before content var() fallback: got %q, want %q`, got, "> hi\n\n")
+	}
+}

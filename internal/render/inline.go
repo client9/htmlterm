@@ -140,7 +140,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 
 	var tokens []wrapToken
 
-	if bd := r.pseudoElemDecls(n, "before"); len(bd) > 0 {
+	if bd := r.pseudoElemDecls(n, "before", customPropSubset(nDecls)); len(bd) > 0 {
 		if text := r.parseCSSContentString(bd["content"], n); text != "" {
 			pseudoTT := effectiveTransform(bd)
 			if pseudoTT == "" {
@@ -461,7 +461,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 		}
 	}
 
-	if ad := r.pseudoElemDecls(n, "after"); len(ad) > 0 {
+	if ad := r.pseudoElemDecls(n, "after", customPropSubset(nDecls)); len(ad) > 0 {
 		if text := r.parseCSSContentString(ad["content"], n); text != "" {
 			pseudoTT := effectiveTransform(ad)
 			if pseudoTT == "" {

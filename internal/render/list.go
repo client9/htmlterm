@@ -133,7 +133,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 		itemIdx++
 		liDecls := r.resolveDecls(c)
 		prefix := listItemPrefix(listStyleType, ordered, itemIdx, prefixWidth)
-		if md := r.pseudoElemDecls(c, "marker"); len(md) > 0 {
+		if md := r.pseudoElemDecls(c, "marker", customPropSubset(liDecls)); len(md) > 0 {
 			prefix = extractInlineStyle(md).render(prefix, r.profile)
 		}
 		savedDepth := r.quoteDepth

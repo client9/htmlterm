@@ -318,7 +318,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// isn't room for it, rather than collapsing content to 0 width.
 	gutterWidth := 0
 	if heightLines > 0 && ovY == "scroll" {
-		if w := r.scrollbarGutterWidth(n); avail-w >= 1 {
+		if w := r.scrollbarGutterWidth(n, decls); avail-w >= 1 {
 			gutterWidth = w
 		}
 	}
@@ -781,8 +781,11 @@ var scrollbarPresets = map[string]scrollbarPreset{
 // unset, unparseable, or non-positive. Percentage widths are not meaningful
 // for a gutter and are also treated as unset. Independent of scrollbar-style
 // — none of the named presets set a width, only track/thumb glyph and color.
-func (r *Engine) scrollbarGutterWidth(n *html.Node) int {
-	decls := r.pseudoElemDecls(n, "scrollbar")
+// elemDecls is n's own resolved declarations (renderBlockContentBox already
+// has this as decls — not re-resolved here), read only for its custom
+// properties, to resolve var() inside the ::scrollbar rule.
+func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string) int {
+	decls := r.pseudoElemDecls(n, "scrollbar", customPropSubset(elemDecls))
 	if abs, pct, ok := parseSizeVal(decls["width"]); ok && pct == 0 && abs > 0 {
 		return abs
 	}
@@ -812,7 +815,7 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 	}
 	merged := make(map[string]string, len(base))
 	maps.Copy(merged, base)
-	maps.Copy(merged, r.pseudoElemDecls(n, which))
+	maps.Copy(merged, r.pseudoElemDecls(n, which, customPropSubset(elemDecls)))
 	ch := r.parseCSSContentString(merged["content"], n)
 	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}
 }
@@ -840,7 +843,7 @@ func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, 
 	}
 	merged := make(map[string]string, len(base))
 	maps.Copy(merged, base)
-	maps.Copy(merged, r.pseudoElemDecls(n, which))
+	maps.Copy(merged, r.pseudoElemDecls(n, which, customPropSubset(elemDecls)))
 	// parseCSSContentString itself already treats "none"/"normal" as empty
 	// (see its own doc comment), so an explicit ::scrollbar-cap-start/
 	// ::scrollbar-cap-end { content: none; } rule overriding the preset's

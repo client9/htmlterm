@@ -568,7 +568,7 @@ func TestCascadePseudoElementImportant(t *testing.T) {
 	if n == nil {
 		t.Fatal(`<p id="a"> not found`)
 	}
-	got := Cascade{Rules: rules}.PseudoElement(n, "before")
+	got := Cascade{Rules: rules}.PseudoElement(n, "before", nil)
 	if got["content"] != `"high"` {
 		t.Fatalf(`PseudoElement()["content"] = %q, want %q (!important should win for pseudo-elements too)`, got["content"], `"high"`)
 	}
@@ -592,14 +592,14 @@ func TestPseudoElementScrollbarFamily(t *testing.T) {
 		t.Fatal(`<div id="a"> not found`)
 	}
 	cascade := Cascade{Rules: rules}
-	if got := cascade.PseudoElement(n, "scrollbar")["width"]; got != "1ch" {
+	if got := cascade.PseudoElement(n, "scrollbar", nil)["width"]; got != "1ch" {
 		t.Errorf(`PseudoElement(n, "scrollbar")["width"] = %q, want "1ch"`, got)
 	}
-	track := cascade.PseudoElement(n, "scrollbar-track")
+	track := cascade.PseudoElement(n, "scrollbar-track", nil)
 	if track["content"] != `"-"` || track["color"] != "gray" {
 		t.Errorf(`PseudoElement(n, "scrollbar-track") = %v, want content "-" and color gray`, track)
 	}
-	thumb := cascade.PseudoElement(n, "scrollbar-thumb")
+	thumb := cascade.PseudoElement(n, "scrollbar-thumb", nil)
 	if thumb["content"] != `"="` || thumb["background-color"] != "blue" {
 		t.Errorf(`PseudoElement(n, "scrollbar-thumb") = %v, want content "=" and background-color blue`, thumb)
 	}
@@ -618,7 +618,7 @@ func TestPseudoElementScrollbarBareSelectorIsUniversal(t *testing.T) {
 	if n == nil {
 		t.Fatal(`<span id="a"> not found`)
 	}
-	got := Cascade{Rules: rules}.PseudoElement(n, "scrollbar-thumb")
+	got := Cascade{Rules: rules}.PseudoElement(n, "scrollbar-thumb", nil)
 	if got["content"] != `"#"` {
 		t.Errorf(`bare ::scrollbar-thumb matched against unrelated <span> = %v, want content "#"`, got)
 	}
@@ -641,11 +641,11 @@ func TestPseudoElementScrollbarCapStartEnd(t *testing.T) {
 		t.Fatal(`<div id="a"> not found`)
 	}
 	cascade := Cascade{Rules: rules}
-	start := cascade.PseudoElement(n, "scrollbar-cap-start")
+	start := cascade.PseudoElement(n, "scrollbar-cap-start", nil)
 	if start["content"] != `"▲"` || start["color"] != "gray" {
 		t.Errorf(`PseudoElement(n, "scrollbar-cap-start") = %v, want content "▲" and color gray`, start)
 	}
-	end := cascade.PseudoElement(n, "scrollbar-cap-end")
+	end := cascade.PseudoElement(n, "scrollbar-cap-end", nil)
 	if end["content"] != `"▼"` || end["color"] != "gray" {
 		t.Errorf(`PseudoElement(n, "scrollbar-cap-end") = %v, want content "▼" and color gray`, end)
 	}
@@ -683,7 +683,7 @@ func TestPseudoElementDoesNotMutateSharedCachedParts(t *testing.T) {
 	}
 
 	for i, n := range []*html.Node{a, b} {
-		got := cascade.PseudoElement(n, "before")
+		got := cascade.PseudoElement(n, "before", nil)
 		if got["content"] != `"> "` {
 			t.Errorf("call %d: PseudoElement(%s)[\"content\"] = %q, want %q", i, nodeAttr(n, "id"), got["content"], `"> "`)
 		}

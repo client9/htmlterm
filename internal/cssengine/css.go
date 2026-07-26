@@ -63,7 +63,10 @@ func ParseStylesheet(src string) ([]Rule, error) {
 	atRuleDepth := 0
 
 	commitDecl := func() {
-		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
+		prop := strings.TrimSpace(propBuf.String())
+		if !isCustomProp(prop) {
+			prop = strings.ToLower(prop)
+		}
 		val, important := splitImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" && curDecls != nil {
 			for k, v := range expandShorthand(prop, val) {
@@ -216,7 +219,10 @@ func parseDeclarationsWithImportance(src string) map[string]declValue {
 	inValue := false
 
 	commit := func() {
-		prop := strings.ToLower(strings.TrimSpace(propBuf.String()))
+		prop := strings.TrimSpace(propBuf.String())
+		if !isCustomProp(prop) {
+			prop = strings.ToLower(prop)
+		}
 		val, important := splitImportant(strings.TrimSpace(valBuf.String()))
 		if prop != "" && val != "" {
 			for k, v := range expandShorthand(prop, val) {

@@ -1,8 +1,19 @@
 # CSS Custom Properties (`--foo` / `var()`) — Design & Implementation Plan
 
-Status: **proposed, not implemented.** This document captures the evaluation
-and plan for adding CSS custom properties to `internal/cssengine`. No code
-has been written yet — this is the spec to implement against.
+Status: **implemented**, in `internal/cssengine/customprops.go` plus the
+`Direct`/`Resolve`/`PseudoElement` changes in `internal/cssengine/cascade.go`
+described below. This document remains the design record and rationale —
+see CSS.md's "Custom Properties (Variables)" section for the user-facing
+reference. One refinement emerged during implementation that's folded into
+the "Design" section below: `Direct()` cannot reuse `substituteVarTokens`
+(the same "final" substitution `Resolve()`/`PseudoElement()` use) for its
+own-element-only pass, because that function collapses an unresolved
+reference to its fallback (or `""`) — destructive behavior that's correct
+once the full ancestor-aware environment is known, but wrong at `Direct()`
+time, when a reference to an ancestor-only custom property must survive
+untouched for `Resolve()` to resolve later. `substituteKnownVarTokens` is
+the non-destructive variant used there instead (see its doc comment in
+`customprops.go`).
 
 ---
 
@@ -11,9 +22,14 @@ has been written yet — this is the spec to implement against.
 `internal/cssengine` already has most of the required machinery:
 
 - `Cascade.Direct` / `Resolve` / `PseudoElement` are the *only* three entry
-  points `internal/render` uses (`internal/render/cascade.go`), so var()
-  support can be fully contained inside `cssengine` — zero changes needed
-  in `internal/render`, `document`, or `tui`.
+  points `internal/render` uses (`internal/render/cascade.go`), so almost
+  all of var() support is contained inside `cssengine`. The one exception:
+  `PseudoElement` needs its caller's already-resolved custom-prop
+  environment passed in (see "Design" below, to avoid a redundant
+  `Resolve(n)` call), which does mean a small, mechanical signature change
+  threading through `internal/render/cascade.go`'s three wrappers and their
+  call sites — not "zero changes in `internal/render`," but still nothing
+  in `document` or `tui`.
 - `mergeCascade`/`!important` already treat every property name generically;
   `--foo` needs no new cascade-priority logic, just two special-cases
   (below).
@@ -34,14 +50,34 @@ has been written yet — this is the spec to implement against.
    (`inheritableProps` in `cascade.go`). Custom properties inherit
    unconditionally, by name (any `--*`), so the inheritance loop needs a
    `strings.HasPrefix(prop, "--")` fallback alongside the whitelist.
-3. **Timing matters for performance.** `Resolve(n)` already walks ancestors
-   once, calling `Direct(anc)` per ancestor. If var()-substitution needed
-   its own ancestor walk *inside* `Direct()`, every `Direct(anc)` call in
-   that existing walk would trigger another O(depth) walk — O(depth²) per
-   node on deeply nested trees. Keeping substitution at the
-   `Resolve()`/`PseudoElement()` level (after the existing ancestor loop has
-   already flattened the custom-prop environment into a single map) avoids
-   this — it costs nothing beyond what's already computed today.
+3. **Timing matters for performance, but this codebase's existing baseline
+   is already more expensive than it looks.** `Cascade.Cache` only memoizes
+   `Direct` (`cascade.go`'s `Cache map[*html.Node]map[string]string` field,
+   populated solely inside `Direct`). `Resolve(n)` itself is *not* memoized:
+   it recurses via nested `c.Resolve(anc)` calls up the ancestor chain
+   (`getParentResolved`), and every level of that recursion re-runs its own
+   ~16-entry `inheritableProps` fill loop and `forcedAbsent` allocation from
+   scratch. `Direct(anc)` is cheap thanks to the cache, but that surrounding
+   inheritance bookkeeping is not cached at all, so a full render pass that
+   calls `Resolve` on every node already costs at least O(N·D) (worse — up
+   to O(N²) — on deep/linear trees), independent of variables.
+   var()-substitution should still live at the `Resolve()`/`PseudoElement()`
+   level rather than inside `Direct()` (doing it inside `Direct()` would add
+   a *second*, unmemoized ancestor walk per node, on top of the one above —
+   true O(depth²) new cost, not just riding along on existing cost). But
+   doing it in `Resolve()` should be described honestly: it adds a fixed
+   amount of substitution work at every level of an already non-cheap,
+   already-repeated recursion, not "nothing extra." Two concrete
+   consequences for the design below:
+   - The `Resolve()` inheritance fill-in loop must be fixed correctly (see
+     "Design" below) — a naive edit that only changes a loop *condition*
+     without changing what the loop iterates over is easy to write, compiles
+     fine, and silently does nothing.
+   - `PseudoElement()`'s own var-environment lookup must not add a *second*
+     full `Resolve(n)` on top of the one its caller already performs (every
+     call site already computes `nDecls := r.resolveDecls(n)` right next to
+     its `pseudoElemDecls(n, ...)` call — see `internal/render/inline.go`
+     around lines 130/143) — see "Design" below.
 4. **Cycles.** `--a: var(--b); --b: var(--a);` must not hang or
    stack-overflow. Needs a visited-set guard during a fixed-point resolution
    pass over the `--*` subset of a node's declarations.
@@ -116,12 +152,47 @@ preserved today (no change needed there).
 
 **`Resolve(n)`:**
 1. `result := c.Direct(n)` — unchanged first line.
-2. Existing ancestor-inheritance loop: broaden the copy condition from
-   `inheritableProps[prop]` to `inheritableProps[prop] || isCustomProp(prop)`.
-   This is the entire "custom properties inherit" implementation — it
-   reuses the loop that's already walking ancestors for every other
-   inheritable property, so there's no new traversal.
-3. After that loop, `result` holds n's own + inherited custom properties
+2. Existing ancestor-inheritance loop (`cascade.go:167-175`) *cannot* just
+   have its copy condition widened in place — it is:
+   ```go
+   for prop := range inheritableProps {
+       if _, exists := result[prop]; !exists && !forcedAbsent[prop] {
+           if v, ok := pr[prop]; ok {
+               result[prop] = v
+           }
+       }
+   }
+   ```
+   `prop` is only ever drawn from the fixed `inheritableProps` map's keys —
+   a custom property name like `--brand` never occurs as a loop variable,
+   so widening the *condition* inside the loop body (`inheritableProps[prop]
+   || isCustomProp(prop)`) is a no-op: that body is simply never reached
+   with `prop == "--brand"`. This would compile and look right while
+   silently breaking the most common variables use case (a descendant that
+   never redeclares `--brand` at all, e.g. `:root { --brand: blue; } p {
+   color: var(--brand); }` with no `--brand` on `p`) — the earlier keyword
+   loop already handles the *explicit* `--x: inherit` case correctly (it
+   iterates `direct`'s own keys generically), so only the *implicit*
+   no-declaration-at-all path is at risk here.
+
+   The correct fix adds a **second loop that iterates the parent's own
+   resolved keys**, not `inheritableProps`:
+   ```go
+   for prop := range inheritableProps { ... } // unchanged, as above
+   for prop, v := range pr {
+       if !isCustomProp(prop) {
+           continue
+       }
+       if _, exists := result[prop]; !exists && !forcedAbsent[prop] {
+           result[prop] = v
+       }
+   }
+   ```
+   This is still a small, contained diff and still reuses the
+   already-computed `pr` (`getParentResolved()`) rather than triggering any
+   new ancestor walk — just not by editing the existing loop's condition
+   alone.
+3. After both loops, `result` holds n's own + inherited custom properties
    (still raw/unsubstituted) plus all its cascaded normal properties (also
    still possibly containing raw `var()` text). Run:
    ```go
@@ -139,36 +210,73 @@ preserved today (no change needed there).
    `n`) must still resolve, since `--gap` is already in `result` (own or
    inherited) by this point.
 
-**`PseudoElement(n, which)`:** after computing `decls` as today (unchanged),
-call `Resolve(n)` and filter its result to `--*` keys — these are already
-fully resolved (no leftover `var()`), so this is a single substitution
-pass with no fixed-point/cycle logic needed:
+**`PseudoElement(n, which)`:** must **not** call `c.Resolve(n)` itself to
+build its var-lookup environment — every real call site already computes
+`nDecls := r.resolveDecls(n)` immediately before calling `pseudoElemDecls(n,
+...)` (e.g. `internal/render/inline.go` around lines 130/143, similarly in
+`block.go`/`list.go`). Since `Resolve` is not memoized (only `Direct` is,
+via `Cache`), an internal `c.Resolve(n)` call here would silently double
+the cost of resolving `n` for every element carrying a `::before`/
+`::after`/`::marker`/`::scrollbar*` — a second full ancestor-inheritance
+recursion purely to re-derive custom-prop values the caller already has.
+
+Instead, `PseudoElement` takes the caller's already-resolved environment
+as a parameter:
 ```go
-env := customPropSubset(c.Resolve(n))
-for prop, val := range decls {
-    decls[prop] = substituteVarTokens(val, func(name string) (string, bool) {
-        v, ok := env[name]
-        return v, ok
-    })
+func (c Cascade) PseudoElement(n *html.Node, which string, env map[string]string) map[string]string {
+    // ...compute decls as today (unchanged)...
+    for prop, val := range decls {
+        decls[prop] = substituteVarTokens(val, func(name string) (string, bool) {
+            v, ok := env[name]
+            return v, ok
+        })
+    }
+    return decls
 }
 ```
+Callers pass `customPropSubset(nDecls)` (the `Resolve(n)` result they
+already computed for their own purposes) rather than the whole map, so
+`PseudoElement` never needs to know how `env` was derived — this is a
+substitution pass with no fixed-point/cycle logic of its own, since `env`'s
+values are already fully resolved by the time `Resolve(n)` produced them.
+This does touch `internal/render/cascade.go`'s three thin wrappers
+(`pseudoElemDecls` and its call sites), a small, contained exception to
+this proposal's "zero changes needed outside `cssengine`" framing in
+"Why this is worth doing" above — worth calling out explicitly rather than
+silently dropping that guarantee.
+
 This makes `content: var(--icon, "★ ")` resolve *before* render's own
 `attr()`/`counter()` content-tokenizer ever sees the value — no changes
-needed in `internal/render`'s content-parsing code, since by the time it
-runs, `content`'s value is just an ordinary literal string.
+needed in `internal/render`'s content-*parsing* code itself, since by the
+time it runs, `content`'s value is just an ordinary literal string.
 
 **`Direct(n)`:** stays as today, plus one same-element-only substitution
 pass at the end (no ancestor walk — this is the Option A scope cut):
 ```go
-own := customPropSubset(result) // just this node's own "--*" decls
-resolved := resolveCustomProps(own)
-for prop, val := range result {
-    result[prop] = substituteVarTokens(val, func(name string) (string, bool) {
-        v, ok := resolved[name]
-        return v, ok
-    })
+if own := customPropSubset(result); len(own) > 0 {
+    resolvedOwn := resolveCustomProps(own)
+    for prop, val := range result {
+        result[prop] = substituteKnownVarTokens(val, resolvedOwn)
+    }
 }
 ```
+Note this uses `substituteKnownVarTokens`, **not** `substituteVarTokens` —
+this is the one place the two must not be interchanged. `substituteVarTokens`
+(used by `Resolve`/`PseudoElement`, above) collapses an unresolved reference
+to its fallback or `""`, which is correct once the full ancestor-aware
+environment is known, but `Direct()` has no ancestor context at all: it
+cannot tell "genuinely undefined anywhere" apart from "defined further up
+the tree." Since `Direct(n)`'s result seeds `Resolve(n)` (`direct :=
+c.Direct(n)`), using the destructive `substituteVarTokens` here would
+permanently erase any `var()` referencing an ancestor-only custom property
+— e.g. `margin-top: var(--gap)` where `--gap` is only declared on an
+ancestor — before `Resolve()` ever got a chance to look further up the tree,
+silently breaking inheritance for `var()` on every ordinary property, not
+just the counter-reset/counter-increment case this cut is meant for.
+`substituteKnownVarTokens` instead leaves any reference not found in `own`
+completely untouched (name, fallback, and all), so `Resolve()`'s later,
+fully ancestor-aware pass still sees the literal `var(...)` text and can
+resolve it correctly.
 
 ### `CSS.md` changes
 

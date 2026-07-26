@@ -111,6 +111,12 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Cascade keywords:** `inherit`, `unset`, and `initial` are recognized on
   any property, not just the usual inheritable set — see CSS.md's
   Inheritance section.
+- **Custom properties:** `--name: value;` declarations and `var(--name)`/
+  `var(--name, fallback)` usage, including unconditional by-name
+  inheritance and pseudo-element (`::before`/`::after`/etc.) `content`
+  values — see CSS.md's "Custom Properties (Variables)" section and
+  `docs/proposals/VARIABLES.md` for the design. `calc()` and other CSS math
+  functions are not implemented (see "Not Supported" below).
 - **Colors:** every CSS Color Level 4 format — hex (3/4/6/8-digit), named
   colors (full W3C list), `rgb()`/`rgba()`, `hsl()`/`hsla()`, `hwb()` —
   downsampled automatically to the terminal's actual color capability
@@ -264,8 +270,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 
 - **CSS units:** `px`, `em`, `rem`, `vw`, `vh`, and friends (ignored; use
   bare integers, `ch`, or `%`).
-- **CSS math/variables:** `calc()`, `min()`, `max()`, `clamp()`, custom
-  properties (`--foo`).
+- **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties —
+  `--foo`/`var()` — *are* supported; see the CSS "At a Glance" entry below
+  and CSS.md's "Custom Properties (Variables)" section.)
 - **At-rules:** `@media`, `@font-face`, `@keyframes`, `@import`,
   `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
   styles), etc. — the parser recognizes any `@`-rule and skips it as a unit
