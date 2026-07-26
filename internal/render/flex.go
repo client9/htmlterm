@@ -11,10 +11,11 @@ import (
 // This file implements htmlterm's CSS flexbox subset: display:flex/
 // inline-flex, flex-direction:row|row-reverse|column|column-reverse,
 // justify-content, align-items, align-self, order, gap/row-gap/column-gap,
-// and flex-grow (flex-basis resolves the item's starting main-axis size
-// before growth is distributed). See CSS.md's "Flexbox" section for the
-// exact supported subset and its documented non-goals (flex-wrap,
-// align-content, flex-shrink, baseline alignment).
+// flex-grow (flex-basis resolves the item's starting main-axis size before
+// growth is distributed), and (row direction only) flex-wrap/align-content.
+// See CSS.md's "Flexbox" section for the exact supported subset and its
+// documented non-goals (column-direction wrap, flex-shrink, baseline
+// alignment).
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -108,6 +109,27 @@ func parseGapLen(v string) int {
 		return 0
 	}
 	return abs
+}
+
+// parseFlexWrap parses flex-wrap: "wrap" enables multi-line row layout;
+// nowrap (the default, and any other/invalid value) keeps the single-line
+// behavior row-direction flex layout has always had.
+func parseFlexWrap(decls map[string]string) bool {
+	return decls["flex-wrap"] == "wrap"
+}
+
+// resolveFlexContainerHeight resolves an explicit CSS height on a flex
+// container to an absolute line count, for align-content's cross-axis
+// distribution. Percentage heights are not resolved (this engine has no
+// notion of a flex container's percentage-basis height), matching
+// renderBlockContentBox's own height handling, which likewise only acts on
+// parseSizeVal's absolute return.
+func resolveFlexContainerHeight(decls map[string]string) (int, bool) {
+	abs, _, ok := parseSizeVal(decls["height"])
+	if !ok || abs <= 0 {
+		return 0, false
+	}
+	return abs, true
 }
 
 // collectFlexItems gathers n's direct element children that participate in
@@ -253,6 +275,52 @@ func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int
 	return leadPad, gaps
 }
 
+// distributeAlignContent resolves align-content's leftover cross-axis space
+// across a wrapped row container's lines into a leading blank-row count
+// (before the first line) and n-1 extra row-gap amounts (added on top of the
+// base row-gap between lines) - the same shape as distributeJustify, but
+// operating on whole lines in the cross (vertical) axis rather than items in
+// the main (horizontal) axis. leftover <= 0 (no explicit container height, or
+// the wrapped lines already fill or exceed it) always yields no extra
+// spacing. "stretch" (align-content's real default) has no cell-grid
+// equivalent for growing each line's own items taller than their content, so
+// it's approximated as flex-start (no distribution) rather than half
+// implementing per-item vertical growth - see CSS.md.
+func distributeAlignContent(align string, leftover, n int) (leadRows int, gaps []int) {
+	if n > 1 {
+		gaps = make([]int, n-1)
+	}
+	if leftover <= 0 {
+		return 0, gaps
+	}
+	switch align {
+	case "flex-end":
+		leadRows = leftover
+	case "center":
+		leadRows = leftover / 2
+	case "space-between":
+		if n < 2 {
+			return 0, gaps
+		}
+		base := leftover / (n - 1)
+		rem := leftover % (n - 1)
+		for i := range gaps {
+			gaps[i] = base
+			if i < rem {
+				gaps[i]++
+			}
+		}
+	case "space-around":
+		unit := leftover / n
+		rem := leftover % n
+		leadRows = unit/2 + rem/2
+		for i := range gaps {
+			gaps[i] = unit
+		}
+	}
+	return leadRows, gaps
+}
+
 // crossOffset resolves align-items' vertical offset (row direction) for one
 // item within the row's tallest item height. "stretch" (default) and
 // "flex-start" both place content flush at the top — this engine has no way
@@ -293,10 +361,151 @@ func padBoxVertical(b box, height, topOffset int) box {
 	return box{lines: lines, width: b.width}
 }
 
+// breakFlexLines buckets item indices into flex lines for flex-wrap: wrap,
+// using each item's already-resolved (pre-grow) main-axis width - real CSS's
+// "hypothetical main size" used for line-breaking, before any flex-grow
+// distribution (which happens per line, once a line's membership is fixed).
+// An item that alone exceeds innerW still gets its own line rather than
+// being dropped or splitting further - this engine has no notion of
+// splitting a single item across lines, matching real CSS. nowrap (default)
+// always returns a single line containing every item, matching row-direction
+// flex layout's pre-flex-wrap behavior exactly.
+func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
+	all := make([]int, n)
+	for i := range all {
+		all[i] = i
+	}
+	if !wrap {
+		return [][]int{all}
+	}
+	var lines [][]int
+	var cur []int
+	running := 0
+	for _, i := range all {
+		w := widths[i]
+		needed := w
+		if len(cur) > 0 {
+			needed = running + gap + w
+		}
+		if len(cur) > 0 && needed > innerW {
+			lines = append(lines, cur)
+			cur = []int{i}
+			running = w
+			continue
+		}
+		cur = append(cur, i)
+		running = needed
+	}
+	if len(cur) > 0 {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
+// layoutFlexLine lays out one flex line's worth of items (a subset of
+// items/widths/mt/mb, named by group's indices into those slices): resolves
+// flex-grow within just this line, then applies justify-content/align-items
+// exactly as row-direction flex layout always has for a single line. widths
+// is mutated in place for group's own indices (each index belongs to exactly
+// one line, so this is safe across repeated calls for other lines).
+func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []int, innerW, gap int, decls map[string]string) (box, int, map[*html.Node]Rect) {
+	totalGap := gap * (len(group) - 1)
+	availForItems := max(0, innerW-totalGap)
+
+	totalGrow := 0.0
+	sumW := 0
+	for _, i := range group {
+		totalGrow += items[i].grow
+		sumW += widths[i]
+	}
+	leftover := availForItems - sumW
+	if leftover > 0 && totalGrow > 0 {
+		assigned := 0
+		lastGrowIdx := -1
+		for _, i := range group {
+			if items[i].grow <= 0 {
+				continue
+			}
+			lastGrowIdx = i
+			share := int(float64(leftover)*items[i].grow/totalGrow + 0.5)
+			widths[i] += share
+			assigned += share
+		}
+		widths[lastGrowIdx] += leftover - assigned
+		leftover = 0
+	}
+
+	itemBoxes := make(map[int]box, len(group))
+	itemPositions := make(map[int]map[*html.Node]Rect, len(group))
+	outerHeights := make(map[int]int, len(group))
+	height := 1
+	for _, i := range group {
+		it := items[i]
+		w := max(1, widths[i])
+		b, pos := r.renderFlexItemBox(it, w)
+		// An item with no CSS width of its own doesn't auto-fill the
+		// available width the way a plain block box would (renderBlockContentBox
+		// only pads to its available width when something — an explicit
+		// width, text-align, or a border — requires it), so this main-axis
+		// pass's resolved width must be enforced explicitly here, or a grown
+		// item's extra space would collapse back to its own natural width.
+		b = alignLinesBox(b, it.decls["text-align"], w)
+		itemBoxes[i] = b
+		itemPositions[i] = pos
+		// The item's margin-top/margin-bottom widen its own cross-axis
+		// footprint (its "outer" height) - align-items/align-self and the
+		// line's own shared height are resolved against that outer height,
+		// not the bare content height, matching real CSS (alignment
+		// distributes free space around an item's margin box).
+		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
+		height = max(height, outerHeights[i])
+	}
+
+	align := decls["align-items"]
+	leadPad, extraGaps := distributeJustify(decls["justify-content"], leftover, len(group))
+
+	rowLines := make([]string, height)
+	if leadPad > 0 {
+		blank := strings.Repeat(" ", leadPad)
+		for i := range rowLines {
+			rowLines[i] = blank
+		}
+	}
+	positions := map[*html.Node]Rect{}
+	colStart := leadPad
+	for gi, i := range group {
+		it := items[i]
+		offset := mt[i] + crossOffset(itemAlign(it, align), height, outerHeights[i])
+		padded := padBoxVertical(itemBoxes[i], height, offset)
+		for li := range rowLines {
+			rowLines[li] += padded.lines[li]
+		}
+		positions[it.node] = Rect{Row: offset, Col: colStart, Width: widths[i], Height: len(itemBoxes[i].lines)}
+		if len(itemPositions[i]) > 0 {
+			positions = mergePositions(positions, itemPositions[i], offset, colStart)
+		}
+		colStart += widths[i]
+		if gi < len(group)-1 {
+			g := gap + extraGaps[gi]
+			colStart += g
+			if g > 0 {
+				blank := strings.Repeat(" ", g)
+				for li := range rowLines {
+					rowLines[li] += blank
+				}
+			}
+		}
+	}
+	return box{lines: rowLines, width: linesWidth(rowLines)}, height, positions
+}
+
 // layoutFlexRow lays out items left to right (or right to left when reverse
 // is set, for flex-direction:row-reverse): main axis (flex-grow/
 // justify-content) is horizontal, cross axis (align-items/align-self) is
-// vertical.
+// vertical. flex-wrap:wrap buckets items into multiple lines (breakFlexLines)
+// stacked vertically with row-gap, and align-content distributes any extra
+// cross-axis space across those lines when the container has an explicit
+// height taller than their natural stack - see distributeAlignContent.
 func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int, reverse bool) (box, map[*html.Node]Rect) {
 	items := r.collectFlexItems(n)
 	if reverse {
@@ -306,8 +515,8 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 		return box{lines: []string{""}}, nil
 	}
 	gap := parseGapLen(decls["column-gap"])
-	totalGap := gap * (len(items) - 1)
-	availForItems := max(0, innerW-totalGap)
+	rowGap := parseGapLen(decls["row-gap"])
+	wrap := parseFlexWrap(decls)
 
 	// margin-left/margin-right on a flex item need no separate handling
 	// here: renderFlexItemBox dispatches to the ordinary block box model
@@ -328,94 +537,75 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// elsewhere in this file) - see CSS.md's Flexbox "Not supported" list.
 	mt := make([]int, len(items))
 	mb := make([]int, len(items))
+	widths := make([]int, len(items))
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
 		mb[i] = parseMargin(it.decls["margin-bottom"])
-	}
-
-	widths := make([]int, len(items))
-	totalGrow := 0.0
-	for i, it := range items {
 		widths[i] = r.resolveMainBasis(it, innerW)
-		totalGrow += it.grow
 	}
-	leftover := availForItems - sum(widths)
-	if leftover > 0 && totalGrow > 0 {
-		assigned := 0
-		lastGrowIdx := -1
-		for i, it := range items {
-			if it.grow <= 0 {
-				continue
-			}
-			lastGrowIdx = i
-			share := int(float64(leftover)*it.grow/totalGrow + 0.5)
-			widths[i] += share
-			assigned += share
+
+	lineGroups := breakFlexLines(len(items), widths, innerW, gap, wrap)
+	type lineResult struct {
+		b   box
+		h   int
+		pos map[*html.Node]Rect
+	}
+	results := make([]lineResult, len(lineGroups))
+	for li, group := range lineGroups {
+		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, group, innerW, gap, decls)
+		results[li] = lineResult{b, h, pos}
+	}
+
+	if len(results) == 1 {
+		return results[0].b, results[0].pos
+	}
+
+	contentHeight := 0
+	for i, res := range results {
+		contentHeight += res.h
+		if i > 0 {
+			contentHeight += rowGap
 		}
-		widths[lastGrowIdx] += leftover - assigned
-		leftover = 0
+	}
+	leadRows := 0
+	wantHeight := 0
+	extraGapsBetweenLines := make([]int, len(results)-1)
+	if h, ok := resolveFlexContainerHeight(decls); ok && h > contentHeight {
+		wantHeight = h
+		leadRows, extraGapsBetweenLines = distributeAlignContent(decls["align-content"], wantHeight-contentHeight, len(results))
 	}
 
-	itemBoxes := make([]box, len(items))
-	itemPositions := make([]map[*html.Node]Rect, len(items))
-	outerHeights := make([]int, len(items))
-	height := 1
-	for i, it := range items {
-		w := max(1, widths[i])
-		b, pos := r.renderFlexItemBox(it, w)
-		// An item with no CSS width of its own doesn't auto-fill the
-		// available width the way a plain block box would (renderBlockContentBox
-		// only pads to its available width when something — an explicit
-		// width, text-align, or a border — requires it), so this main-axis
-		// pass's resolved width must be enforced explicitly here, or a grown
-		// item's extra space would collapse back to its own natural width.
-		b = alignLinesBox(b, it.decls["text-align"], w)
-		itemBoxes[i] = b
-		itemPositions[i] = pos
-		// The item's margin-top/margin-bottom widen its own cross-axis
-		// footprint (its "outer" height) - align-items/align-self and the
-		// row's own shared height are resolved against that outer height,
-		// not the bare content height, matching real CSS (alignment
-		// distributes free space around an item's margin box).
-		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
-		height = max(height, outerHeights[i])
-	}
-
-	align := decls["align-items"]
-	leadPad, extraGaps := distributeJustify(decls["justify-content"], leftover, len(items))
-
-	rowLines := make([]string, height)
-	if leadPad > 0 {
-		blank := strings.Repeat(" ", leadPad)
-		for i := range rowLines {
-			rowLines[i] = blank
-		}
+	var allLines []string
+	for range leadRows {
+		allLines = append(allLines, "")
 	}
 	positions := map[*html.Node]Rect{}
-	colStart := leadPad
-	for i, it := range items {
-		offset := mt[i] + crossOffset(itemAlign(it, align), height, outerHeights[i])
-		padded := padBoxVertical(itemBoxes[i], height, offset)
-		for li := range rowLines {
-			rowLines[li] += padded.lines[li]
+	rowOffset := leadRows
+	for i, res := range results {
+		if len(res.pos) > 0 {
+			positions = mergePositions(positions, res.pos, rowOffset, 0)
 		}
-		positions[it.node] = Rect{Row: offset, Col: colStart, Width: widths[i], Height: len(itemBoxes[i].lines)}
-		if len(itemPositions[i]) > 0 {
-			positions = mergePositions(positions, itemPositions[i], offset, colStart)
-		}
-		colStart += widths[i]
-		if i < len(items)-1 {
-			g := gap + extraGaps[i]
-			colStart += g
-			if g > 0 {
-				blank := strings.Repeat(" ", g)
-				for li := range rowLines {
-					rowLines[li] += blank
-				}
+		allLines = append(allLines, res.b.lines...)
+		rowOffset += res.h
+		if i < len(results)-1 {
+			g := rowGap + extraGapsBetweenLines[i]
+			for range g {
+				allLines = append(allLines, "")
 			}
+			rowOffset += g
 		}
 	}
-	return box{lines: rowLines, width: linesWidth(rowLines)}, positions
+	// leadRows/extraGapsBetweenLines only place free space around/between
+	// lines - flex-start/stretch (the default when align-content is unset or
+	// "stretch"/"flex-start") and "center" (half the leftover, not all of it)
+	// can each still leave the container short of its explicit height, so any
+	// remainder is always flushed as trailing blank rows - this is what makes
+	// the container actually reach wantHeight, not align-content's own
+	// distribution.
+	for len(allLines) < wantHeight {
+		allLines = append(allLines, "")
+	}
+	return box{lines: allLines, width: linesWidth(allLines)}, positions
 }
 
 // layoutFlexColumn lays out items top to bottom: cross axis (align-items) is

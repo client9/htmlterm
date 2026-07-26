@@ -724,6 +724,25 @@ stacks items top to bottom (main axis = lines, cross axis = columns).
 direction — `order` (below) is resolved first, then the reversed direction
 flips that whole sequence, matching real CSS. Not inherited.
 
+#### `flex-wrap`
+`nowrap` (default) | `wrap`. `row` direction only — `column` direction has no
+wrapping support (see "Not supported"). `nowrap` keeps every item on one line
+(overflowing the container's width if they don't fit, same as always).
+`wrap` buckets items into multiple lines using each item's resolved
+`flex-basis`/`width`/natural width (before `flex-grow` is applied): items are
+added to the current line until the next one wouldn't fit, then a new line
+starts; an item wider than the container still gets its own line rather than
+being dropped or split. Lines stack top to bottom with `row-gap` between
+them; `flex-grow`/`justify-content` are then resolved independently within
+each line, matching real CSS ("the line" is the scope `flex-grow` distributes
+within once wrapping is in play, not the whole container). `flex-wrap:
+wrap-reverse` is not supported. Not inherited.
+
+```css
+/* items reflow onto additional lines once the row is full */
+.row { display: flex; flex-wrap: wrap; width: 100%; gap: 1; }
+```
+
 #### `justify-content`
 `flex-start` (default) | `flex-end` | `center` | `space-between` |
 `space-around`. Distributes leftover main-axis space among items — only
@@ -752,6 +771,33 @@ with `align-self`. Not inherited.
 a flex item to override the container's `align-items` for that one item;
 `auto` (or leaving it unset) defers to the container. Same value vocabulary
 and per-direction meaning as `align-items` above. Not inherited.
+
+#### `align-content`
+`flex-start` | `flex-end` | `center` | `space-between` | `space-around` |
+`stretch` (default). `row` direction only, and only takes effect once
+`flex-wrap: wrap` has actually produced more than one line — with a single
+line (whether from `nowrap` or a `wrap`ped row that still fits on one line)
+it's a no-op, matching real CSS's "meaningless without extra cross-axis
+space" behavior but narrowed further here since this subset has no notion of
+an implicit flex-container height otherwise (see below). Distributes
+leftover cross-axis (vertical) space across lines the same way
+`justify-content` distributes leftover main-axis space across items on one
+line — but that leftover space only exists when the flex container has an
+**explicit `height`** taller than its wrapped lines' natural stack; without
+one, there's no free space to distribute and this property has nothing to
+do (matching `column` direction's own "no explicit main-axis size" gap for
+`flex-grow`/`justify-content`, above). Setting an explicit `height` on a
+wrapping flex container is otherwise unsupported outside of feeding
+`align-content` this way — the container is still padded with trailing blank
+rows to reach exactly that height regardless of which value is set, but
+nothing else about the layout responds to it. `stretch` is approximated as
+`flex-start` (no distribution): growing each line's own items taller than
+their content to fill leftover space isn't implemented. Not inherited.
+
+```css
+/* push wrapped lines to the bottom of a taller-than-content flex container */
+.row { display: flex; flex-wrap: wrap; width: 100%; height: 10; align-content: flex-end; }
+```
 
 #### `order`
 `<integer>` (default `0`). Set on a flex item to change its position in
@@ -829,14 +875,17 @@ positions the item within. `margin: auto` is not supported (see below).
 
 #### Not supported
 
-- **`flex-wrap`** — items never wrap to multiple lines; a `row` that doesn't
-  fit simply overflows.
-- **`align-content`** — meaningless without wrapping.
+- **`flex-wrap`/`align-content` in `column` direction** — wrapping into
+  multiple columns isn't implemented; `column` direction remains single-line
+  regardless of `flex-wrap`. **`flex-wrap: wrap-reverse`** (row direction) —
+  only `wrap`'s top-to-bottom line order is supported.
+- **`align-content: stretch`** growing each line's items taller than their
+  content — approximated as `flex-start`; see above.
 - **`flex-shrink`** — parsed but never applied; see above.
 - **Main-axis distribution in `column` direction** — `flex-grow` and
   `justify-content` require an explicit main-axis (height) size to
   distribute into, and this engine has no notion of an explicit flex
-  container height; `column`-direction items simply stack with `row-gap`
+  container height in `column` direction; items simply stack with `row-gap`
   between them.
 - **`baseline`** alignment — falls back to `flex-start`.
 - **`margin: auto` on a flex item** — treated as `0`, not the CSS

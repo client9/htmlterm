@@ -147,8 +147,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   conflict resolution and junction-glyph synthesis — see `docs/TABLES.md`.
 - **Flexbox:** a deliberate single-row/single-column subset — `flex-direction`,
   `justify-content`, `align-items`/`align-self`, `order`, `gap`, `flex-grow`,
-  `flex-basis`, the `flex` shorthand. See CSS.md's Flexbox section for the
-  (sizeable) list of real-Flexbox features this subset excludes.
+  `flex-basis`, the `flex` shorthand, and (row direction only) `flex-wrap`/
+  `align-content`. See CSS.md's Flexbox section for the (sizeable) list of
+  real-Flexbox features this subset excludes.
 - **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
   (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
   `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
@@ -290,10 +291,11 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `docs/RENDERING.md`.
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.
-- **Flexbox gaps:** `flex-wrap`, `align-content`, applied `flex-shrink`
-  (parsed, never applied), main-axis distribution in `column` direction,
-  `baseline` alignment, `margin: auto` on a flex item — see CSS.md's
-  Flexbox section for the full reasoning per gap.
+- **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction,
+  `flex-wrap: wrap-reverse`, `align-content: stretch` (approximated as
+  `flex-start`), applied `flex-shrink` (parsed, never applied), main-axis
+  distribution in `column` direction, `baseline` alignment, `margin: auto` on
+  a flex item — see CSS.md's Flexbox section for the full reasoning per gap.
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
   consulted, via real conflict resolution against their column's cells). The
