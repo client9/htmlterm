@@ -948,7 +948,26 @@ item's own cross-axis footprint (what `align-items`/`align-self` align
 within). In `column` direction, `margin-top`/`margin-bottom` add directly to
 the vertical space between items (and before the first / after the last),
 and `margin-left`/`margin-right` bound the space `align-items`/`align-self`
-positions the item within. `margin: auto` is not supported (see below).
+positions the item within.
+
+`margin-left`/`margin-right: auto`, in `row` direction only, absorbs
+whatever main-axis leftover space remains once `flex-grow`/`flex-shrink`
+have already been resolved (an auto side contributes `0` to the item's own
+`flex-basis`) — split evenly across every auto margin present anywhere in
+the line if more than one exists, an odd remainder favoring the first auto
+margin encountered in document order. Present on any item, it **overrides
+`justify-content` for the whole line** (matching real CSS: the two
+mechanisms both claim the same leftover space, and auto margins take
+precedence), though it has nothing left to absorb once `flex-grow` has
+already consumed all the leftover space itself. `margin-top`/
+`margin-bottom: auto` (row direction's cross axis) and `margin: auto` in
+`column` direction are not supported — see below.
+
+```css
+/* the classic "push this one item to the far end" pattern */
+.row { display: flex; width: 100%; }
+.spacer { margin-left: auto; }
+```
 
 #### Not supported
 
@@ -966,9 +985,12 @@ positions the item within. `margin: auto` is not supported (see below).
   container height in `column` direction; items simply stack with `row-gap`
   between them.
 - **`baseline`** alignment — falls back to `flex-start`.
-- **`margin: auto` on a flex item** — treated as `0`, not the CSS
-  leftover-space-absorbing behavior (which also overrides
-  `justify-content` when present on the main axis).
+- **`margin: auto` beyond `row` direction's main axis** — `margin-top`/
+  `margin-bottom: auto` (row direction's cross axis, which would center/align
+  a single item vertically within its line) and any `margin: auto` in
+  `column` direction are all treated as `0`, not the CSS leftover-space-
+  absorbing behavior; see above for the one case (`row` direction's
+  `margin-left`/`margin-right`) that is supported.
 
 ---
 

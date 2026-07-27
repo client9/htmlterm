@@ -152,8 +152,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Flexbox:** a deliberate single-row/single-column subset — `flex-direction`,
   `justify-content`, `align-items`/`align-self`, `order`, `gap`, `flex-grow`,
   `flex-basis`, the `flex` shorthand, and (row direction only) `flex-wrap`/
-  `align-content`/`flex-shrink`. See CSS.md's Flexbox section for the
-  (sizeable) list of real-Flexbox features this subset excludes.
+  `align-content`/`flex-shrink`/`margin: auto` (main-axis only). See CSS.md's
+  Flexbox section for the (sizeable) list of real-Flexbox features this
+  subset excludes.
 - **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
   (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
   `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
@@ -306,8 +307,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `flex-wrap: wrap-reverse`, `align-content: stretch` (approximated as
   `flex-start`), `flex-shrink` in `column` direction (row direction shrinks
   items proportionally down to `min-width`/1 column), main-axis distribution
-  in `column` direction, `baseline` alignment, `margin: auto` on a flex item
-  — see CSS.md's Flexbox section for the full reasoning per gap.
+  in `column` direction, `baseline` alignment, `margin: auto` beyond row
+  direction's main axis (row direction's `margin-left`/`margin-right: auto`
+  is supported — see CSS.md's Flexbox section for the full reasoning per
+  gap).
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
   consulted, via real conflict resolution against their column's cells). The

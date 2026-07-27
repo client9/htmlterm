@@ -13,9 +13,10 @@ import (
 // justify-content, align-items, align-self, order, gap/row-gap/column-gap,
 // flex-grow/flex-shrink (flex-basis resolves the item's starting main-axis
 // size before grow/shrink is distributed), and (row direction only)
-// flex-wrap/align-content. See CSS.md's "Flexbox" section for the exact
-// supported subset and its documented non-goals (column-direction wrap,
-// baseline alignment).
+// flex-wrap/align-content/margin-left/margin-right:auto (main-axis space
+// absorption, overriding justify-content). See CSS.md's "Flexbox" section
+// for the exact supported subset and its documented non-goals
+// (column-direction wrap, baseline alignment, cross-axis margin:auto).
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -429,12 +430,13 @@ func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
 }
 
 // layoutFlexLine lays out one flex line's worth of items (a subset of
-// items/widths/mt/mb, named by group's indices into those slices): resolves
-// flex-grow within just this line, then applies justify-content/align-items
+// items/widths/mt/mb/mlAuto/mrAuto, named by group's indices into those
+// slices): resolves flex-grow/flex-shrink within just this line, then any
+// margin-left/margin-right:auto absorption, then justify-content/align-items
 // exactly as row-direction flex layout always has for a single line. widths
 // is mutated in place for group's own indices (each index belongs to exactly
 // one line, so this is safe across repeated calls for other lines).
-func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []int, innerW, gap int, decls map[string]string) (box, int, map[*html.Node]Rect) {
+func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap int, decls map[string]string) (box, int, map[*html.Node]Rect) {
 	totalGap := gap * (len(group) - 1)
 	availForItems := max(0, innerW-totalGap)
 
@@ -506,6 +508,49 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []
 		}
 	}
 
+	// margin-left/margin-right:auto absorbs whatever main-axis leftover
+	// space remains after flex-grow/flex-shrink have already had their turn
+	// (matching real CSS's ordering: flexible-length resolution happens
+	// first, auto-margin alignment second), splitting it evenly across every
+	// auto margin present anywhere in the line - and, when any exist,
+	// overriding justify-content entirely for this line, same as real CSS.
+	extraLeft := make([]int, len(group))
+	extraRight := make([]int, len(group))
+	marginsOverrideJustify := false
+	if autoCount := 0; leftover > 0 {
+		for _, i := range group {
+			if mlAuto[i] {
+				autoCount++
+			}
+			if mrAuto[i] {
+				autoCount++
+			}
+		}
+		if autoCount > 0 {
+			share := leftover / autoCount
+			rem := leftover % autoCount
+			slot := 0
+			for gi, i := range group {
+				if mlAuto[i] {
+					extraLeft[gi] = share
+					if slot < rem {
+						extraLeft[gi]++
+					}
+					slot++
+				}
+				if mrAuto[i] {
+					extraRight[gi] = share
+					if slot < rem {
+						extraRight[gi]++
+					}
+					slot++
+				}
+			}
+			leftover = 0
+			marginsOverrideJustify = true
+		}
+	}
+
 	itemBoxes := make(map[int]box, len(group))
 	itemPositions := make(map[int]map[*html.Node]Rect, len(group))
 	outerHeights := make(map[int]int, len(group))
@@ -533,7 +578,11 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []
 	}
 
 	align := decls["align-items"]
-	leadPad, extraGaps := distributeJustify(decls["justify-content"], leftover, len(group))
+	var leadPad int
+	extraGaps := make([]int, max(0, len(group)-1))
+	if !marginsOverrideJustify {
+		leadPad, extraGaps = distributeJustify(decls["justify-content"], leftover, len(group))
+	}
 
 	rowLines := make([]string, height)
 	if leadPad > 0 {
@@ -546,6 +595,13 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []
 	colStart := leadPad
 	for gi, i := range group {
 		it := items[i]
+		if extraLeft[gi] > 0 {
+			blank := strings.Repeat(" ", extraLeft[gi])
+			for li := range rowLines {
+				rowLines[li] += blank
+			}
+			colStart += extraLeft[gi]
+		}
 		offset := mt[i] + crossOffset(itemAlign(it, align), height, outerHeights[i])
 		padded := padBoxVertical(itemBoxes[i], height, offset)
 		for li := range rowLines {
@@ -556,6 +612,13 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []
 			positions = mergePositions(positions, itemPositions[i], offset, colStart)
 		}
 		colStart += widths[i]
+		if extraRight[gi] > 0 {
+			blank := strings.Repeat(" ", extraRight[gi])
+			for li := range rowLines {
+				rowLines[li] += blank
+			}
+			colStart += extraRight[gi]
+		}
 		if gi < len(group)-1 {
 			g := gap + extraGaps[gi]
 			colStart += g
@@ -589,29 +652,42 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	rowGap := parseGapLen(decls["row-gap"])
 	wrap := parseFlexWrap(decls)
 
-	// margin-left/margin-right on a flex item need no separate handling
-	// here: renderFlexItemBox dispatches to the ordinary block box model
-	// (renderBlockContentBox), which already bakes horizontal margin
-	// directly into an item's own returned box (and into resolveMainBasis's
-	// natural-width measurement, which renders through the same box model)
-	// regardless of flex context - adding it again here would double it.
-	// margin-top/margin-bottom get no such treatment from the block box
-	// model when the item's own top/bottom edge is open (no border/
-	// padding/height): that's normally left for a block-flow caller to
-	// apply externally via the collapse-through margin on decls (see
+	// Fixed (non-auto) margin-left/margin-right on a flex item need no
+	// separate handling here: renderFlexItemBox dispatches to the ordinary
+	// block box model (renderBlockContentBox), which already bakes
+	// horizontal margin directly into an item's own returned box (and into
+	// resolveMainBasis's natural-width measurement, which renders through
+	// the same box model) regardless of flex context - adding it again here
+	// would double it. margin-top/margin-bottom get no such treatment from
+	// the block box model when the item's own top/bottom edge is open (no
+	// border/padding/height): that's normally left for a block-flow caller
+	// to apply externally via the collapse-through margin on decls (see
 	// block.go), a convention flex layout doesn't participate in - flex
 	// items never collapse margins with each other or the container at all
 	// (real CSS: a flex formatting context doesn't collapse), so each
 	// item's raw margin-top/margin-bottom is read directly here and applied
-	// as its own cross-axis space (via outerHeight, below). margin: auto is
-	// not supported (resolveMarginSide's isAuto return is discarded
-	// elsewhere in this file) - see CSS.md's Flexbox "Not supported" list.
+	// as its own cross-axis space (via outerHeight, below).
+	//
+	// margin-left/margin-right:auto is handled externally instead, in
+	// layoutFlexLine, once each line's main-axis leftover space is known:
+	// resolveMainBasis treats an auto side as contributing 0 to an item's
+	// flex basis (matching real CSS), and the final render call below always
+	// passes exactly the item's own resolved main-axis width as availWidth,
+	// leaving renderBlockContentBox's own (unrelated) auto-margin-splitting
+	// path nothing to distribute (remaining is always 0) - so it's safe to
+	// leave decls untouched here and let layoutFlexLine own the real
+	// distribution. margin-top/margin-bottom:auto is not supported (falls
+	// back to parseMargin's 0) - see CSS.md's Flexbox "Not supported" list.
 	mt := make([]int, len(items))
 	mb := make([]int, len(items))
+	mlAuto := make([]bool, len(items))
+	mrAuto := make([]bool, len(items))
 	widths := make([]int, len(items))
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
 		mb[i] = parseMargin(it.decls["margin-bottom"])
+		mlAuto[i] = strings.TrimSpace(it.decls["margin-left"]) == "auto"
+		mrAuto[i] = strings.TrimSpace(it.decls["margin-right"]) == "auto"
 		widths[i] = r.resolveMainBasis(it, innerW)
 	}
 
@@ -623,7 +699,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	}
 	results := make([]lineResult, len(lineGroups))
 	for li, group := range lineGroups {
-		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, group, innerW, gap, decls)
+		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, decls)
 		results[li] = lineResult{b, h, pos}
 	}
 
