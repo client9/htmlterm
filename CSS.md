@@ -340,6 +340,34 @@ tr + tr {
 }
 ```
 
+#### `position`
+`relative` | `static` (default). Only `relative` has any effect: the element
+stays in normal flow (it still reserves its original layout space, and
+siblings are unaffected), but paints visually shifted by `top`/`right`/
+`bottom`/`left` (see below) — and its recorded hit-test `Rect` shifts to
+match, so `document.Element.Rect()`/`DispatchClick` see the shifted
+position, matching a real `getBoundingClientRect()`. `absolute`/`fixed`/
+`sticky` are recognized but not yet implemented — they parse harmlessly as a
+no-op (same `static` behavior). Not inherited.
+
+A shift that would move content outside the document's current row/column
+bounds clamps to the boundary rather than growing the canvas. When two
+`position: relative` elements' shifted content overlaps, the later one in
+document order paints on top — there is no `z-index` support yet.
+
+#### `top`, `right`, `bottom`, `left`
+Integer, `ch`, `%`, or `auto` (the default — no offset on that side). Only
+meaningful on a `position: relative` element. If both `top` and `bottom` are
+set (non-`auto`), `top` wins; if both `left` and `right` are set, `left`
+wins. Percentages resolve against the document's current width (`left`/
+`right`) or line count (`top`/`bottom`) — an approximation of real CSS's
+containing-block-relative percentages, consistent with how percentages are
+approximated elsewhere in this renderer. Not inherited.
+
+```css
+.badge { position: relative; top: -1; left: 3; }
+```
+
 #### `color`
 Any CSS color value (see [Color Values](#color-values)). Foreground color. Inherited.
 
@@ -1154,7 +1182,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
 - `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
-- `grid`, or positioned layout
+- `grid`, and `position: absolute`/`fixed`/`sticky` (`position: relative` is supported — see [`position`](#position))
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-collapse: collapse`'s conflict resolution doesn't consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are consulted, via real conflict resolution against their column's cells) — see `docs/TABLES.md`
 - The legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes on `<table>` (use CSS `border-collapse`/`border-spacing`/cell `padding` instead)

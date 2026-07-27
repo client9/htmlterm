@@ -315,6 +315,39 @@ a future overlay (a tooltip, a context menu — see `docs/INTERACTIVE.md`'s
 bordered/padded box against its own trigger node the same way, with only its
 own per-row/per-item content styling staying bespoke.
 
+### `position: relative`
+
+The second consumer of this section's splice-based compositing pattern
+(`position.go`), and a simpler one than `<select>`'s popup: the element
+never leaves normal flow, so no new layout pass is needed at all —
+`renderBlockContentBox`'s layout math is untouched. `Engine.RenderNode`
+(engine.go) runs `applyRelativeOffsets` right after `forceHeight`/
+`capBlankRuns` (so row indices are final) and right before
+`compositeOpenSelects` (so a `position: relative` `<select>` anchors its
+popup off its shifted position, not its original layout slot). For each
+element with `position: relative` and a non-zero resolved `top`/`left`
+offset, it: reads the element's own rectangle out of the composed `lines`
+via `visibleWindowCarry` (textutil.go — the exact inverse of
+`spliceColumns`, previously only used for `overflow-x: scroll`'s viewport
+window), blanks the original rectangle, splices the extracted content back
+in at the offset location via `spliceColumns`, and shifts the element's own
+and every descendant's recorded `Rect` by the same offset (a flat-map
+subtree walk, not `mergePositions`' merge-two-maps shape, but the same
+underlying shift arithmetic) — so `document.elementAt`/`DispatchClick` hit
+the shifted position with no changes needed in the `document` package at
+all.
+
+Deliberately out of scope, left for a future `absolute`/`fixed`
+implementation: growing the canvas when a shift has nowhere to land (clamped
+instead), and `z-index` ordering when multiple relatively-positioned
+elements' shifted content overlaps (later document order simply paints over
+earlier). `absolute`/`fixed` are a materially bigger feature than this: they
+need out-of-flow removal from normal layout (skipping them at every layout
+call site, the way `float` — also unimplemented — would need to), a tracked
+"nearest positioned ancestor" containing block, and a composition pass that
+collects *every* out-of-flow element in the tree and z-order-splices them,
+not just one element's fixed offset from its own untouched layout slot.
+
 ### Public API
 
 `Renderer.Render(htmlStr string) (string, error)` keeps its exact signature.

@@ -159,6 +159,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
   (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
   `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
+- **`position: relative`** with `top`/`right`/`bottom`/`left` offsets — the
+  element keeps its normal-flow layout space but paints visually shifted, and
+  its hit-test `Rect` shifts to match. `absolute`/`fixed`/`sticky` are not
+  yet implemented (parse as a no-op) — see "Not Supported" below.
 
 ### Deviations from Spec
 
@@ -292,15 +296,20 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Layout models:** `display: grid`, `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.
-- **Positioned layout:** `position: absolute/relative/fixed`, `z-index`, or
-  any CSS property surface for overlays in general — `<select>`'s dropdown
-  is the only overlay that exists today, and it's driven by Go code
-  (`select_popup.go`), not a general CSS positioning mechanism a document
-  author could invoke on arbitrary elements. The underlying compositing
-  primitives it's built on (line-splicing already-rendered output, shifting
-  a sub-rendered box's positions by an offset) are general-purpose and
-  reused elsewhere in the render engine, not select-specific internals — so
-  this is a "not built yet" gap, not an architectural wall. See
+- **Positioned layout:** `position: absolute/fixed/sticky` and `z-index`
+  (`position: relative` is supported — see "At a Glance" above). `absolute`/
+  `fixed` need a real two-pass layout (removing the element from normal
+  flow, tracking a containing block, and z-index-ordered compositing of
+  every out-of-flow element in the tree) that doesn't exist yet — unlike
+  `relative`, which reuses the splicing primitives below without any layout
+  changes. `<select>`'s dropdown remains the only overlay driven by Go code
+  (`select_popup.go`) rather than a general CSS positioning mechanism a
+  document author could invoke on arbitrary elements. The underlying
+  compositing primitives both `relative` and `<select>`'s popup are built on
+  (line-splicing already-rendered output via `spliceColumns`, shifting a
+  sub-rendered box's positions by an offset) are general-purpose and reused
+  across the render engine, not select-specific internals — so `absolute`/
+  `fixed` remain a "not built yet" gap, not an architectural wall. See
   `docs/RENDERING.md`.
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.

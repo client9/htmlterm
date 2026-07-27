@@ -273,6 +273,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 			positions = visible
 		}
 	}
+	lines, positions = rr.applyRelativeOffsets(doc, lines, positions)
 	lines, positions = rr.compositeOpenSelects(doc, lines, positions, rr.height <= 0)
 	out := strings.Join(lines, "\n")
 	if trailingNewline {

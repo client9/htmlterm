@@ -234,6 +234,51 @@ func TestDispatchClickDisabledSubmitButtonDoesNotSubmit(t *testing.T) {
 	}
 }
 
+// TestDispatchClickHitsPositionRelativeShiftedLocation confirms
+// position: relative moves both what's painted and what's hit-tested: a
+// click at the button's original, unshifted layout slot must miss (that
+// space is blanked, not the button), and a click at its Rect() (which
+// reports the shifted position, matching a real getBoundingClientRect())
+// must hit it.
+func TestDispatchClickHitsPositionRelativeShiftedLocation(t *testing.T) {
+	doc, err := document.ParseDocument(
+		`<button id="go" style="position:relative;top:2;left:5">Go</button>`,
+		htmlterm.Options{Width: 40, Height: 10},
+	)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	btn := doc.GetElementByID("go")
+
+	clicked := false
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) { clicked = true })
+
+	// The original (unshifted) slot is row 0, col 0 — now blank.
+	if doc.DispatchClick(0, 0, document.Modifiers{}) {
+		t.Error("DispatchClick at the original layout slot hit something, want a miss")
+	}
+	if clicked {
+		t.Error("click fired at the original layout slot, want no-op")
+	}
+
+	rect, ok := btn.Rect()
+	if !ok {
+		t.Fatalf("Rect(go) not found")
+	}
+	if rect.Row != 2 || rect.Col != 5 {
+		t.Fatalf("Rect() = %+v, want Row=2 Col=5 (shifted)", rect)
+	}
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
+		t.Fatalf("DispatchClick at the shifted Rect() did not hit the button")
+	}
+	if !clicked {
+		t.Error("click did not fire at the shifted position")
+	}
+}
+
 func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"></form>`)
 	form := doc.GetElementByID("f")

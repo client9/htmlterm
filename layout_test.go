@@ -83,6 +83,13 @@ func TestWordWrap(t *testing.T) {
 	})
 }
 
+func TestPositionRelative(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "position:relative with no offset is a no-op", html: `<div style="position:relative">hi</div>`, want: "hi\n"},
+		{name: "top/left shift paints over a later sibling, original slot blanked", html: `<div style="position:relative;top:1;left:2">AB</div><div>1</div><div>2</div><div>3</div>`, width: 10, want: "  \n1 AB\n2\n3\n"},
+	})
+}
+
 func TestBlockquoteBlocks(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "blockquote heading and paragraph no extra trailing spaces", html: `<blockquote><h2>Title</h2><p>Body.</p></blockquote>`, want: "│ Title  \n│ Body.  \n\n"},
