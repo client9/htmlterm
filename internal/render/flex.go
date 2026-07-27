@@ -11,19 +11,20 @@ import (
 // This file implements htmlterm's CSS flexbox subset: display:flex/
 // inline-flex, flex-direction:row|row-reverse|column|column-reverse,
 // justify-content, align-items, align-self, order, gap/row-gap/column-gap,
-// flex-grow (flex-basis resolves the item's starting main-axis size before
-// growth is distributed), and (row direction only) flex-wrap/align-content.
-// See CSS.md's "Flexbox" section for the exact supported subset and its
-// documented non-goals (column-direction wrap, flex-shrink, baseline
-// alignment).
+// flex-grow/flex-shrink (flex-basis resolves the item's starting main-axis
+// size before grow/shrink is distributed), and (row direction only)
+// flex-wrap/align-content. See CSS.md's "Flexbox" section for the exact
+// supported subset and its documented non-goals (column-direction wrap,
+// baseline alignment).
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
 type flexItem struct {
-	node  *html.Node
-	decls map[string]string
-	grow  float64
-	order int
+	node   *html.Node
+	decls  map[string]string
+	grow   float64
+	shrink float64
+	order  int
 }
 
 // itemAlign resolves align-self's fallback to the container's align-items:
@@ -90,6 +91,31 @@ func parseFlexGrow(decls map[string]string) float64 {
 	return f
 }
 
+// parseFlexShrink parses flex-shrink (default 1, per spec; negative values
+// are invalid per spec and treated as unset, falling back to the same
+// default).
+func parseFlexShrink(decls map[string]string) float64 {
+	f, err := strconv.ParseFloat(strings.TrimSpace(decls["flex-shrink"]), 64)
+	if err != nil || f < 0 {
+		return 1
+	}
+	return f
+}
+
+// flexShrinkFloor resolves how far a row-direction item may shrink below its
+// resolved main-axis basis: an explicit min-width (including percentage,
+// resolved against innerW) if set, else 1 - this engine has no min-content
+// text measurement to use as the real spec's automatic minimum, so unbreakable
+// content that can't actually fit at the shrunk width simply overflows past
+// it, the same graceful degradation already used for the no-shrink/no-grow
+// overflow case.
+func flexShrinkFloor(decls map[string]string, innerW int) int {
+	if w, ok := resolveCSSSize(decls["min-width"], innerW); ok && w > 1 {
+		return w
+	}
+	return 1
+}
+
 // parseOrder parses the CSS order property (default 0; invalid values fall
 // back to 0 rather than erroring).
 func parseOrder(decls map[string]string) int {
@@ -150,7 +176,7 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 		if decls["display"] == "none" {
 			continue
 		}
-		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), order: parseOrder(decls)})
+		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), shrink: parseFlexShrink(decls), order: parseOrder(decls)})
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].order < items[j].order })
 	return items
@@ -433,6 +459,51 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, group []
 		}
 		widths[lastGrowIdx] += leftover - assigned
 		leftover = 0
+	} else if leftover < 0 {
+		// Overflow: shrink items proportionally to flex-shrink * basis width
+		// (the real spec's "scaled flex shrink factor"), each floored at
+		// flexShrinkFloor - mirrors the grow branch above's weighted
+		// distribution and last-item remainder assignment, just shrinking
+		// instead of growing and stopping early at each item's floor.
+		deficit := -leftover
+		scaled := make([]float64, len(group))
+		floors := make([]int, len(group))
+		totalScaled := 0.0
+		for gi, i := range group {
+			floors[gi] = flexShrinkFloor(items[i].decls, innerW)
+			if items[i].shrink <= 0 {
+				continue
+			}
+			s := items[i].shrink * float64(widths[i])
+			scaled[gi] = s
+			totalScaled += s
+		}
+		if totalScaled > 0 {
+			assigned := 0
+			lastShrinkGi := -1
+			for gi, i := range group {
+				if scaled[gi] <= 0 {
+					continue
+				}
+				lastShrinkGi = gi
+				reduce := int(float64(deficit)*scaled[gi]/totalScaled + 0.5)
+				if maxReduce := widths[i] - floors[gi]; reduce > maxReduce {
+					reduce = max(0, maxReduce)
+				}
+				widths[i] -= reduce
+				assigned += reduce
+			}
+			if lastShrinkGi >= 0 {
+				i := group[lastShrinkGi]
+				extra := deficit - assigned
+				if maxReduce := widths[i] - floors[lastShrinkGi]; extra > maxReduce {
+					extra = max(0, maxReduce)
+				}
+				widths[i] -= extra
+				assigned += extra
+			}
+			leftover += assigned
+		}
 	}
 
 	itemBoxes := make(map[int]box, len(group))

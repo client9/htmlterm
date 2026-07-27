@@ -897,10 +897,25 @@ Has no effect in `column` direction (main-axis sizing there is just each
 item's natural block height). Not inherited.
 
 #### `flex-shrink`
-`<number>` (default `1`). Parsed (including via the `flex` shorthand) but
-**not applied** — items are never shrunk below their resolved `flex-basis`;
-a `row` whose items overflow the container's width is simply allowed to
-overflow. Not inherited.
+`<number>` (default `1`). In `row` direction, when items' resolved
+`flex-basis` sizes together overflow the container's available main-axis
+width, the overflow is distributed across items proportionally to each
+item's `flex-shrink` weight times its own `flex-basis` (the real spec's
+"scaled flex shrink factor") and subtracted from that item's width —
+`flex-shrink: 0` opts an item out entirely. An item never shrinks below its
+`min-width` (or `1` column if `min-width` isn't set) — this engine has no
+min-content text measurement to use as the real spec's automatic minimum, so
+content that can't actually fit at the shrunk width (an unbreakable word
+wider than its floor) simply overflows past it, the same graceful
+degradation already used for the `flex-shrink: 0` case. Has no effect in
+`column` direction (see "Not supported"). Negative values are treated as `1`
+(the default), same as an unset property. Not inherited.
+
+```css
+/* both columns shrink together, proportionally to their basis, once the row overflows */
+.row { display: flex; width: 100%; }
+.col { flex-basis: 20; }
+```
 
 #### `flex`
 Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
@@ -943,7 +958,8 @@ positions the item within. `margin: auto` is not supported (see below).
   only `wrap`'s top-to-bottom line order is supported.
 - **`align-content: stretch`** growing each line's items taller than their
   content — approximated as `flex-start`; see above.
-- **`flex-shrink`** — parsed but never applied; see above.
+- **`flex-shrink` in `column` direction** — only applied in `row` direction;
+  see above.
 - **Main-axis distribution in `column` direction** — `flex-grow` and
   `justify-content` require an explicit main-axis (height) size to
   distribute into, and this engine has no notion of an explicit flex
