@@ -466,6 +466,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 ## See Also
 
 - **CSS.md** — the exhaustive property-by-property reference.
+- **docs/DOM_API.md** — a field-by-field table comparing the real DOM's
+  `Document`/`Element`/`Node` interfaces against `document.Document`/
+  `document.Element`, method by method.
 - **docs/SELECT.md** — `<select>` popup styling in full.
 - **docs/SCROLLBARS.md** — scrollbar gutter styling in full.
 - **docs/TABLES.md** — table border/margin/padding styling in full,
