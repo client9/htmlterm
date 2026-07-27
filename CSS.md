@@ -807,11 +807,15 @@ wrap-reverse` is not supported. Not inherited.
 
 #### `justify-content`
 `flex-start` (default) | `flex-end` | `center` | `space-between` |
-`space-around`. Distributes leftover main-axis space among items — only
-meaningful in `row` direction: `column` direction has no explicit
-main-axis (height) distribution pass in this subset (see "Not supported"),
-so `justify-content` has no effect there. "Leftover space" is whatever's left
-after `flex-grow` has already absorbed what it can — if any item can grow,
+`space-around`. Distributes leftover main-axis space among items. In `row`
+direction this leftover is always available (the row's width is always
+definite). In `column` direction it's only available once the flex container
+has an explicit CSS `height` taller than the items' own resolved main-axis
+(vertical) stack — this engine has no other notion of a column container's
+main-axis size (see `flex-grow`/`flex-basis` below); with no explicit
+`height`, there's no leftover to distribute and `justify-content` has no
+effect. "Leftover space" is whatever's left after `flex-grow`/`flex-shrink`
+have already resolved each item's main-axis size — if any item can grow,
 `justify-content` typically has nothing left to distribute. Not inherited.
 
 #### `align-items`
@@ -847,14 +851,13 @@ leftover cross-axis (vertical) space across lines the same way
 line — but that leftover space only exists when the flex container has an
 **explicit `height`** taller than its wrapped lines' natural stack; without
 one, there's no free space to distribute and this property has nothing to
-do (matching `column` direction's own "no explicit main-axis size" gap for
-`flex-grow`/`justify-content`, above). Setting an explicit `height` on a
-wrapping flex container is otherwise unsupported outside of feeding
-`align-content` this way — the container is still padded with trailing blank
-rows to reach exactly that height regardless of which value is set, but
-nothing else about the layout responds to it. `stretch` is approximated as
-`flex-start` (no distribution): growing each line's own items taller than
-their content to fill leftover space isn't implemented. Not inherited.
+do. Setting an explicit `height` on a wrapping flex container is otherwise
+unsupported outside of feeding `align-content` this way — the container is
+still padded with trailing blank rows to reach exactly that height
+regardless of which value is set, but nothing else about the layout responds
+to it. `stretch` is approximated as `flex-start` (no distribution): growing
+each line's own items taller than their content to fill leftover space isn't
+implemented. Not inherited.
 
 ```css
 /* push wrapped lines to the bottom of a taller-than-content flex container */
@@ -885,31 +888,65 @@ only ever one row/column of items in this subset). Absolute rune counts only
 #### `flex-grow`
 `<number>` (default `0`). In `row` direction, distributes leftover main-axis
 space (after every item's `flex-basis` is resolved) proportionally by
-weight. In `column` direction it currently has no effect (see "Not
-supported"). Negative values are treated as `0`. Not inherited.
+weight — this leftover is always available (the row's width is always
+definite). In `column` direction, the same distribution applies to leftover
+*height*, but only once the container has an explicit CSS `height` taller
+than the items' own resolved main-axis (vertical) stack — this engine has no
+other notion of a column container's main-axis size, so with no explicit
+`height`, `flex-grow` has nothing to distribute into and items simply keep
+their own resolved height. "Growing" a column item's height pads it with
+blank lines at the bottom (this engine has no way to make text content
+itself taller), the same approximation `align-items: stretch` already uses
+for row direction's cross axis. In `column` direction, growth never exceeds
+an item's own `max-height` (row direction has no equivalent `max-width`
+ceiling on `flex-grow` yet — a separate, still-open gap); any leftover a
+`max-height` cap prevents from being absorbed flows through to
+`justify-content`/the trailing padding instead of being silently dropped. A
+nested `display: flex`/`inline-flex` item's own height still responds to its
+parent's `flex-grow`/`flex-shrink`/`flex-basis`, the same as an ordinary
+block child. Negative values are treated as `0`. Not inherited.
+
+```css
+/* both rows grow to fill a taller-than-content column, once it has an explicit height */
+.col { display: flex; flex-direction: column; height: 10; }
+.row { flex-grow: 1; }
+```
 
 #### `flex-basis`
-`auto` (default) | `<integer>` | `<N%>`. An item's starting main-axis size in
-`row` direction, before `flex-grow` distributes any leftover space. `auto`
-falls back to the item's own `width` if set, else its measured natural
-content width. Percentages resolve against the container's content width.
-Has no effect in `column` direction (main-axis sizing there is just each
-item's natural block height). Not inherited.
+`auto` (default) | `<integer>` | `<N%>`. An item's starting main-axis size
+before `flex-grow`/`flex-shrink` distribute any leftover space: width in
+`row` direction, height in `column` direction. `auto` falls back to the
+item's own `width`/`height` if set, else its measured/rendered natural size.
+Percentages resolve against the container's content width in `row`
+direction; in `column` direction they resolve against the container's
+explicit `height` if one is set, else (matching real CSS's "percentage basis
+against an indefinite container size resolves as auto") fall back to the
+item's own natural height, same as `auto`. A `flex-basis` taller/wider than
+an item's own natural content pads it with blank lines/spaces; one shorter
+than the natural content doesn't force a fit — the item's content still
+renders in full and overflows past the resolved size, the same graceful
+degradation `flex-shrink` below relies on. In `column` direction, a
+`flex-basis` shorter than the item's own `min-height` is raised to
+`min-height` instead — real CSS never lets an item's used size fall below
+its own `min-height` regardless of `flex-basis`. Not inherited.
 
 #### `flex-shrink`
-`<number>` (default `1`). In `row` direction, when items' resolved
-`flex-basis` sizes together overflow the container's available main-axis
-width, the overflow is distributed across items proportionally to each
-item's `flex-shrink` weight times its own `flex-basis` (the real spec's
-"scaled flex shrink factor") and subtracted from that item's width —
+`<number>` (default `1`). When items' resolved `flex-basis` sizes together
+overflow the container's available main-axis space — row direction's width
+(always definite), or column direction's explicit `height` if one is set —
+the overflow is distributed across items proportionally to each item's
+`flex-shrink` weight times its own `flex-basis` (the real spec's "scaled
+flex shrink factor") and subtracted from that item's main-axis size —
 `flex-shrink: 0` opts an item out entirely. An item never shrinks below its
-`min-width` (or `1` column if `min-width` isn't set) — this engine has no
-min-content text measurement to use as the real spec's automatic minimum, so
-content that can't actually fit at the shrunk width (an unbreakable word
-wider than its floor) simply overflows past it, the same graceful
-degradation already used for the `flex-shrink: 0` case. Has no effect in
-`column` direction (see "Not supported"). Negative values are treated as `1`
-(the default), same as an unset property. Not inherited.
+`min-width` (row direction) / `min-height` (column direction) — 1 column/line
+if that isn't set — this engine has no min-content measurement to use as the
+real spec's automatic minimum, so content that can't actually fit at the
+shrunk size (an unbreakable word wider than its floor in row direction; any
+content taller than its floor in column direction, since text can't be
+forced into fewer lines) simply overflows past it. In `column` direction,
+with no explicit container `height`, there's nothing to overflow against, so
+`flex-shrink` never applies. Negative values are treated as `1` (the
+default), same as an unset property. Not inherited.
 
 ```css
 /* both columns shrink together, proportionally to their basis, once the row overflows */
@@ -977,13 +1014,6 @@ already consumed all the leftover space itself. `margin-top`/
   only `wrap`'s top-to-bottom line order is supported.
 - **`align-content: stretch`** growing each line's items taller than their
   content — approximated as `flex-start`; see above.
-- **`flex-shrink` in `column` direction** — only applied in `row` direction;
-  see above.
-- **Main-axis distribution in `column` direction** — `flex-grow` and
-  `justify-content` require an explicit main-axis (height) size to
-  distribute into, and this engine has no notion of an explicit flex
-  container height in `column` direction; items simply stack with `row-gap`
-  between them.
 - **`baseline`** alignment — falls back to `flex-start`.
 - **`margin: auto` beyond `row` direction's main axis** — `margin-top`/
   `margin-bottom: auto` (row direction's cross axis, which would center/align

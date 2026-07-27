@@ -1,6 +1,7 @@
 package render
 
 import (
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,12 +12,16 @@ import (
 // This file implements htmlterm's CSS flexbox subset: display:flex/
 // inline-flex, flex-direction:row|row-reverse|column|column-reverse,
 // justify-content, align-items, align-self, order, gap/row-gap/column-gap,
-// flex-grow/flex-shrink (flex-basis resolves the item's starting main-axis
-// size before grow/shrink is distributed), and (row direction only)
-// flex-wrap/align-content/margin-left/margin-right:auto (main-axis space
-// absorption, overriding justify-content). See CSS.md's "Flexbox" section
-// for the exact supported subset and its documented non-goals
-// (column-direction wrap, baseline alignment, cross-axis margin:auto).
+// flex-grow/flex-shrink/flex-basis (main-axis size resolution, resolved
+// before grow/shrink distribute any leftover space - in row direction the
+// leftover is always available since width is always definite; in column
+// direction it's only available once the container has an explicit CSS
+// height, this engine's only notion of a column container's main-axis
+// size), and (row direction only) flex-wrap/align-content/
+// margin-left/margin-right:auto (main-axis space absorption, overriding
+// justify-content). See CSS.md's "Flexbox" section for the exact supported
+// subset and its documented non-goals (column-direction wrap, baseline
+// alignment, cross-axis margin:auto).
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -103,18 +108,123 @@ func parseFlexShrink(decls map[string]string) float64 {
 	return f
 }
 
-// flexShrinkFloor resolves how far a row-direction item may shrink below its
-// resolved main-axis basis: an explicit min-width (including percentage,
-// resolved against innerW) if set, else 1 - this engine has no min-content
-// text measurement to use as the real spec's automatic minimum, so unbreakable
-// content that can't actually fit at the shrunk width simply overflows past
-// it, the same graceful degradation already used for the no-shrink/no-grow
-// overflow case.
-func flexShrinkFloor(decls map[string]string, innerW int) int {
-	if w, ok := resolveCSSSize(decls["min-width"], innerW); ok && w > 1 {
-		return w
+// flexShrinkFloor resolves how far a flex item may shrink below its resolved
+// main-axis basis: an explicit min-width (row direction) or min-height
+// (column direction) - including percentage, resolved against axisSize - if
+// set, else 1. This engine has no min-content measurement to use as the real
+// spec's automatic minimum, so content that can't actually fit at the shrunk
+// size (an unbreakable word wider than its floor in row direction; any
+// content taller than its floor in column direction, since text can't be
+// forced into fewer lines) simply overflows past it, the same graceful
+// degradation already used for the flex-shrink:0 case.
+func flexShrinkFloor(decls map[string]string, key string, axisSize int) int {
+	if v, ok := resolveCSSSize(decls[key], axisSize); ok && v > 1 {
+		return v
 	}
 	return 1
+}
+
+// flexGrowCeilingHeight resolves how far flex-grow may increase a
+// column-direction item's height: an explicit max-height (including
+// percentage, resolved against the container's own definite height) if set,
+// else 0 meaning uncapped. Row direction has no equivalent max-width ceiling
+// on flex-grow - a separate, pre-existing gap (see CSS.md's Flexbox
+// section) - so this is column-only.
+func flexGrowCeilingHeight(decls map[string]string, containerHeight int) int {
+	if h, ok := resolveCSSSize(decls["max-height"], containerHeight); ok && h > 0 {
+		return h
+	}
+	return 0
+}
+
+// distributeFlexGrow adds each group member's proportional share of leftover
+// to sizes[i] (i ranges over group, indices into the full item-count-sized
+// sizes/grows/ceilings arrays - matching widths/mt/mb's own convention),
+// weighted by grows[i], the last growable member absorbing the rounding
+// remainder - shared by row direction's per-line width distribution and
+// column direction's height distribution. ceilings, if non-nil, caps
+// sizes[i]'s growth at ceilings[i] (0 meaning uncapped) - real CSS's
+// max-width/max-height on a flex item. Returns however much of leftover
+// wasn't actually absorbed (0 unless every growable member hit its ceiling
+// before leftover was exhausted, or no member can grow at all).
+func distributeFlexGrow(sizes []int, grows []float64, group []int, leftover int, ceilings []int) int {
+	totalGrow := 0.0
+	for _, i := range group {
+		totalGrow += grows[i]
+	}
+	if totalGrow <= 0 {
+		return leftover
+	}
+	assigned := 0
+	lastGrowIdx := -1
+	for _, i := range group {
+		if grows[i] <= 0 {
+			continue
+		}
+		lastGrowIdx = i
+		share := int(float64(leftover)*grows[i]/totalGrow + 0.5)
+		if ceilings != nil && ceilings[i] > 0 {
+			if maxAdd := ceilings[i] - sizes[i]; share > maxAdd {
+				share = max(0, maxAdd)
+			}
+		}
+		sizes[i] += share
+		assigned += share
+	}
+	extra := leftover - assigned
+	if ceilings != nil && ceilings[lastGrowIdx] > 0 {
+		if maxAdd := ceilings[lastGrowIdx] - sizes[lastGrowIdx]; extra > maxAdd {
+			extra = max(0, maxAdd)
+		}
+	}
+	sizes[lastGrowIdx] += extra
+	assigned += extra
+	return leftover - assigned
+}
+
+// distributeFlexShrink subtracts each group member's proportional share of
+// deficit from sizes[i], weighted by shrinks[i]*sizes[i] (the real spec's
+// "scaled flex shrink factor"), floored at floors[i], the last shrinkable
+// member absorbing the rounding remainder - shared by row direction's width
+// distribution and column direction's height distribution. Returns however
+// much of deficit wasn't actually absorbed (0 unless every shrinkable member
+// hit its floor before deficit was exhausted, or no member can shrink at
+// all).
+func distributeFlexShrink(sizes []int, shrinks []float64, floors []int, group []int, deficit int) int {
+	scaled := make([]float64, len(sizes))
+	totalScaled := 0.0
+	for _, i := range group {
+		if shrinks[i] <= 0 {
+			continue
+		}
+		s := shrinks[i] * float64(sizes[i])
+		scaled[i] = s
+		totalScaled += s
+	}
+	if totalScaled <= 0 {
+		return deficit
+	}
+	assigned := 0
+	lastShrinkIdx := -1
+	for _, i := range group {
+		if scaled[i] <= 0 {
+			continue
+		}
+		lastShrinkIdx = i
+		reduce := int(float64(deficit)*scaled[i]/totalScaled + 0.5)
+		if maxReduce := sizes[i] - floors[i]; reduce > maxReduce {
+			reduce = max(0, maxReduce)
+		}
+		sizes[i] -= reduce
+		assigned += reduce
+	}
+	extra := deficit - assigned
+	if maxReduce := sizes[lastShrinkIdx] - floors[lastShrinkIdx]; extra > maxReduce {
+		extra = max(0, maxReduce)
+	}
+	sizes[lastShrinkIdx] -= extra
+	assigned += extra
+	return deficit - assigned
 }
 
 // parseOrder parses the CSS order property (default 0; invalid values fall
@@ -189,10 +299,91 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 // box model otherwise — flex items are blockified regardless of their own
 // declared display, matching real CSS.
 func (r *Engine) renderFlexItemBox(it flexItem, width int) (box, map[*html.Node]Rect) {
-	if isFlexDisplay(it.decls["display"]) {
-		return r.renderFlexContentBox(it.node, it.decls, width)
+	return r.renderFlexItemBoxHeight(it, width, 0)
+}
+
+// renderFlexItemBoxHeight is renderFlexItemBox with an optional column-
+// direction main-axis (vertical) size override: heightOverride > 0 injects a
+// synthetic "height" declaration (taking priority over any "height" the item
+// already declares - matching flex-basis's real-CSS precedence over the
+// height property) before rendering, so the existing block box model's own
+// height handling (block.go's fixed-height pad/clip logic) does the actual
+// work for a non-flex item; heightOverride == 0 renders unmodified, identical
+// to renderFlexItemBox. Used by layoutFlexColumn to resolve flex-basis and
+// apply flex-grow/flex-shrink's height adjustments - see CSS.md's Flexbox
+// section.
+//
+// decls is always cloned, even when heightOverride == 0: layoutFlexColumn
+// can render the same item twice (a basis-measurement pass, then a second
+// pass if flex-grow/flex-shrink changes its height), and block.go's own
+// margin-top/margin-bottom collapse-through bookkeeping mutates its decls
+// argument in place - without a clone here, that first render could leave a
+// stale mutation in it.decls for the second render (or any later reader) to
+// pick up. Row direction's layoutFlexLine renders every item exactly once,
+// so this is strictly defensive there, not required by the row path itself.
+func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int) (box, map[*html.Node]Rect) {
+	decls := maps.Clone(it.decls)
+	if heightOverride > 0 {
+		decls["height"] = strconv.Itoa(heightOverride)
+		if ov := decls["overflow-y"]; ov == "scroll" || ov == "auto" {
+			// This height is synthetic - it exists purely to drive
+			// flex-basis/flex-grow/flex-shrink sizing, not a real declared
+			// box height - so it must not activate this engine's
+			// scrollbar-gutter reservation/live-scroll-offset tracking as an
+			// unrelated side effect of flex layout math. An author's own
+			// explicit "hidden"/"clip" clipping intent is left alone: that's
+			// a legitimate combination with an explicit height, synthetic or
+			// not.
+			decls["overflow-y"] = "visible"
+		}
 	}
-	return r.renderBlockContentBox(it.node, it.decls, width)
+	if isFlexDisplay(decls["display"]) {
+		b, pos := r.renderFlexContentBox(it.node, decls, width)
+		if heightOverride > 0 && len(b.lines) < heightOverride {
+			// Unlike renderBlockContentBox (block.go), renderFlexContentBox
+			// has no notion of an explicit CSS height of its own - a nested
+			// flex/inline-flex item's flex-basis/flex-grow/flex-shrink
+			// height would otherwise have no effect at all. Pad here,
+			// mirroring block.go's own "fixed height taller than content
+			// pads with blank lines" behavior; a taller-than-heightOverride
+			// result (the nested container already reached or exceeded it,
+			// e.g. it's itself flex-direction:column with the same explicit
+			// height) is left untouched, matching the graceful-overflow
+			// convention used throughout this file.
+			blank := strings.Repeat(" ", b.width)
+			lines := append([]string(nil), b.lines...)
+			for len(lines) < heightOverride {
+				lines = append(lines, blank)
+			}
+			b = box{lines: lines, width: b.width}
+		}
+		return b, pos
+	}
+	return r.renderBlockContentBox(it.node, decls, width)
+}
+
+// parseColumnFlexBasis resolves a column-direction flex item's flex-basis to
+// an absolute line count: 0 means unset/auto (or a percentage basis with no
+// definite container height to resolve against - real CSS treats a
+// percentage flex-basis as auto when the container's own main size is
+// indefinite, which this engine only ever considers "definite" when an
+// explicit CSS height is set on the container - see resolveFlexContainerHeight).
+func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasContainerHeight bool) int {
+	v := decls["flex-basis"]
+	if v == "" || v == "auto" {
+		return 0
+	}
+	abs, pct, ok := parseSizeVal(v)
+	if !ok {
+		return 0
+	}
+	if pct > 0 {
+		if !hasContainerHeight {
+			return 0
+		}
+		return max(1, int(pct*float64(containerHeight)))
+	}
+	return max(1, abs)
 }
 
 // measureNaturalWidth renders it at a generous width cap purely to measure
@@ -440,72 +631,29 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	totalGap := gap * (len(group) - 1)
 	availForItems := max(0, innerW-totalGap)
 
-	totalGrow := 0.0
 	sumW := 0
 	for _, i := range group {
-		totalGrow += items[i].grow
 		sumW += widths[i]
 	}
+	grows := make([]float64, len(items))
+	shrinks := make([]float64, len(items))
+	floors := make([]int, len(items))
+	for _, i := range group {
+		grows[i] = items[i].grow
+		shrinks[i] = items[i].shrink
+		floors[i] = flexShrinkFloor(items[i].decls, "min-width", innerW)
+	}
 	leftover := availForItems - sumW
-	if leftover > 0 && totalGrow > 0 {
-		assigned := 0
-		lastGrowIdx := -1
-		for _, i := range group {
-			if items[i].grow <= 0 {
-				continue
-			}
-			lastGrowIdx = i
-			share := int(float64(leftover)*items[i].grow/totalGrow + 0.5)
-			widths[i] += share
-			assigned += share
-		}
-		widths[lastGrowIdx] += leftover - assigned
-		leftover = 0
-	} else if leftover < 0 {
+	switch {
+	case leftover > 0:
+		// Row direction has no max-width ceiling on flex-grow (a separate,
+		// pre-existing gap - see CSS.md), so growth is always uncapped here.
+		leftover = distributeFlexGrow(widths, grows, group, leftover, nil)
+	case leftover < 0:
 		// Overflow: shrink items proportionally to flex-shrink * basis width
-		// (the real spec's "scaled flex shrink factor"), each floored at
-		// flexShrinkFloor - mirrors the grow branch above's weighted
-		// distribution and last-item remainder assignment, just shrinking
-		// instead of growing and stopping early at each item's floor.
-		deficit := -leftover
-		scaled := make([]float64, len(group))
-		floors := make([]int, len(group))
-		totalScaled := 0.0
-		for gi, i := range group {
-			floors[gi] = flexShrinkFloor(items[i].decls, innerW)
-			if items[i].shrink <= 0 {
-				continue
-			}
-			s := items[i].shrink * float64(widths[i])
-			scaled[gi] = s
-			totalScaled += s
-		}
-		if totalScaled > 0 {
-			assigned := 0
-			lastShrinkGi := -1
-			for gi, i := range group {
-				if scaled[gi] <= 0 {
-					continue
-				}
-				lastShrinkGi = gi
-				reduce := int(float64(deficit)*scaled[gi]/totalScaled + 0.5)
-				if maxReduce := widths[i] - floors[gi]; reduce > maxReduce {
-					reduce = max(0, maxReduce)
-				}
-				widths[i] -= reduce
-				assigned += reduce
-			}
-			if lastShrinkGi >= 0 {
-				i := group[lastShrinkGi]
-				extra := deficit - assigned
-				if maxReduce := widths[i] - floors[lastShrinkGi]; extra > maxReduce {
-					extra = max(0, maxReduce)
-				}
-				widths[i] -= extra
-				assigned += extra
-			}
-			leftover += assigned
-		}
+		// (the real spec's "scaled flex shrink factor"), floored at
+		// flexShrinkFloor.
+		leftover = -distributeFlexShrink(widths, shrinks, floors, group, -leftover)
 	}
 
 	// margin-left/margin-right:auto absorbs whatever main-axis leftover
@@ -756,13 +904,20 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 }
 
 // layoutFlexColumn lays out items top to bottom: cross axis (align-items) is
-// horizontal (align-items/align-self). There is no main-axis (vertical)
-// distribution pass in this v1 — flex-grow and justify-content only matter
-// once a container has an explicit main-axis size to grow/distribute into,
-// and this engine has no notion of an explicit flex-container height yet;
-// items simply stack with row-gap between them (flex-start main-axis
-// behavior). reverse stacks bottom to top, for flex-direction:
-// column-reverse. See CSS.md.
+// horizontal (align-items/align-self), main axis (flex-grow/flex-shrink/
+// justify-content) is vertical. flex-basis sets an item's starting main-axis
+// (line count) size the same way it sets width in row direction.
+// flex-grow/flex-shrink/justify-content only have free space to work with
+// once the container has a definite main-axis size — an explicit CSS
+// `height` (resolveFlexContainerHeight) — since unlike row direction's width
+// (always definite, it's however wide the caller says to render at), this
+// engine has no other notion of a column flex container's main-axis size;
+// with no explicit height and no item using flex-basis, items simply stack
+// with row-gap between them exactly as if none of this machinery existed
+// (flex-start main-axis behavior - the common case, and the only case
+// before this file supported the main axis in column direction at all).
+// reverse stacks bottom to top, for flex-direction: column-reverse. See
+// CSS.md.
 func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW int, reverse bool) (box, map[*html.Node]Rect) {
 	items := r.collectFlexItems(n)
 	if reverse {
@@ -773,45 +928,156 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	}
 	rowGap := parseGapLen(decls["row-gap"])
 	align := decls["align-items"]
+	containerHeight, hasContainerHeight := resolveFlexContainerHeight(decls)
 
-	var lines []string
-	positions := map[*html.Node]Rect{}
-	row := 0
-	prevMb := 0
+	// margin-left/margin-right on a flex item need no separate handling
+	// here - see layoutFlexRow's doc comment on the same point: the block
+	// box model already bakes horizontal margin into an item's own returned
+	// box regardless of flex direction. margin-top/margin-bottom get no such
+	// treatment (a bare item's open top/bottom edge means the block box
+	// model strips them into decls for a block-flow caller to apply, a
+	// convention flex layout doesn't participate in), so they're read
+	// directly here. Flex items never collapse margins with each other or
+	// the container at all (real CSS: a flex formatting context doesn't
+	// collapse) - each item's margin-bottom and the next item's margin-top
+	// both apply in full, summed with row-gap, not collapsed via max the way
+	// ordinary block flow would. margin: auto is not supported in column
+	// direction (see CSS.md's Flexbox "Not supported" list).
+	mt := make([]int, len(items))
+	mb := make([]int, len(items))
+	widths := make([]int, len(items))
+	basisH := make([]int, len(items))
 	for i, it := range items {
-		// margin-left/margin-right on a flex item need no separate handling
-		// here - see layoutFlexRow's doc comment on the same point: the
-		// block box model already bakes horizontal margin into an item's
-		// own returned box regardless of flex direction. margin-top/
-		// margin-bottom get no such treatment (a bare item's open top/
-		// bottom edge means the block box model strips them into decls for
-		// a block-flow caller to apply, a convention flex layout doesn't
-		// participate in), so they're read directly here. Flex items never
-		// collapse margins with each other or the container at all (real
-		// CSS: a flex formatting context doesn't collapse) - the previous
-		// item's margin-bottom and this item's margin-top both apply in
-		// full, summed with row-gap, not collapsed via max the way ordinary
-		// block flow would. margin: auto is not supported (resolveMarginSide's
-		// isAuto return is discarded elsewhere in this file) - see CSS.md's
-		// Flexbox "Not supported" list.
-		mt := parseMargin(it.decls["margin-top"])
-		mb := parseMargin(it.decls["margin-bottom"])
-		gapLines := mt + prevMb
-		if i > 0 {
-			gapLines += rowGap
-		}
-		for range gapLines {
-			lines = append(lines, "")
-			row++
-		}
+		mt[i] = parseMargin(it.decls["margin-top"])
+		mb[i] = parseMargin(it.decls["margin-bottom"])
 		itAlign := itemAlign(it, align)
 		w := innerW
 		if itAlign != "" && itAlign != "stretch" {
 			w = r.resolveCrossWidth(it, innerW)
 		}
-		b, pos := r.renderFlexItemBox(it, max(1, w))
+		widths[i] = max(1, w)
+		basisH[i] = parseColumnFlexBasis(it.decls, containerHeight, hasContainerHeight)
+		if basisH[i] > 0 {
+			// flex-basis's own height override must never end up shorter
+			// than the item's own declared min-height - real CSS resolves
+			// an item's used size to at least min-height regardless of
+			// flex-basis. Without this, setting flex-basis on an item would
+			// paradoxically defeat a min-height it would otherwise get for
+			// free from block.go's ordinary (non-flex-basis) min-height
+			// padding.
+			if minH := flexShrinkFloor(it.decls, "min-height", containerHeight); minH > basisH[i] {
+				basisH[i] = minH
+			}
+		}
+	}
+
+	// Render once per item at its resolved flex-basis (0 meaning "no
+	// override" - identical to the item's own pre-existing height/natural
+	// content behavior) to learn each item's hypothetical main size, exactly
+	// mirroring row direction's flex-basis/measureNaturalWidth step.
+	// quoteBefore[i] captures r.quoteDepth immediately before each item's own
+	// render, so a later second render (flex-grow/flex-shrink adjusting its
+	// height) can be replayed from the correct starting depth instead of
+	// whatever the full basis pass over every item left it at - content:
+	// open-quote/close-quote mutates r.quoteDepth live (see block.go), and
+	// this file's other repeated-render site (measureNaturalWidth) already
+	// saves/restores it for the same reason.
+	heights := make([]int, len(items))
+	boxes := make([]box, len(items))
+	poses := make([]map[*html.Node]Rect, len(items))
+	quoteBefore := make([]int, len(items))
+	for i, it := range items {
+		quoteBefore[i] = r.quoteDepth
+		b, pos := r.renderFlexItemBoxHeight(it, widths[i], basisH[i])
+		boxes[i], poses[i], heights[i] = b, pos, len(b.lines)
+	}
+
+	totalContentHeight := 0
+	prevMb := 0
+	for i := range items {
+		gap := mt[i] + prevMb
+		if i > 0 {
+			gap += rowGap
+		}
+		totalContentHeight += gap + heights[i]
+		prevMb = mb[i]
+	}
+	totalContentHeight += prevMb
+
+	finalHeights := append([]int(nil), heights...)
+	leftover := 0
+	if hasContainerHeight {
+		leftover = containerHeight - totalContentHeight
+		allIdx := make([]int, len(items))
+		grows := make([]float64, len(items))
+		shrinks := make([]float64, len(items))
+		floors := make([]int, len(items))
+		ceilings := make([]int, len(items))
+		for i, it := range items {
+			allIdx[i] = i
+			grows[i] = it.grow
+			shrinks[i] = it.shrink
+			floors[i] = flexShrinkFloor(it.decls, "min-height", containerHeight)
+			ceilings[i] = flexGrowCeilingHeight(it.decls, containerHeight)
+		}
+		switch {
+		case leftover > 0:
+			// Mirrors layoutFlexLine's flex-grow branch, distributing into
+			// height instead of width - capped per item at its own
+			// max-height (ceilings), unlike row direction's flex-grow,
+			// which has no max-width equivalent yet (see CSS.md). Any
+			// leftover the ceilings prevented from being absorbed flows
+			// through to justify-content/the trailing pad below, instead of
+			// being silently dropped.
+			leftover = distributeFlexGrow(finalHeights, grows, allIdx, leftover, ceilings)
+		case leftover < 0:
+			// Mirrors layoutFlexLine's flex-shrink branch.
+			leftover = -distributeFlexShrink(finalHeights, shrinks, floors, allIdx, -leftover)
+		}
+	}
+
+	// Only re-render items flex-grow/flex-shrink actually adjusted - every
+	// other item's basis-step render (including the common case where
+	// neither applies at all) is already the final box. Reset r.quoteDepth
+	// to what it was immediately before this same item's basis render
+	// (quoteBefore[i]) rather than leaving it at whatever the full basis
+	// pass over every item left it at - see quoteBefore's own doc comment
+	// above.
+	for i, it := range items {
+		if finalHeights[i] != heights[i] {
+			r.quoteDepth = quoteBefore[i]
+			boxes[i], poses[i] = r.renderFlexItemBoxHeight(it, widths[i], finalHeights[i])
+		}
+	}
+
+	// justify-content distributes whatever main-axis leftover space remains
+	// after flex-grow/flex-shrink - the same distributeJustify used for
+	// row direction's horizontal leftover, just producing leading/between
+	// blank lines instead of blank columns. leftover is only ever set away
+	// from 0 above when hasContainerHeight is true, so without an explicit
+	// container height this always resolves to distributeJustify(justify, 0,
+	// n)'s own no-op case - safe to call unconditionally.
+	leadRows, extraGaps := distributeJustify(decls["justify-content"], leftover, len(items))
+
+	var lines []string
+	for range leadRows {
+		lines = append(lines, "")
+	}
+	positions := map[*html.Node]Rect{}
+	row := leadRows
+	prevMb = 0
+	for i, it := range items {
+		gapLines := mt[i] + prevMb
+		if i > 0 {
+			gapLines += rowGap + extraGaps[i-1]
+		}
+		for range gapLines {
+			lines = append(lines, "")
+			row++
+		}
+		b := boxes[i]
 		colOffset := 0
-		switch itAlign {
+		switch itemAlign(it, align) {
 		case "center":
 			colOffset = max(0, (innerW-b.width)/2)
 		case "flex-end":
@@ -825,16 +1091,26 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			lines = append(lines, prefix+ln)
 		}
 		positions[it.node] = Rect{Row: row, Col: colOffset, Width: b.width, Height: len(b.lines)}
-		if len(pos) > 0 {
-			positions = mergePositions(positions, pos, row, colOffset)
+		if len(poses[i]) > 0 {
+			positions = mergePositions(positions, poses[i], row, colOffset)
 		}
 		row += len(b.lines)
-		prevMb = mb
+		prevMb = mb[i]
 	}
 	// The last item's own margin-bottom is never collapsed away (see above)
 	// - flush it as trailing blank rows, unlike an ordinary block's last
 	// child (which can collapse through its container's open bottom edge).
 	for range prevMb {
+		lines = append(lines, "")
+	}
+	// leadRows/extraGaps only place free space around/between items -
+	// flex-start/justify-content values that don't consume all the leftover
+	// (or flex-grow not applying to any item) can still leave the container
+	// short of its explicit height, so any remainder is always flushed as
+	// trailing blank rows, mirroring row direction's align-content handling.
+	// containerHeight is 0 when hasContainerHeight is false, so this is
+	// already a no-op without an explicit height - safe unconditionally.
+	for len(lines) < containerHeight {
 		lines = append(lines, "")
 	}
 	return box{lines: lines, width: linesWidth(lines)}, positions
