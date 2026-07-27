@@ -337,16 +337,108 @@ underlying shift arithmetic) — so `document.elementAt`/`DispatchClick` hit
 the shifted position with no changes needed in the `document` package at
 all.
 
-Deliberately out of scope, left for a future `absolute`/`fixed`
-implementation: growing the canvas when a shift has nowhere to land (clamped
-instead), and `z-index` ordering when multiple relatively-positioned
-elements' shifted content overlaps (later document order simply paints over
-earlier). `absolute`/`fixed` are a materially bigger feature than this: they
-need out-of-flow removal from normal layout (skipping them at every layout
-call site, the way `float` — also unimplemented — would need to), a tracked
-"nearest positioned ancestor" containing block, and a composition pass that
-collects *every* out-of-flow element in the tree and z-order-splices them,
-not just one element's fixed offset from its own untouched layout slot.
+Deliberately out of scope for `relative` itself (both landed by the
+`absolute`/`fixed` work described next): growing the canvas when a shift has
+nowhere to land (clamped instead, unchanged for `relative`), and `z-index`
+ordering when multiple relatively-positioned elements' shifted content
+overlaps.
+
+### `position: absolute` / `position: fixed`
+
+Unlike `relative`, an `absolute`/`fixed` element is removed from normal flow
+entirely (it reserves no layout space at all, like `display: none`) and
+positioned against a containing block — the document viewport for `fixed`,
+the nearest ancestor with `position` ≠ `static` for `absolute` (falling back
+to the viewport if there is none). This needed the two things `relative`
+didn't: out-of-flow removal at every layout call site, and a real
+containing-block lookup — both implemented in `internal/render/outofflow.go`.
+
+**Static upfront collection.** `collectOutOfFlow` (outofflow.go) walks the
+whole DOM once, before `renderRootTokens` runs, finding every element whose
+resolved `position` is `absolute`/`fixed` — stored as both a
+`map[*html.Node]bool` (fast membership check) and a preorder `[]*html.Node`
+(ancestors always before descendants). This is deliberately a static
+pre-pass rather than incremental discovery during layout (the way
+`compositeOpenSelects`'s own walk discovers open `<select>`s): an
+out-of-flow element can itself contain further out-of-flow descendants, and
+one whole-document walk finds all of them regardless of nesting depth, with
+no fixed-point re-walk needed. The preorder property is reused twice later:
+Phase A's dependency order, and Phase B's z-index tiebreak.
+
+**Out-of-flow removal.** Exactly like `display: none`, but three call sites
+needed the check (not one central gate), mirroring the existing scattered
+`display == "none"` checks in the same three files for the same reason:
+`render.go`'s `renderRootDisplayTokens` (the central dispatch for root-level
+elements), `inline.go`'s `renderInlineAcc` per-child walk (the recursive
+counterpart, covering every depth, including table-cell content — see
+RENDERING.md finding #5), and `flex.go`'s `collectFlexItems` (a flex
+container's direct children are collected via a separate path, bypassing
+`renderInlineAcc`'s loop entirely). **Accepted, documented gap**:
+`absolute`/`fixed` set directly on a `<tr>`/`<td>`/`<th>` or `<li>` itself
+(list.go's own item loop and table_render.go's row/cell-grid walk bypass
+both gates above) is not removed from flow — content *nested inside* one
+still is, via the `inline.go` gate.
+
+**Phase A — geometry + render, dependency order.** `applyOutOfFlow`
+processes `e.outOfFlowOrder` (shallowest-first, guaranteeing any out-of-flow
+containing-block ancestor is resolved before a descendant that depends on
+it). For each node: resolve the containing block Rect (the whole document
+for `fixed`; `nearestPositionedAncestor`'s result — looked up in either the
+normal `positions` map or this phase's own running `resolvedRects`, so an
+out-of-flow ancestor already processed earlier in this same pass works too
+— or the whole document as fallback for `absolute`); render the element's
+own box via `renderBlockContentBox(n, decls, cbRect.Width)` — the same
+generic "render an arbitrary block-display node's box in isolation" function
+already called from three unrelated sites (render.go, flex.go, inline.go),
+reused here unchanged, since spec blockifies an out-of-flow element
+regardless of its own `display` anyway; run `applyRelativeOffsets` on that
+box's own local `lines`/`subPositions` (not just once at the top level) —
+this element's whole subtree was skipped during normal layout (see "Out-of-
+flow removal" above), so a `position: relative` descendant nested inside it
+would otherwise never appear in any `positions` map `applyRelativeOffsets`
+gets to see; resolve `top`/`right`/`bottom`/`left` via the new
+`resolveAbsoluteAxis` against the *real* containing block dimensions (a
+strictly better result than `relative`'s document-wide percentage
+approximation, now that a real containing block Rect exists); then clamp
+the result via `clampOutOfFlowRect` (Col to `[0, e.width-box.width]`, Row to
+`>= 0`, and — only when `canGrow` is false — Height clipped so it fits the
+document's current line count) **before** recording it in `resolvedRects`.
+Clamping here, in Phase A, rather than deferring it to Phase B's paint step,
+matters specifically for a descendant that resolves this element as its own
+containing block: it must see the *same* bounds this element actually paints
+at, not a pre-clamp position it may never occupy (an earlier version of this
+code clamped only in Phase B, which let a nested out-of-flow descendant of a
+clamped ancestor compute its own position against stale, never-painted
+coordinates — visibly detached from where its container actually ended up).
+**Deliberate simplifications, not oversights**: no explicit `width`
+stretches to the containing block's width rather than true shrink-to-fit
+sizing (no new natural-width measurement pass for this); neither
+`top`/`bottom` nor `left`/`right` set on an axis defaults to the containing
+block's top-left corner, not spec's "static position" (roughly where the
+element would have flowed).
+
+**Phase B — paint, z-index order.** The Phase A results (each already
+carrying its final, clamped `Rect`) are sorted by `(zIndex, original
+preorder position)` via `sort.SliceStable` — `zIndex` parsed by
+`parseZIndex`, mirroring flex.go's existing `parseOrder` exactly. Since the
+input is already in that same document order, the stable sort's tie-break
+falls out for free. Each result is then spliced onto `lines` via the same
+`spliceColumns` painter's-algorithm compositing `relative` and `<select>`'s
+popup already use — full overwrite, no partial blending, later z-index
+wins; the only bounds-handling left at this point is growing `lines` with
+blank rows when Phase A's `canGrow` left Height unclipped. `positions` is
+updated via the existing `mergePositions` primitive for the box's own
+descendants, plus a direct entry for the element itself — no new
+position-map machinery.
+
+**Ordering in `Engine.RenderNode`** (engine.go):
+`capBlankRuns → forceHeight → applyRelativeOffsets → applyOutOfFlow →
+compositeOpenSelects`. `applyRelativeOffsets` runs first so an out-of-flow
+element's containing block, if it's a shifted `position: relative`
+ancestor, reflects the *shifted* Rect. `applyOutOfFlow` runs before
+`compositeOpenSelects` so an out-of-flow `<select>` — which has no Rect
+from normal layout, having been skipped there — gets one before the popup
+pass looks it up.
 
 ### Public API
 

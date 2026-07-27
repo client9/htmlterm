@@ -239,7 +239,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 				continue
 			}
 			childDecls := r.resolveDecls(c)
-			if childDecls["display"] == "none" {
+			if childDecls["display"] == "none" || r.outOfFlow[c] {
 				continue
 			}
 			if c.Data == "br" {

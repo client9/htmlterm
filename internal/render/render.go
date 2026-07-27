@@ -152,6 +152,13 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 // block-display anchor in a hyperlink) already existed before this
 // migration and is preserved, not introduced by it.
 func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wrapToken {
+	if r.outOfFlow[n] {
+		// position: absolute/fixed elements reserve no space in normal
+		// flow — applyOutOfFlow (outofflow.go) positions and paints them
+		// after layout finishes, same as compositeOpenSelects does for an
+		// open <select> popup, not here.
+		return tokens
+	}
 	decls := r.resolveDecls(n)
 	href := ""
 	if n.Data == "a" {

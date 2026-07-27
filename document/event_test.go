@@ -279,6 +279,52 @@ func TestDispatchClickHitsPositionRelativeShiftedLocation(t *testing.T) {
 	}
 }
 
+// TestDispatchClickHitsPositionAbsoluteComputedLocation confirms
+// position: absolute is hit-tested at its computed position, not wherever
+// it would have flowed: the button reserves no space in normal flow (a
+// click at row 0, where it would have flowed, misses — that row belongs to
+// the sibling paragraph instead), and a click at its Rect() (computed
+// against the document root, no positioned ancestor here) hits it.
+func TestDispatchClickHitsPositionAbsoluteComputedLocation(t *testing.T) {
+	doc, err := document.ParseDocument(
+		`<button id="go" style="position:absolute;top:2;left:5">Go</button><p>hello</p>`,
+		htmlterm.Options{Width: 40, Height: 10},
+	)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	btn := doc.GetElementByID("go")
+
+	clicked := false
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) { clicked = true })
+
+	// Row 0 is where the button would have flowed (it's the first element
+	// in the document) — it's out-of-flow, so that row belongs to <p>
+	// instead: the click still hits something (the paragraph), just not
+	// the button.
+	doc.DispatchClick(0, 0, document.Modifiers{})
+	if clicked {
+		t.Error("click fired at the button's would-be flow position, want no-op")
+	}
+
+	rect, ok := btn.Rect()
+	if !ok {
+		t.Fatalf("Rect(go) not found")
+	}
+	if rect.Row != 2 || rect.Col != 5 {
+		t.Fatalf("Rect() = %+v, want Row=2 Col=5 (computed against the document root)", rect)
+	}
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
+		t.Fatalf("DispatchClick at the computed Rect() did not hit the button")
+	}
+	if !clicked {
+		t.Error("click did not fire at the computed position")
+	}
+}
+
 func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"></form>`)
 	form := doc.GetElementByID("f")

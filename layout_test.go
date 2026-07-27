@@ -90,6 +90,13 @@ func TestPositionRelative(t *testing.T) {
 	})
 }
 
+func TestPositionAbsoluteFixed(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "position:fixed anchors to the viewport and reserves no space in normal flow", html: `<div style="position:fixed;top:1;left:2;width:4">FX</div><div>1</div><div>2</div><div>3</div>`, width: 20, want: "1\n2 FX  \n3\n"},
+		{name: "position:absolute with no positioned ancestor falls back to the document root", html: `<div style="position:absolute;top:0;left:0;width:3">AB</div>`, width: 10, want: "AB "},
+	})
+}
+
 func TestBlockquoteBlocks(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "blockquote heading and paragraph no extra trailing spaces", html: `<blockquote><h2>Title</h2><p>Body.</p></blockquote>`, want: "│ Title  \n│ Body.  \n\n"},

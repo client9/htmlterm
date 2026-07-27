@@ -286,12 +286,14 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
 
 ## Also deferred, not on the critical path
 
-- **Popups / z-order beyond `<select>`:** `<select>`'s dropdown is now
+- **Popups / z-order beyond `<select>`:** `<select>`'s dropdown is
   implemented, including CSS styling — see RENDERING.md's "Popups / z-order"
-  section, `select_popup.go`, and `overlay_box.go`. Any *other*
-  floating/overlay use case (a tooltip, a context menu, a modal) would reuse
-  the same `spliceColumns`-based compositing pattern, and can resolve its own
-  border/padding/margin/width/base-color geometry via `overlay_box.go`'s
-  `resolveOverlayBoxStyle`/`drawOverlayFrame` — deliberately factored out
-  non-select-specific for exactly this — but none of those has a driving use
-  case yet, so nothing beyond `<select>` is built.
+  section, `select_popup.go`, and `overlay_box.go`. A general mechanism for
+  *other* floating/overlay use cases (a tooltip, a context menu, a modal) is
+  now also implemented as `position: relative/absolute/fixed` with
+  `z-index` — see RENDERING.md's "`position: relative`" and
+  "`position: absolute` / `position: fixed`" sections, `position.go`, and
+  `outofflow.go`. It reuses the same `spliceColumns`-based compositing
+  pattern `<select>`'s popup uses, but is a document-author-facing CSS
+  property rather than Go-code-driven, unlike `<select>`'s popup — the two
+  remain separate implementations sharing primitives, not yet unified.

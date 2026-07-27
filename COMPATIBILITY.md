@@ -159,10 +159,14 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
   (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
   `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
-- **`position: relative`** with `top`/`right`/`bottom`/`left` offsets — the
-  element keeps its normal-flow layout space but paints visually shifted, and
-  its hit-test `Rect` shifts to match. `absolute`/`fixed`/`sticky` are not
-  yet implemented (parse as a no-op) — see "Not Supported" below.
+- **`position: relative/absolute/fixed`** with `top`/`right`/`bottom`/`left`
+  offsets and `z-index`. `relative` keeps its normal-flow layout space but
+  paints visually shifted; `absolute`/`fixed` are removed from flow
+  entirely and positioned against a containing block (the nearest
+  positioned ancestor, or the whole document for `fixed`/an
+  ancestor-less `absolute`). All three update their hit-test `Rect` to
+  match what's painted. `sticky` is not implemented — see "Not Supported"
+  below.
 
 ### Deviations from Spec
 
@@ -296,20 +300,20 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Layout models:** `display: grid`, `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.
-- **Positioned layout:** `position: absolute/fixed/sticky` and `z-index`
-  (`position: relative` is supported — see "At a Glance" above). `absolute`/
-  `fixed` need a real two-pass layout (removing the element from normal
-  flow, tracking a containing block, and z-index-ordered compositing of
-  every out-of-flow element in the tree) that doesn't exist yet — unlike
-  `relative`, which reuses the splicing primitives below without any layout
-  changes. `<select>`'s dropdown remains the only overlay driven by Go code
-  (`select_popup.go`) rather than a general CSS positioning mechanism a
-  document author could invoke on arbitrary elements. The underlying
-  compositing primitives both `relative` and `<select>`'s popup are built on
-  (line-splicing already-rendered output via `spliceColumns`, shifting a
-  sub-rendered box's positions by an offset) are general-purpose and reused
-  across the render engine, not select-specific internals — so `absolute`/
-  `fixed` remain a "not built yet" gap, not an architectural wall. See
+- **Positioned layout:** `position: sticky` (`relative`/`absolute`/`fixed`
+  and `z-index` are all supported — see "At a Glance" above). For
+  `absolute`/`fixed`: real CSS's shrink-to-fit auto-sizing (an
+  unconstrained element here stretches to its containing block's width
+  instead) and the "static position" algorithm (an axis with neither side
+  set defaults to the containing block's top-left corner, not roughly
+  where the element would have flowed) are not implemented; neither is
+  `absolute`/`fixed` set directly on a `<tr>`/`<td>`/`<th>`/`<li>` itself
+  (as opposed to content nested inside one). `<select>`'s dropdown remains
+  the only overlay driven by dedicated Go code (`select_popup.go`) rather
+  than routed through the general `position` mechanism — the underlying
+  compositing primitives (`spliceColumns`, shifting a sub-rendered box's
+  positions by an offset) are shared by both, but `<select>`'s popup
+  predates and isn't (yet) reimplemented on top of `position`. See
   `docs/RENDERING.md`.
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.

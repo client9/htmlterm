@@ -47,6 +47,19 @@ type Engine struct {
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
 	measuringNaturalWidth bool
+	// outOfFlow is the set of elements with position: absolute/fixed,
+	// collected once up front (collectOutOfFlow, outofflow.go) before
+	// normal layout runs — see outofflow.go's doc comment for why this is a
+	// static pre-pass rather than incremental discovery. Consulted at every
+	// layout call site that also checks display:none (render.go, inline.go,
+	// flex.go), so an out-of-flow element reserves no space in normal flow,
+	// then positioned and painted by applyOutOfFlow after layout finishes.
+	outOfFlow map[*html.Node]bool
+	// outOfFlowOrder is outOfFlow's membership in preorder (an ancestor
+	// always precedes its descendants) — applyOutOfFlow (outofflow.go)
+	// relies on that ordering directly for both its containing-block
+	// dependency resolution and its z-index paint-order tiebreak.
+	outOfFlowOrder []*html.Node
 
 	scrollOffsets      map[*html.Node]int
 	liveScrollOffsets  map[*html.Node]int
@@ -247,6 +260,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.directCache = make(map[*html.Node]map[string]string)
 	rr.quoteDepth = 0
+	rr.outOfFlow, rr.outOfFlowOrder = rr.collectOutOfFlow(doc)
 	tokens := rr.renderRootTokens(doc)
 	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
 	b, positions := wordWrapTokens(tokens, rr.width, "", 0)
@@ -273,7 +287,8 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 			positions = visible
 		}
 	}
-	lines, positions = rr.applyRelativeOffsets(doc, lines, positions)
+	lines, positions = rr.applyRelativeOffsets(doc, lines, positions, rr.width)
+	lines, positions = rr.applyOutOfFlow(lines, positions, rr.height <= 0)
 	lines, positions = rr.compositeOpenSelects(doc, lines, positions, rr.height <= 0)
 	out := strings.Join(lines, "\n")
 	if trailingNewline {

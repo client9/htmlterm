@@ -284,7 +284,7 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 			continue
 		}
 		decls := r.resolveDecls(c)
-		if decls["display"] == "none" {
+		if decls["display"] == "none" || r.outOfFlow[c] {
 			continue
 		}
 		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), shrink: parseFlexShrink(decls), order: parseOrder(decls)})

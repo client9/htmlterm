@@ -341,32 +341,64 @@ tr + tr {
 ```
 
 #### `position`
-`relative` | `static` (default). Only `relative` has any effect: the element
-stays in normal flow (it still reserves its original layout space, and
-siblings are unaffected), but paints visually shifted by `top`/`right`/
-`bottom`/`left` (see below) — and its recorded hit-test `Rect` shifts to
-match, so `document.Element.Rect()`/`DispatchClick` see the shifted
-position, matching a real `getBoundingClientRect()`. `absolute`/`fixed`/
-`sticky` are recognized but not yet implemented — they parse harmlessly as a
-no-op (same `static` behavior). Not inherited.
+`static` (default) | `relative` | `absolute` | `fixed`. `sticky` is
+recognized but not implemented — it parses harmlessly as a no-op (same
+`static` behavior). Not inherited.
 
-A shift that would move content outside the document's current row/column
-bounds clamps to the boundary rather than growing the canvas. When two
-`position: relative` elements' shifted content overlaps, the later one in
-document order paints on top — there is no `z-index` support yet.
+- **`relative`**: the element stays in normal flow (it still reserves its
+  original layout space, and siblings are unaffected), but paints visually
+  shifted by `top`/`right`/`bottom`/`left` (see below) — and its recorded
+  hit-test `Rect` shifts to match, so `document.Element.Rect()`/
+  `DispatchClick` see the shifted position, matching a real
+  `getBoundingClientRect()`. A shift that would move content outside the
+  document's current row/column bounds clamps to the boundary rather than
+  growing the canvas.
+- **`absolute`**: removed from normal flow entirely (reserves no space —
+  siblings lay out as if it weren't there) and positioned against its
+  *containing block*: the nearest ancestor with `position` other than
+  `static`, or the whole document if there is none. Per spec, an
+  `absolute`/`fixed` element is implicitly treated as `display: block`
+  regardless of its own `display` value.
+- **`fixed`**: like `absolute`, but its containing block is always the
+  whole document, regardless of any positioned ancestor.
+
+For both `absolute` and `fixed`, an element with no explicit `width`
+stretches to fill its containing block's width rather than real CSS's
+shrink-to-fit-to-content sizing — a deliberate simplification; set an
+explicit `width` for a tightly-sized overlay. Spec's "static position"
+algorithm (where an unpositioned axis would default to roughly where the
+element would have flowed) is not implemented either — an axis with neither
+side set defaults to the containing block's own top-left corner instead.
+`absolute`/`fixed` on a `<tr>`/`<td>`/`<th>` or `<li>` itself (as opposed to
+content nested inside one) is not supported.
+
+When multiple `absolute`/`fixed`/`relative` elements' painted content
+overlaps, `z-index` (see below) decides paint order, ties broken by
+document order — full painter's-algorithm compositing (each later element
+fully overwrites the cells it covers), not per-cell blending.
+
+```css
+.overlay { position: absolute; top: 2; left: 4; width: 20; z-index: 1; }
+.badge { position: relative; top: -1; left: 3; }
+```
 
 #### `top`, `right`, `bottom`, `left`
 Integer, `ch`, `%`, or `auto` (the default — no offset on that side). Only
-meaningful on a `position: relative` element. If both `top` and `bottom` are
-set (non-`auto`), `top` wins; if both `left` and `right` are set, `left`
-wins. Percentages resolve against the document's current width (`left`/
-`right`) or line count (`top`/`bottom`) — an approximation of real CSS's
-containing-block-relative percentages, consistent with how percentages are
-approximated elsewhere in this renderer. Not inherited.
+meaningful on a `relative`/`absolute`/`fixed` element. If both `top` and
+`bottom` are set (non-`auto`), `top` wins; if both `left` and `right` are
+set, `left` wins. For `relative`, percentages resolve against the
+document's current width (`left`/`right`) or line count (`top`/`bottom`) —
+an approximation of real CSS's containing-block-relative percentages,
+consistent with how percentages are approximated elsewhere in this
+renderer. For `absolute`/`fixed`, percentages resolve against the real
+containing block's own width/height. Not inherited.
 
-```css
-.badge { position: relative; top: -1; left: 3; }
-```
+#### `z-index`
+Integer (default `0`). Only meaningful on a `relative`/`absolute`/`fixed`
+element whose painted content overlaps another positioned element's — the
+higher value paints on top; equal values (including the default, the common
+case of two positioned elements that don't set it) fall back to document
+order. Not inherited.
 
 #### `color`
 Any CSS color value (see [Color Values](#color-values)). Foreground color. Inherited.
@@ -1182,7 +1214,7 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
 - `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
-- `grid`, and `position: absolute`/`fixed`/`sticky` (`position: relative` is supported — see [`position`](#position))
+- `grid`, and `position: sticky` (`relative`/`absolute`/`fixed` are supported — see [`position`](#position)); shrink-to-fit auto-sizing and the "static position" algorithm for `absolute`/`fixed` (see that section's deviations)
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-collapse: collapse`'s conflict resolution doesn't consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are consulted, via real conflict resolution against their column's cells) — see `docs/TABLES.md`
 - The legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes on `<table>` (use CSS `border-collapse`/`border-spacing`/cell `padding` instead)
