@@ -126,9 +126,10 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Element.before()` / `after()` (`ChildNode`) | `Before(newSibling)` / `After(newSibling)` | |
 | `Element.replaceWith()` (`ChildNode`) | `ReplaceWith(newSibling)` | |
 | `Element.replaceChildren(...)` | `ReplaceChildren(newChildren...)` | |
-| `Element.innerHTML` (getter) | Missing | No HTML-string serialization of an element's contents in either direction. |
+| `Element.innerHTML` (getter) | `InnerHTML()` | Returns `(string, error)`; serializes via `golang.org/x/net/html`'s own `Render`, so escaping/void-element/raw-text-element handling matches how the same library would re-parse the result. Strips the reserved focus/select-popup marker attributes first, same as `CloneNode`. |
 | `Element.innerHTML` (setter) | `Document.SetInnerHTML(el, html)` | Lives on `Document`, taking the element as a parameter, not a property on the element itself. |
-| `Element.outerHTML` | Missing | No serialization including the element's own tag either. |
+| `Element.outerHTML` (getter) | `OuterHTML()` | Same fidelity/stripping as `InnerHTML`, including e's own tag. |
+| `Element.outerHTML` (setter) | Missing | Unlike the getters, this is a real feature, not a thin wrapper: it needs `html.ParseFragment` with e's *parent* as context (so context-sensitive fragments like a bare `<td>` parse correctly), then splicing possibly-multiple result nodes in where e was. Scoped separately from the getters; not implemented yet. |
 | `Element.scrollIntoView()` | `Document.ScrollVisible(el)` | Same Document-vs-Element placement difference as `innerHTML`/`scrollTop`. |
 | `Element.getBoundingClientRect()` | `Rect()` | Terminal cells (row/col/width/height), not pixels — see `COMPATIBILITY.md`. |
 | `Element.getClientRects()` | Missing | No multi-rect (line-fragment) geometry; `Rect()` only returns a single box. |

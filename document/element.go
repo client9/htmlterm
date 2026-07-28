@@ -507,6 +507,41 @@ func cloneHTMLNode(n *html.Node, deep bool) *html.Node {
 	return clone
 }
 
+// OuterHTML serializes e, including its own tag, back to an HTML string —
+// mirroring the DOM's Element.outerHTML getter. Uses golang.org/x/net/
+// html's own Render, so escaping/void-element/raw-text-element (`<script>`/
+// `<style>`/`<textarea>`) handling exactly matches what re-parsing the
+// result would produce — see Render's own doc comment on what "best
+// effort" round-tripping means for a non-well-formed tree. As with
+// CloneNode, the reserved focus/select-popup state attributes are stripped
+// before rendering (via the same cloneHTMLNode used by CloneNode), so
+// e.g. a focused element's OuterHTML never leaks the internal
+// "data-htmlterm-focus" marker. err is non-nil only if e's own subtree
+// isn't well-formed enough to render at all (e.g. a void element somehow
+// carrying children) — not a case this package's own mutation API can
+// produce, but possible if a caller builds a malformed tree by hand.
+func (e *Element) OuterHTML() (string, error) {
+	var b strings.Builder
+	if err := html.Render(&b, cloneHTMLNode(e.node, true)); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+// InnerHTML serializes e's children back to an HTML string — mirroring the
+// DOM's Element.innerHTML getter; see Document.SetInnerHTML for the setter
+// direction. Same rendering fidelity and reserved-attribute stripping as
+// OuterHTML.
+func (e *Element) InnerHTML() (string, error) {
+	var b strings.Builder
+	for c := e.node.FirstChild; c != nil; c = c.NextSibling {
+		if err := html.Render(&b, cloneHTMLNode(c, true)); err != nil {
+			return "", err
+		}
+	}
+	return b.String(), nil
+}
+
 // Focus moves focus to e, setting the reserved focusAttr marker that
 // ":focus" matches against and dispatching "blur"/"focus" events (neither of
 // which bubbles, per DOM semantics) for the previously and newly focused

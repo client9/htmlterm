@@ -2,10 +2,77 @@ package document_test
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/client9/htmlterm/document"
 )
+
+func TestElementOuterHTML(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d" class="a"><span>hi &amp; bye</span></div>`)
+	el := doc.GetElementByID("d")
+	got, err := el.OuterHTML()
+	if err != nil {
+		t.Fatalf("OuterHTML: %v", err)
+	}
+	want := `<div id="d" class="a"><span>hi &amp; bye</span></div>`
+	if got != want {
+		t.Errorf("OuterHTML() = %q, want %q", got, want)
+	}
+}
+
+func TestElementInnerHTML(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">a<span>b</span>c</div>`)
+	el := doc.GetElementByID("d")
+	got, err := el.InnerHTML()
+	if err != nil {
+		t.Fatalf("InnerHTML: %v", err)
+	}
+	want := `a<span>b</span>c`
+	if got != want {
+		t.Errorf("InnerHTML() = %q, want %q", got, want)
+	}
+}
+
+func TestElementInnerHTMLEmpty(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d"></div>`)
+	el := doc.GetElementByID("d")
+	got, err := el.InnerHTML()
+	if err != nil {
+		t.Fatalf("InnerHTML: %v", err)
+	}
+	if got != "" {
+		t.Errorf("InnerHTML() = %q, want \"\"", got)
+	}
+}
+
+func TestElementOuterInnerHTMLVoidElement(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">a<br>b</div>`)
+	el := doc.GetElementByID("d")
+	got, err := el.InnerHTML()
+	if err != nil {
+		t.Fatalf("InnerHTML: %v", err)
+	}
+	want := `a<br/>b`
+	if got != want {
+		t.Errorf("InnerHTML() = %q, want %q", got, want)
+	}
+}
+
+func TestElementOuterHTMLStripsFocusMarker(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="in" type="text">`)
+	in := doc.GetElementByID("in")
+	if !in.Focus() {
+		t.Fatal("Focus() returned false")
+	}
+	got, err := in.OuterHTML()
+	if err != nil {
+		t.Fatalf("OuterHTML: %v", err)
+	}
+	if strings.Contains(got, "data-htmlterm-focus") {
+		t.Errorf("OuterHTML() = %q, leaked internal focus marker attribute", got)
+	}
+}
 
 func TestElementSetID(t *testing.T) {
 	doc := mustParseDoc(t, `<div>x</div>`)
