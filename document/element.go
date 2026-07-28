@@ -39,6 +39,32 @@ func (e *Element) ID() string {
 	return nodeAttr(e.node, "id")
 }
 
+// SetID sets the element's id attribute to v — mirroring the DOM's
+// Element.id setter. Equivalent to SetAttribute("id", v).
+func (e *Element) SetID(v string) {
+	e.SetAttribute("id", v)
+}
+
+// OwnerDocument returns the Document e belongs to, or nil if e was
+// constructed outside a Document (e.g. a zero-value or var-declared
+// *Element) — mirroring the DOM's Node.ownerDocument.
+func (e *Element) OwnerDocument() *Document {
+	return e.doc
+}
+
+// ClassName returns the element's class attribute as a raw,
+// whitespace-separated string — mirroring the DOM's Element.className. See
+// ClassList for a token-oriented view of the same attribute.
+func (e *Element) ClassName() string {
+	return nodeAttr(e.node, "class")
+}
+
+// SetClassName sets the element's class attribute to v — mirroring the
+// DOM's Element.className setter. Equivalent to SetAttribute("class", v).
+func (e *Element) SetClassName(v string) {
+	e.SetAttribute("class", v)
+}
+
 // TextContent returns the concatenated text of all descendant text nodes.
 func (e *Element) TextContent() string {
 	return rawContent(e.node)
@@ -59,6 +85,23 @@ func (e *Element) GetAttribute(name string) (string, bool) {
 func (e *Element) HasAttribute(name string) bool {
 	_, ok := e.GetAttribute(name)
 	return ok
+}
+
+// HasAttributes reports whether e has any attributes at all — mirroring
+// the DOM's Node.hasAttributes().
+func (e *Element) HasAttributes() bool {
+	return len(e.node.Attr) > 0
+}
+
+// GetAttributeNames returns the names of all of e's attributes, in the
+// order they appear on the element — mirroring the DOM's
+// Element.getAttributeNames().
+func (e *Element) GetAttributeNames() []string {
+	names := make([]string, len(e.node.Attr))
+	for i, a := range e.node.Attr {
+		names[i] = a.Key
+	}
+	return names
 }
 
 // SetAttribute sets the named attribute, adding it if not already present.
@@ -209,6 +252,60 @@ func (e *Element) Children() []*Element {
 	return out
 }
 
+// ChildElementCount returns the number of e's direct element children —
+// mirroring the DOM's Element.childElementCount. Equivalent to
+// len(e.Children()).
+func (e *Element) ChildElementCount() int {
+	return len(e.Children())
+}
+
+// QuerySelector returns the first descendant of e, in document order,
+// matching sel — mirroring the DOM's Element.querySelector(). Like the
+// DOM's version, e itself is never matched, only its descendants. sel
+// accepts the same selector grammar as Document.QuerySelector (see CSS.md).
+func (e *Element) QuerySelector(sel string) *Element {
+	var found *html.Node
+	walkMatchingSubtree(e.node, sel, false, func(n *html.Node) bool {
+		found = n
+		return false
+	})
+	if found == nil {
+		return nil
+	}
+	return &Element{node: found, doc: e.doc}
+}
+
+// QuerySelectorAll returns every descendant of e, in document order,
+// matching sel — mirroring the DOM's Element.querySelectorAll(). Like
+// QuerySelector, e itself is never matched.
+func (e *Element) QuerySelectorAll(sel string) []*Element {
+	var out []*Element
+	walkMatchingSubtree(e.node, sel, false, func(n *html.Node) bool {
+		out = append(out, &Element{node: n, doc: e.doc})
+		return true
+	})
+	return out
+}
+
+// GetElementsByClassName returns every descendant of e whose class
+// attribute includes every token in cls (cls may itself be a
+// whitespace-separated list of multiple class names) — mirroring the DOM's
+// Element.getElementsByClassName().
+func (e *Element) GetElementsByClassName(cls string) []*Element {
+	sel := classNameSelector(cls)
+	if sel == "" {
+		return nil
+	}
+	return e.QuerySelectorAll(sel)
+}
+
+// GetElementsByTagName returns every descendant of e with the given tag
+// name, in document order — mirroring the DOM's
+// Element.getElementsByTagName().
+func (e *Element) GetElementsByTagName(tag string) []*Element {
+	return e.QuerySelectorAll(tag)
+}
+
 // Matches reports whether e matches sel — mirroring the DOM's
 // Element.matches(). sel accepts the same selector grammar as CSS rules and
 // Document.QuerySelector (see CSS.md), including comma-separated selector
@@ -303,6 +400,68 @@ func (e *Element) ReplaceChild(newChild, oldChild *Element) *Element {
 	return oldChild
 }
 
+// Remove detaches e from its parent, if it has one — mirroring the DOM's
+// ChildNode.remove(). A no-op if e has no parent (e.g. the document root,
+// or an already-detached element). Focus/listener handling for e's subtree
+// is identical to RemoveChild.
+func (e *Element) Remove() {
+	p := e.Parent()
+	if p == nil {
+		return
+	}
+	p.RemoveChild(e)
+}
+
+// Before inserts newSibling immediately before e among its parent's
+// children — mirroring the DOM's ChildNode.before(). A no-op if e has no
+// parent. newSibling must not already be attached anywhere in the tree,
+// same as AppendChild.
+func (e *Element) Before(newSibling *Element) {
+	p := e.Parent()
+	if p == nil {
+		return
+	}
+	p.InsertBefore(newSibling, e)
+}
+
+// After inserts newSibling immediately after e among its parent's children
+// — mirroring the DOM's ChildNode.after(). A no-op if e has no parent.
+// newSibling must not already be attached anywhere in the tree, same as
+// AppendChild.
+func (e *Element) After(newSibling *Element) {
+	p := e.Parent()
+	if p == nil {
+		return
+	}
+	p.InsertBefore(newSibling, e.NextSibling())
+}
+
+// ReplaceWith replaces e with newSibling among its parent's children,
+// returning e now detached — mirroring the DOM's ChildNode.replaceWith().
+// A no-op returning e unchanged if e has no parent. Focus/listener handling
+// for e's subtree is identical to RemoveChild/ReplaceChild.
+func (e *Element) ReplaceWith(newSibling *Element) *Element {
+	p := e.Parent()
+	if p == nil {
+		return e
+	}
+	return p.ReplaceChild(newSibling, e)
+}
+
+// ReplaceChildren detaches all of e's existing children and appends
+// newChildren in their place, in order — mirroring the DOM's
+// Element.replaceChildren(). Each of newChildren must not already be
+// attached anywhere in the tree, same as AppendChild. Focus/listener
+// handling for the detached children is identical to RemoveChild.
+func (e *Element) ReplaceChildren(newChildren ...*Element) {
+	for c := e.FirstChild(); c != nil; c = e.FirstChild() {
+		e.RemoveChild(c)
+	}
+	for _, c := range newChildren {
+		e.AppendChild(c)
+	}
+}
+
 // CloneNode returns a detached copy of e — mirroring the DOM's
 // Node.cloneNode(deep). If deep is true, e's whole subtree is copied; if
 // false, only e itself (with its attributes, but no children) is copied.
@@ -372,6 +531,23 @@ func (e *Element) Blur() {
 		return
 	}
 	e.doc.blur()
+}
+
+// Click synthesizes a click at e's own on-screen position (the top-left
+// cell of its Rect) and runs the same hit-testing/default-action path as a
+// real user click via Document.DispatchClick — mirroring the DOM's
+// HTMLElement.click(). Returns false, doing nothing, if e is nil, not
+// attached to a Document, or has no recorded Rect (e.g. display:none, or
+// Render hasn't run yet — see Rect).
+func (e *Element) Click() bool {
+	if e == nil || e.doc == nil {
+		return false
+	}
+	r, ok := e.Rect()
+	if !ok {
+		return false
+	}
+	return e.doc.DispatchClick(r.Row, r.Col, Modifiers{})
 }
 
 // Rect returns e's position and size as of the most recent Document.Render

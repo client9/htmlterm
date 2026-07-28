@@ -1144,10 +1144,21 @@ func (d *Document) QuerySelectorAll(sel string) []*Element {
 // css.go does for stylesheet rules) and walks the document in order, calling
 // visit for each matching element until visit returns false.
 func (d *Document) walkMatching(sel string, visit func(n *html.Node) bool) {
+	walkMatchingSubtree(d.doc, sel, true, visit)
+}
+
+// walkMatchingSubtree is walkMatching's shared implementation, generalized
+// to start from any root (the document node itself for Document's
+// whole-document search, or an arbitrary element node for Element's
+// subtree-scoped QuerySelector/QuerySelectorAll). includeSelf controls
+// whether root itself is tested against sel — false for Element's scoped
+// search, matching the DOM's own rule that querySelector(All) never matches
+// the context node itself, only its descendants.
+func walkMatchingSubtree(root *html.Node, sel string, includeSelf bool, visit func(n *html.Node) bool) {
 	group := cssengine.ParseSelectorGroup(sel)
-	var walk func(n *html.Node) bool
-	walk = func(n *html.Node) bool {
-		if n.Type == html.ElementNode {
+	var walk func(n *html.Node, testSelf bool) bool
+	walk = func(n *html.Node, testSelf bool) bool {
+		if testSelf && n.Type == html.ElementNode {
 			if group.Match(n, focusAttr, "") {
 				if !visit(n) {
 					return false
@@ -1155,11 +1166,76 @@ func (d *Document) walkMatching(sel string, visit func(n *html.Node) bool) {
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			if !walk(c) {
+			if !walk(c, true) {
 				return false
 			}
 		}
 		return true
 	}
-	walk(d.doc)
+	walk(root, includeSelf)
+}
+
+// classNameSelector turns a whitespace-separated list of class names (the
+// argument shape getElementsByClassName accepts per spec) into the
+// equivalent compound class selector (".a.b"), or "" if cls has no tokens.
+func classNameSelector(cls string) string {
+	fields := strings.Fields(cls)
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, f := range fields {
+		b.WriteByte('.')
+		b.WriteString(f)
+	}
+	return b.String()
+}
+
+// GetElementsByClassName returns every element in the document whose class
+// attribute includes every token in cls (cls may itself be a
+// whitespace-separated list of multiple class names) — mirroring the DOM's
+// Document.getElementsByClassName().
+func (d *Document) GetElementsByClassName(cls string) []*Element {
+	sel := classNameSelector(cls)
+	if sel == "" {
+		return nil
+	}
+	return d.QuerySelectorAll(sel)
+}
+
+// GetElementsByTagName returns every element in the document with the
+// given tag name, in document order — mirroring the DOM's
+// Document.getElementsByTagName().
+func (d *Document) GetElementsByTagName(tag string) []*Element {
+	return d.QuerySelectorAll(tag)
+}
+
+// GetElementsByName returns every element in the document whose name
+// attribute equals name — mirroring the DOM's Document.getElementsByName().
+func (d *Document) GetElementsByName(name string) []*Element {
+	return d.QuerySelectorAll(fmt.Sprintf("[name=%q]", name))
+}
+
+// Body returns the document's <body> element, or nil if there is none —
+// mirroring the DOM's Document.body.
+func (d *Document) Body() *Element {
+	return d.QuerySelector("body")
+}
+
+// Head returns the document's <head> element, or nil if there is none —
+// mirroring the DOM's Document.head.
+func (d *Document) Head() *Element {
+	return d.QuerySelector("head")
+}
+
+// Title returns the text content of the document's <title> element, or ""
+// if there is none — mirroring the DOM's Document.title (getter only; the
+// DOM's title setter has no equivalent here — set the <title> element's
+// text content directly instead).
+func (d *Document) Title() string {
+	el := d.QuerySelector("title")
+	if el == nil {
+		return ""
+	}
+	return el.TextContent()
 }
