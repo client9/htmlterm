@@ -27,7 +27,7 @@ network, no scripting engine).
 | `createElement(tag)` | `CreateElement(tag)` | |
 | `createTextNode(text)` | `CreateTextNode(text)` | |
 | `createDocumentFragment()` | Missing | No `DocumentFragment` type; build a detached `Element` subtree via `CreateElement`/`AppendChild` and attach it directly instead. |
-| `createComment(text)` | Missing | No comment-node support at all — comments are dropped during parsing. |
+| `createComment(text)` | `CreateComment(text)` | A comment node never produces visible output once attached — `internal/render`'s dispatch explicitly skips `html.CommentNode` wherever it appears, the same way a browser never renders comment content either. |
 | `createEvent()` / `Event` constructor | N/A | Events are only ever synthesized internally by `Dispatch*` calls; there's no way to construct and dispatch an arbitrary custom event. |
 | `importNode(node, deep)` / `adoptNode(node)` | N/A | Single-document model — no cross-document node transfer exists to import/adopt between. |
 | `documentElement` | `DocumentElement()` | |
@@ -35,7 +35,7 @@ network, no scripting engine).
 | `head` | `Head()` | |
 | `title` | `Title()` (getter only) | No setter equivalent — set the `<title>` element's text content directly instead. |
 | `activeElement` | `FocusedElement()` | |
-| `forms` / `images` / `links` / `scripts` / `styleSheets` | Missing | Use `QuerySelectorAll` with the relevant selector instead. |
+| `forms` / `images` / `links` / `scripts` / `styleSheets` | `Forms()` / `Images()` / `Links()` / `Scripts()` / `StyleSheets()` | Plain `[]*Element` slices, not live `HTMLCollection`s; `styleSheets` returns the raw `<style>` elements rather than parsed CSSOM objects (this package has no CSSOM to expose). |
 | `URL` / `domain` / `cookie` / `location` / `defaultView` / `readyState` / `characterSet` / `doctype` | N/A | No network origin, no window, no navigation, no async loading — none of these concepts exist for a one-shot/embedded document. |
 | `addEventListener(type, fn, opts)` (via `EventTarget`) | `AddEventListener(el, typ, capture, fn)` | Lives on `Document`, not `Element` — takes the target `*Element` as a parameter rather than being called on it. See "Also available" under Element below. |
 | `removeEventListener` | `RemoveEventListener(handle)` | Takes the `ListenerHandle` returned by `AddEventListener`, not a `(type, fn)` pair. |
@@ -85,11 +85,11 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 |---|---|---|
 | `Node.nodeType` | Missing | No generic node-type discriminator; every `*Element` handle is assumed to wrap an element (or, for `CreateTextNode`'s result, a text node with limited method support). |
 | `Node.nodeName` / `Element.tagName` | `TagName()` | Real DOM uppercases `tagName`; htmlterm returns it as parsed (lowercase for HTML). |
-| `Node.nodeValue` | Missing | Only meaningful for text/comment nodes, which htmlterm barely models; use `TextContent()`. |
+| `Node.nodeValue` | `NodeValue()` | Returns e's own text for a text/comment node, `""` for an element (matching spec's `null` there). |
 | `Node.textContent` (getter) | `TextContent()` | |
-| `Node.textContent` (setter) | Missing | No way to replace all children with a single text node in one call; use `RemoveChild` in a loop (or `SetInnerHTML` at the `Document` level) plus `AppendChild(doc.CreateTextNode(...))`. |
+| `Node.textContent` (setter) | `SetTextContent(text)` | Built on `ReplaceChildren` — an empty string removes all children rather than adding an empty text node, matching spec's algorithm exactly. |
 | `Node.parentNode` / `parentElement` | `Parent()` | Spec distinguishes "any parent node" vs. "parent that is an element"; htmlterm only has the element-returning form. |
-| `Node.childNodes` | Missing | No `NodeList` including text nodes; only `Children()` (elements only). |
+| `Node.childNodes` | `ChildNodes()` | Unlike the DOM's live `NodeList`, this is a snapshot slice, same as `Children()`; includes text nodes, unlike `Children()`. |
 | `Node.firstChild` / `lastChild` | `FirstChild()` / `LastChild()` | May return a text-node-backed `*Element` with limited method support, matching spec's "may not be an element" semantics. |
 | `Node.previousSibling` / `nextSibling` | `PreviousSibling()` / `NextSibling()` | Same text-node caveat as above. |
 | `Node.ownerDocument` | `OwnerDocument()` | |
@@ -99,7 +99,8 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Node.replaceChild(new, old)` | `ReplaceChild(new, old)` | |
 | `Node.cloneNode(deep)` | `CloneNode(deep)` | Deliberately drops htmlterm's reserved focus/select-popup state attributes on clone — see the doc comment in `element.go`. |
 | `Node.contains(other)` | `Contains(other)` | |
-| `Node.isEqualNode` / `isSameNode` | Missing | No node-identity/deep-equality comparison; compare `*Element` pointers directly for identity (works, since handles for the same node are interchangeable), or write your own deep-equality walk. |
+| `Node.isSameNode` | `IsSameNode(other)` | |
+| `Node.isEqualNode` | Missing | No deep structural (tag+attrs+children) comparison; `IsSameNode` covers identity, or write your own deep-equality walk. |
 | `Node.normalize()` | Missing | No adjacent-text-node merging exists (or is needed, since htmlterm doesn't produce split text nodes the way DOM mutation APIs can). |
 | `Node.compareDocumentPosition` | Missing | No bitmask tree-position comparison; `Contains()` covers the common "is this an ancestor" case. |
 | `Element.id` | `ID()` / `SetID(v)` | |
@@ -112,7 +113,7 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Element.removeAttribute(name)` | `RemoveAttribute(name)` | |
 | `Element.hasAttribute(name)` | `HasAttribute(name)` | |
 | `Element.hasAttributes()` | `HasAttributes()` | |
-| `Element.dataset` | Missing | No structured view of `data-*` attributes; use `GetAttribute("data-foo")`/`SetAttribute("data-foo", v)` directly. |
+| `Element.dataset` | `Dataset()` | Returns a `*Dataset` with `Get`/`Set`/`Has`/`Delete`, keyed by the same camelCase name the DOM's `dataset` itself uses (e.g. `"fooBar"` for the `data-foo-bar` attribute) — not a live property bag, each call reads/writes the backing attribute directly. |
 | `Element.children` | `Children()` | |
 | `Element.childElementCount` | `ChildElementCount()` | |
 | `Element.firstElementChild` / `lastElementChild` | `FirstElementChild()` / `LastElementChild()` | |
@@ -121,7 +122,9 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Element.closest(sel)` | `Closest(sel)` | |
 | `Element.querySelector(sel)` / `querySelectorAll(sel)` | `QuerySelector(sel)` / `QuerySelectorAll(sel)` | Scoped to e's subtree; e itself is never matched, matching spec. |
 | `Element.getElementsByClassName` / `getElementsByTagName` | `GetElementsByClassName(cls)` / `GetElementsByTagName(tag)` | Scoped to e's subtree, same as `QuerySelectorAll`. |
-| `Element.insertAdjacentElement` / `insertAdjacentHTML` / `insertAdjacentText` | Missing | No adjacent-position *HTML-string* insertion helpers; `Before`/`After` cover the element-argument case (see below), but there's no HTML-string equivalent of `insertAdjacentHTML` — `Document.SetInnerHTML` only replaces a container's entire contents, not an adjacent position. |
+| `Element.insertAdjacentElement` | `InsertAdjacentElement(position, newEl)` | `position` is one of `"beforebegin"`/`"afterbegin"`/`"beforeend"`/`"afterend"`, same as spec; an invalid value returns an `error` instead of spec's `SyntaxError` exception. |
+| `Element.insertAdjacentText` | `InsertAdjacentText(position, text)` | Same `position` values as `InsertAdjacentElement`. |
+| `Element.insertAdjacentHTML` | Missing | No HTML-*string* adjacent insertion — `InsertAdjacentElement`/`InsertAdjacentText` cover the element/text-argument cases above, but there's no fragment-parsing equivalent; `Document.SetInnerHTML` only replaces a container's entire contents, not an adjacent position. |
 | `Element.remove()` (`ChildNode`) | `Remove()` | |
 | `Element.before()` / `after()` (`ChildNode`) | `Before(newSibling)` / `After(newSibling)` | |
 | `Element.replaceWith()` (`ChildNode`) | `ReplaceWith(newSibling)` | |
@@ -138,7 +141,8 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `HTMLElement.focus()` / `blur()` | `Focus()` / `Blur()` | |
 | `HTMLElement.click()` | `Click()` | Synthesizes the click at e's own `Rect()` (top-left cell) and dispatches through the normal `DispatchClick` path; returns `false` if e has no recorded `Rect` (e.g. `display:none`, or `Render` hasn't run yet). |
 | `HTMLInputElement.value` / `checked` | `Value()`/`SetValue()`, `Checked()`/`SetChecked()` | Attribute-backed, not a separate live property — see `COMPATIBILITY.md`'s "Form controls are attribute-driven" deviation. |
-| `HTMLElement.dataset`, `.hidden`, `.tabIndex`, `.title`, etc. (typed property shortcuts) | Missing | None of `HTMLElement`'s typed convenience properties exist; use `GetAttribute`/`SetAttribute` with the matching attribute name for all of them. |
+| `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
+| `HTMLElement.tabIndex`, `.title`, etc. (remaining typed property shortcuts) | Missing | `tabIndex` wouldn't do anything if added — `tabindex` isn't read at all (see COMPATIBILITY.md's "Not Supported"). For the rest, use `GetAttribute`/`SetAttribute` with the matching attribute name. |
 | `EventTarget.addEventListener` / `removeEventListener` / `dispatchEvent` | `Document.AddEventListener(el, ...)` / `Document.RemoveEventListener(handle)` | Lives on `Document`, not `Element` — see "Also available" below and the `Document` table above. No public `dispatchEvent`. |
 
 ### Also available (no direct spec equivalent)

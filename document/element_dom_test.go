@@ -325,6 +325,236 @@ func TestElementClickUnrendered(t *testing.T) {
 	}
 }
 
+func TestDocumentCreateComment(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">a</div>`)
+	el := doc.GetElementByID("d")
+	el.AppendChild(doc.CreateComment("hidden note"))
+
+	got, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(got, "hidden note") {
+		t.Errorf("Render() = %q, comment text leaked into output", got)
+	}
+
+	nodes := el.ChildNodes()
+	if len(nodes) != 2 {
+		t.Fatalf("ChildNodes() = %d nodes, want 2 (text + comment)", len(nodes))
+	}
+	if got, want := nodes[1].NodeValue(), "hidden note"; got != want {
+		t.Errorf("comment NodeValue() = %q, want %q", got, want)
+	}
+}
+
+func TestDocumentFormsImagesLinksScriptsStyleSheets(t *testing.T) {
+	doc := mustParseDoc(t, `
+		<form id="f"></form>
+		<img id="i" src="x.png">
+		<a id="a1" href="/one">one</a>
+		<a id="a2">no href</a>
+		<area href="/two">
+		<script id="s">1</script>
+		<style id="st">p{color:red}</style>
+	`)
+	if got := doc.Forms(); len(got) != 1 || got[0].ID() != "f" {
+		t.Errorf("Forms() = %v, want [f]", ids(got))
+	}
+	if got := doc.Images(); len(got) != 1 || got[0].ID() != "i" {
+		t.Errorf("Images() = %v, want [i]", ids(got))
+	}
+	if got := doc.Links(); len(got) != 2 {
+		t.Errorf("Links() found %d, want 2 (a[href] and area[href], excluding the href-less <a>)", len(got))
+	}
+	if got := doc.Scripts(); len(got) != 1 || got[0].ID() != "s" {
+		t.Errorf("Scripts() = %v, want [s]", ids(got))
+	}
+	if got := doc.StyleSheets(); len(got) != 1 || got[0].ID() != "st" {
+		t.Errorf("StyleSheets() = %v, want [st]", ids(got))
+	}
+}
+
+func ids(els []*document.Element) []string {
+	out := make([]string, len(els))
+	for i, e := range els {
+		out[i] = e.ID()
+	}
+	return out
+}
+
+func TestElementNodeValue(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">hello</div>`)
+	el := doc.GetElementByID("d")
+	if got := el.NodeValue(); got != "" {
+		t.Errorf("NodeValue() on element = %q, want \"\"", got)
+	}
+	text := el.FirstChild()
+	if got, want := text.NodeValue(), "hello"; got != want {
+		t.Errorf("NodeValue() on text node = %q, want %q", got, want)
+	}
+}
+
+func TestElementSetTextContent(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d"><span>old</span></div>`)
+	el := doc.GetElementByID("d")
+	el.SetTextContent("new text")
+	if got, want := el.TextContent(), "new text"; got != want {
+		t.Errorf("TextContent() = %q, want %q", got, want)
+	}
+	if got, want := el.ChildElementCount(), 0; got != want {
+		t.Errorf("ChildElementCount() = %d, want %d (old <span> should be gone)", got, want)
+	}
+
+	el.SetTextContent("")
+	if got := len(el.ChildNodes()); got != 0 {
+		t.Errorf("ChildNodes() after SetTextContent(\"\") = %d, want 0", got)
+	}
+}
+
+func TestElementChildNodesIncludesText(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">a<span>b</span>c</div>`)
+	el := doc.GetElementByID("d")
+	nodes := el.ChildNodes()
+	if len(nodes) != 3 {
+		t.Fatalf("ChildNodes() = %d, want 3 (text, span, text)", len(nodes))
+	}
+	if nodes[0].NodeValue() != "a" || nodes[2].NodeValue() != "c" {
+		t.Errorf("ChildNodes() text values = %q, %q, want \"a\", \"c\"", nodes[0].NodeValue(), nodes[2].NodeValue())
+	}
+	if nodes[1].TagName() != "span" {
+		t.Errorf("ChildNodes()[1].TagName() = %q, want \"span\"", nodes[1].TagName())
+	}
+	// Children() should still filter to elements only.
+	if got := len(el.Children()); got != 1 {
+		t.Errorf("Children() = %d, want 1", got)
+	}
+}
+
+func TestElementIsSameNode(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">x</div><span id="s">y</span>`)
+	d1 := doc.GetElementByID("d")
+	d2 := doc.GetElementByID("d")
+	s := doc.GetElementByID("s")
+
+	if !d1.IsSameNode(d2) {
+		t.Error("two handles for the same node should be IsSameNode")
+	}
+	if d1.IsSameNode(s) {
+		t.Error("distinct nodes should not be IsSameNode")
+	}
+}
+
+func TestElementHidden(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d">x</div>`)
+	el := doc.GetElementByID("d")
+	if el.Hidden() {
+		t.Error("Hidden() = true before SetHidden")
+	}
+	el.SetHidden(true)
+	if !el.Hidden() {
+		t.Error("Hidden() = false after SetHidden(true)")
+	}
+	if !el.HasAttribute("hidden") {
+		t.Error("SetHidden(true) did not set the hidden attribute")
+	}
+	el.SetHidden(false)
+	if el.Hidden() || el.HasAttribute("hidden") {
+		t.Error("SetHidden(false) did not clear the hidden attribute")
+	}
+}
+
+func TestElementInsertAdjacentElement(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="parent"><span id="mid">mid</span></div>`)
+	parent := doc.GetElementByID("parent")
+	mid := doc.GetElementByID("mid")
+
+	bb := doc.CreateElement("b")
+	bb.SetID("beforebegin")
+	if err := mid.InsertAdjacentElement("beforebegin", bb); err != nil {
+		t.Fatalf("InsertAdjacentElement(beforebegin): %v", err)
+	}
+
+	ae := doc.CreateElement("i")
+	ae.SetID("afterend")
+	if err := mid.InsertAdjacentElement("afterend", ae); err != nil {
+		t.Fatalf("InsertAdjacentElement(afterend): %v", err)
+	}
+
+	ab := doc.CreateElement("u")
+	ab.SetID("afterbegin")
+	if err := mid.InsertAdjacentElement("afterbegin", ab); err != nil {
+		t.Fatalf("InsertAdjacentElement(afterbegin): %v", err)
+	}
+
+	be := doc.CreateElement("em")
+	be.SetID("beforeend")
+	if err := mid.InsertAdjacentElement("beforeend", be); err != nil {
+		t.Fatalf("InsertAdjacentElement(beforeend): %v", err)
+	}
+
+	var order []string
+	for c := parent.FirstElementChild(); c != nil; c = c.NextElementSibling() {
+		order = append(order, c.ID())
+	}
+	want := []string{"beforebegin", "mid", "afterend"}
+	if !reflect.DeepEqual(order, want) {
+		t.Errorf("parent child order = %v, want %v", order, want)
+	}
+
+	var midOrder []string
+	for c := mid.FirstElementChild(); c != nil; c = c.NextElementSibling() {
+		midOrder = append(midOrder, c.ID())
+	}
+	wantMid := []string{"afterbegin", "beforeend"}
+	if !reflect.DeepEqual(midOrder, wantMid) {
+		t.Errorf("mid child order = %v, want %v", midOrder, wantMid)
+	}
+
+	if err := mid.InsertAdjacentElement("nonsense", bb); err == nil {
+		t.Error("InsertAdjacentElement with an invalid position should return an error")
+	}
+}
+
+func TestElementInsertAdjacentText(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="parent"><span id="mid">mid</span></div>`)
+	mid := doc.GetElementByID("mid")
+	if err := mid.InsertAdjacentText("beforeend", "!"); err != nil {
+		t.Fatalf("InsertAdjacentText: %v", err)
+	}
+	if got, want := mid.TextContent(), "mid!"; got != want {
+		t.Errorf("TextContent() = %q, want %q", got, want)
+	}
+}
+
+func TestElementDataset(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="d" data-foo-bar="1">x</div>`)
+	el := doc.GetElementByID("d")
+	ds := el.Dataset()
+
+	if got, ok := ds.Get("fooBar"); !ok || got != "1" {
+		t.Errorf("Get(fooBar) = (%q, %v), want (1, true)", got, ok)
+	}
+	if !ds.Has("fooBar") {
+		t.Error("Has(fooBar) = false")
+	}
+	if ds.Has("nope") {
+		t.Error("Has(nope) = true, want false")
+	}
+
+	ds.Set("newKey", "v")
+	if got, want := el.GetAttributeNames(), []string{"id", "data-foo-bar", "data-new-key"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("GetAttributeNames() = %v, want %v", got, want)
+	}
+
+	ds.Delete("fooBar")
+	if ds.Has("fooBar") {
+		t.Error("Has(fooBar) = true after Delete")
+	}
+	if el.HasAttribute("data-foo-bar") {
+		t.Error("data-foo-bar attribute still present after Delete")
+	}
+}
+
 func mustOptions() document.Options {
 	return document.Options{Width: 20}
 }

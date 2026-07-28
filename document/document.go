@@ -1086,6 +1086,16 @@ func (d *Document) CreateTextNode(text string) *Element {
 	return &Element{node: &html.Node{Type: html.TextNode, Data: text}, doc: d}
 }
 
+// CreateComment returns a new comment node carrying text, detached from the
+// tree — mirroring the DOM's Document.createComment. Attach it with
+// Element.AppendChild or Element.InsertBefore. A comment node never
+// produces visible output once attached — internal/render's dispatch
+// explicitly skips html.CommentNode wherever it appears, the same way a
+// browser never renders comment content either.
+func (d *Document) CreateComment(text string) *Element {
+	return &Element{node: &html.Node{Type: html.CommentNode, Data: text}, doc: d}
+}
+
 // GetElementByID returns the first element in document order whose id
 // attribute equals id, or nil if none matches.
 func (d *Document) GetElementByID(id string) *Element {
@@ -1238,4 +1248,39 @@ func (d *Document) Title() string {
 		return ""
 	}
 	return el.TextContent()
+}
+
+// Forms returns every <form> element in the document, in document order —
+// mirroring the DOM's Document.forms (an HTMLCollection there; a plain
+// slice here, same as QuerySelectorAll).
+func (d *Document) Forms() []*Element {
+	return d.QuerySelectorAll("form")
+}
+
+// Images returns every <img> element in the document, in document order —
+// mirroring the DOM's Document.images.
+func (d *Document) Images() []*Element {
+	return d.QuerySelectorAll("img")
+}
+
+// Links returns every <a>/<area> element carrying an href attribute, in
+// document order — mirroring the DOM's Document.links.
+func (d *Document) Links() []*Element {
+	return d.QuerySelectorAll("a[href], area[href]")
+}
+
+// Scripts returns every <script> element in the document, in document
+// order — mirroring the DOM's Document.scripts. Present for structural
+// completeness only: <script> content is never executed or rendered (see
+// COMPATIBILITY.md).
+func (d *Document) Scripts() []*Element {
+	return d.QuerySelectorAll("script")
+}
+
+// StyleSheets returns every <style> element in the document, in document
+// order — mirroring the DOM's Document.styleSheets (a StyleSheetList of
+// parsed CSSOM objects there; the raw <style> elements here, since this
+// package has no CSSOM to expose).
+func (d *Document) StyleSheets() []*Element {
+	return d.QuerySelectorAll("style")
 }

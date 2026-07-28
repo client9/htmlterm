@@ -1,6 +1,7 @@
 package document
 
 import (
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -68,6 +69,41 @@ func (e *Element) SetClassName(v string) {
 // TextContent returns the concatenated text of all descendant text nodes.
 func (e *Element) TextContent() string {
 	return rawContent(e.node)
+}
+
+// SetTextContent replaces all of e's children with a single text node
+// carrying text, or removes all children if text is "" — mirroring the
+// DOM's Node.textContent setter (which pushes nothing for an empty string
+// rather than an empty text node, per spec's algorithm).
+func (e *Element) SetTextContent(text string) {
+	if text == "" {
+		e.ReplaceChildren()
+		return
+	}
+	e.ReplaceChildren(&Element{node: &html.Node{Type: html.TextNode, Data: text}, doc: e.doc})
+}
+
+// NodeValue returns e's own text, for a text or comment node — mirroring
+// the DOM's Node.nodeValue. Returns "" for an element node (matching
+// spec's null there), or any other node type this package barely models.
+func (e *Element) NodeValue() string {
+	if e.node.Type == html.TextNode || e.node.Type == html.CommentNode {
+		return e.node.Data
+	}
+	return ""
+}
+
+// IsSameNode reports whether e and other refer to the exact same
+// underlying node — mirroring the DOM's Node.isSameNode(). Two separate
+// *Element handles obtained for the same node (e.g. from two different
+// QuerySelector calls) are still the "same node". There is no
+// isEqualNode() equivalent (deep structural comparison of two distinct
+// nodes) — see docs/DOM_API.md.
+func (e *Element) IsSameNode(other *Element) bool {
+	if e == nil || other == nil {
+		return e == other
+	}
+	return e.node == other.node
 }
 
 // GetAttribute returns the named attribute's value and whether it is
@@ -149,6 +185,24 @@ func (e *Element) SetChecked(v bool) {
 		e.SetAttribute("checked", "")
 	} else {
 		e.RemoveAttribute("checked")
+	}
+}
+
+// Hidden reports whether the element's hidden attribute is present —
+// mirroring the DOM's HTMLElement.hidden. See COMPATIBILITY.md: the UA
+// stylesheet already maps a present hidden attribute (and
+// aria-hidden="true") to display:none.
+func (e *Element) Hidden() bool {
+	return e.HasAttribute("hidden")
+}
+
+// SetHidden sets or clears the element's hidden attribute — mirroring the
+// DOM's HTMLElement.hidden setter.
+func (e *Element) SetHidden(v bool) {
+	if v {
+		e.SetAttribute("hidden", "")
+	} else {
+		e.RemoveAttribute("hidden")
 	}
 }
 
@@ -248,6 +302,17 @@ func (e *Element) Children() []*Element {
 		if n.Type == html.ElementNode {
 			out = append(out, &Element{node: n, doc: e.doc})
 		}
+	}
+	return out
+}
+
+// ChildNodes returns all of e's direct children, in document order,
+// including text nodes — mirroring the DOM's Node.childNodes. Unlike the
+// DOM's live NodeList, this is a snapshot slice, same as Children().
+func (e *Element) ChildNodes() []*Element {
+	var out []*Element
+	for n := e.node.FirstChild; n != nil; n = n.NextSibling {
+		out = append(out, &Element{node: n, doc: e.doc})
 	}
 	return out
 }
@@ -448,6 +513,38 @@ func (e *Element) ReplaceWith(newSibling *Element) *Element {
 	return p.ReplaceChild(newSibling, e)
 }
 
+// InsertAdjacentElement inserts newEl at position relative to e — mirroring
+// the DOM's Element.insertAdjacentElement(). position must be one of
+// "beforebegin" (immediately before e, as a sibling), "afterbegin" (as e's
+// new first child), "beforeend" (as e's new last child), or "afterend"
+// (immediately after e, as a sibling); any other value returns an error and
+// does nothing, matching spec's SyntaxError for an invalid position.
+// "beforebegin"/"afterend" are no-ops if e has no parent, same as
+// Before/After. newEl must not already be attached anywhere in the tree,
+// same as AppendChild.
+func (e *Element) InsertAdjacentElement(position string, newEl *Element) error {
+	switch position {
+	case "beforebegin":
+		e.Before(newEl)
+	case "afterbegin":
+		e.InsertBefore(newEl, e.FirstChild())
+	case "beforeend":
+		e.AppendChild(newEl)
+	case "afterend":
+		e.After(newEl)
+	default:
+		return fmt.Errorf("htmlterm: invalid InsertAdjacentElement position %q", position)
+	}
+	return nil
+}
+
+// InsertAdjacentText inserts a new text node carrying text at position
+// relative to e — mirroring the DOM's Element.insertAdjacentText(). See
+// InsertAdjacentElement for the accepted position values.
+func (e *Element) InsertAdjacentText(position, text string) error {
+	return e.InsertAdjacentElement(position, &Element{node: &html.Node{Type: html.TextNode, Data: text}, doc: e.doc})
+}
+
 // ReplaceChildren detaches all of e's existing children and appends
 // newChildren in their place, in order — mirroring the DOM's
 // Element.replaceChildren(). Each of newChildren must not already be
@@ -613,6 +710,12 @@ func (e *Element) ClassList() *ClassList {
 	return &ClassList{el: e}
 }
 
+// Dataset returns a handle for reading and mutating the element's data-*
+// attributes — mirroring the DOM's HTMLElement.dataset.
+func (e *Element) Dataset() *Dataset {
+	return &Dataset{el: e}
+}
+
 // IsTextEntry reports whether e is a <textarea> or a text-like <input>
 // (any type other than checkbox/radio/submit/button/reset/hidden) — the
 // elements DispatchKey's printable-character and Backspace default actions
@@ -667,6 +770,60 @@ func (c *ClassList) Toggle(cls string) bool {
 	}
 	c.Add(cls)
 	return true
+}
+
+// Dataset is a DOM-like handle onto an element's data-* attributes —
+// mirroring the DOM's HTMLElement.dataset (a DOMStringMap). Unlike the
+// DOM's live property bag, each method reads/writes the backing data-*
+// attribute directly through the *Element rather than caching anything.
+type Dataset struct {
+	el *Element
+}
+
+// datasetAttrName converts a camelCase dataset key (e.g. "fooBar", matching
+// how the DOM's dataset itself is addressed, e.g. dataset.fooBar) to its
+// backing attribute name ("data-foo-bar") — mirroring the DOM's dataset
+// name-mapping algorithm (HTML spec's "dataset DOMStringMap").
+func datasetAttrName(name string) string {
+	var b strings.Builder
+	b.WriteString("data-")
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'A' && c <= 'Z' {
+			b.WriteByte('-')
+			b.WriteByte(c + ('a' - 'A'))
+		} else {
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// Get returns the value of the named dataset entry, and whether it is
+// present — mirroring reading a property off the DOM's dataset, except
+// returning an explicit ok bool instead of undefined. name is a camelCase
+// dataset key, not the raw data-* attribute suffix — see datasetAttrName.
+func (d *Dataset) Get(name string) (string, bool) {
+	return d.el.GetAttribute(datasetAttrName(name))
+}
+
+// Set sets the named dataset entry to value, adding the backing data-*
+// attribute if not already present — mirroring assigning a property on the
+// DOM's dataset.
+func (d *Dataset) Set(name, value string) {
+	d.el.SetAttribute(datasetAttrName(name), value)
+}
+
+// Has reports whether the named dataset entry is present — mirroring an
+// `in` check against the DOM's dataset.
+func (d *Dataset) Has(name string) bool {
+	return d.el.HasAttribute(datasetAttrName(name))
+}
+
+// Delete removes the named dataset entry, if present — mirroring `delete`
+// on a property of the DOM's dataset.
+func (d *Dataset) Delete(name string) {
+	d.el.RemoveAttribute(datasetAttrName(name))
 }
 
 // Style is a DOM-like handle onto an element's inline "style" attribute —
