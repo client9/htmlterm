@@ -132,7 +132,7 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Element.scrollIntoView()` | `Document.ScrollVisible(el)` | Same Document-vs-Element placement difference as `innerHTML`/`scrollTop`. |
 | `Element.getBoundingClientRect()` | `Rect()` | Terminal cells (row/col/width/height), not pixels — see `COMPATIBILITY.md`. |
 | `Element.getClientRects()` | Missing | No multi-rect (line-fragment) geometry; `Rect()` only returns a single box. |
-| `Element.style` | Missing | No `CSSStyleDeclaration`; only the raw `style` attribute string via `GetAttribute`/`SetAttribute`. See the earlier discussion in this conversation — a `ClassList`-shaped `Style()` handle wrapping `internal/cssengine`'s inline-style parser would be the natural fit. |
+| `Element.style` | `Style()` | Returns a `*Style` with `GetPropertyValue`/`SetProperty`/`RemoveProperty`/`CSSText`/`SetCSSText`, mirroring `CSSStyleDeclaration` for inline styles only. Two gaps versus spec, both documented on the `Style` type: shorthand properties don't round-trip (`SetProperty("margin", "1px")` stores only the expanded longhands — `GetPropertyValue("margin")` afterward returns `""`), and `CSSText`/`SetCSSText` don't preserve declaration order (serialized sorted by property name instead). |
 | `window.getComputedStyle(el)` | Missing | No way to read the resolved cascade result at all from outside `internal/render`. |
 | `HTMLElement.focus()` / `blur()` | `Focus()` / `Blur()` | |
 | `HTMLElement.click()` | Missing | No programmatic-click-without-coordinates method; `Document.DispatchClick` always requires a row/col to hit-test against. |

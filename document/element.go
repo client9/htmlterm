@@ -2,6 +2,7 @@ package document
 
 import (
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/client9/htmlterm/internal/cssengine"
@@ -455,4 +456,127 @@ func (c *ClassList) Toggle(cls string) bool {
 	}
 	c.Add(cls)
 	return true
+}
+
+// Style is a DOM-like handle onto an element's inline "style" attribute —
+// mirroring the DOM's CSSStyleDeclaration for inline styles only. There is
+// no computed-style equivalent (getComputedStyle); see docs/DOM_API.md.
+//
+// Two real-DOM behaviors this deliberately doesn't replicate, both stemming
+// from internal/cssengine.ParseDeclarations expanding shorthand properties
+// into longhands at parse time and never recording that a shorthand was
+// used (the cascade itself has the same limitation — nothing in this engine
+// tracks "this element's margin came from one shorthand declaration"):
+//
+//   - Shorthands don't round-trip: SetProperty("margin", "1px") is stored as
+//     margin-top/-right/-bottom/-left, so GetPropertyValue("margin")
+//     afterward returns "", not "1px" — query the longhand instead.
+//   - CSSText/SetCSSText don't preserve declaration order — CSSText
+//     serializes properties sorted by name, not in the order they were set
+//     or appeared in the original style="" text.
+type Style struct {
+	el *Element
+}
+
+// Style returns a handle for reading and mutating e's inline "style"
+// attribute — mirroring the DOM's HTMLElement.style.
+func (e *Element) Style() *Style {
+	return &Style{el: e}
+}
+
+// GetPropertyValue returns the value of the named property in the element's
+// inline style, or "" if not set — mirroring
+// CSSStyleDeclaration.getPropertyValue. name is lowercased before lookup
+// unless it's a custom property ("--name"). Shorthand properties are never
+// present in isolation — see the Style doc comment.
+func (s *Style) GetPropertyValue(name string) string {
+	decls := cssengine.ParseDeclarations(nodeAttr(s.el.node, "style"))
+	return decls[normalizeStyleProp(name)]
+}
+
+// SetProperty sets the named property to value in the element's inline
+// style, adding it if not already present, or removing it if value is ""
+// (matching CSSStyleDeclaration.setProperty's own empty-value behavior) —
+// mirroring CSSStyleDeclaration.setProperty. A shorthand value is expanded
+// into its longhand properties the same way a literal style="" attribute
+// would be; the shorthand name itself is not stored — see the Style doc
+// comment.
+func (s *Style) SetProperty(name, value string) {
+	if value == "" {
+		s.RemoveProperty(name)
+		return
+	}
+	cur := nodeAttr(s.el.node, "style")
+	var b strings.Builder
+	b.WriteString(cur)
+	if b.Len() > 0 {
+		b.WriteString(";")
+	}
+	b.WriteString(name)
+	b.WriteString(":")
+	b.WriteString(value)
+	decls := cssengine.ParseDeclarations(b.String())
+	s.el.SetAttribute("style", serializeStyleDecls(decls))
+}
+
+// RemoveProperty removes the named property from the element's inline
+// style, if present, and returns its former value — mirroring
+// CSSStyleDeclaration.removeProperty. A no-op returning "" if name isn't a
+// stored longhand — including, per the Style doc comment, a shorthand name
+// that was never itself stored.
+func (s *Style) RemoveProperty(name string) string {
+	decls := cssengine.ParseDeclarations(nodeAttr(s.el.node, "style"))
+	key := normalizeStyleProp(name)
+	old := decls[key]
+	delete(decls, key)
+	s.el.SetAttribute("style", serializeStyleDecls(decls))
+	return old
+}
+
+// CSSText returns the element's inline style serialized back to
+// "prop: value; ..." text, with properties sorted by name — mirroring
+// CSSStyleDeclaration.cssText's getter, except without preserving
+// declaration order (see the Style doc comment).
+func (s *Style) CSSText() string {
+	return serializeStyleDecls(cssengine.ParseDeclarations(nodeAttr(s.el.node, "style")))
+}
+
+// SetCSSText replaces the element's entire inline style with text —
+// mirroring CSSStyleDeclaration.cssText's setter. text is stored verbatim
+// rather than being re-parsed/re-serialized immediately; the next
+// GetPropertyValue/CSSText call parses it like any other style="" value.
+func (s *Style) SetCSSText(text string) {
+	s.el.SetAttribute("style", text)
+}
+
+// normalizeStyleProp lowercases name for lookup/storage, except custom
+// properties ("--name"), which are case-sensitive — matching
+// cssengine.ParseDeclarations' own normalization.
+func normalizeStyleProp(name string) string {
+	if strings.HasPrefix(name, "--") {
+		return name
+	}
+	return strings.ToLower(name)
+}
+
+// serializeStyleDecls renders decls back to "prop: value; ..." text, sorted
+// by property name for deterministic output — see the Style doc comment on
+// why declaration order isn't preserved.
+func serializeStyleDecls(decls map[string]string) string {
+	keys := make([]string, 0, len(decls))
+	for k := range decls {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		if b.Len() > 0 {
+			b.WriteString(" ")
+		}
+		b.WriteString(k)
+		b.WriteString(": ")
+		b.WriteString(decls[k])
+		b.WriteString(";")
+	}
+	return b.String()
 }

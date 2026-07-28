@@ -364,9 +364,10 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 
 - **`Document`/`Element`:** `ParseDocument`, `GetElementByID`,
   `QuerySelector`/`QuerySelectorAll`, attribute get/set/remove, `ClassList`,
-  `Value`/`SetValue`, `Checked`/`SetChecked` — parse once, mutate and
-  re-render repeatedly, instead of `Renderer.Render`'s parse-once-discard
-  model.
+  `Style` (inline `style=""` get/set/remove — see "Deviations from Spec"
+  below), `Value`/`SetValue`, `Checked`/`SetChecked` — parse once, mutate
+  and re-render repeatedly, instead of `Renderer.Render`'s
+  parse-once-discard model.
 - **Events:** `AddEventListener`/`RemoveEventListener` with capture/target/
   bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/
   `PreventDefault`/`DefaultPrevented` — `"click"`, `"keydown"`, `"focus"`,
@@ -418,6 +419,15 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   focusable scroll containers — there is no `tabindex` to reorder or add
   to it, and plain `<a>` links are never tab stops (real browsers make
   links focusable by default).
+- **`Element.Style()` doesn't round-trip shorthand properties or preserve
+  declaration order.** It mirrors `CSSStyleDeclaration` for the inline
+  `style=""` attribute only (there's no `getComputedStyle` — see
+  `docs/DOM_API.md`), but `SetProperty("margin", "1px")` is stored as
+  `margin-top`/`-right`/`-bottom`/`-left` (so `GetPropertyValue("margin")`
+  afterward returns `""`, not `"1px"`), and `CSSText`/`SetCSSText` serialize
+  properties sorted by name rather than in original/set order — both
+  because shorthand expansion happens at parse time with no record that a
+  shorthand was used, the same limitation the cascade itself has.
 
 ### Terminal-Native Additions
 

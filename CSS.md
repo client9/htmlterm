@@ -1165,6 +1165,20 @@ normal stylesheet rule but loses to an `!important` stylesheet rule; an
 `!important` inline declaration wins over everything, including `!important`
 stylesheet rules.
 
+`document.Element.Style()` gives a live `Document` caller a
+`CSSStyleDeclaration`-like handle onto this same attribute
+(`GetPropertyValue`/`SetProperty`/`RemoveProperty`/`CSSText`/`SetCSSText`)
+instead of reading/writing the raw attribute string via `GetAttribute`/
+`SetAttribute("style", ...)` directly. Two gaps versus the real DOM API,
+both stemming from shorthand properties being expanded into longhands at
+parse time with no record that a shorthand was used: `SetProperty("margin",
+"1px")` is stored as `margin-top`/`-right`/`-bottom`/`-left`, so
+`GetPropertyValue("margin")` afterward returns `""`, not `"1px"`; and
+`CSSText`/`SetCSSText` don't preserve declaration order — `CSSText`
+serializes properties sorted by name, not in the order they were set or
+appeared in the original `style=""` text. See `docs/DOM_API.md` for the
+full DOM-vs-htmlterm comparison table.
+
 ---
 
 ## Table — Width and Full-Width Expansion
