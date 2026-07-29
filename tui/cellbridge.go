@@ -228,10 +228,27 @@ func parseExtendedColor(rest []int) (color tcell.Color, consumed int) {
 		if len(rest) < 4 {
 			return tcell.ColorDefault, 0
 		}
-		return tcell.NewRGBColor(int32(rest[1]), int32(rest[2]), int32(rest[3])), 4
+		return tcell.NewRGBColor(clampByte(rest[1]), clampByte(rest[2]), clampByte(rest[3])), 4
 	default:
 		return tcell.ColorDefault, 0
 	}
+}
+
+// clampByte bounds an SGR truecolor parameter (parsed from arbitrary,
+// possibly-untrusted rendered text by strconv.Atoi, so not guaranteed to
+// fit in a byte) to 0-255 before its int32 conversion into
+// tcell.NewRGBColor — satisfies CodeQL's narrowing-conversion check with a
+// real bounds check rather than a suppression comment, since NewRGBColor's
+// own `& 0xff` masking only bounds the final color value, not the
+// conversion that feeds it.
+func clampByte(n int) int32 {
+	if n < 0 {
+		return 0
+	}
+	if n > 255 {
+		return 255
+	}
+	return int32(n)
 }
 
 // applyHyperlink parses an OSC8 sequence (as emitted by ansi.SetHyperlink/
