@@ -421,10 +421,14 @@ func expandShorthand(prop, val string) map[string]string {
 		default:
 			return map[string]string{prop: val}
 		}
-		// The bare "border-color" key is preserved (rather than only emitting
-		// the four per-edge longhands) because internal/render/table.go reads
-		// it directly as a single uniform color for the whole table frame,
-		// which has no per-edge border concept the way block elements do.
+		// The bare "border-color" key is preserved alongside the four
+		// per-edge longhands even though no current internal/render consumer
+		// reads it directly (border coloring there is resolved entirely
+		// per-edge, via border-{top,right,bottom,left}-color) - kept for
+		// parity with how the "border" shorthand case above and this
+		// package's own tests already expect a bare fallback key to survive
+		// expansion, and as a low-cost hook for any future consumer that
+		// wants a single uniform color rather than four per-edge lookups.
 		return map[string]string{
 			prop:                  val,
 			"border-top-color":    sides[0],
