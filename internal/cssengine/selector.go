@@ -377,9 +377,29 @@ func findAttrSelectorOp(s string) (idx, tokenLen int, op attrOp, ok bool) {
 
 func unquoteAttrSelectorValue(val string) string {
 	if len(val) >= 2 && ((val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'')) {
-		return val[1 : len(val)-1]
+		return unescapeCSSString(val[1 : len(val)-1])
 	}
 	return val
+}
+
+// unescapeCSSString resolves backslash escapes in a quoted CSS token's
+// content (e.g. `a\"b` -> `a"b`), the counterpart to consumeCSSQuotedToken's
+// escape-aware scan for where that token ends. Without this, a value with an
+// escaped quote keeps its literal backslash and can never equal the
+// unescaped attribute value it's meant to match (e.g. via
+// fmt.Sprintf("[name=%q]", name), as Document.GetElementsByName uses).
+func unescapeCSSString(s string) string {
+	if !strings.ContainsRune(s, '\\') {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 type specificityScore struct {

@@ -771,6 +771,34 @@ func TestAttrSelectorBracketInsideQuotedValue(t *testing.T) {
 	}
 }
 
+func TestAttrSelectorValueUnescapesBackslashEscapedQuote(t *testing.T) {
+	// fmt.Sprintf("[name=%q]", name) — how Document.GetElementsByName builds
+	// its selector — backslash-escapes a quote character embedded in name.
+	// unquoteAttrSelectorValue must resolve that escape back to a literal
+	// quote, not leave the backslash in the parsed value, or the selector can
+	// never match the real (unescaped) attribute value.
+	got, ok := parseAttrSel(`name="a\"b"`)
+	if !ok {
+		t.Fatalf(`parseAttrSel("name=\"a\\\"b\"") returned !ok`)
+	}
+	want := attrSel{key: "name", op: opEquals, val: `a"b`}
+	if got != want {
+		t.Fatalf(`parseAttrSel("name=\"a\\\"b\"") = %#v, want %#v`, got, want)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`<p id="a" name="a&quot;b">x</p><p id="b" name="ab">y</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector(`[name="a\"b"]`)
+	if !matchSelector(findElementByID(doc, "a"), parts, "", "") {
+		t.Errorf(`[name="a\"b"] should match #a`)
+	}
+	if matchSelector(findElementByID(doc, "b"), parts, "", "") {
+		t.Errorf(`[name="a\"b"] should not match #b`)
+	}
+}
+
 func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 	// parseSimpleSelector pre-parses :not()/:is()/:where() arguments once
 	// into pseudoClass.notParts/isParts rather than leaving matchPseudo to

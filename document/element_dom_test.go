@@ -206,6 +206,20 @@ func TestDocumentGetElementsByClassNameTagNameName(t *testing.T) {
 	}
 }
 
+func TestDocumentGetElementsByNameWithQuoteInName(t *testing.T) {
+	// GetElementsByName builds its selector via fmt.Sprintf("[name=%q]",
+	// name), which backslash-escapes a quote character in name — the
+	// selector-value parser must unescape that back to a literal quote, or a
+	// name containing one can never match.
+	doc := mustParseDoc(t, `<input name="a&quot;b" value="x"><input name="ab" value="y">`)
+
+	if got := doc.GetElementsByName(`a"b`); len(got) != 1 {
+		t.Errorf(`GetElementsByName("a\"b") found %d, want 1`, len(got))
+	} else if v := got[0].Value(); v != "x" {
+		t.Errorf(`GetElementsByName("a\"b")[0].Value() = %q, want "x"`, v)
+	}
+}
+
 func TestDocumentBodyHeadTitle(t *testing.T) {
 	doc := mustParseDoc(t, `<html><head><title>Hello</title></head><body><p>x</p></body></html>`)
 
