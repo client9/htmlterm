@@ -70,6 +70,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **The legacy `width` HTML attribute** on table cells/columns — ignored in
   favor of CSS `width`; in real-world markup (especially HTML email) it's
   almost always a pixel value with no reliable pixel-to-column conversion.
+- **`<progress>`/`<meter>`** — no terminal rendering exists for either,
+  despite both having a plausible ASCII/block-bar terminal representation;
+  not implemented.
+- **`<dialog>`/`<datalist>`** — no native-modal or autocomplete-popup
+  equivalent exists; unhandled the same way any other unrecognized element
+  is (generic inline fallback, usually rendering no visible content).
+- **`contenteditable`** — the attribute isn't read anywhere; there's no
+  editable-content model outside a real `<input>`/`<textarea>` (see "Form
+  controls are attribute-driven" above).
 
 ---
 
@@ -194,9 +203,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
   styles), etc. — the parser recognizes any `@`-rule and skips it as a unit
   rather than erroring or corrupting the rest of the stylesheet, but none
-  of them do anything.
+  of them do anything. `@media`/`@container`-style responsive breakpoints
+  (width, `prefers-color-scheme`) are a deliberate scope decision, not an
+  oversight — `internal/cssengine.ParseStylesheet` is a flat, non-nesting
+  lexer that can't represent a braced at-rule body at all, and the intended
+  answer is for a host (typically `tui.Loop`) to pick which pre-authored
+  stylesheet string to hand `Options.Stylesheets` in response to a resize
+  or theme-change event, not for `cssengine` to evaluate conditions itself.
+  See `docs/proposals/RESPONSIVE.md`.
 - **Pseudo-classes/elements beyond the supported list** — notably
-  `:active` and any real mouse-hover semantics.
+  `:active`, `:has()`, and any real mouse-hover semantics.
 - **`revert`** (the fourth CSS-wide cascade keyword, alongside `inherit`/
   `unset`/`initial`, which are supported) — reverting to the user-agent
   stylesheet's value requires distinguishing UA-stylesheet origin from
@@ -206,7 +222,30 @@ For the design rationale behind the DOM/Events/rendering internals, see
   which resolve inheritance through a separate mechanism.
 - **Layout models:** `display: grid`, `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
-  `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.
+  `inline-flex`/`table`/`contents`/`none` — including the standalone
+  CSS-table display values (`table-row`/`table-cell`/`table-row-group`/
+  etc.) that let a non-`<table>` element opt into table layout; only a
+  literal `<table>`/`<tr>`/`<td>`/`<th>` element tree gets table treatment
+  here; `float`/`clear`.
+- **`box-sizing`** — parses without error but is always a no-op; there's no
+  `content-box`/`border-box` distinction because htmlterm's box model
+  always behaves like `border-box` (padding/border are subtracted from a
+  declared `width`/`height`, not added on top of it).
+- **`line-height`, `letter-spacing`, `word-spacing`** — no per-line vertical
+  spacing or extra inter-character/inter-word spacing concept exists; a
+  terminal cell grid has no sub-line leading to adjust and no fractional
+  character-width budget to insert gaps into.
+- **`outline`/`outline-offset`** — no separate box-decoration layer outside
+  the border exists to draw one on; use `border`/`border-style` directly
+  (including on `:focus`) for a terminal-native focus ring instead.
+- **`direction`/`unicode-bidi`, and the `dir` HTML attribute** — no
+  bidirectional text algorithm is implemented; RTL scripts render in
+  logical (source) order, not visually reordered, and `dir="rtl"`/`dir="auto"`
+  have no effect on layout.
+- **Logical inset properties** (`inset-inline-start`/`-end`,
+  `inset-block-start`/`-end`) for `position` offsets — only the physical
+  `top`/`right`/`bottom`/`left` longhands are read (unlike margin/padding/
+  border, which do support the logical `*-block-*`/`*-inline-*` aliases).
 - **Positioned layout:** `position: sticky` (`relative`/`absolute`/`fixed`
   and `z-index` are all supported — see CSS.md). For
   `absolute`/`fixed`: real CSS's shrink-to-fit auto-sizing (an
@@ -314,6 +353,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
   properties sorted by name rather than in original/set order — both
   because shorthand expansion happens at parse time with no record that a
   shorthand was used, the same limitation the cascade itself has.
+- **`"focus"`/`"blur"` bubble here, unlike spec.** Every dispatched event
+  runs the same capture/target/bubble chain (`runDispatch` in `event.go`
+  has no per-type bubbling suppression) — real DOM's `focus`/`blur` never
+  bubble (only their `focusin`/`focusout` counterparts do, which htmlterm
+  doesn't have separately-named events for). An ancestor listener can
+  observe a descendant's `"focus"`/`"blur"` directly here; no
+  `focusin`/`focusout` equivalent is needed or provided.
 
 ### Terminal-Native Additions
 
@@ -336,6 +382,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`mousemove`, `mouseover`/`mouseout`, `dblclick`, `contextmenu`,
   drag-and-drop events** — no continuous hover tracking exists in a
   terminal, and none of these are wired up.
+- **`keyup`/`keypress`** — only `"keydown"` is dispatched; there's no
+  key-release event, so a host can't detect a key being held or released
+  (only that a key was pressed once).
+- **`focusin`/`focusout`** — there's no separately-named bubbling pair;
+  see "`\"focus\"`/`\"blur\"` bubble here, unlike spec" under "Deviations
+  from Spec" above for how to observe focus entering/leaving a descendant
+  instead.
 - **Text selection and `"select"`/`"copy"` events.** There's no
   click-drag/keyboard text-selection model at all (a real terminal's own
   mouse-drag selection is unavailable once `Loop.Run` enables mouse
