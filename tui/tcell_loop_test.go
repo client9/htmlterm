@@ -128,6 +128,96 @@ func TestLoopQuit(t *testing.T) {
 	}
 }
 
+// TestLoopRunHandlesBracketedPaste drives a real Loop.Run and injects a raw
+// bracketed-paste sequence (CSI 200~ ... CSI 201~, the hardcoded escape pair
+// tcell's input parser recognizes regardless of terminfo — see input.go's
+// keyPasteStart/keyPasteEnd table) around some plain text, asserting the
+// text lands in the focused input's value as a single paste rather than
+// being interpreted key-by-key (which would, e.g., let a literal "\t" in
+// the pasted content move focus via Tab's normal default action instead of
+// being inserted literally).
+func TestLoopRunHandlesBracketedPaste(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="name">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	name := doc.GetElementByID("name")
+	name.Focus()
+
+	scr, mt := newUninitScreen(t, 40, 5)
+	loop := newLoopWithScreen(doc, scr)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var runErr error
+	go func() {
+		defer wg.Done()
+		runErr = loop.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+
+	mt.SendRaw([]byte("\x1b[200~pasted\x1b[201~"))
+	mt.Drain()
+	time.Sleep(25 * time.Millisecond)
+
+	mt.KeyTap(vt.KeyLCtrl, vt.KeyC)
+	mt.Drain()
+	wg.Wait()
+
+	if runErr != nil {
+		t.Errorf("Run returned error: %v", runErr)
+	}
+	if got := name.Value(); got != "pasted" {
+		t.Errorf("after bracketed paste, name value = %q, want %q", got, "pasted")
+	}
+}
+
+// TestLoopRunHandlesCtrlXCut drives a real Loop.Run, focuses a text input
+// with an existing value, sends Ctrl-X, and asserts the document-level
+// effect of Document.DispatchCut ran (the value cleared) — end-to-end
+// coverage of tcell_loop.go's KeyCtrlX wiring. It doesn't assert anything
+// about the system clipboard: Screen.HasClipboard() depends on terminfo
+// capability detection the vt.MockTerm-backed test Screen doesn't
+// necessarily satisfy, so Loop's SetClipboard call may or may not fire here
+// — that plumbing is tcell's own, not this package's.
+func TestLoopRunHandlesCtrlXCut(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="name" value="secret">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	name := doc.GetElementByID("name")
+	name.Focus()
+
+	scr, mt := newUninitScreen(t, 40, 5)
+	loop := newLoopWithScreen(doc, scr)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var runErr error
+	go func() {
+		defer wg.Done()
+		runErr = loop.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+
+	mt.KeyTap(vt.KeyLCtrl, vt.KeyX)
+	mt.Drain()
+	time.Sleep(25 * time.Millisecond)
+
+	mt.KeyTap(vt.KeyLCtrl, vt.KeyC)
+	mt.Drain()
+	wg.Wait()
+
+	if runErr != nil {
+		t.Errorf("Run returned error: %v", runErr)
+	}
+	if got := name.Value(); got != "" {
+		t.Errorf("after Ctrl-X, name value = %q, want empty", got)
+	}
+}
+
 // TestFocusCursorPosMultiLineTextarea is a regression test for a bug where
 // focusCursorPos computed a focused <textarea>'s cursor row/column from its
 // whole value's total rune count with no awareness of embedded newlines,

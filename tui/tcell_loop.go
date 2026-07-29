@@ -32,6 +32,20 @@ type Loop struct {
 	nextTimerID timerID
 
 	quit bool
+
+	// pasting and pasteBuf accumulate a bracketed paste's content: tcell
+	// delivers the pasted text as ordinary EventKeys (as if typed) bracketed
+	// by an EventPaste{Start: true}/EventPaste{Start: false} pair (see
+	// input.go's inputParser — keyPasteStart/keyPasteEnd become EventPaste,
+	// everything between stays EventKey), rather than handing the whole
+	// string over at once. While pasting is true, Run buffers each key via
+	// pasteKeyText instead of dispatching it as a normal "keydown", so a
+	// paste never triggers per-key default actions (Tab moving focus, Enter
+	// submitting) along the way — only the final DispatchPaste call, once
+	// EventPaste{Start: false} arrives, acts on the accumulated text as one
+	// unit, mirroring a real "paste" event's single-shot semantics.
+	pasting  bool
+	pasteBuf strings.Builder
 }
 
 // NewLoop returns a Loop backed by a new tcell.Screen for the process's
@@ -76,6 +90,7 @@ func (l *Loop) Run() error {
 	defer l.screen.Fini()
 	defer l.stopAllTimers()
 	l.screen.EnableMouse(tcell.MouseButtonEvents)
+	l.screen.EnablePaste()
 
 	width, height := l.screen.Size()
 	l.doc.SetSize(width, height)
@@ -90,14 +105,38 @@ func (l *Loop) Run() error {
 			if !ev.Pressed() {
 				continue // ignore key-release events (see keyName's press-only vocabulary)
 			}
+			if l.pasting {
+				// Accumulate rather than dispatch — see pasteBuf's doc
+				// comment on Loop; the paste is acted on as one unit once
+				// EventPaste{Start: false} arrives, below.
+				if text, ok := pasteKeyText(ev); ok {
+					l.pasteBuf.WriteString(text)
+				}
+				continue
+			}
 			if ev.Key() == tcell.KeyCtrlC {
 				return nil
+			}
+			if ev.Key() == tcell.KeyCtrlX {
+				if text, ok := l.doc.DispatchCut(); ok && l.screen.HasClipboard() {
+					l.screen.SetClipboard([]byte(text))
+				}
+				break
 			}
 			key, ok := keyName(ev)
 			if !ok {
 				continue
 			}
 			l.doc.DispatchKey(key, modifiers(ev.Modifiers()))
+
+		case *tcell.EventPaste:
+			if ev.Start() {
+				l.pasting = true
+				l.pasteBuf.Reset()
+				continue // nothing to repaint yet — the paste has no content until it ends
+			}
+			l.pasting = false
+			l.doc.DispatchPaste(l.pasteBuf.String())
 
 		case *tcell.EventMouse:
 			col, row := ev.Position()
@@ -193,6 +232,29 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 		return "PageDown", true
 	case tcell.KeyRune:
 		return ev.Str(), true
+	default:
+		return "", false
+	}
+}
+
+// pasteKeyText decodes one EventKey received while Loop.pasting is true back
+// into the literal text it represents — tcell delivers a bracketed paste's
+// content as a stream of ordinary key events (see pasteBuf's doc comment on
+// Loop), so reconstructing the pasted string means undoing that decoding
+// rather than reading it off the EventPaste itself. Printable runes and the
+// two whitespace keys a paste can plausibly contain (an embedded newline,
+// decoded as Enter; an embedded tab) map back to their literal characters;
+// ok is false for anything else (arrow keys, function keys, ...), which
+// realistically shouldn't appear inside a paste but are silently dropped
+// rather than corrupting the buffer if a terminal ever sends one anyway.
+func pasteKeyText(ev *tcell.EventKey) (string, bool) {
+	switch ev.Key() {
+	case tcell.KeyRune:
+		return ev.Str(), true
+	case tcell.KeyEnter:
+		return "\n", true
+	case tcell.KeyTab:
+		return "\t", true
 	default:
 		return "", false
 	}

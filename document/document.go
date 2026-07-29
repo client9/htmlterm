@@ -801,6 +801,70 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	return true
 }
 
+// DispatchPaste dispatches a "paste" event on the currently focused element,
+// with Event.ClipboardData set to text — the host's job to supply (see
+// tui.Loop's bracketed-paste handling for where a real terminal's pasted
+// text comes from); Document has no clipboard access of its own. Unless a
+// listener calls Event.PreventDefault, the default action appends
+// ev.ClipboardData (a listener may have rewritten it, mirroring a real
+// paste handler calling clipboardData.setData first) to a focused
+// text-like <input>/<textarea>'s value — the same append-at-end model
+// DispatchKey's printable-rune branch uses, since neither tracks a caret
+// position narrower than "end of value" (see COMPATIBILITY.md) — and
+// dispatches "input" on it afterward, mirroring a real paste's per-commit
+// "input" event. A no-op default action for any other focused element (a
+// listener still sees the event; there's just nothing built-in to paste
+// into). Returns false if nothing is focused.
+func (d *Document) DispatchPaste(text string) bool {
+	if d.focused == nil {
+		return false
+	}
+	target := d.focused
+	ev := d.newEvent(target, "paste", "", Modifiers{})
+	ev.ClipboardData = text
+	d.runDispatch(ev, target)
+	if ev.DefaultPrevented() {
+		return true
+	}
+	if isTextEntry(target) {
+		setAttr(target, "value", nodeAttr(target, "value")+ev.ClipboardData)
+		d.dispatch(target, "input", "", Modifiers{})
+	}
+	return true
+}
+
+// DispatchCut dispatches a "cut" event on the currently focused element,
+// with Event.ClipboardData pre-populated from its value (a focused
+// text-like <input>/<textarea>'s whole value — htmlterm has no
+// text-selection concept narrower than that, see COMPATIBILITY.md, so "cut"
+// always acts on the entire field rather than a selected range) for a
+// listener to read or rewrite, the same way DispatchPaste's ClipboardData
+// works in reverse. Unless a listener calls Event.PreventDefault, the
+// default action clears the target's value (the removal half of "cut") and
+// dispatches "input" on it. Returns the final ClipboardData (post-listener)
+// and true if something was focused to cut from, so a host (e.g. tui.Loop)
+// can hand that text to the real system clipboard — Document itself has no
+// OS clipboard access. ok is false, with an empty string, if nothing is
+// focused.
+func (d *Document) DispatchCut() (text string, ok bool) {
+	if d.focused == nil {
+		return "", false
+	}
+	target := d.focused
+	var value string
+	if isTextEntry(target) {
+		value = nodeAttr(target, "value")
+	}
+	ev := d.newEvent(target, "cut", "", Modifiers{})
+	ev.ClipboardData = value
+	d.runDispatch(ev, target)
+	if !ev.DefaultPrevented() && isTextEntry(target) {
+		setAttr(target, "value", "")
+		d.dispatch(target, "input", "", Modifiers{})
+	}
+	return ev.ClipboardData, true
+}
+
 // clearRadioSiblings removes the checked attribute from every other
 // input[type=radio] sharing target's name attribute, scoped to the nearest
 // ancestor <form> (or the whole document, if target has no <form> ancestor).

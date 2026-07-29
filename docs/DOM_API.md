@@ -39,7 +39,7 @@ network, no scripting engine).
 | `URL` / `domain` / `cookie` / `location` / `defaultView` / `readyState` / `characterSet` / `doctype` | N/A | No network origin, no window, no navigation, no async loading — none of these concepts exist for a one-shot/embedded document. |
 | `addEventListener(type, fn, opts)` (via `EventTarget`) | `AddEventListener(el, typ, capture, fn)` | Lives on `Document`, not `Element` — takes the target `*Element` as a parameter rather than being called on it. See "Also available" under Element below. |
 | `removeEventListener` | `RemoveEventListener(handle)` | Takes the `ListenerHandle` returned by `AddEventListener`, not a `(type, fn)` pair. |
-| `dispatchEvent(event)` | Missing (public) | Internal `dispatch` exists but isn't exported; only the fixed built-in event types (`DispatchClick`/`DispatchKey`/`DispatchWheel`/`DispatchResize`) can be fired — no arbitrary custom-event dispatch. |
+| `dispatchEvent(event)` | Missing (public) | Internal `dispatch` exists but isn't exported; only the fixed built-in event types (`DispatchClick`/`DispatchKey`/`DispatchWheel`/`DispatchResize`/`DispatchPaste`/`DispatchCut`) can be fired — no arbitrary custom-event dispatch. |
 | `write()` / `writeln()` / `open()` / `close()` | N/A | Legacy streaming-parser API; `ParseDocument` is parse-once instead. |
 | `execCommand()` | N/A | Legacy rich-text-editing API; no editable-content model exists. |
 
@@ -64,6 +64,15 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 - `DispatchClick`/`DispatchWheel`/`DispatchKey`/`DispatchResize` — synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
+- `DispatchPaste(text)`/`DispatchCut()` — synthesize `"paste"`/`"cut"` with
+  `Event.ClipboardData` pre-populated (from `text` for paste, from the
+  focused field's value for cut), and run their default action (insert into,
+  or clear, a focused text-like field's value). Real DOM never exposes a
+  scriptable "fire a paste/cut" call like this — those only ever come from
+  an actual OS clipboard action — but `Document` has no OS clipboard access
+  of its own, so a host (`tui.Loop`, on bracketed paste / Ctrl-X) calls
+  these explicitly instead. Always whole-field, not selection-scoped — see
+  `COMPATIBILITY.md`.
 - `FocusNext`/`FocusPrev` — programmatic tab-order traversal; no spec
   equivalent (real browsers only move focus this way via actual Tab
   keypresses, not a scriptable method).

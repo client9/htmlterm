@@ -322,6 +322,49 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
   implemented as planned:** `Screen.Show()` does tcell's own line/cell-level
   diffing and scroll-region optimization; `Loop.paint()` no longer does a
   full clear+rewrite on every frame. See REPAINT.md for the updated status.
+- **`"paste"`/`"cut"` clipboard events (added after the tcell migration,
+  closing a gap raised when a user asked why they couldn't cut/paste text in
+  a running TUI app):** native mouse-drag copy is blocked by `Loop.Run`'s
+  `EnableMouse` call the same way it is in any full-screen mouse-aware TUI —
+  most terminals still allow it via a held-modifier drag (Option on macOS
+  Terminal.app/iTerm2, Shift on many Linux terminals/Windows Terminal),
+  which needed no code change, just documenting (COMPATIBILITY.md). What
+  *did* need code: paste-in and cut-out, both DOM-shaped rather than
+  terminal-specific. `Event` gained a `ClipboardData string` field
+  (event.go) — a simplified single-string stand-in for a real
+  `DataTransfer`/`clipboardData` object, readable and rewritable by a
+  listener exactly like `clipboardData.getData`/`setData`. `dispatch` was
+  split into `newEvent` (construction) and `runDispatch` (the capture/
+  target/bubble walk) so `DispatchPaste`/`DispatchCut` (document.go) can set
+  `ClipboardData` in between — populated from the host-supplied pasted text
+  for `"paste"`, or from the focused text entry's current value for
+  `"cut"` — before any listener runs, matching a real `ClipboardEvent`'s
+  `clipboardData` already being populated by dispatch time. Default actions
+  (skipped if a listener calls `PreventDefault`): `"paste"` appends
+  `ClipboardData` (a listener may have rewritten it) to a focused text-like
+  `<input>`/`<textarea>`'s value and fires `"input"`; `"cut"` clears the
+  value and fires `"input"`. Both are whole-field operations, not
+  selection-scoped — htmlterm has no text-selection/caret-range concept
+  narrower than "the whole focused field" (see COMPATIBILITY.md), so unlike
+  a real `"cut"` there's no selected range to remove, just the entire value.
+  `tui.Loop` wires the terminal side: tcell delivers a bracketed paste as
+  ordinary `EventKey`s bracketed by an `EventPaste{Start: true}`/
+  `{Start: false}` pair rather than handing over the pasted string directly
+  (see tcell's `input.go`/`inputParser` — the same escape pair, CSI
+  `200~`/`201~`, that marks bracketed paste in the raw protocol, decoded
+  uniformly regardless of terminfo), so `Loop` buffers keys into a
+  `strings.Builder` (`pasting`/`pasteBuf` fields) while a paste is in
+  progress and only calls `DispatchPaste` once, on the closing marker — this
+  is also what keeps a paste from triggering per-key default actions along
+  the way (e.g. an embedded tab moving focus via Tab's normal handling) the
+  way dispatching each key individually would. `pasteKeyText` reverses
+  tcell's own key decoding for the printable-rune/Enter/Tab cases a paste
+  can plausibly contain. Ctrl-X triggers `DispatchCut`, handing the returned
+  text to `Screen.SetClipboard` (tcell v3's OSC 52 clipboard support) when
+  `Screen.HasClipboard()` reports the terminal supports it — Ctrl-C was
+  already taken (quit), and there's no established terminal-app convention
+  for a copy-only binding distinct from cut, so a separate `"copy"`
+  dispatch/keybinding was deliberately not added in this pass.
 
 ## Also deferred, not on the critical path
 

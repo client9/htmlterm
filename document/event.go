@@ -65,6 +65,17 @@ type Event struct {
 	CtrlKey  bool
 	AltKey   bool
 	MetaKey  bool
+	// ClipboardData carries the event's plain-text clipboard payload,
+	// mirroring DOM's ClipboardEvent.clipboardData — simplified to a single
+	// string (no DataTransfer/MIME-type machinery, matching this package's
+	// existing text-only value model). Set for "paste" (the text being
+	// pasted in, supplied by the host — see DispatchPaste) and "cut" (the
+	// text about to be removed from the focused field, pre-populated before
+	// dispatch). A listener may read or overwrite it exactly like calling
+	// clipboardData.getData/setData in a real handler; the (possibly
+	// rewritten) value is what each event's default action then acts on.
+	// Unset (empty) for every other event type.
+	ClipboardData string
 
 	doc              *Document
 	current          *html.Node
@@ -151,15 +162,13 @@ func ancestorChain(n *html.Node) []*html.Node {
 	return chain
 }
 
-// dispatch runs typ-listeners registered against target and its ancestors,
-// in capture order (root toward target), then target-phase order, then
-// bubble order (target toward root), honoring StopPropagation/
-// StopImmediatePropagation. key is copied into the returned Event's Key
-// field (used for "keydown"); mods is copied into its ShiftKey/CtrlKey/
-// AltKey/MetaKey fields (used for "click"/"keydown" — callers dispatching
-// an event type with no real modifier-key concept pass the zero Modifiers).
-func (d *Document) dispatch(target *html.Node, typ, key string, mods Modifiers) *Event {
-	ev := &Event{
+// newEvent constructs the Event dispatch/runDispatch share, without running
+// any listeners yet — the seam DispatchPaste/DispatchCut use to set
+// ClipboardData between construction and the capture/target/bubble walk, the
+// same way a real ClipboardEvent's clipboardData is already populated by the
+// time a listener sees it.
+func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) *Event {
+	return &Event{
 		Type:     typ,
 		Target:   &Element{node: target, doc: d},
 		Key:      key,
@@ -169,6 +178,21 @@ func (d *Document) dispatch(target *html.Node, typ, key string, mods Modifiers) 
 		MetaKey:  mods.Meta,
 		doc:      d,
 	}
+}
+
+// dispatch builds a fresh Event via newEvent and runs it — the shape every
+// caller other than DispatchPaste/DispatchCut uses, which don't need to set
+// any field between construction and the listener walk.
+func (d *Document) dispatch(target *html.Node, typ, key string, mods Modifiers) *Event {
+	return d.runDispatch(d.newEvent(target, typ, key, mods), target)
+}
+
+// runDispatch runs ev's typ-listeners registered against target and its
+// ancestors, in capture order (root toward target), then target-phase
+// order, then bubble order (target toward root), honoring
+// StopPropagation/StopImmediatePropagation.
+func (d *Document) runDispatch(ev *Event, target *html.Node) *Event {
+	typ := ev.Type
 	chain := ancestorChain(target)
 
 	runNode := func(n *html.Node, wantCapture *bool) bool {

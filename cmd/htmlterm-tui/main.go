@@ -22,6 +22,15 @@
 // while the document's height is left unconstrained rather than
 // clipped/padded to the terminal's row count.
 //
+// The "Name" field also demonstrates the clipboard events (docs/
+// INTERACTIVE.md's "paste"/"cut" section): paste into it (however your
+// terminal sends a paste — e.g. Cmd-V on macOS Terminal.app/iTerm2,
+// Ctrl-Shift-V on many Linux terminals/Windows Terminal) to see the pasted
+// text inserted and #clipboard-status update; press Ctrl-X while it's
+// focused to cut the whole field (there's no partial-selection concept —
+// see COMPATIBILITY.md) and, if your terminal supports OSC 52, paste
+// elsewhere to confirm the cut text actually reached the system clipboard.
+//
 // Below the paragraph is a scrollable log pane (overflow-y:scroll with an
 // explicit height — see docs/SCROLLING.md), with a second, nested scrollable
 // pane inside it (plain overflow:auto) demonstrating that nested scrollable
@@ -69,6 +78,7 @@ const formHTML = `
 </form>
 <div id="result"></div>
 <div id="status"><span id="spinner" data-frame="⠋"></span> <span id="clock" data-time="00:00:00"></span></div>
+<div id="clipboard-status">Paste or Ctrl-X-cut into Name to test clipboard events</div>
 <p id="lorem">Resize this terminal window to see this paragraph reflow live
 at the new width. Width tracks the terminal automatically (SizeAutomatic),
 kept live across every resize via Loop's SIGWINCH handling, while Height
@@ -115,6 +125,14 @@ func run() int {
 	subscribe := doc.GetElementByID("subscribe")
 	color := doc.GetElementByID("color")
 	result := doc.GetElementByID("result")
+
+	clipboardStatus := doc.GetElementByID("clipboard-status")
+	doc.AddEventListener(name, "paste", false, func(e *document.Event) {
+		clipboardStatus.SetTextContent(fmt.Sprintf("pasted %q", e.ClipboardData))
+	})
+	doc.AddEventListener(name, "cut", false, func(e *document.Event) {
+		clipboardStatus.SetTextContent(fmt.Sprintf("cut %q — check your system clipboard", e.ClipboardData))
+	})
 
 	doc.AddEventListener(doc.GetElementByID("myform"), "submit", false, func(e *document.Event) {
 		subscribed := "no"

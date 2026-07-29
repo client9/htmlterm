@@ -361,12 +361,21 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Events:** `AddEventListener`/`RemoveEventListener` with capture/target/
   bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/
   `PreventDefault`/`DefaultPrevented` — `"click"`, `"keydown"`, `"input"`,
-  `"focus"`, `"blur"`, `"submit"`, `"change"`, `"resize"` event types, each
-  with real default actions (checkbox/radio toggle, focus traversal, text
-  entry, implicit form submit on Enter). A focused text `<input>`/
-  `<textarea>` fires `"input"` on every keystroke that mutates its value and
-  `"change"` once on commit (Enter, or losing focus) if the value actually
-  changed — matching real DOM's `input`-vs-`change` distinction.
+  `"focus"`, `"blur"`, `"submit"`, `"change"`, `"resize"`, `"paste"`, `"cut"`
+  event types, each with real default actions (checkbox/radio toggle, focus
+  traversal, text entry, implicit form submit on Enter, clipboard-text
+  insertion/removal). A focused text `<input>`/`<textarea>` fires `"input"`
+  on every keystroke that mutates its value and `"change"` once on commit
+  (Enter, or losing focus) if the value actually changed — matching real
+  DOM's `input`-vs-`change` distinction.
+- **Clipboard:** `Document.DispatchPaste(text)`/`DispatchCut()` dispatch
+  `"paste"`/`"cut"` with `Event.ClipboardData` carrying the plain-text
+  payload (readable/rewritable by a listener, mirroring
+  `clipboardData.getData`/`setData`), and — unless prevented — insert into or
+  clear a focused text-like `<input>`/`<textarea>`'s value. `Loop` wires
+  these to a real terminal's bracketed paste and Ctrl-X, handing `DispatchCut`'s
+  returned text to the system clipboard via `tcell.Screen.SetClipboard`
+  (OSC 52) when the terminal advertises clipboard support.
 - **Focus:** `Element.Focus`/`Blur`, `Document.FocusNext`/`FocusPrev`/
   `FocusedElement`, matching `:focus` in CSS. **`tabindex`** is read on any
   element (not just native form controls) via the plain HTML attribute —
@@ -409,6 +418,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Only one click "kind" exists** — there's no `mousedown`/`mouseup`/
   `dblclick`/`contextmenu`/drag events, just a single synthesized
   `"click"` that hit-tests and runs default actions atomically.
+- **`"cut"`/`"paste"` always act on a whole field, never a selection** —
+  there's no text-selection/caret-range concept narrower than "the focused
+  text entry's entire value" (see "Not Supported" below), so `DispatchCut`
+  always clears the whole value rather than removing a selected range, and
+  `DispatchPaste` always appends at the end rather than inserting at a caret
+  position. `Event.ClipboardData` is a plain string, not a real
+  `DataTransfer`/`clipboardData` object with MIME types.
 - **`DispatchWheel` mutates scroll position directly** and returns whether
   anything scrolled — unlike every other `Dispatch*` method, it does not
   dispatch a `"wheel"` `Event` a listener could observe or prevent. It
@@ -459,7 +475,14 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **`mousemove`, `mouseover`/`mouseout`, `dblclick`, `contextmenu`,
   drag-and-drop events** — no continuous hover tracking exists in a
   terminal, and none of these are wired up.
-- **Text selection/clipboard events** (`select`, `copy`, `cut`, `paste`).
+- **Text selection and `"select"`/`"copy"` events.** There's no
+  click-drag/keyboard text-selection model at all (a real terminal's own
+  mouse-drag selection is unavailable once `Loop.Run` enables mouse
+  reporting — held-modifier drag, e.g. Option on macOS Terminal.app/iTerm2
+  or Shift on many Linux terminals/Windows Terminal, bypasses the app and
+  falls back to native OS selection/copy). `"cut"`/`"paste"` are supported
+  (see "Clipboard" above) but always act on a whole field, not a selected
+  range, since there's no selection to scope them to.
 - **Custom events / arbitrary `dispatchEvent`** — only the fixed built-in
   event names above are ever dispatched.
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-

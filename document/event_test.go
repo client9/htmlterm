@@ -1,6 +1,7 @@
 package document_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/client9/htmlterm"
@@ -637,6 +638,106 @@ func TestDispatchKeyChangeFiresOnCommitNotEveryKeystroke(t *testing.T) {
 	b.Focus()
 	if changed != 2 {
 		t.Fatalf("change count after no-op focus/blur = %d, want 2", changed)
+	}
+}
+
+func TestDispatchPasteAppendsToFocusedTextEntry(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="ab">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	var inputs []string
+	doc.AddEventListener(a, "input", false, func(e *document.Event) { inputs = append(inputs, e.Key) })
+
+	if !doc.DispatchPaste("cd") {
+		t.Fatal("DispatchPaste returned false with a focused element")
+	}
+	if got := a.Value(); got != "abcd" {
+		t.Fatalf("value after paste = %q, want %q", got, "abcd")
+	}
+	if len(inputs) != 1 || inputs[0] != "" {
+		t.Fatalf("input events after paste = %v, want one event with empty Key", inputs)
+	}
+}
+
+func TestDispatchPasteListenerCanRewriteClipboardData(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	doc.AddEventListener(a, "paste", false, func(e *document.Event) {
+		e.ClipboardData = strings.ToUpper(e.ClipboardData)
+	})
+
+	doc.DispatchPaste("abc")
+	if got := a.Value(); got != "ABC" {
+		t.Fatalf("value after rewritten paste = %q, want %q", got, "ABC")
+	}
+}
+
+func TestDispatchPastePreventDefaultSuppressesInsertion(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="x">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	doc.AddEventListener(a, "paste", false, func(e *document.Event) { e.PreventDefault() })
+
+	doc.DispatchPaste("y")
+	if got := a.Value(); got != "x" {
+		t.Fatalf("value after prevented paste = %q, want unchanged %q", got, "x")
+	}
+}
+
+func TestDispatchPasteReturnsFalseWhenNothingFocused(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a">`)
+	if doc.DispatchPaste("x") {
+		t.Fatal("DispatchPaste returned true with nothing focused")
+	}
+}
+
+func TestDispatchCutClearsFocusedTextEntryAndReturnsValue(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="secret">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	var gotClipboard string
+	doc.AddEventListener(a, "cut", false, func(e *document.Event) { gotClipboard = e.ClipboardData })
+
+	text, ok := doc.DispatchCut()
+	if !ok {
+		t.Fatal("DispatchCut returned ok=false with a focused element")
+	}
+	if text != "secret" {
+		t.Fatalf("DispatchCut text = %q, want %q", text, "secret")
+	}
+	if gotClipboard != "secret" {
+		t.Fatalf("cut event ClipboardData = %q, want %q (pre-populated before dispatch)", gotClipboard, "secret")
+	}
+	if got := a.Value(); got != "" {
+		t.Fatalf("value after cut = %q, want empty", got)
+	}
+}
+
+func TestDispatchCutPreventDefaultKeepsValue(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="keep">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	doc.AddEventListener(a, "cut", false, func(e *document.Event) { e.PreventDefault() })
+
+	text, ok := doc.DispatchCut()
+	if !ok || text != "keep" {
+		t.Fatalf("DispatchCut() = (%q, %v), want (%q, true)", text, ok, "keep")
+	}
+	if got := a.Value(); got != "keep" {
+		t.Fatalf("value after prevented cut = %q, want unchanged %q", got, "keep")
+	}
+}
+
+func TestDispatchCutReturnsNotOkWhenNothingFocused(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="x">`)
+	if _, ok := doc.DispatchCut(); ok {
+		t.Fatal("DispatchCut returned ok=true with nothing focused")
 	}
 }
 
