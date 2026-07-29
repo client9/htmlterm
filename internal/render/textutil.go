@@ -1,89 +1,87 @@
 package render
 
 import (
+	"os"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
+	"github.com/clipperhouse/displaywidth"
 	"golang.org/x/net/html"
 )
 
-// runeVisualWidth is the terminal column width of a single rune: 0 for
-// zero-width joiners/combining marks (e.g. U+200C ZWNJ, common as an
-// invisible spacer in HTML email templates), 2 for East-Asian wide/fullwidth
-// runes, 1 otherwise. Every width-driven layout decision in this package
-// (ansiVisibleLen, splitAtVisualWidthCarry, visiblePrefixWithTrailingEscapes)
-// must agree with what the terminal itself will draw, or padding and
-// wrapping desync from the actual rendered columns.
-func runeVisualWidth(r rune) int {
-	return runewidth.RuneWidth(r)
+// displayWidthOptions mirrors tcell/v3's internal/widthutil.Options() byte
+// for byte: tcell derives its own displaywidth.Options from the
+// RUNEWIDTH_EASTASIAN env var (preserving compatibility with the old
+// go-runewidth-based toggle), but that logic lives in an unimportable
+// internal package. htmlterm's own width math and tcell's paint-time width
+// math (tui/cellbridge.go's SetContent calls, backed by tcell's own
+// displaywidth-based CellBuffer) MUST derive the same Options value under
+// the same env var, or the two disagree exactly when a user sets it. If
+// tcell ever changes this env var's name or semantics, this must be updated
+// to match.
+func displayWidthOptions() displaywidth.Options {
+	if rw := strings.ToLower(os.Getenv("RUNEWIDTH_EASTASIAN")); rw == "1" || rw == "true" || rw == "yes" {
+		return displaywidth.Options{EastAsianWidth: true}
+	}
+	return displaywidth.Options{}
 }
 
-// variationSelector16 (U+FE0F) forces emoji presentation on the immediately
-// preceding base rune. go-runewidth (with its default StrictEmojiNeutral
-// setting) reports width 1 for "ambiguous" emoji symbols like U+2764 (❤),
-// U+26A0 (⚠), U+25B6 (▶) when read alone, on the assumption they're being
-// used in plain text presentation — and reports 0 for the VS16 rune itself,
-// so naively summing runeVisualWidth over the pair totals 1. But essentially
-// every modern terminal renders such a pair (❤️, ⚠️, ▶️, ...) as width 2,
-// since VS16 is specifically the signal that emoji presentation was
-// intended. Every width-summing loop in this file must apply
-// vs16WidthCorrection when it sees this rune, or lines containing these
-// (very common) emoji desync from their actual rendered width — this is
-// what caused the scrollbar gutter to land one column short on such lines.
-const variationSelector16 = 0xFE0F
+// maxGraphemeLookahead bounds how many runes NextGrapheme scans ahead to
+// find one grapheme cluster's boundary. Real-world multi-rune clusters
+// (ZWJ emoji sequences, skin-tone modifiers, regional-indicator flag pairs,
+// VS16 pairs) are well under this; if a pathological input has no cluster
+// boundary within the window, NextGrapheme falls back to treating the
+// first rune as its own cluster rather than scanning unboundedly.
+const maxGraphemeLookahead = 16
 
-// vs16WidthCorrection returns the additional width VS16 contributes beyond
-// its own (zero) rune width, given prevWidth — the width already counted
-// for the base rune it modifies. Only ambiguous-width bases (prevWidth==1)
-// need the correction; unambiguous wide emoji (prevWidth==2) already render
-// correctly as 2 with or without VS16.
-func vs16WidthCorrection(prevWidth int) int {
-	if prevWidth == 1 {
-		return 1
+// NextGrapheme returns the terminal column width of the grapheme cluster
+// starting at runes[i], and the index of the rune immediately following
+// that cluster. A cluster is usually one rune, but can span several (VS16
+// pairs, ZWJ sequences, regional-indicator flag pairs, skin-tone
+// modifiers) — displaywidth's grapheme segmenter finds the boundary and
+// scores the whole cluster as one unit, so callers no longer need to track
+// a "previous rune's width" the way the old VS16-only correction did.
+//
+// The caller is responsible for not calling this with runes[i] == '\x1b';
+// ANSI escape recognition is handled separately (see consumeANSI) by every
+// caller of this function, so a cluster can never span into an escape
+// sequence.
+//
+// Exported for htmlterm/tui's use: cellbridge.go's writeANSILine must walk
+// an already-rendered ANSI line and paint it onto a real tcell.Screen one
+// cluster at a time (not one rune at a time), advancing column position by
+// exactly what this function returns — otherwise the painted frame desyncs
+// from the frame this package's own layout/wrapping already measured (this
+// is what previously caused a wide emoji to shift every subsequent
+// character, including the scrollbar gutter, one column left of where
+// htmlterm's own layout placed it).
+func NextGrapheme(runes []rune, i int) (width int, next int) {
+	end := min(i+maxGraphemeLookahead, len(runes))
+	for j := i; j < end; j++ {
+		if runes[j] == '\x1b' {
+			end = j
+			break
+		}
 	}
-	return 0
-}
-
-// NextRuneWidth is runeVisualWidth plus vs16WidthCorrection, exported (via
-// htmlterm/tui's use of this package) for consumers that must walk an
-// already-rendered ANSI line rune-by-rune and paint it onto a real screen
-// (e.g. cellbridge.go's writeANSILine, translating Document.Render's output
-// into tcell.Screen.SetContent calls) — the column advance for each rune
-// there must exactly match what this package's own layout/wrapping already
-// decided, or the painted frame desyncs from the frame the CSS engine
-// actually laid out and measured (this is what caused a wide emoji to shift
-// every subsequent character, including the scrollbar gutter, one column
-// left of where htmlterm's own layout placed it). prevWidth is the width
-// this same walk credited to the immediately preceding rune (0 for the
-// first rune, or right after a rune whose width the just-processed VS16
-// already absorbed).
-func NextRuneWidth(r rune, prevWidth int) int {
-	if r == variationSelector16 {
-		return vs16WidthCorrection(prevWidth)
+	s := string(runes[i:end])
+	g := displayWidthOptions().StringGraphemes(s)
+	if !g.Next() {
+		return 1, i + 1
 	}
-	return runeVisualWidth(r)
+	cluster := g.Value()
+	return g.Width(), i + utf8.RuneCountInString(cluster)
 }
 
 // textVisualWidth is the terminal column width of an entire plain (no ANSI
-// escapes) string: the sum of runeVisualWidth over its runes, with
-// vs16WidthCorrection applied for variation-selector emoji pairs.
+// escapes) string: the sum of each grapheme cluster's display width (VS16
+// pairs, ZWJ sequences, flag pairs, etc. already scored as one unit). No
+// ANSI-escape interleaving to preserve here, unlike this file's other
+// width-scanning functions, so this calls displaywidth directly instead of
+// looping via NextGrapheme.
 func textVisualWidth(s string) int {
-	w := 0
-	prevWidth := 0
-	for _, r := range s {
-		if r == variationSelector16 {
-			w += vs16WidthCorrection(prevWidth)
-			prevWidth = 0
-			continue
-		}
-		rw := runeVisualWidth(r)
-		w += rw
-		prevWidth = rw
-	}
-	return w
+	return displayWidthOptions().String(s)
 }
 
 var superscriptMap = map[rune]rune{
@@ -464,7 +462,6 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 		cur.WriteString(carry.openSeq())
 	}
 	col := 0
-	prevWidth := 0
 	runes := []rune(s)
 	i := 0
 	for i < len(runes) {
@@ -477,14 +474,7 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 			i = j
 			continue
 		}
-		var w int
-		if ch == variationSelector16 {
-			w = vs16WidthCorrection(prevWidth)
-			prevWidth = 0
-		} else {
-			w = runeVisualWidth(ch)
-			prevWidth = w
-		}
+		w, next := NextGrapheme(runes, i)
 		if col+w > width && col > 0 {
 			if !carry.empty() {
 				cur.WriteString(carry.closeSeq())
@@ -496,9 +486,9 @@ func splitAtVisualWidthCarry(s string, width int, start ansiCarry) ([]string, an
 				cur.WriteString(carry.openSeq())
 			}
 		}
-		cur.WriteRune(ch)
+		cur.WriteString(string(runes[i:next]))
 		col += w
-		i++
+		i = next
 	}
 	if cur.Len() > 0 {
 		lines = append(lines, cur.String())
@@ -526,7 +516,6 @@ func visibleWindowCarry(s string, offset, width int) string {
 	runes := []rune(s)
 	carry := ansiCarry{}
 	col := 0
-	prevWidth := 0
 	i := 0
 	for i < len(runes) && col < offset {
 		ch := runes[i]
@@ -536,28 +525,20 @@ func visibleWindowCarry(s string, offset, width int) string {
 			i = j
 			continue
 		}
-		var w int
-		if ch == variationSelector16 {
-			w = vs16WidthCorrection(prevWidth)
-			prevWidth = 0
-		} else {
-			w = runeVisualWidth(ch)
-			prevWidth = w
-		}
+		w, next := NextGrapheme(runes, i)
 		if col+w > offset {
-			i++
+			i = next
 			col += w
 			break
 		}
 		col += w
-		i++
+		i = next
 	}
 	var out strings.Builder
 	if !carry.empty() {
 		out.WriteString(carry.openSeq())
 	}
 	visible := 0
-	prevWidth = 0
 	for i < len(runes) && visible < width {
 		ch := runes[i]
 		if ch == '\x1b' {
@@ -568,20 +549,13 @@ func visibleWindowCarry(s string, offset, width int) string {
 			i = j
 			continue
 		}
-		var w int
-		if ch == variationSelector16 {
-			w = vs16WidthCorrection(prevWidth)
-			prevWidth = 0
-		} else {
-			w = runeVisualWidth(ch)
-			prevWidth = w
-		}
+		w, next := NextGrapheme(runes, i)
 		if visible+w > width {
 			break
 		}
-		out.WriteRune(ch)
+		out.WriteString(string(runes[i:next]))
 		visible += w
-		i++
+		i = next
 	}
 	if !carry.empty() {
 		out.WriteString(carry.closeSeq())
@@ -626,9 +600,10 @@ func spliceColumns(line string, col, width int, replacement string) string {
 			i = j
 			continue
 		}
-		out.WriteRune(runes[i])
-		i++
-		visCol++
+		w, next := NextGrapheme(runes, i)
+		out.WriteString(string(runes[i:next]))
+		i = next
+		visCol += w
 	}
 	for visCol < col {
 		out.WriteByte(' ')
@@ -652,8 +627,9 @@ func spliceColumns(line string, col, width int, replacement string) string {
 			i = j
 			continue
 		}
-		i++
-		visCol++
+		w, next := NextGrapheme(runes, i)
+		i = next
+		visCol += w
 	}
 	if i < len(runes) {
 		if !carry.empty() {
@@ -684,50 +660,16 @@ func wordWrapANSI(text string, width int, breakMode string) []string {
 // ansiVisibleLen returns the number of visible (non-ANSI-escape) runes in s.
 func ansiVisibleLen(s string) int {
 	n := 0
-	inEsc := false
-	inCSI := false
-	inOSC := false
-	prev := rune(0)
-	prevWidth := 0
-	for _, ch := range s {
-		switch {
-		case inOSC:
-			if (prev == '\x1b' && ch == '\\') || ch == '\a' {
-				inOSC = false
-			}
-			prev = ch
-		case inCSI:
-			if ch >= 0x40 && ch <= 0x7e {
-				inCSI = false
-			}
-		case inEsc:
-			switch {
-			case ch == '[':
-				inCSI = true
-				inEsc = false
-			case ch == ']':
-				inOSC = true
-				inEsc = false
-			case ch >= 0x40 && ch <= 0x7e:
-				// Two-character escape sequence (Fs); consume final byte.
-				inEsc = false
-			}
-			// Intermediate bytes (0x20–0x3F) keep inEsc=true to consume the
-			// following final byte as part of the same sequence.
-			prev = ch
-		case ch == '\x1b':
-			inEsc = true
-			prev = ch
-		case ch == variationSelector16:
-			n += vs16WidthCorrection(prevWidth)
-			prevWidth = 0
-			prev = ch
-		default:
-			rw := runeVisualWidth(ch)
-			n += rw
-			prevWidth = rw
-			prev = ch
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		if runes[i] == '\x1b' {
+			i = consumeANSI(runes, i)
+			continue
 		}
+		w, next := NextGrapheme(runes, i)
+		n += w
+		i = next
 	}
 	return n
 }
@@ -923,7 +865,6 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 	runes := []rune(s)
 	var b strings.Builder
 	visible := 0
-	prevWidth := 0
 	i := 0
 	for i < len(runes) && visible < width {
 		if runes[i] == '\x1b' {
@@ -932,28 +873,18 @@ func visiblePrefixWithTrailingEscapes(s string, width int) string {
 			i = next
 			continue
 		}
-		var rw int
-		if runes[i] == variationSelector16 {
-			rw = vs16WidthCorrection(prevWidth)
-		} else {
-			rw = runeVisualWidth(runes[i])
-		}
-		// A wide (2-column) rune that would land exactly on the boundary
-		// must not be included — doing so overshoots width by 1, which is
-		// exactly what produced the scrollbar-gutter off-by-one for lines
-		// ending in an emoji. Drop it and stop; the caller pads the
-		// resulting 1-column gap instead.
+		rw, next := NextGrapheme(runes, i)
+		// A wide (multi-column) grapheme cluster that would land exactly on
+		// the boundary must not be included — doing so overshoots width by
+		// 1 (or more), which is exactly what produced the scrollbar-gutter
+		// off-by-one for lines ending in an emoji. Drop it and stop; the
+		// caller pads the resulting gap instead.
 		if visible+rw > width {
 			break
 		}
-		b.WriteRune(runes[i])
-		if runes[i] == variationSelector16 {
-			prevWidth = 0
-		} else {
-			prevWidth = rw
-		}
+		b.WriteString(string(runes[i:next]))
 		visible += rw
-		i++
+		i = next
 	}
 	for i < len(runes) {
 		if runes[i] != '\x1b' {

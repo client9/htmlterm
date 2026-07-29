@@ -4,9 +4,11 @@ import "testing"
 
 // Regression test for the scrollbar-gutter-off-by-one bug: ambiguous-width
 // emoji (heart, warning triangle, play button, ...) paired with VARIATION
-// SELECTOR-16 (U+FE0F) render as width 2 in virtually every modern terminal,
-// but go-runewidth reports width 1 for the base rune alone and 0 for VS16
-// itself, undercounting the pair by 1 column unless corrected.
+// SELECTOR-16 (U+FE0F) render as width 2 in virtually every modern terminal.
+// This used to require a hand-rolled correction on top of go-runewidth's
+// rune-by-rune scoring (width 1 for the base rune alone, 0 for VS16 itself);
+// displaywidth's grapheme-cluster width already folds the pair into one
+// width-2 unit, so these cases now need no special-casing at all.
 func TestVS16WidthCorrection(t *testing.T) {
 	tests := []struct {
 		name string

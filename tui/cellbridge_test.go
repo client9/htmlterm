@@ -133,7 +133,7 @@ func TestWriteANSILineResetClearsAttrs(t *testing.T) {
 // TestWriteANSILineWideRuneAdvancesTwoColumns is a regression test: a wide
 // (East Asian/emoji) rune must advance the paint column by 2, matching
 // ansiVisibleLen/wordWrapTokens' own column accounting (see
-// render.NextRuneWidth). An earlier version of writeANSILine advanced by a
+// render.NextGrapheme). An earlier version of writeANSILine advanced by a
 // flat 1 per rune regardless of width, which desynced the painted frame
 // from the frame htmlterm's layout engine actually measured — every
 // character after a wide emoji (including, on lines reaching a pane's right
@@ -152,6 +152,29 @@ func TestWriteANSILineWideRuneAdvancesTwoColumns(t *testing.T) {
 	marker := mt.GetCell(vt.Coord{X: 2, Y: 0})
 	if marker.C != "X" {
 		t.Errorf("col 2: got %q, want \"X\" (a wide rune must advance by 2 columns)", marker.C)
+	}
+}
+
+// TestWriteANSILineZWJEmojiOneCluster is the cellbridge-side counterpart to
+// render.NextGrapheme's own unit tests: a multi-rune grapheme cluster (here,
+// a regional-indicator flag pair) must be painted as a single 2-column
+// SetContent call, not split across two 2-column calls (which would
+// overshoot by 2 columns) or one 1-column call per rune (which would
+// undershoot). The marker landing at column 2, not 4, confirms writeANSILine
+// advances by whole clusters end-to-end through a real tcell.Screen.
+func TestWriteANSILineZWJEmojiOneCluster(t *testing.T) {
+	scr, mt := newTestScreen(t, 20, 3)
+	nextLinkID := 0
+	writeANSILine(scr, 0, "🇺🇸X", 20, &nextLinkID)
+	scr.Show()
+
+	flag := mt.GetCell(vt.Coord{X: 0, Y: 0})
+	if flag.C == "" {
+		t.Errorf("col 0: got empty cell, want the flag cluster")
+	}
+	marker := mt.GetCell(vt.Coord{X: 2, Y: 0})
+	if marker.C != "X" {
+		t.Errorf("col 2: got %q, want \"X\" (a flag-pair cluster must advance by 2 columns, not 4)", marker.C)
 	}
 }
 

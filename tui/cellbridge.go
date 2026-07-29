@@ -50,21 +50,25 @@ func paintLines(screen tcell.Screen, lines []string) {
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
 // walks left to right — reusing x/ansi's decoder (consumeANSI, below) to
 // tokenize each escape sequence, the same way htmlterm's own ansiCarry
-// does internally. Column position advances by render.NextRuneWidth per
-// visible rune (1 normally, 2 for East Asian wide/emoji runes, matching
-// vs16WidthCorrection for variation-selector pairs) — this must exactly
-// match ansiVisibleLen/wordWrapTokens' own column accounting, which does
-// measure double-width runes as two columns; advancing by a flat 1 here
-// regardless of width (an earlier, since-corrected assumption) desynced the
-// painted frame from the frame the CSS engine actually laid out and
-// measured, shifting every character after a wide emoji one column left of
-// where htmlterm's layout placed it — including, on lines that reached the
-// pane's right edge, the scrollbar gutter itself. tcell.Screen.SetContent's
-// own doc comment confirms the contract this depends on: "wide ... runes
-// occupy two cells, and attempts to place a character at the next cell to
-// the right will have undefined effects" — so a wide rune's second cell
-// must never receive its own SetContent call, which advancing col by 2
-// (skipping straight past it) guarantees.
+// does internally. Column position advances by render.NextGrapheme per
+// visible grapheme cluster (usually one rune, occasionally several for
+// ZWJ/regional-indicator/VS16 sequences; 1 column normally, 2 for East
+// Asian wide/emoji clusters) — this must exactly match
+// ansiVisibleLen/wordWrapTokens' own column accounting, which measures the
+// same clusters the same way (both now go through
+// internal/render.NextGrapheme, backed by the same displaywidth library
+// tcell itself uses for SetContent, so layout-time and paint-time width
+// math can't disagree). Advancing by a flat 1 per rune regardless of width
+// (an earlier, since-corrected assumption) desynced the painted frame from
+// the frame the CSS engine actually laid out and measured, shifting every
+// character after a wide emoji one column left of where htmlterm's layout
+// placed it — including, on lines that reached the pane's right edge, the
+// scrollbar gutter itself. tcell.Screen.SetContent's own doc comment
+// confirms the contract this depends on: "wide ... runes occupy two
+// cells, and attempts to place a character at the next cell to the right
+// will have undefined effects" — so a wide cluster's second cell must
+// never receive its own SetContent call, which advancing col by the
+// cluster's full width (skipping straight past it) guarantees.
 //
 // Once line's content is exhausted, every remaining column up to width is
 // explicitly blanked (a space in the default style) — necessary because
@@ -78,7 +82,6 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	runes := []rune(line)
 	col := 0
 	i := 0
-	prevWidth := 0
 	for i < len(runes) && col < width {
 		if runes[i] == '\x1b' {
 			end := consumeANSI(runes, i)
@@ -86,13 +89,13 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 			i = end
 			continue
 		}
-		w := render.NextRuneWidth(runes[i], prevWidth)
+		w, next := render.NextGrapheme(runes, i)
 		if w > 0 {
-			screen.SetContent(col, row, runes[i], nil, state.style)
+			cluster := runes[i:next]
+			screen.SetContent(col, row, cluster[0], cluster[1:], state.style)
 		}
 		col += w
-		prevWidth = w
-		i++
+		i = next
 	}
 	for ; col < width; col++ {
 		screen.SetContent(col, row, ' ', nil, tcell.StyleDefault)
