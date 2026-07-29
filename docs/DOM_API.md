@@ -57,10 +57,6 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
   `window`, not `document`.
 - `ContentOffset(el)` — scroll-adjusted content-area offset for a scrollable
   ancestor.
-- `ScrollTop`/`SetScrollTop`, `ScrollLeft`/`SetScrollLeft` — spec has these
-  as `Element.scrollTop`/`scrollLeft` properties on the element itself;
-  htmlterm puts them on `Document`, taking the element as a parameter (see
-  Element's "Also available" section).
 - `DispatchClick`/`DispatchWheel`/`DispatchKey`/`DispatchResize` — synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
@@ -76,9 +72,6 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 - `FocusNext`/`FocusPrev` — programmatic tab-order traversal; no spec
   equivalent (real browsers only move focus this way via actual Tab
   keypresses, not a scriptable method).
-- `SetInnerHTML(el, html)` — spec's `Element.innerHTML` setter, but placed
-  on `Document` and taking the target element as a parameter instead of
-  being a property on the element.
 - `SetPreRendered(el, ansi)` — splices raw pre-rendered ANSI text into the
   tree as an element's content, bypassing layout entirely; no spec
   equivalent (nothing in real HTML lets you inject already-painted pixels).
@@ -133,16 +126,16 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `Element.getElementsByClassName` / `getElementsByTagName` | `GetElementsByClassName(cls)` / `GetElementsByTagName(tag)` | Scoped to e's subtree, same as `QuerySelectorAll`. |
 | `Element.insertAdjacentElement` | `InsertAdjacentElement(position, newEl)` | `position` is one of `"beforebegin"`/`"afterbegin"`/`"beforeend"`/`"afterend"`, same as spec; an invalid value returns an `error` instead of spec's `SyntaxError` exception. |
 | `Element.insertAdjacentText` | `InsertAdjacentText(position, text)` | Same `position` values as `InsertAdjacentElement`. |
-| `Element.insertAdjacentHTML` | Missing | No HTML-*string* adjacent insertion — `InsertAdjacentElement`/`InsertAdjacentText` cover the element/text-argument cases above, but there's no fragment-parsing equivalent; `Document.SetInnerHTML` only replaces a container's entire contents, not an adjacent position. |
+| `Element.insertAdjacentHTML` | Missing | No HTML-*string* adjacent insertion — `InsertAdjacentElement`/`InsertAdjacentText` cover the element/text-argument cases above, but there's no fragment-parsing equivalent; `SetInnerHTML` only replaces a container's entire contents, not an adjacent position. |
 | `Element.remove()` (`ChildNode`) | `Remove()` | |
 | `Element.before()` / `after()` (`ChildNode`) | `Before(newSibling)` / `After(newSibling)` | |
 | `Element.replaceWith()` (`ChildNode`) | `ReplaceWith(newSibling)` | |
 | `Element.replaceChildren(...)` | `ReplaceChildren(newChildren...)` | |
 | `Element.innerHTML` (getter) | `InnerHTML()` | Returns `(string, error)`; serializes via `golang.org/x/net/html`'s own `Render`, so escaping/void-element/raw-text-element handling matches how the same library would re-parse the result. Strips the reserved focus/select-popup marker attributes first, same as `CloneNode`. |
-| `Element.innerHTML` (setter) | `Document.SetInnerHTML(el, html)` | Lives on `Document`, taking the element as a parameter, not a property on the element itself. |
+| `Element.innerHTML` (setter) | `SetInnerHTML(html)` | |
 | `Element.outerHTML` (getter) | `OuterHTML()` | Same fidelity/stripping as `InnerHTML`, including e's own tag. |
 | `Element.outerHTML` (setter) | Missing | Unlike the getters, this is a real feature, not a thin wrapper: it needs `html.ParseFragment` with e's *parent* as context (so context-sensitive fragments like a bare `<td>` parse correctly), then splicing possibly-multiple result nodes in where e was. Scoped separately from the getters; not implemented yet. |
-| `Element.scrollIntoView()` | `Document.ScrollVisible(el)` | Same Document-vs-Element placement difference as `innerHTML`/`scrollTop`. |
+| `Element.scrollIntoView()` | `ScrollVisible()` | Reports whether e is currently visible within its scrollable ancestors rather than actively scrolling it into view — see "Also available" below. |
 | `Element.getBoundingClientRect()` | `Rect()` | Terminal cells (row/col/width/height), not pixels — see `COMPATIBILITY.md`. |
 | `Element.getClientRects()` | Missing | No multi-rect (line-fragment) geometry; `Rect()` only returns a single box. |
 | `Element.style` | `Style()` | Returns a `*Style` with `GetPropertyValue`/`SetProperty`/`RemoveProperty`/`CSSText`/`SetCSSText`, mirroring `CSSStyleDeclaration` for inline styles only. Two gaps versus spec, both documented on the `Style` type: shorthand properties don't round-trip (`SetProperty("margin", "1px")` stores only the expanded longhands — `GetPropertyValue("margin")` afterward returns `""`), and `CSSText`/`SetCSSText` don't preserve declaration order (serialized sorted by property name instead). |
@@ -168,11 +161,11 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
   `(type, listener)` pair (which also means, unlike spec, the *same*
   `(type, fn)` pair registered twice yields two independent listeners, not
   one de-duplicated registration).
-- `Document.ScrollTop(el)`/`SetScrollTop(el, v)`,
-  `Document.ScrollLeft(el)`/`SetScrollLeft(el, v)` — spec's
-  `Element.scrollTop`/`scrollLeft` properties, but on `Document` with the
-  element passed in, matching the same pattern as `SetInnerHTML`/
-  `scrollIntoView` above.
+- `ScrollTop()`/`SetScrollTop(v)`, `ScrollLeft()`/`SetScrollLeft(v)` — spec's
+  `Element.scrollTop`/`scrollLeft` properties, matching spec placement
+  exactly.
+- `ScrollVisible()` — no direct spec equivalent; see the `scrollIntoView()`
+  row above for how it differs from the real thing.
 
 ---
 

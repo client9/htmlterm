@@ -815,11 +815,11 @@ func TestScrollOverflowAutoSlicesContent(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	if top, ok := doc.ScrollTop(pane); !ok || top != 0 {
+	if top, ok := pane.ScrollTop(); !ok || top != 0 {
 		t.Errorf("ScrollTop(pane) after first render = (%d, %v), want (0, true)", top, ok)
 	}
 
-	doc.SetScrollTop(pane, 100) // beyond max; must clamp on next Render
+	pane.SetScrollTop(100) // beyond max; must clamp on next Render
 	out, err = doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -828,7 +828,7 @@ func TestScrollOverflowAutoSlicesContent(t *testing.T) {
 	if !strings.Contains(got, "line3") || !strings.Contains(got, "line5") || strings.Contains(got, "line1") {
 		t.Fatalf("render after over-scrolling = %q, want line3-line5 visible (clamped), not line1", got)
 	}
-	if top, ok := doc.ScrollTop(pane); !ok || top != 2 {
+	if top, ok := pane.ScrollTop(); !ok || top != 2 {
 		t.Errorf("ScrollTop(pane) after clamp = (%d, %v), want (2, true) [max offset = 5-3]", top, ok)
 	}
 }
@@ -840,11 +840,11 @@ func TestScrollTopStaleWhenOverflowRemoved(t *testing.T) {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	pane := doc.GetElementByID("pane")
-	doc.SetScrollTop(pane, 1)
+	pane.SetScrollTop(1)
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if _, ok := doc.ScrollTop(pane); !ok {
+	if _, ok := pane.ScrollTop(); !ok {
 		t.Fatal("ScrollTop(pane) ok = false while overflow:auto is still set, want true")
 	}
 
@@ -852,7 +852,7 @@ func TestScrollTopStaleWhenOverflowRemoved(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if _, ok := doc.ScrollTop(pane); ok {
+	if _, ok := pane.ScrollTop(); ok {
 		t.Error("ScrollTop(pane) ok = true after overflow:auto removed, want false (stale entry pruned)")
 	}
 }
@@ -876,7 +876,7 @@ func TestDispatchWheelScrollsNearestScrollableAncestor(t *testing.T) {
 	if got := doc.DispatchWheel(rect.Row, rect.Col, 0, 1); !got {
 		t.Fatal("DispatchWheel over pane = false, want true")
 	}
-	if top, ok := doc.ScrollTop(pane); !ok || top <= 0 {
+	if top, ok := pane.ScrollTop(); !ok || top <= 0 {
 		t.Errorf("ScrollTop(pane) after wheel-down = (%d, %v), want a positive offset", top, ok)
 	}
 
@@ -903,11 +903,11 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	// visible; reset to the top so ArrowDown/PageDown below have room to
 	// move (this test is about DispatchKey's own scrolling, not Focus's).
 	pane := doc.GetElementByID("pane")
-	doc.SetScrollTop(pane, 0)
+	pane.SetScrollTop(0)
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	before, _ := doc.ScrollTop(pane)
+	before, _ := pane.ScrollTop()
 	if before != 0 {
 		t.Fatalf("ScrollTop(pane) after reset = %d, want 0", before)
 	}
@@ -916,7 +916,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	afterArrow, _ := doc.ScrollTop(pane)
+	afterArrow, _ := pane.ScrollTop()
 	if afterArrow <= before {
 		t.Errorf("ScrollTop(pane) after ArrowDown = %d, want > %d", afterArrow, before)
 	}
@@ -925,7 +925,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	afterPage, _ := doc.ScrollTop(pane)
+	afterPage, _ := pane.ScrollTop()
 	if afterPage <= afterArrow {
 		t.Errorf("ScrollTop(pane) after PageDown = %d, want > %d", afterPage, afterArrow)
 	}
@@ -934,7 +934,7 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	afterPageUp, _ := doc.ScrollTop(pane)
+	afterPageUp, _ := pane.ScrollTop()
 	if afterPageUp >= afterPage {
 		t.Errorf("ScrollTop(pane) after PageUp = %d, want < %d", afterPageUp, afterPage)
 	}
@@ -951,13 +951,13 @@ func TestFocusScrollsIntoView(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	if top, ok := doc.ScrollTop(pane); !ok || top != 0 {
+	if top, ok := pane.ScrollTop(); !ok || top != 0 {
 		t.Fatalf("ScrollTop(pane) before focus = (%d, %v), want (0, true)", top, ok)
 	}
 
 	btn := doc.GetElementByID("btn")
 	btn.Focus()
-	if top, ok := doc.ScrollTop(pane); !ok || top == 0 {
+	if top, ok := pane.ScrollTop(); !ok || top == 0 {
 		t.Errorf("ScrollTop(pane) after focusing an off-screen button = (%d, %v), want a positive offset", top, ok)
 	}
 
@@ -1019,20 +1019,20 @@ func TestFocusScrollsIntoViewHorizontally(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	if left, ok := doc.ScrollLeft(pane); !ok || left != 0 {
+	if left, ok := pane.ScrollLeft(); !ok || left != 0 {
 		t.Fatalf("ScrollLeft(pane) before focus = (%d, %v), want (0, true)", left, ok)
 	}
 
 	inp := doc.GetElementByID("inp")
 	inp.Focus()
-	if left, ok := doc.ScrollLeft(pane); !ok || left == 0 {
+	if left, ok := pane.ScrollLeft(); !ok || left == 0 {
 		t.Errorf("ScrollLeft(pane) after focusing an overflowing-right input = (%d, %v), want a positive offset", left, ok)
 	}
 
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !doc.ScrollVisible(inp) {
+	if !inp.ScrollVisible() {
 		t.Error("ScrollVisible(inp) after focus-triggered horizontal scroll = false, want true")
 	}
 }
@@ -1056,23 +1056,23 @@ func TestScrollVisibleTracksHorizontalScrollPosition(t *testing.T) {
 
 	pane := doc.GetElementByID("pane")
 	btn := doc.GetElementByID("btn")
-	if !doc.ScrollVisible(btn) {
+	if !btn.ScrollVisible() {
 		t.Fatal("ScrollVisible(btn) at offset 0 = false, want true (btn starts at the pane's left edge)")
 	}
 
-	doc.SetScrollLeft(pane, 100) // clamps to max offset on next Render; scrolls btn off to the left
+	pane.SetScrollLeft(100) // clamps to max offset on next Render; scrolls btn off to the left
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if doc.ScrollVisible(btn) {
+	if btn.ScrollVisible() {
 		t.Error("ScrollVisible(btn) after scrolling it off to the left = true, want false")
 	}
 
-	doc.SetScrollLeft(pane, 0)
+	pane.SetScrollLeft(0)
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !doc.ScrollVisible(btn) {
+	if !btn.ScrollVisible() {
 		t.Error("ScrollVisible(btn) after scrolling back to offset 0 = false, want true")
 	}
 }
@@ -1096,23 +1096,23 @@ func TestScrollVisibleTracksScrollPosition(t *testing.T) {
 
 	pane := doc.GetElementByID("pane")
 	btn := doc.GetElementByID("btn")
-	if !doc.ScrollVisible(btn) {
+	if !btn.ScrollVisible() {
 		t.Fatal("ScrollVisible(btn) at offset 0 = false, want true (btn is the pane's first line)")
 	}
 
-	doc.SetScrollTop(pane, 2) // max offset (4 lines - height 2); scrolls btn off the top
+	pane.SetScrollTop(2) // max offset (4 lines - height 2); scrolls btn off the top
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if doc.ScrollVisible(btn) {
+	if btn.ScrollVisible() {
 		t.Error("ScrollVisible(btn) after scrolling it off the top = true, want false")
 	}
 
-	doc.SetScrollTop(pane, 0)
+	pane.SetScrollTop(0)
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !doc.ScrollVisible(btn) {
+	if !btn.ScrollVisible() {
 		t.Error("ScrollVisible(btn) after scrolling back to offset 0 = false, want true")
 	}
 }
@@ -1141,7 +1141,7 @@ func TestScrollShiftsDescendantPositions(t *testing.T) {
 		t.Fatalf("input's row relative to pane at offset 0 = %d, want 1", got)
 	}
 
-	doc.SetScrollTop(pane, 2)
+	pane.SetScrollTop(2)
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -1173,15 +1173,15 @@ func TestNestedScrollableRegions(t *testing.T) {
 
 	outer := doc.GetElementByID("outer")
 	inner := doc.GetElementByID("inner")
-	if _, ok := doc.ScrollTop(outer); !ok {
+	if _, ok := outer.ScrollTop(); !ok {
 		t.Fatal("ScrollTop(outer) ok = false, want true")
 	}
-	if _, ok := doc.ScrollTop(inner); !ok {
+	if _, ok := inner.ScrollTop(); !ok {
 		t.Fatal("ScrollTop(inner) ok = false, want true (nested scroll container tracked independently)")
 	}
 
-	doc.SetScrollTop(inner, 2)
-	doc.SetScrollTop(outer, 1)
+	inner.SetScrollTop(2)
+	outer.SetScrollTop(1)
 	out, err := doc.Render()
 	if err != nil {
 		t.Fatalf("Render after scrolling both nested containers: %v", err)
@@ -1217,7 +1217,7 @@ func TestScrollContainerWithoutFocusableChildIsFocusable(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	before, ok := doc.ScrollTop(pane)
+	before, ok := pane.ScrollTop()
 	if !ok {
 		t.Fatal("ScrollTop(pane) ok = false, want true")
 	}
@@ -1225,7 +1225,7 @@ func TestScrollContainerWithoutFocusableChildIsFocusable(t *testing.T) {
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	after, _ := doc.ScrollTop(pane)
+	after, _ := pane.ScrollTop()
 	if after <= before {
 		t.Errorf("ScrollTop(pane) after ArrowDown while pane itself is focused = %d, want > %d", after, before)
 	}
@@ -1380,7 +1380,7 @@ func TestScrollbarThumbTracksScrollPosition(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	doc.SetScrollTop(pane, 3) // max offset (5 lines - height 2)
+	pane.SetScrollTop(3) // max offset (5 lines - height 2)
 	out, err = doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -1741,20 +1741,20 @@ func TestScrollbarCapClickScrollsOneLine(t *testing.T) {
 	if capEndRow < 0 {
 		t.Fatalf("cap-end glyph not found in %q", out)
 	}
-	before, _ := doc.ScrollTop(pane)
+	before, _ := pane.ScrollTop()
 	if !doc.DispatchClick(capEndRow, capEndCol, document.Modifiers{}) {
 		t.Fatalf("DispatchClick on cap-end cell returned false")
 	}
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if after, _ := doc.ScrollTop(pane); after != before+1 {
+	if after, _ := pane.ScrollTop(); after != before+1 {
 		t.Errorf("scroll offset after cap-end click = %d, want %d", after, before+1)
 	}
 
 	// Scroll to the bottom, re-render (so cap-start's row/col reflect the
 	// new frame), then click cap-start and expect a one-line decrement.
-	doc.SetScrollTop(pane, 100)
+	pane.SetScrollTop(100)
 	out, err = doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
@@ -1764,14 +1764,14 @@ func TestScrollbarCapClickScrollsOneLine(t *testing.T) {
 	if capStartRow < 0 {
 		t.Fatalf("cap-start glyph not found in %q", out)
 	}
-	beforeMax, _ := doc.ScrollTop(pane)
+	beforeMax, _ := pane.ScrollTop()
 	if !doc.DispatchClick(capStartRow, capStartCol, document.Modifiers{}) {
 		t.Fatalf("DispatchClick on cap-start cell returned false")
 	}
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if afterMax, _ := doc.ScrollTop(pane); afterMax != beforeMax-1 {
+	if afterMax, _ := pane.ScrollTop(); afterMax != beforeMax-1 {
 		t.Errorf("scroll offset after cap-start click = %d, want %d", afterMax, beforeMax-1)
 	}
 }
@@ -1800,12 +1800,12 @@ func TestScrollbarCapClickElsewhereInGutterDoesNotScroll(t *testing.T) {
 	// row (heightLines=4, both caps active -> 2 interior rows in between).
 	trackRow, trackCol := capStartRow+1, capStartCol
 
-	before, _ := doc.ScrollTop(pane)
+	before, _ := pane.ScrollTop()
 	doc.DispatchClick(trackRow, trackCol, document.Modifiers{})
 	if _, err := doc.Render(); err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if after, _ := doc.ScrollTop(pane); after != before {
+	if after, _ := pane.ScrollTop(); after != before {
 		t.Errorf("scroll offset after clicking an interior track row = %d, want unchanged %d", after, before)
 	}
 }
@@ -1821,7 +1821,7 @@ func TestSetInnerHTMLReplacesChildren(t *testing.T) {
 		t.Fatal("GetElementByID(\"list\") = nil")
 	}
 
-	if err := doc.SetInnerHTML(list, `<p>fresh</p><p>content</p>`); err != nil {
+	if err := list.SetInnerHTML(`<p>fresh</p><p>content</p>`); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
 	}
 
@@ -1845,7 +1845,7 @@ func TestSetInnerHTMLTableFragmentInTableContext(t *testing.T) {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	tbl := doc.GetElementByID("tbl")
-	if err := doc.SetInnerHTML(tbl, `<tr><td>a</td><td>b</td></tr>`); err != nil {
+	if err := tbl.SetInnerHTML(`<tr><td>a</td><td>b</td></tr>`); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
 	}
 	out, err := doc.Render()
@@ -1873,7 +1873,7 @@ func TestSetInnerHTMLClearsFocusOnRemovedDescendant(t *testing.T) {
 		t.Fatal("FocusedElement() = nil after Focus, want input")
 	}
 
-	if err := doc.SetInnerHTML(pane, `<p>replaced</p>`); err != nil {
+	if err := pane.SetInnerHTML(`<p>replaced</p>`); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
 	}
 
@@ -1892,7 +1892,7 @@ func TestSetInnerHTMLPreservesFocusOutsideReplacedSubtree(t *testing.T) {
 	input := doc.GetElementByID("name")
 	input.Focus()
 
-	if err := doc.SetInnerHTML(pane, `<p>new</p>`); err != nil {
+	if err := pane.SetInnerHTML(`<p>new</p>`); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
 	}
 
@@ -1903,11 +1903,12 @@ func TestSetInnerHTMLPreservesFocusOutsideReplacedSubtree(t *testing.T) {
 }
 
 func TestSetInnerHTMLNilElement(t *testing.T) {
-	doc, err := document.ParseDocument(`<div></div>`, htmlterm.Options{Width: 40})
+	_, err := document.ParseDocument(`<div></div>`, htmlterm.Options{Width: 40})
 	if err != nil {
 		t.Fatalf("ParseDocument: %v", err)
 	}
-	if err := doc.SetInnerHTML(nil, `<p>x</p>`); err == nil {
+	var el *document.Element
+	if err := el.SetInnerHTML(`<p>x</p>`); err == nil {
 		t.Error("SetInnerHTML(nil, ...) = nil error, want error")
 	}
 }
@@ -1924,7 +1925,7 @@ func TestSetInnerHTMLSanitizesEmbeddedANSI(t *testing.T) {
 		t.Fatalf("ParseDocument: %v", err)
 	}
 	pane := doc.GetElementByID("pane")
-	if err := doc.SetInnerHTML(pane, "\x1b[1mBOLD\x1b[m plain"); err != nil {
+	if err := pane.SetInnerHTML("\x1b[1mBOLD\x1b[m plain"); err != nil {
 		t.Fatalf("SetInnerHTML: %v", err)
 	}
 	out, err := doc.Render()
@@ -1989,7 +1990,7 @@ func TestSetPreRenderedSurvivesScrollClip(t *testing.T) {
 	}
 
 	pane := doc.GetElementByID("pane")
-	doc.SetScrollTop(pane, 2) // line5 (index 4) now the last of the 3 visible lines
+	pane.SetScrollTop(2) // line5 (index 4) now the last of the 3 visible lines
 	out, err = doc.Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)

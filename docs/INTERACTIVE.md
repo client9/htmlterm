@@ -59,7 +59,9 @@ loop), instead of `Renderer.Render`'s parse-once-discard model.
   sanitization of untrusted HTML via `Renderer.Render`, but destructive
   against a tree meant to be mutated further. Covered by
   `TestDocumentRenderIgnoresStripHiddenInline` in document_test.go.
-- **Done:** `Document.SetInnerHTML(el, fragment)` replaces el's children with
+- **Done:** `Document.SetInnerHTML(el, fragment)` (later moved onto `Element`
+  as `Element.SetInnerHTML(fragment)` for spec-matching placement — see
+  docs/DOM_API.md) replaces el's children with
   a freshly parsed fragment (parsed in el's own context, so e.g. a bare
   `<tr>` fragment needs el to be a `<table>`/`<tbody>`). This is the
   mechanism for splicing structural, host-controlled content — a

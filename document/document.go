@@ -292,11 +292,12 @@ func (d *Document) ContentOffset(el *Element) (int, bool) {
 	return offset, ok
 }
 
-// ScrollTop returns el's current vertical scroll offset (in lines), and
-// whether el was a scroll container (overflow:scroll|auto with a resolved
-// height) as of the most recent Render call — mirroring the DOM's
-// element.scrollTop. ok is false if el is nil or isn't a scroll container.
-func (d *Document) ScrollTop(el *Element) (int, bool) {
+// scrollTop is Element.ScrollTop's implementation: el's current vertical
+// scroll offset (in lines), and whether el was a scroll container
+// (overflow:scroll|auto with a resolved height) as of the most recent Render
+// call — mirroring the DOM's element.scrollTop. ok is false if el is nil or
+// isn't a scroll container.
+func (d *Document) scrollTop(el *Element) (int, bool) {
 	if el == nil {
 		return 0, false
 	}
@@ -304,22 +305,24 @@ func (d *Document) ScrollTop(el *Element) (int, bool) {
 	return offset, ok
 }
 
-// SetScrollTop sets el's vertical scroll offset directly (e.g. to jump to
-// the top of a pane, or restore a previously saved position). The value is
-// clamped to the valid range on the next Render call, the same way
-// DispatchWheel/DispatchKey-driven scrolling is; it has no effect if el
-// isn't (or hasn't yet been rendered as) a scroll container.
-func (d *Document) SetScrollTop(el *Element, offset int) {
+// setScrollTop is Element.SetScrollTop's implementation: sets el's vertical
+// scroll offset directly (e.g. to jump to the top of a pane, or restore a
+// previously saved position). The value is clamped to the valid range on the
+// next Render call, the same way DispatchWheel/DispatchKey-driven scrolling
+// is; it has no effect if el isn't (or hasn't yet been rendered as) a scroll
+// container.
+func (d *Document) setScrollTop(el *Element, offset int) {
 	if el == nil {
 		return
 	}
 	d.scrollOffsets[el.node] = offset
 }
 
-// ScrollLeft is ScrollTop's horizontal counterpart: reports el's current
-// horizontal scroll offset and whether el was (as of the most recent Render
-// call) an overflow-x:scroll|auto container with an explicit width.
-func (d *Document) ScrollLeft(el *Element) (int, bool) {
+// scrollLeft is Element.ScrollLeft's implementation, scrollTop's horizontal
+// counterpart: reports el's current horizontal scroll offset and whether el
+// was (as of the most recent Render call) an overflow-x:scroll|auto
+// container with an explicit width.
+func (d *Document) scrollLeft(el *Element) (int, bool) {
 	if el == nil {
 		return 0, false
 	}
@@ -327,12 +330,12 @@ func (d *Document) ScrollLeft(el *Element) (int, bool) {
 	return offset, ok
 }
 
-// SetScrollLeft is SetScrollTop's horizontal counterpart: sets el's
-// horizontal scroll offset directly. The value is clamped to the valid
-// range on the next Render call, the same way DispatchWheel/DispatchKey-
-// driven scrolling is; it has no effect if el isn't (or hasn't yet been
-// rendered as) a horizontal scroll container.
-func (d *Document) SetScrollLeft(el *Element, offset int) {
+// setScrollLeft is Element.SetScrollLeft's implementation, setScrollTop's
+// horizontal counterpart: sets el's horizontal scroll offset directly. The
+// value is clamped to the valid range on the next Render call, the same way
+// DispatchWheel/DispatchKey-driven scrolling is; it has no effect if el isn't
+// (or hasn't yet been rendered as) a horizontal scroll container.
+func (d *Document) setScrollLeft(el *Element, offset int) {
 	if el == nil {
 		return
 	}
@@ -1130,20 +1133,21 @@ func (d *Document) scrollIntoViewX(n *html.Node) {
 	}
 }
 
-// ScrollVisible reports whether el's Rect, as of the most recent Render
-// call, currently falls at least partly within the visible content range of
-// every scrollable ancestor it has. Rect itself is never clipped or hidden
-// for a scrolled-off element (matching a real scrolled-off DOM element's
-// getBoundingClientRect() — see Rect's doc comment), so a host placing its
-// own UI (e.g. Loop's terminal cursor, via focusCursorPos) on top of an
-// element's Rect needs this to know whether that position is actually
-// visible right now, rather than off-screen inside a container that has
-// since scrolled past it (e.g. via DispatchWheel/DispatchKey scrolling a
-// pane out from under a focused control it contains). True for an element
-// with no scrollable ancestor, or before the first Render. Checks both
-// scroll axes: an element off-screen on either the vertical or horizontal
-// range of any scrollable ancestor is not visible.
-func (d *Document) ScrollVisible(el *Element) bool {
+// scrollVisible is Element.ScrollVisible's implementation: reports whether
+// el's Rect, as of the most recent Render call, currently falls at least
+// partly within the visible content range of every scrollable ancestor it
+// has. Rect itself is never clipped or hidden for a scrolled-off element
+// (matching a real scrolled-off DOM element's getBoundingClientRect() — see
+// Rect's doc comment), so a host placing its own UI (e.g. Loop's terminal
+// cursor, via focusCursorPos) on top of an element's Rect needs this to know
+// whether that position is actually visible right now, rather than
+// off-screen inside a container that has since scrolled past it (e.g. via
+// DispatchWheel/DispatchKey scrolling a pane out from under a focused
+// control it contains). True for an element with no scrollable ancestor, or
+// before the first Render. Checks both scroll axes: an element off-screen on
+// either the vertical or horizontal range of any scrollable ancestor is not
+// visible.
+func (d *Document) scrollVisible(el *Element) bool {
 	if el == nil {
 		return true
 	}
@@ -1242,7 +1246,8 @@ func (d *Document) FocusPrev() *Element {
 	return prev
 }
 
-// SetInnerHTML parses htmlStr as an HTML fragment (parsed in el's own
+// setInnerHTML is Element.SetInnerHTML's implementation: parses htmlStr as
+// an HTML fragment (parsed in el's own
 // context, the same rule ParseFragment uses — e.g. a fragment containing
 // bare <tr>s needs el to itself be a <table>/<tbody> for the fragment parser
 // to accept them) and replaces el's children with the result, discarding
@@ -1274,7 +1279,7 @@ func (d *Document) FocusPrev() *Element {
 // three are rebuilt wholesale on the next Render, so stale entries for
 // removed nodes are simply dropped rather than lingering (see their own doc
 // comments on Document).
-func (d *Document) SetInnerHTML(el *Element, htmlStr string) error {
+func (d *Document) setInnerHTML(el *Element, htmlStr string) error {
 	if el == nil {
 		return fmt.Errorf("htmlterm: SetInnerHTML on nil element")
 	}

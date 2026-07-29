@@ -390,8 +390,8 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Hit-testing:** `Element.Rect()` returns the on-screen box (row/column/
   width/height in terminal cells) as a byproduct of rendering, for
   translating real input coordinates into `DispatchClick` calls.
-- **Scrolling:** `Document.ScrollTop`/`SetScrollTop` (and their horizontal
-  counterparts `ScrollLeft`/`SetScrollLeft`), `DispatchWheel`,
+- **Scrolling:** `Element.ScrollTop`/`SetScrollTop` (and their horizontal
+  counterparts `ScrollLeft`/`SetScrollLeft`), `Document.DispatchWheel`,
   `PageUp`/`PageDown`/arrow-key scrolling on a focused descendant.
   `Element.Focus` auto-scrolls a focused descendant into view on both axes
   if it falls outside a scrollable ancestor's visible row or column range.

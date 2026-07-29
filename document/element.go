@@ -631,8 +631,8 @@ func (e *Element) OuterHTML() (string, error) {
 }
 
 // InnerHTML serializes e's children back to an HTML string — mirroring the
-// DOM's Element.innerHTML getter; see Document.SetInnerHTML for the setter
-// direction. Same rendering fidelity and reserved-attribute stripping as
+// DOM's Element.innerHTML getter; see SetInnerHTML for the setter direction.
+// Same rendering fidelity and reserved-attribute stripping as
 // OuterHTML.
 func (e *Element) InnerHTML() (string, error) {
 	var b strings.Builder
@@ -707,6 +707,111 @@ func (e *Element) Rect() (Rect, bool) {
 		return Rect{}, false
 	}
 	return e.doc.rect(e)
+}
+
+// ScrollTop returns e's current vertical scroll offset (in lines), and
+// whether e was a scroll container (overflow:scroll|auto with a resolved
+// height) as of the most recent Document.Render call — mirroring the DOM's
+// element.scrollTop. ok is false if e is nil, not attached to a Document, or
+// isn't a scroll container.
+func (e *Element) ScrollTop() (offset int, ok bool) {
+	if e == nil || e.doc == nil {
+		return 0, false
+	}
+	return e.doc.scrollTop(e)
+}
+
+// SetScrollTop sets e's vertical scroll offset directly (e.g. to jump to
+// the top of a pane, or restore a previously saved position) — mirroring the
+// DOM's element.scrollTop setter. The value is clamped to the valid range on
+// the next Document.Render call, the same way DispatchWheel/DispatchKey-
+// driven scrolling is; a no-op if e is nil, not attached to a Document, or
+// isn't (or hasn't yet been rendered as) a scroll container.
+func (e *Element) SetScrollTop(offset int) {
+	if e == nil || e.doc == nil {
+		return
+	}
+	e.doc.setScrollTop(e, offset)
+}
+
+// ScrollLeft is ScrollTop's horizontal counterpart: reports e's current
+// horizontal scroll offset and whether e was (as of the most recent
+// Document.Render call) an overflow-x:scroll|auto container with an
+// explicit width — mirroring the DOM's element.scrollLeft.
+func (e *Element) ScrollLeft() (offset int, ok bool) {
+	if e == nil || e.doc == nil {
+		return 0, false
+	}
+	return e.doc.scrollLeft(e)
+}
+
+// SetScrollLeft is SetScrollTop's horizontal counterpart: sets e's
+// horizontal scroll offset directly — mirroring the DOM's element.scrollLeft
+// setter. The value is clamped to the valid range on the next Document.Render
+// call, the same way DispatchWheel/DispatchKey-driven scrolling is; a no-op
+// if e is nil, not attached to a Document, or isn't (or hasn't yet been
+// rendered as) a horizontal scroll container.
+func (e *Element) SetScrollLeft(offset int) {
+	if e == nil || e.doc == nil {
+		return
+	}
+	e.doc.setScrollLeft(e, offset)
+}
+
+// ScrollVisible reports whether e's Rect, as of the most recent
+// Document.Render call, currently falls at least partly within the visible
+// content range of every scrollable ancestor it has — the read side of what
+// the DOM's Element.scrollIntoView() would otherwise trigger (there's no
+// scripting engine here to fire that as a side-effecting call; this is the
+// visibility check a host needs instead — e.g. Loop's terminal cursor
+// placement, via focusCursorPos, so it can tell whether a focused control's
+// position is actually on-screen right now rather than off-screen inside a
+// container that has since scrolled past it). True for an element with no
+// scrollable ancestor, e is nil, e isn't attached to a Document, or before
+// the first Render. Checks both scroll axes: an element off-screen on either
+// the vertical or horizontal range of any scrollable ancestor is not
+// visible.
+func (e *Element) ScrollVisible() bool {
+	if e == nil || e.doc == nil {
+		return true
+	}
+	return e.doc.scrollVisible(e)
+}
+
+// SetInnerHTML parses htmlStr as an HTML fragment (parsed in e's own
+// context, the same rule ParseFragment uses — e.g. a fragment containing
+// bare <tr>s needs e to itself be a <table>/<tbody> for the fragment parser
+// to accept them) and replaces e's children with the result, discarding e's
+// previous children entirely — mirroring the DOM's Element.innerHTML setter.
+// This is the mechanism for injecting structural, host-controlled content —
+// a freshly-fetched envelope table, a rendered email body — into a container
+// that a Loop is actively driving, without needing to replace the Document
+// itself (Loop holds one Document pointer for its whole run; there is no
+// document-swap API, so a container declared once up front and refreshed via
+// SetInnerHTML is the supported pattern for content that changes shape, as
+// opposed to attribute-driven mutation for content that doesn't — see
+// docs/INTERACTIVE.md's ImportHTML note, which this supersedes).
+//
+// A <style> element in the fragment (or removed along with e's previous
+// children) does take effect: it marks Document's cachedRules stale, so the
+// next Render recomputes the resolved stylesheet rule set rather than
+// reusing a snapshot from before the replacement. That said, page-level CSS
+// still belongs in Options.CSS/Stylesheets, set once at ParseDocument time —
+// SetInnerHTML is meant for markup, not styling; a <style>-bearing fragment
+// is supported, not recommended.
+//
+// If the currently focused element is inside the replaced subtree, focus is
+// silently cleared (no "blur" dispatched — the element is gone, not
+// blurred) rather than left dangling on a detached node. Any event listeners
+// registered on now-detached descendants become unreachable (the same
+// listener-leak behavior a real DOM has when you drop a subtree without
+// removeEventListener) — call Document.RemoveEventListener first if that
+// matters. Returns an error if e is nil or not attached to a Document.
+func (e *Element) SetInnerHTML(htmlStr string) error {
+	if e == nil || e.doc == nil {
+		return fmt.Errorf("htmlterm: SetInnerHTML on nil element")
+	}
+	return e.doc.setInnerHTML(e, htmlStr)
 }
 
 // ClassList returns a handle for reading and mutating the element's class

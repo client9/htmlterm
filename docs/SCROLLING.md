@@ -25,7 +25,7 @@ not here.
 
 Section 1 (scrolling), Section 1's scrollbar gutter/indicator, and Section 3
 (focus scroll-into-view) are all **implemented** — see
-`Document.ScrollTop`/`SetScrollTop`/`DispatchWheel`, `DispatchKey`'s
+`Element.ScrollTop`/`SetScrollTop`, `Document.DispatchWheel`, `DispatchKey`'s
 `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` cases, and `Focus`'s
 scroll-into-view call (all in `document.go`), plus the `overflow-x`/
 `overflow-y` gates in `block.go`. Wheel-event decoding, originally

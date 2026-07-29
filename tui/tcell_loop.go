@@ -299,7 +299,7 @@ func wheelDelta(buttons tcell.ButtonMask) (dx, dy int) {
 // paint renders doc and writes it into the screen via the ANSI-line-to-cell
 // bridge (cellbridge.go's paintLines), positions the terminal's real cursor
 // on the focused element if one is focused and currently visible
-// (Document.ScrollVisible), and calls Screen.Show to let tcell's own
+// (Element.ScrollVisible), and calls Screen.Show to let tcell's own
 // diffing renderer decide what actually needs writing to the terminal.
 func (l *Loop) paint() error {
 	frame, err := l.doc.Render()
@@ -343,13 +343,13 @@ func splitLines(frame string) []string {
 // button) it lands on the box's first column. ok is false if nothing is
 // focused, the focused element has no recorded Rect, or it's currently
 // scrolled out of view by one of its scrollable ancestors
-// (Document.ScrollVisible).
+// (Element.ScrollVisible).
 func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	el := doc.FocusedElement()
 	if el == nil {
 		return 0, 0, false
 	}
-	if !doc.ScrollVisible(el) {
+	if !el.ScrollVisible() {
 		return 0, 0, false
 	}
 	rect, ok := el.Rect()
