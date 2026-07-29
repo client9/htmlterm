@@ -48,21 +48,26 @@ fmt.Print(out)
 
 **Hit-testing and geometry** — `Element.Rect() (Rect, bool)` returns an element's on-screen position and size (the CSS border box) as of the most recent `Render` call — recorded for free as a byproduct of rendering, and the basis for translating real mouse coordinates into `DispatchClick` calls. `ContentOffset(el)`, `ScrollTop(el)`/`SetScrollTop(el, offset)`, and `ScrollVisible(el)` support vertical scroll containers (`overflow-y: scroll|auto` with a resolved height); `ScrollLeft(el)`/`SetScrollLeft(el, offset)` are their horizontal counterparts (`overflow-x: scroll|auto` with an explicit width) — `ScrollVisible` checks both axes. `Element.Focus()` auto-scrolls a focused descendant into view on both axes if it falls outside a scrollable ancestor's visible row/column range.
 
-**Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `Element.IsTextEntry()` reports whether an element accepts direct keystroke input (used by `DispatchKey` and by `tui`'s cursor placement). `<select>` is not yet supported — no dropdown-rendering concept exists.
+**Form controls** — `<input>` (text, checkbox, radio, submit/button/reset, hidden), `<button>`, `<textarea>`, `<form>`/`<fieldset>`/`<legend>` render with terminal approximations (`[value]`, `☐`/`☑`, `○`/`●`, `[ Label ]`) driven entirely by attributes, so `Element.SetValue`/`SetChecked` are reflected on the next `Render()`. `Element.IsTextEntry()` reports whether an element accepts direct keystroke input (used by `DispatchKey` and by `tui`'s cursor placement). `<select>` is supported, with a composited dropdown popup — see `docs/SELECT.md`: clicking the control or pressing Enter/Space opens it, `ArrowUp`/`ArrowDown` browse (arrow-key highlighting is separate from the committed value until confirmed), Enter/Space/click-on-option commits and fires `"change"`, and Escape or a click elsewhere closes it without committing.
 
 ## Package files
 
 - `document.go` — `Document`, `ParseDocument`, `Render`, `Rect`, focus management, event dispatch, live sizing, `DispatchResize`, `ContentOffset`, scrolling.
-- `element.go` — `Element`, attribute/value helpers, `ClassList`, `IsTextEntry`.
+- `element.go` — `Element`, attribute/value helpers, `ClassList`, `Dataset`, `Style`, `IsTextEntry`.
 - `event.go` — the native event model: `Event`, listener registration/removal, capture/target/bubble dispatch, focus marker plumbing.
 - `attrs.go` — attribute helpers shared by `Document` and `Element`.
+- `select.go` — `<select>` dropdown popup state: open/close, arrow-key highlight vs. committed value, option confirm/click handling.
 
 ## Testing
 
 - `document_test.go` — `Document`/`Element` API tests: `ParseDocument`/`Render` parity with `Renderer.Render`, `GetElementByID`, `QuerySelector(All)`, attribute/`ClassList`/`Value`/`Checked` mutation reflected in subsequent `Render` output, `SetSize`/`Size` round-tripping, `DocumentElement` handle stability.
+- `element_dom_test.go` — `Element`'s tree-navigation and mutation API: parent/sibling/child traversal, `AppendChild`/`InsertBefore`/`RemoveChild`/`ReplaceChild`, `CloneNode`, `OuterHTML`/`InnerHTML`.
 - `event_test.go` — capture/target/bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/`PreventDefault`, click hit-testing and default actions (checkbox/radio toggle, submit), keydown default actions, focus/blur, `:focus`/`:checked`/`:disabled`/`:required` selector matching.
+- `select_test.go` — `<select>` dropdown popup behavior: open/close, arrow-key highlight vs. commit, `"change"` dispatch, disabled option/optgroup handling.
+- `style_test.go` — `Element.Style()`'s inline-style `GetPropertyValue`/`SetProperty`/`RemoveProperty`/`CSSText`/`SetCSSText`.
+- `table_separate_test.go`/`table_collapse_test.go` — `<table>` rendering through the `Document`/`Element` API for both `border-collapse` modes.
 - `helpers_internal_test.go` — package-internal coverage for `setAttr`/`removeAttr`/`nodeAttr`, plus `TestDocumentElementResizeDispatch` (pinning `DocumentElement`/`dispatch`'s plumbing for `"resize"`, since `Loop.Run`, the only public path that fires it for real, needs a real terminal).
-- `helpers_test.go` — shared `stripANSI` test helper used by the two black-box test files above.
+- `helpers_test.go` — shared `stripANSI` test helper used by the black-box test files above.
 
 ## Design notes
 
