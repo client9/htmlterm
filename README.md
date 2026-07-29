@@ -3,16 +3,14 @@
 [![Go](https://github.com/client9/htmlterm/actions/workflows/go.yml/badge.svg)](https://github.com/client9/htmlterm/actions/workflows/go.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/client9/htmlterm.svg)](https://pkg.go.dev/github.com/client9/htmlterm)
 
-`htmlterm` is a Go module that renders a restricted subset of HTML and CSS to ANSI-styled terminal strings.
-
-It is designed for terminal UIs, CLIs, and text-first applications that want richer formatting than plain text without embedding a browser engine.
+`htmlterm` is a Go module that renders HTML and CSS to ANSI-styled terminal strings — layout, cascade, tables, forms, and DOM-style interactivity, built for terminal UIs and text-first applications that want more than plain text without embedding a browser engine.
 
 ## Features
 
 - Render HTML fragments or full documents to ANSI-styled terminal output.
-- Apply CSS from the renderer, `<style>` tags, and inline `style=""` attributes.
-- Support common block and inline elements including headings, paragraphs, lists, blockquotes, links, tables, and forms.
-- Support a focused CSS subset including selectors, inheritance, margins, padding, borders, width, wrapping, overflow, and text transforms.
+- Apply CSS from the renderer, `<style>` tags, and inline `style=""` attributes, with a real cascade: specificity, inheritance, `!important`, and the selector forms browsers support (classes, IDs, attributes, descendant/child/sibling combinators, `:nth-child`, `:not`/`:is`/`:where`, `::before`/`::after`, and more).
+- Render the vast majority of HTML tags: headings, paragraphs, lists, blockquotes, links, tables (`<colgroup>`/`<col>`, border styles, column sizing), and forms (`<input>`, `<button>`, `<textarea>`, `<fieldset>`).
+- Style with most of CSS layout: `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`, and more — see [CSS.md](./CSS.md) for the full property-by-property reference.
 - Emit OSC 8 hyperlinks for `<a href="...">...</a>` when supported by the terminal.
 - A mutable `Document`/`Element` API for hosts that want to query, mutate, and re-render a tree instead of parsing once and discarding it.
 - Native Go DOM-style events (`AddEventListener`, capture/target/bubble phases), focus management, and hit-testing (`Element.Rect`) — no scripting engine, just Go closures.
@@ -20,16 +18,9 @@ It is designed for terminal UIs, CLIs, and text-first applications that want ric
 
 ## Scope
 
-`htmlterm` is intentionally not a browser. It supports a documented subset of HTML and CSS and silently ignores unsupported features.
+`htmlterm` renders to a character grid, not pixels, and has no scripting engine — so it isn't a browser. But within that constraint it aims to behave like one: real cascade rules, real DOM/Events semantics, real layout. [CSS.md](./CSS.md) is the exhaustive per-property reference; [COMPATIBILITY.md](./COMPATIBILITY.md) is the orientation read across HTML, CSS, and the DOM/Events API — what deviates from browser behavior and why (text cells, not pixels), what's a terminal-native addition with no browser equivalent (`scrollbar-style`, `<select>` popup compositing, literal-glyph borders), and what's not implemented.
+
 When rendering untrusted HTML or CSS, see [SECURITY.md](./SECURITY.md) for the terminal-output security model and recommended defense-in-depth settings.
-
-See [CSS.md](./CSS.md) for the full supported surface:
-
-- **Selectors:** universal (`*`), element, class, multiple classes, ID, attribute operators, descendant, child (`>`), adjacent sibling (`+`), `:root`, `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, `::before`, `::after`
-- **Layout and styling:** `display`, margins, padding, width, height, borders, colors, `white-space`, `overflow`, `text-overflow`, `text-align`, `text-transform`, `visibility`
-- **Tables:** column sizing, wrapping, alignment, border styles, `<colgroup>` / `<col>`
-
-New to the project or wondering how something differs from a browser? [COMPATIBILITY.md](./COMPATIBILITY.md) is the orientation read across all three surfaces this project reinterprets — HTML, CSS, and the DOM/Events API: what's supported at a glance, what deviates from spec and why (text cells, not pixels; no scripting engine), what's a terminal-native addition with no browser equivalent, and what's simply not implemented. CSS.md stays the exhaustive per-property CSS reference.
 
 ## Install
 
@@ -118,17 +109,10 @@ with either setting.
 
 ## CSS Precedence
 
-Styles are applied in this order, lowest to highest priority:
-
-1. Built-in default stylesheet (`htmlterm.DefaultStylesheet`)
-2. `Options.CSS`
-3. `Options.Stylesheets`, in order
-4. `<style>` elements in the HTML
-5. Inline `style=""` attributes
-
-Steps 4 and 5 are both suppressed by `Options.IgnoreDocumentCSS`.
-
-Higher specificity wins within a given layer; later rules win on ties.
+Cascade order (lowest to highest priority): built-in default stylesheet
+(`htmlterm.DefaultStylesheet`) → `Options.CSS` → `Options.Stylesheets` (in
+order) → `<style>` elements → inline `style=""` attributes. The last two are
+suppressed by `Options.IgnoreDocumentCSS`.
 
 `Options.Stylesheets` exists for callers assembling several independent
 stylesheets (e.g. loaded from separate files or `go:embed` entries) that
@@ -234,7 +218,5 @@ make vuln     # govulncheck ./...
 
 ## Notes
 
-- Unsupported HTML and CSS are ignored rather than treated as errors.
-- Table cells word-wrap by default; set `white-space: nowrap` for single-line truncation (`text-overflow` defaults to `clip`, matching the CSS spec).
-- Blockquote, emphasis, strong text, links, and several semantic HTML elements have built-in default styling.
-- The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`) and hasn't been verified on Windows. `Loop`'s automatic resize tracking specifically requires `syscall.SIGWINCH`, which doesn't exist on Windows at all — this is a compile-time constraint there, not just an unverified one.
+- **Not verified on Windows.** The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`). `Loop`'s automatic resize tracking specifically requires `syscall.SIGWINCH`, which doesn't exist on Windows at all — a compile-time constraint there, not just an unverified one.
+- Unsupported HTML and CSS are ignored rather than treated as errors, matching how a real browser handles unknown markup.
