@@ -41,6 +41,17 @@ type Document struct {
 	nextListenerID listenerID
 	focused        *html.Node
 
+	// valueAtFocus snapshots a text-entry element's "value" attribute at the
+	// moment it becomes focused, so focus/blur/DispatchKey's Enter-commit
+	// branch can tell whether the value actually changed since — the
+	// condition real DOM requires before firing "change" (as opposed to
+	// "input", which fires on every mutating keystroke regardless). Lazily
+	// initialized, mirroring listeners above; entries are removed once
+	// consumed (on blur, on focus moving elsewhere, or on Enter-commit) so
+	// the map never grows past the number of currently-focused elements
+	// (always at most one).
+	valueAtFocus map[*html.Node]string
+
 	// scrollOffsets holds the current vertical scroll offset for every
 	// element that was an overflow:scroll|auto container with a resolved
 	// height as of the most recent Render call — rebuilt fresh on every
@@ -559,6 +570,47 @@ func isTextEntry(n *html.Node) bool {
 	}
 }
 
+// snapshotValueAtFocus records n's current value as the baseline a later
+// commitChange call compares against, if n is a text entry — called when n
+// becomes focused. A no-op for non-text-entry elements (e.g. <select>, which
+// tracks and fires its own "change" independently — see select.go).
+func (d *Document) snapshotValueAtFocus(n *html.Node) {
+	if !isTextEntry(n) {
+		return
+	}
+	if d.valueAtFocus == nil {
+		d.valueAtFocus = make(map[*html.Node]string)
+	}
+	d.valueAtFocus[n] = nodeAttr(n, "value")
+}
+
+// commitChange dispatches "change" on n if it's a text entry whose value
+// differs from the baseline snapshotValueAtFocus recorded, then updates (or,
+// if clearBaseline is true, removes) that baseline — matching real DOM's
+// "fire only once per distinct commit" behavior for a text field's "change"
+// event, unlike "input" which fires on every mutating keystroke. Called
+// wherever a text entry's value can be considered committed: losing focus
+// (blur, or focus moving to another element) and Enter on a single-line
+// field (DispatchKey's submit branch). clearBaseline is true for the former
+// (no further comparisons are possible once nothing is focused there) and
+// false for the latter (the field stays focused, so typing can resume and a
+// later blur/Enter should compare against the just-committed value, not the
+// original focus-time one).
+func (d *Document) commitChange(n *html.Node, clearBaseline bool) {
+	if !isTextEntry(n) {
+		return
+	}
+	v := nodeAttr(n, "value")
+	if d.valueAtFocus[n] != v {
+		d.dispatch(n, "change", "", Modifiers{})
+	}
+	if clearBaseline {
+		delete(d.valueAtFocus, n)
+	} else {
+		d.valueAtFocus[n] = v
+	}
+}
+
 // isSubmitControl reports whether n is a control that submits its form when
 // activated: an input[type=submit], or a button whose type attribute is
 // unset or "submit" — HTML's default button type is "submit", so a bare
@@ -591,10 +643,15 @@ func nearestForm(n *html.Node) *html.Node {
 // focus to the next focusable element (FocusNext); "Backspace" drops the
 // last rune of a focused text entry's value; a lone space (" ") toggles a
 // focused checkbox/radio (applyCheckToggle); "Enter" on a submit control or
-// a focused text entry dispatches "submit" on the nearest ancestor <form> —
-// matching HTML's implicit-submit-on-Enter behavior for a single-line text
-// field; any other single-rune key appends to a focused text entry's (input
-// or textarea) value. key follows the convention described in
+// a focused text entry fires "change" (if the value differs from its value
+// at focus time — see commitChange) and dispatches "submit" on the nearest
+// ancestor <form> — matching HTML's implicit-submit-on-Enter behavior for a
+// single-line text field; any other single-rune key appends to a focused
+// text entry's (input or textarea) value. Every text-entry value mutation
+// above (Backspace, a <textarea>'s Enter-newline, and plain character
+// append) also dispatches "input" on the target, once per keystroke,
+// distinct from "change" which only fires on commit (Enter, or losing
+// focus — see Document.focus/blur). key follows the convention described in
 // docs/INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
 // or a named key from a fixed vocabulary ("Enter", "Backspace", "Tab",
 // "Escape", "ArrowUp"/"Down"/"Left"/"Right"). mods records which modifier
@@ -622,6 +679,7 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 			if v != "" {
 				_, size := utf8.DecodeLastRuneInString(v)
 				setAttr(target, "value", v[:len(v)-size])
+				d.dispatch(target, "input", key, mods)
 			}
 		}
 	case key == " " && isCheckable(target):
@@ -644,7 +702,9 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// which only applies to single-line text fields (isTextEntry's other
 		// members) and submit controls, not <textarea>.
 		setAttr(target, "value", nodeAttr(target, "value")+"\n")
+		d.dispatch(target, "input", key, mods)
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
+		d.commitChange(target, false)
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "", Modifiers{})
 		}
@@ -685,6 +745,7 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	default:
 		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
 			setAttr(target, "value", nodeAttr(target, "value")+key)
+			d.dispatch(target, "input", key, mods)
 		}
 	}
 	return true
@@ -865,8 +926,10 @@ func (d *Document) focus(el *Element) bool {
 		if isSelectControl(prev) {
 			d.closeSelectPopup(prev)
 		}
+		d.commitChange(prev, true)
 		d.dispatch(prev, "blur", "", Modifiers{})
 	}
+	d.snapshotValueAtFocus(el.node)
 	d.scrollIntoView(el.node)
 	d.dispatch(el.node, "focus", "", Modifiers{})
 	return true
@@ -965,6 +1028,7 @@ func (d *Document) blur() {
 	if isSelectControl(prev) {
 		d.closeSelectPopup(prev)
 	}
+	d.commitChange(prev, true)
 	d.dispatch(prev, "blur", "", Modifiers{})
 }
 
@@ -1115,6 +1179,7 @@ func (d *Document) SetPreRendered(el *Element, ansi string) {
 // Element.ReplaceChild) needs, so focus never dangles on a detached node.
 func (d *Document) clearFocusIfDetached() {
 	if d.focused != nil && !isDescendant(d.doc, d.focused) {
+		delete(d.valueAtFocus, d.focused)
 		d.focused = nil
 	}
 }

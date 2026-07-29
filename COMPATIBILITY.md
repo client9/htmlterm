@@ -367,10 +367,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   parse-once-discard model.
 - **Events:** `AddEventListener`/`RemoveEventListener` with capture/target/
   bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/
-  `PreventDefault`/`DefaultPrevented` — `"click"`, `"keydown"`, `"focus"`,
-  `"blur"`, `"submit"`, `"change"`, `"resize"` event types, each with real
-  default actions (checkbox/radio toggle, focus traversal, text entry,
-  implicit form submit on Enter).
+  `PreventDefault`/`DefaultPrevented` — `"click"`, `"keydown"`, `"input"`,
+  `"focus"`, `"blur"`, `"submit"`, `"change"`, `"resize"` event types, each
+  with real default actions (checkbox/radio toggle, focus traversal, text
+  entry, implicit form submit on Enter). A focused text `<input>`/
+  `<textarea>` fires `"input"` on every keystroke that mutates its value and
+  `"change"` once on commit (Enter, or losing focus) if the value actually
+  changed — matching real DOM's `input`-vs-`change` distinction.
 - **Focus:** `Element.Focus`/`Blur`, `Document.FocusNext`/`FocusPrev`/
   `FocusedElement`, matching `:focus` in CSS. **`tabindex`** is read on any
   element (not just native form controls) via the plain HTML attribute —
@@ -461,9 +464,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   drag-and-drop events** — no continuous hover tracking exists in a
   terminal, and none of these are wired up.
 - **Text selection/clipboard events** (`select`, `copy`, `cut`, `paste`).
-- **`input` events distinct from `change`** — typing doesn't fire a
-  per-keystroke `"input"` event, only `"change"` on commit (blur, Enter, or
-  selecting an option).
 - **Custom events / arbitrary `dispatchEvent`** — only the fixed built-in
   event names above are ever dispatched.
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-

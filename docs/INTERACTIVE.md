@@ -237,6 +237,33 @@ added to `document.go`.
   (the same pattern `inputDisplayText` already uses) rather than adding a
   new `Element.SetTextContent` API that a static demo doesn't otherwise
   need.
+- **`input`/`change` events for text entry (added after `submit`, closing a
+  gap `COMPATIBILITY.md` had flagged: typing never fired a per-keystroke
+  event distinct from commit, and text fields never fired `"change"` at
+  all):** `DispatchKey`'s three value-mutating branches (`"Backspace"`, a
+  `<textarea>`'s `"Enter"`-newline, and the default printable-rune-append
+  branch) each dispatch `"input"` on the target immediately after mutating
+  `value`, mirroring real DOM's per-keystroke `input` event — distinct from
+  `"change"`, which only fires once per distinct commit. `"change"` needed a
+  way to know whether the value actually changed since the field was
+  focused, so `Document` gained `valueAtFocus map[*html.Node]string`
+  (event.go's `listeners` map already established the per-node scratch-map
+  pattern) plus two small helpers: `snapshotValueAtFocus` (called from
+  `focus()`, records the baseline) and `commitChange` (called from
+  `focus()`'s prev-element-loses-focus branch, `blur()`, and `DispatchKey`'s
+  `"Enter"`-on-text-entry submit branch — fires `"change"` only if the value
+  differs from the baseline, then either clears the baseline (focus lost) or
+  rebases it to the just-committed value (`"Enter"`, which doesn't blur, so
+  typing can resume and a later commit should compare against this value,
+  not the original focus-time one)). Both helpers no-op for non-text-entry
+  targets (e.g. `<select>`, which already fires its own `"change"` via
+  `confirmSelectPopup`/`moveSelectSelection` in select.go — kept separate
+  rather than funneled through `commitChange`, since a `<select>`'s notion
+  of "committed" is arrow-key/popup-confirm driven, not value-string-diff
+  driven). `clearFocusIfDetached` also deletes any `valueAtFocus` entry for
+  the node it detaches, so the map never leaks a stale baseline for a focus
+  that's cleared silently (no `"blur"` fires there either, by existing
+  design — see its doc comment).
 
 ## Done, then replaced: terminal I/O (`Loop`)
 

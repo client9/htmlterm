@@ -52,8 +52,9 @@ type Event struct {
 	// Target is the element the event was dispatched at (the hit-tested or
 	// focused element) — constant throughout all three phases.
 	Target *Element
-	// Key is set for "keydown" events: either a single printable rune as a
-	// UTF-8 string, or a named key such as "Enter", "Backspace", "Tab".
+	// Key is set for "keydown" and "input" events: either a single printable
+	// rune as a UTF-8 string, or a named key such as "Enter", "Backspace",
+	// "Tab".
 	Key string
 	// ShiftKey, CtrlKey, AltKey, MetaKey mirror the modifier keys held when
 	// the event was dispatched — set from the Modifiers passed to

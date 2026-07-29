@@ -574,6 +574,72 @@ func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	}
 }
 
+func TestDispatchKeyFiresInputOnEveryMutatingKeystroke(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	var events []string
+	doc.AddEventListener(a, "input", false, func(e *document.Event) { events = append(events, e.Key) })
+
+	doc.DispatchKey("a", document.Modifiers{})
+	doc.DispatchKey("b", document.Modifiers{})
+	doc.DispatchKey("Backspace", document.Modifiers{})
+	doc.DispatchKey("Backspace", document.Modifiers{}) // value now empty
+	doc.DispatchKey("Backspace", document.Modifiers{}) // no-op: nothing to delete, no "input" expected
+
+	want := []string{"a", "b", "Backspace", "Backspace"}
+	if len(events) != len(want) {
+		t.Fatalf("input events = %v, want %v", events, want)
+	}
+	for i, k := range want {
+		if events[i] != k {
+			t.Errorf("input event %d key = %q, want %q", i, events[i], k)
+		}
+	}
+}
+
+func TestDispatchKeyChangeFiresOnCommitNotEveryKeystroke(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a"><input id="b">`)
+	a := doc.GetElementByID("a")
+	b := doc.GetElementByID("b")
+	a.Focus()
+
+	changed := 0
+	doc.AddEventListener(a, "change", false, func(e *document.Event) { changed++ })
+
+	doc.DispatchKey("x", document.Modifiers{})
+	doc.DispatchKey("y", document.Modifiers{})
+	if changed != 0 {
+		t.Fatalf("change fired %d times during typing, want 0", changed)
+	}
+
+	// Enter commits without losing focus; a second Enter with no further
+	// typing shouldn't re-fire since the value hasn't changed since.
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if changed != 1 {
+		t.Fatalf("change count after Enter = %d, want 1", changed)
+	}
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if changed != 1 {
+		t.Fatalf("change count after second no-op Enter = %d, want 1", changed)
+	}
+
+	// Typing again and then moving focus away (blur) should fire once more.
+	doc.DispatchKey("z", document.Modifiers{})
+	b.Focus()
+	if changed != 2 {
+		t.Fatalf("change count after typing + blur = %d, want 2", changed)
+	}
+
+	// Re-focusing a and blurring with no edits shouldn't fire again.
+	a.Focus()
+	b.Focus()
+	if changed != 2 {
+		t.Fatalf("change count after no-op focus/blur = %d, want 2", changed)
+	}
+}
+
 func TestDispatchKeySpaceTogglesFocusedCheckbox(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
 	cb := doc.GetElementByID("cb")
