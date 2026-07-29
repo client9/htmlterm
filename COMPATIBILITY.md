@@ -59,9 +59,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   ArrowRight-driven insertion point within the field itself (those arrow
   keys are reserved for select-popup/scroll navigation instead — see
   `docs/SELECT.md`).
-- **A header row's `rowspan` is clamped to 1** — this renderer recognizes
-  only a single header row, so a header cell can never merge down into data
-  rows the way a real `<table>` could.
 - **`<noscript>` content always renders** — there's no scripting engine to
   disable it for, so (unlike a browser, which only shows `noscript` content
   when JavaScript is off) it's unconditionally treated as regular markup.

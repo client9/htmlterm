@@ -40,9 +40,10 @@ type tableCell struct {
 // slot — the same pointer appears at every (row,col) a spanning cell covers,
 // and nil means no cell occupies that slot (a short row). headerRow is the
 // index of the single row treated as the table header (-1 if none),
-// matching the existing thead/first-all-<th>-row rules — this engine only
-// ever recognizes one header row, so a header-row cell's rowspan is clamped
-// to 1 in resolveTableGrid (it can't merge into data rows).
+// matching the existing thead/first-all-<th>-row rules; used only to pick a
+// representative cell per column for border-overhead sizing (see
+// separateColumnBorderOverhead) — a header cell's own rowspan is otherwise
+// resolved exactly like any other cell's, including merging into data rows.
 type tableGrid struct {
 	numCols   int
 	rows      [][]*tableCell
@@ -194,13 +195,11 @@ func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 			}
 		}
 
-		// Header-row detection mirrors the original single-header-row rule
-		// exactly: any row inside <thead> is a header candidate; without
-		// <thead>, the first all-<th> row anywhere (not in <tfoot>) is an
-		// implicit header. Only the first candidate encountered becomes THE
-		// header row. Determined via a tag-name-only lookahead before cell
-		// placement, so a rowspan starting in that row can be clamped to 1
-		// (a header can't merge into data rows).
+		// Header-row detection: any row inside <thead> is a header candidate;
+		// without <thead>, the first all-<th> row anywhere (not in <tfoot>)
+		// is an implicit header. Only the first candidate encountered becomes
+		// THE header row (used solely as a representative-cell lookup for
+		// column border-overhead sizing - see separateColumnBorderOverhead).
 		allTH := true
 		for td := tr.node.FirstChild; td != nil; td = td.NextSibling {
 			if td.Type == html.ElementNode && td.Data == "td" {
@@ -209,8 +208,7 @@ func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 			}
 		}
 		isHeaderRow := tr.inTHead || (!tr.inTHead && !tr.inTFoot && allTH)
-		becomesHeader := isHeaderRow && g.headerRow < 0
-		if becomesHeader {
+		if isHeaderRow && g.headerRow < 0 {
 			g.headerRow = ri
 		}
 
@@ -244,9 +242,6 @@ func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 			// slice later on.
 			if maxSpan := numRows - ri; rowSpan > maxSpan {
 				rowSpan = maxSpan
-			}
-			if becomesHeader && rowSpan > 1 {
-				rowSpan = 1
 			}
 			ensureCols(ci + colSpan)
 			cell := &tableCell{node: td, colSpan: colSpan, rowSpan: rowSpan, rowStart: ri, colStart: ci}

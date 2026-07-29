@@ -122,11 +122,5 @@ func TestColspanRowspanCombined(t *testing.T) {
 			html: `<table><tr><td rowspan="2">Left</td><td colspan="2">TopRight</td></tr><tr><td>M1</td><td>M2</td></tr></table>`,
 			want: "┌────┬─────────┐\n│Left│TopRight │\n│    ├────┬────┤\n│    │M1  │M2  │\n└────┴────┴────┘\n",
 		},
-		{
-			name: "header row rowspan is clamped to 1 - cannot merge into data rows",
-			css:  collapseGridCSS,
-			html: `<table><thead><tr><th rowspan="2">H</th></tr></thead><tbody><tr><td>D</td></tr></tbody></table>`,
-			want: "┌─┐\n│H│\n├─┤\n│D│\n└─┘\n",
-		},
 	})
 }
