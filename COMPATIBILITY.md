@@ -3,11 +3,16 @@
 htmlterm reinterprets three separate web-platform surfaces for a fixed-size
 character grid instead of a browser: **HTML** (parsing and per-element
 rendering), **CSS** (selectors, cascade, properties), and **DOM & Events**
-(the mutable `Document`/`Element` API and its native-Go event model). Each
-gets the same four-part treatment below:
+(the mutable `Document`/`Element` API and its native-Go event model).
 
-- **At a Glance** — what's supported, so you can tell quickly whether this
-  covers your use case.
+This document is about the *gap* between htmlterm and the real spec, not a
+feature list — for what's actually supported, see **[CSS.md](./CSS.md)**
+(the exhaustive CSS/selector/element reference) and
+**[docs/DOM_API.md](./docs/DOM_API.md)** (a method-by-method table against
+the real `Document`/`Element`/`Node` interfaces). Duplicating "what's
+supported" here as prose would just drift out of sync with those as features
+land, so each surface below gets three sections instead:
+
 - **Deviations from Spec** — real features that exist here but behave
   differently than in a browser, and why (text cells, not pixels; no
   scripting engine; no real pointer/window).
@@ -15,35 +20,13 @@ gets the same four-part treatment below:
   browser equivalent at all.
 - **Not Supported** — real features that simply aren't implemented.
 
-This is the orientation read. For exact per-property syntax, see
-**[CSS.md](./CSS.md)**, the exhaustive reference; for the design rationale
-behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
-`docs/RENDERING.md`, `docs/REPAINT.md`, and `docs/SCROLLING.md`.
+For the design rationale behind the DOM/Events/rendering internals, see
+`docs/INTERACTIVE.md`, `docs/RENDERING.md`, `docs/REPAINT.md`, and
+`docs/SCROLLING.md`.
 
 ---
 
 ## HTML
-
-### At a Glance
-
-- **Parsing** uses `golang.org/x/net/html`, a real HTML5 tree-construction
-  implementation — tag-soup recovery, implied tags, auto-closing, and
-  foster parenting all work the way a browser's parser would, not a
-  regex/best-effort approximation.
-- **Structure:** headings, paragraphs, lists (`ul`/`ol`/`li`/`dl`/`dt`/`dd`,
-  including nesting), blockquotes, tables (`thead`/`tbody`/`tfoot`/`tr`/
-  `th`/`td`/`colgroup`/`col`/`caption`, `colspan`/`rowspan`), forms
-  (`form`/`fieldset`/`legend`/`label`/`input`/`button`/`textarea`/`select`/
-  `option`/`optgroup`), HTML5 sectioning (`section`/`article`/`aside`/`header`/
-  `footer`/`main`/`nav`/`hgroup`/`search`), inline text-level semantics
-  (`a`/`span`/`strong`/`em`/`b`/`i`/`u`/`s`/`del`/`ins`/`mark`/`small`/
-  `sub`/`sup`/`code`/`kbd`/`samp`/`var`/`cite`/`dfn`/`abbr`/`q`), disclosure
-  (`details`/`summary`), `figure`/`figcaption`, `address`, `hr`/`br`.
-- **Global attributes:** `hidden` and `aria-hidden="true"` both hide an
-  element and its subtree (via the UA stylesheet's `display: none`).
-- Unrecognized elements, attributes, comments, and doctypes are silently
-  ignored rather than raising an error — see "Not Supported" below for what
-  falls in that bucket.
 
 ### Deviations from Spec
 
@@ -91,76 +74,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 ---
 
 ## CSS
-
-### At a Glance
-
-- **Selectors:** universal, element, class (including multiple classes),
-  ID, all attribute operators (`[attr]`, `=`, `~=`, `|=`, `^=`, `$=`, `*=`),
-  descendant/child/adjacent-sibling/general-sibling combinators, comma
-  groups, the full `:nth-*` family (`:nth-child`, `:nth-last-child`,
-  `:nth-of-type`, `:nth-last-of-type`, full `An+B` syntax),
-  `:first/last/only-child`, `:first/last/only-of-type`, `:empty`, `:not()`,
-  `:is()`, `:where()`, `:checked`, `:disabled`, `:required`, `:focus`.
-  Specificity and `!important` both work per spec.
-- **Cascade keywords:** `inherit`, `unset`, and `initial` are recognized on
-  any property, not just the usual inheritable set — see CSS.md's
-  Inheritance section.
-- **Custom properties:** `--name: value;` declarations and `var(--name)`/
-  `var(--name, fallback)` usage, including unconditional by-name
-  inheritance and pseudo-element (`::before`/`::after`/etc.) `content`
-  values — see CSS.md's "Custom Properties (Variables)" section and
-  `docs/proposals/VARIABLES.md` for the design. `calc()` and other CSS math
-  functions are not implemented (see "Not Supported" below).
-- **Colors:** every CSS Color Level 4 format — hex (3/4/6/8-digit), named
-  colors (full W3C list), `rgb()`/`rgba()`, `hsl()`/`hsla()`, `hwb()` —
-  downsampled automatically to the terminal's actual color capability
-  (TrueColor/256/16/none).
-- **Box model:** `margin`/`padding`/`border` (shorthand and per-side
-  longhands, including logical `*-block-*`/`*-inline-*` aliases),
-  `width`/`min-width`/`max-width`, `height`/`min-height`/`max-height`,
-  percentage and `ch` sizing, auto margins.
-- **Text:** `color`, `background-color`, `font-weight`, `font-style`,
-  `text-decoration`, `text-align`, `text-indent`, `text-transform` (including
-  Unicode super/subscript), `font-variant: small-caps`, `white-space` (all
-  five values), `overflow-wrap`/`word-break`, `tab-size`, `visibility`,
-  `opacity`.
-- **Wide characters:** column widths (wrapping, alignment, padding, table
-  sizing) account for double-width CJK and emoji glyphs via
-  `go-runewidth`, not a naive one-rune-one-column assumption.
-- **Generated content:** `::before`/`::after` with `content` (quoted
-  strings, `attr()`, `counter()`/`counters()`, open/close-quote), CSS
-  counters (`counter-reset`/`counter-increment`), `quotes`.
-- **Lists:** `list-style-type` (all standard numbering systems plus custom
-  string/`symbols()` bullets), `list-style-position`, nested lists, `<ol
-  start>`.
-- **Tables:** column sizing (fixed/percentage/min/max), multi-line cell
-  wrapping, `vertical-align`, 6 named border-style presets, per-edge border
-  and corner-glyph overrides, `colspan`/`rowspan`, `<colgroup>`/`<col>`,
-  `caption-side`, `padding`/`margin` on `<table>` itself (surprisingly,
-  given real browsers rarely use it). A bare `<table>` with no CSS renders
-  completely borderless, matching a real browser. Both real
-  `border-collapse` modes are supported: `separate` (the default) gives
-  every `th`/`td` its own independent border box plus `border-spacing`;
-  `collapse` merges adjacent cell/table borders into shared lines via real
-  conflict resolution and junction-glyph synthesis — see `docs/TABLES.md`.
-- **Flexbox:** currently limited to a single row/column of items —
-  `flex-direction`, `justify-content`, `align-items`/`align-self`, `order`,
-  `gap`, `flex-grow`, `flex-shrink`, `flex-basis` (all four working in
-  `column` direction too, once the container has an explicit `height`), the
-  `flex` shorthand, and (row direction only) `flex-wrap`/`align-content`/
-  `margin: auto` (main-axis only). See CSS.md's Flexbox section for the
-  (sizeable) list of real-Flexbox features not yet implemented here.
-- **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
-  (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
-  `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
-- **`position: relative/absolute/fixed`** with `top`/`right`/`bottom`/`left`
-  offsets and `z-index`. `relative` keeps its normal-flow layout space but
-  paints visually shifted; `absolute`/`fixed` are removed from flow
-  entirely and positioned against a containing block (the nearest
-  positioned ancestor, or the whole document for `fixed`/an
-  ancestor-less `absolute`). All three update their hit-test `Rect` to
-  match what's painted. `sticky` is not implemented — see "Not Supported"
-  below.
 
 ### Deviations from Spec
 
@@ -275,8 +188,8 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **CSS units:** `px`, `em`, `rem`, `vw`, `vh`, and friends (ignored; use
   bare integers, `ch`, or `%`).
 - **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties —
-  `--foo`/`var()` — *are* supported; see the CSS "At a Glance" entry below
-  and CSS.md's "Custom Properties (Variables)" section.)
+  `--foo`/`var()` — *are* supported; see CSS.md's "Custom Properties
+  (Variables)" section.)
 - **At-rules:** `@media`, `@font-face`, `@keyframes`, `@import`,
   `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
   styles), etc. — the parser recognizes any `@`-rule and skips it as a unit
@@ -295,7 +208,7 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`; `float`/`clear`.
 - **Positioned layout:** `position: sticky` (`relative`/`absolute`/`fixed`
-  and `z-index` are all supported — see "At a Glance" above). For
+  and `z-index` are all supported — see CSS.md). For
   `absolute`/`fixed`: real CSS's shrink-to-fit auto-sizing (an
   unconstrained element here stretches to its containing block's width
   instead) and the "static position" algorithm (an axis with neither side
@@ -335,8 +248,8 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   (`cjk-decimal`, `cjk-ideographic`, `japanese-formal`/`informal`,
   `korean-hangul-formal`, etc.), `hebrew`, `devanagari` and the other
   script-specific systems, `disclosure-open`/`disclosure-closed`,
-  `decimal-leading-zero`, `lower-greek` — only the small Western subset
-  listed above under "At a Glance" is implemented.
+  `decimal-leading-zero`, `lower-greek` — only the small Western subset in
+  CSS.md's `list-style-type` entry is implemented.
 - **`<select>` gaps:** per-`<option>` (and per-group-label-row) border/
   padding/width, `<optgroup>` nested inside another `<optgroup>` — see
   `docs/SELECT.md`.
@@ -346,55 +259,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 ---
 
 ## DOM & Events
-
-### At a Glance
-
-- **`Document`/`Element`:** `ParseDocument`, `GetElementByID`,
-  `QuerySelector`/`QuerySelectorAll`, attribute get/set/remove, `ClassList`,
-  `Style` (inline `style=""` get/set/remove — see "Deviations from Spec"
-  below), `Value`/`SetValue`, `Checked`/`SetChecked` — parse once, mutate
-  and re-render repeatedly, instead of `Renderer.Render`'s
-  parse-once-discard model.
-- **Events:** `AddEventListener`/`RemoveEventListener` with capture/target/
-  bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/
-  `PreventDefault`/`DefaultPrevented` — `"click"`, `"keydown"`, `"input"`,
-  `"focus"`, `"blur"`, `"submit"`, `"change"`, `"resize"`, `"paste"`, `"cut"`
-  event types, each with real default actions (checkbox/radio toggle, focus
-  traversal, text entry, implicit form submit on Enter, clipboard-text
-  insertion/removal). A focused text `<input>`/`<textarea>` fires `"input"`
-  on every keystroke that mutates its value and `"change"` once on commit
-  (Enter, or losing focus) if the value actually changed — matching real
-  DOM's `input`-vs-`change` distinction.
-- **Clipboard:** `Document.DispatchPaste(text)`/`DispatchCut()` dispatch
-  `"paste"`/`"cut"` with `Event.ClipboardData` carrying the plain-text
-  payload (readable/rewritable by a listener, mirroring
-  `clipboardData.getData`/`setData`), and — unless prevented — insert into or
-  clear a focused text-like `<input>`/`<textarea>`'s value. `Loop` wires
-  these to a real terminal's bracketed paste and Ctrl-X, handing `DispatchCut`'s
-  returned text to the system clipboard via `tcell.Screen.SetClipboard`
-  (OSC 52) when the terminal advertises clipboard support.
-- **Focus:** `Element.Focus`/`Blur`, `Document.FocusNext`/`FocusPrev`/
-  `FocusedElement`, matching `:focus` in CSS. **`tabindex`** is read on any
-  element (not just native form controls) via the plain HTML attribute —
-  `tabindex="0"` makes an otherwise non-focusable element (e.g. `<div>`, or
-  `<a href>`, which is never a tab stop without it — see "Deviations from
-  Spec" below) a real tab stop; a positive value front-loads it into Tab
-  order ahead of every `0`/default element, ascending by value; `tabindex="-1"`
-  is reachable via `Focus()`/click but skipped by `FocusNext`/`FocusPrev`.
-  No typed `Element.TabIndex()` accessor exists — use
-  `GetAttribute`/`SetAttribute("tabindex", ...)` directly (see
-  `docs/DOM_API.md`).
-- **Hit-testing:** `Element.Rect()` returns the on-screen box (row/column/
-  width/height in terminal cells) as a byproduct of rendering, for
-  translating real input coordinates into `DispatchClick` calls.
-- **Scrolling:** `Element.ScrollTop`/`SetScrollTop` (and their horizontal
-  counterparts `ScrollLeft`/`SetScrollLeft`), `Document.DispatchWheel`,
-  `PageUp`/`PageDown`/arrow-key scrolling on a focused descendant.
-  `Element.Focus` auto-scrolls a focused descendant into view on both axes
-  if it falls outside a scrollable ancestor's visible row or column range.
-- **`Loop`:** drives a `Document` against a real terminal — raw mode, SGR
-  mouse decoding, `SetInterval`/`SetTimeout` timers, repaint on every
-  event/timer/resize.
 
 ### Deviations from Spec
 
@@ -434,8 +298,8 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   horizontal wheel bit at all).
 - **Tab order defaults to a document-order walk** over form controls
   (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
-  focusable scroll containers, reorderable via `tabindex` (see "At a
-  Glance" above) — but **plain `<a>` links are never tab stops** unless
+  focusable scroll containers, reorderable via `tabindex` (see
+  `docs/DOM_API.md`) — but **plain `<a>` links are never tab stops** unless
   given explicit `tabindex` (real browsers make links focusable by default
   with no attribute needed; htmlterm requires opting in, since link-dense
   rendered content — documentation pages, HTML email — would otherwise
