@@ -998,6 +998,85 @@ func TestFocusScrollsIntoViewWithBorderAndPadding(t *testing.T) {
 	}
 }
 
+// TestFocusScrollsIntoViewHorizontally is TestFocusScrollsIntoView's
+// horizontal-axis counterpart, pinning scrollIntoViewX (called alongside
+// scrollIntoView from focus()): an overflow-x:auto pane with an explicit
+// width, containing a single focusable descendant wider than the pane
+// itself, so at offset 0 the descendant's right edge already overflows the
+// visible column range and focusing it must scroll the pane. Deliberately a
+// lone block-level child (not inline text needing white-space:nowrap to
+// stay unbreakable) — nowrap content doesn't get its descendants' positions
+// tracked at all (an accepted, separate gap — see block.go's ws=="nowrap"
+// branch), so it can't exercise scrollIntoViewX's Rect-based logic here.
+func TestFocusScrollsIntoViewHorizontally(t *testing.T) {
+	htmlStr := `<div id="pane" style="width:5;overflow-x:auto"><input id="inp" style="width:15"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if left, ok := doc.ScrollLeft(pane); !ok || left != 0 {
+		t.Fatalf("ScrollLeft(pane) before focus = (%d, %v), want (0, true)", left, ok)
+	}
+
+	inp := doc.GetElementByID("inp")
+	inp.Focus()
+	if left, ok := doc.ScrollLeft(pane); !ok || left == 0 {
+		t.Errorf("ScrollLeft(pane) after focusing an overflowing-right input = (%d, %v), want a positive offset", left, ok)
+	}
+
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !doc.ScrollVisible(inp) {
+		t.Error("ScrollVisible(inp) after focus-triggered horizontal scroll = false, want true")
+	}
+}
+
+// TestScrollVisibleTracksHorizontalScrollPosition is
+// TestScrollVisibleTracksScrollPosition's horizontal-axis counterpart,
+// pinning ScrollVisible's scrollViewportX check. Uses two <input>s (block-
+// level children, not inline text) so positions stay tracked — see
+// TestFocusScrollsIntoViewHorizontally's comment on the white-space:nowrap
+// position-tracking gap this sidesteps.
+func TestScrollVisibleTracksHorizontalScrollPosition(t *testing.T) {
+	htmlStr := `<div id="pane" style="width:5;overflow-x:auto">` +
+		`<input id="btn" style="width:2"><input style="width:15"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 30})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	btn := doc.GetElementByID("btn")
+	if !doc.ScrollVisible(btn) {
+		t.Fatal("ScrollVisible(btn) at offset 0 = false, want true (btn starts at the pane's left edge)")
+	}
+
+	doc.SetScrollLeft(pane, 100) // clamps to max offset on next Render; scrolls btn off to the left
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if doc.ScrollVisible(btn) {
+		t.Error("ScrollVisible(btn) after scrolling it off to the left = true, want false")
+	}
+
+	doc.SetScrollLeft(pane, 0)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !doc.ScrollVisible(btn) {
+		t.Error("ScrollVisible(btn) after scrolling back to offset 0 = false, want true")
+	}
+}
+
 // TestScrollVisibleTracksScrollPosition pins the fix for a real bug caught
 // interactively (driving cmd/htmlterm-tui in a live pty): scrolling a pane
 // via DispatchKey/DispatchWheel while focus stays on a control inside it

@@ -773,11 +773,6 @@ no `scrollbar-style-x`.
 - **Simultaneous visible gutters on both axes** — see "Scrollbar gutter and
   indicator" above; the corner-cell problem a real GUI scrollbar solves
   with a dedicated corner square isn't modeled here.
-- **Horizontal scroll-into-view** — Section 3's `scrollIntoView`/
-  `ScrollVisible` remain vertical-only; a focused descendant landing outside
-  a horizontally-scrolled ancestor's visible column range is not
-  auto-scrolled into view the way Section 3 already does for the vertical
-  axis.
 - **A "page"-sized horizontal step** — `DispatchKey`'s `ArrowLeft`/
   `ArrowRight` step by one column each; there's no horizontal equivalent of
   `PageUp`/`PageDown`'s viewport-height step.
@@ -787,18 +782,26 @@ no `scrollbar-style-x`.
   reaches `DispatchWheel`; `Document` has no modifier-aware wheel behavior
   of its own.
 
-## Section 3 — Focus: scroll-into-view is the one real gap
+## Section 3 — Focus: scroll-into-view
 
-`Focus`/`FocusNext`/`FocusPrev` (`document.go:352`, `392`, `412`), after
-setting `d.focused`, should walk `ancestorChain(el.node)` and for each
-ancestor with a `scrollOffsets` entry, compare the focused element's
-previous-frame `Rect` (from `d.positions`) against that ancestor's own
-previous-frame `Rect`, and shift+clamp the offset if the focused element
-falls outside the ancestor's visible range. This is one-frame-stale by
-construction — consistent with `Rect`'s existing documented staleness —
-and a no-op before the first `Render()` (`d.positions == nil`), an
-acceptable, honestly-documented v1 gap. Applies uniformly to any focusable
-control inside any scrollable pane, including nested ones.
+**Status: implemented, both axes.** `focus()` (`document.go`), after setting
+`d.focused`, calls `scrollIntoView`/`scrollIntoViewX` — each walks
+`ancestorChain(el.node)` and, for every ancestor with a `scrollOffsets`/
+`scrollOffsetsX` entry, compares the focused element's previous-frame `Rect`
+(from `d.positions`) against that ancestor's own previous-frame `Rect`,
+shifting+clamping the offset if the focused element falls outside the
+ancestor's visible range. `scrollIntoViewX` is a straight axis transpose of
+`scrollIntoView` (`Row`/`Height`/`scrollOffsets`/`scrollViewport`/
+`TopOffset` → `Col`/`Width`/`scrollOffsetsX`/`scrollViewportX`/
+`LeftOffset`), added once Section 2 gave the horizontal axis its own offset/
+viewport maps to transpose against. Both are one-frame-stale by
+construction — consistent with `Rect`'s existing documented staleness — and
+a no-op before the first `Render()` (`d.positions == nil`), an acceptable,
+honestly-documented gap. `ScrollVisible` (used by `tui`'s cursor placement)
+checks both axes the same way, so an element scrolled off-screen on either
+one reports not-visible. Applies uniformly to any focusable control inside
+any scrollable pane, including nested ones and panes scrollable on both
+axes at once.
 
 `focusableList()` (`document.go:332`) should **not** filter by current
 clip/visibility state. Real browsers keep scrolled-out elements in tab

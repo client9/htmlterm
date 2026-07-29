@@ -343,13 +343,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **`<select>` gaps:** per-`<option>` (and per-group-label-row) border/
   padding/width, `<optgroup>` nested inside another `<optgroup>` — see
   `docs/SELECT.md`.
-- **Horizontal scroll-into-view on focus.** `overflow-x: scroll`/`auto`
-  (see "At a Glance" above and `docs/SCROLLBARS.md`) has real scroll-offset
-  behavior, a visible gutter, wheel/keyboard/click-cap input, and `Document.
-  ScrollLeft`/`SetScrollLeft` — but unlike the vertical axis, nothing
-  auto-scrolls a focused descendant into view when it falls outside a
-  horizontally-scrolled ancestor's visible column range (`Element.Focus`'s
-  scroll-into-view remains vertical-only).
 - **`font-size`** — there is no concept of font size at all; terminal
   glyphs are a fixed cell size.
 
@@ -388,8 +381,11 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **Hit-testing:** `Element.Rect()` returns the on-screen box (row/column/
   width/height in terminal cells) as a byproduct of rendering, for
   translating real input coordinates into `DispatchClick` calls.
-- **Scrolling:** `Document.ScrollTop`/`SetScrollTop`, `DispatchWheel`,
+- **Scrolling:** `Document.ScrollTop`/`SetScrollTop` (and their horizontal
+  counterparts `ScrollLeft`/`SetScrollLeft`), `DispatchWheel`,
   `PageUp`/`PageDown`/arrow-key scrolling on a focused descendant.
+  `Element.Focus` auto-scrolls a focused descendant into view on both axes
+  if it falls outside a scrollable ancestor's visible row or column range.
 - **`Loop`:** drives a `Document` against a real terminal — raw mode, SGR
   mouse decoding, `SetInterval`/`SetTimeout` timers, repaint on every
   event/timer/resize.

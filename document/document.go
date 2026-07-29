@@ -931,6 +931,7 @@ func (d *Document) focus(el *Element) bool {
 	}
 	d.snapshotValueAtFocus(el.node)
 	d.scrollIntoView(el.node)
+	d.scrollIntoViewX(el.node)
 	d.dispatch(el.node, "focus", "", Modifiers{})
 	return true
 }
@@ -942,7 +943,9 @@ func (d *Document) focus(el *Element) bool {
 // a real browser auto-scrolling a newly focused control into view. One-frame
 // stale by construction (n's/the ancestor's Rects are only as fresh as the
 // last Render call, the same staleness Rect itself already documents), and a
-// no-op before the first Render (d.positions is nil).
+// no-op before the first Render (d.positions is nil). Vertical-axis only —
+// see scrollIntoViewX for the horizontal counterpart, called alongside this
+// one from focus().
 func (d *Document) scrollIntoView(n *html.Node) {
 	elRect, ok := d.positions[n]
 	if !ok {
@@ -976,6 +979,43 @@ func (d *Document) scrollIntoView(n *html.Node) {
 	}
 }
 
+// scrollIntoViewX is scrollIntoView's horizontal-axis transpose (Row/Height/
+// scrollOffsets/scrollViewport/TopOffset become Col/Width/scrollOffsetsX/
+// scrollViewportX/LeftOffset) — see its doc comment for the shared rationale
+// and staleness caveat.
+func (d *Document) scrollIntoViewX(n *html.Node) {
+	elRect, ok := d.positions[n]
+	if !ok {
+		return
+	}
+	for _, anc := range ancestorChain(n) {
+		offset, isScrollable := d.scrollOffsetsX[anc]
+		if !isScrollable {
+			continue
+		}
+		ancRect, ok := d.positions[anc]
+		if !ok {
+			continue
+		}
+		vp := d.scrollViewportX[anc]
+		contentLeft := ancRect.Col + vp.LeftOffset
+		relLeft := elRect.Col - contentLeft
+		relRight := relLeft + elRect.Width - 1
+		switch {
+		case relLeft < 0:
+			offset += relLeft
+		case relRight >= vp.Width:
+			offset += relRight - vp.Width + 1
+		default:
+			continue
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		d.scrollOffsetsX[anc] = offset
+	}
+}
+
 // ScrollVisible reports whether el's Rect, as of the most recent Render
 // call, currently falls at least partly within the visible content range of
 // every scrollable ancestor it has. Rect itself is never clipped or hidden
@@ -986,7 +1026,9 @@ func (d *Document) scrollIntoView(n *html.Node) {
 // visible right now, rather than off-screen inside a container that has
 // since scrolled past it (e.g. via DispatchWheel/DispatchKey scrolling a
 // pane out from under a focused control it contains). True for an element
-// with no scrollable ancestor, or before the first Render.
+// with no scrollable ancestor, or before the first Render. Checks both
+// scroll axes: an element off-screen on either the vertical or horizontal
+// range of any scrollable ancestor is not visible.
 func (d *Document) ScrollVisible(el *Element) bool {
 	if el == nil {
 		return true
@@ -999,19 +1041,25 @@ func (d *Document) ScrollVisible(el *Element) bool {
 		if anc == el.node {
 			continue
 		}
-		vp, isScrollable := d.scrollViewport[anc]
-		if !isScrollable {
-			continue
-		}
 		ancRect, ok := d.positions[anc]
 		if !ok {
 			continue
 		}
-		contentTop := ancRect.Row + vp.TopOffset
-		relTop := rect.Row - contentTop
-		relBottom := relTop + rect.Height - 1
-		if relBottom < 0 || relTop >= vp.Height {
-			return false
+		if vp, isScrollable := d.scrollViewport[anc]; isScrollable {
+			contentTop := ancRect.Row + vp.TopOffset
+			relTop := rect.Row - contentTop
+			relBottom := relTop + rect.Height - 1
+			if relBottom < 0 || relTop >= vp.Height {
+				return false
+			}
+		}
+		if vp, isScrollable := d.scrollViewportX[anc]; isScrollable {
+			contentLeft := ancRect.Col + vp.LeftOffset
+			relLeft := rect.Col - contentLeft
+			relRight := relLeft + rect.Width - 1
+			if relRight < 0 || relLeft >= vp.Width {
+				return false
+			}
 		}
 	}
 	return true
