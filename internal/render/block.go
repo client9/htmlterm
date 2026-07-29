@@ -453,11 +453,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if hasExplicitWidth {
 		switch ovX {
 		case "hidden", "clip":
-			toVal := decls["text-overflow"]
-			if toVal == "" {
-				toVal = "clip"
-			}
-			suffix := textOverflowSuffix(toVal)
+			suffix := textOverflowSuffix(decls["text-overflow"])
 			newLines := make([]string, len(b.lines))
 			for i, ln := range b.lines {
 				newLines[i] = truncateToWidth(ln, innerW, suffix)

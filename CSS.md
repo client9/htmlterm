@@ -550,7 +550,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` deliberately never gets an indicator).
 
 #### `text-overflow`
-`clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker). `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited. **Note:** for table cells, `overflow: hidden` is implicit and the default is `ellipsis` rather than `clip`.
+`clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker) — including for table cells, where `overflow: hidden` is implicit but `text-overflow` still defaults to `clip`. `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited.
 
 #### `font-variant`
 `small-caps` | `normal`. `small-caps` uppercases all text content (terminal rendering cannot distinguish small-cap glyphs from full capitals). `normal` cancels an inherited value. Inherited. When both `font-variant: small-caps` and `text-transform` are set, `text-transform` wins.
@@ -1114,7 +1114,7 @@ instead (`width: 14` for a fixed character count, or `width: 25%`).
 |----------|------------|-------|
 | `width`/`min-width`/`max-width` | `th`/`td` | Fixed or percentage column width; fixed/percentage columns are immune to the table's expand/shrink pass |
 | `white-space` | `th`/`td` | `normal` (default) word-wraps; `nowrap` clips to one line via `text-overflow` instead |
-| `text-overflow` | `th`/`td` | Truncation marker when `white-space: nowrap`; default `ellipsis` |
+| `text-overflow` | `th`/`td` | Truncation marker when `white-space: nowrap`; default `clip` |
 | `vertical-align` | `th`/`td` | `top` (default) \| `middle` \| `bottom`, within the row's own height |
 | `border-style` | `table`, `th`/`td` | Whole-box preset (`solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`), same property used by any block element. Real-CSS default is `none` — a bare `<table>` with no CSS renders completely borderless, matching a real browser |
 | `border-top`/`-right`/`-bottom`/`-left`, `border-*-color`, `border-*-corner` | `table`, `th`/`td` | Literal glyph or shorthand grammar, same as block elements |

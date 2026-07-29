@@ -21,7 +21,8 @@ func TestTextOverflow(t *testing.T) {
 		return `<table style="border-spacing:0"><tr><td ` + attrs + `>` + content + `</td></tr></table>`
 	}
 	runCases(t, []renderCase{
-		{name: "ellipsis truncates with … when nowrap set", html: cell(`style="white-space:nowrap;width:5"`, "Hello World"), want: "Hell…\n"},
+		{name: "clip is the default truncation when nowrap set", html: cell(`style="white-space:nowrap;width:5"`, "Hello World"), want: "Hello\n"},
+		{name: "explicit text-overflow:ellipsis truncates with …", html: cell(`style="white-space:nowrap; text-overflow:ellipsis;width:5"`, "Hello World"), want: "Hell…\n"},
 		{name: "clip truncates without marker", html: cell(`style="white-space:nowrap; text-overflow:clip;width:5"`, "Hello World"), want: "Hello\n"},
 		{name: "custom string marker", html: cell(`style='white-space:nowrap; text-overflow:"+";width:5'`, "Hello World"), want: "Hell+\n"},
 		{name: "no truncation when content fits", html: cell(`style="white-space:nowrap;width:11"`, "Hello World"), want: "Hello World\n"},
@@ -39,7 +40,7 @@ func TestTableCellPadding(t *testing.T) {
 		{name: "padding-right adds space after cell content", html: `<table ` + hidden + `><tr><td style="padding-right:1;width:6">ab</td></tr></table>`, want: "ab    \n"},
 		{name: "padding-left and padding-right both set", html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1;width:7">ab</td></tr></table>`, want: " ab    \n"},
 		{name: "natural width includes padding when no explicit width set", html: `<table ` + hidden + `><tr><td style="padding-left:1; padding-right:1">ab</td></tr></table>`, want: " ab \n"},
-		{name: "padding-left truncates content to reduced content width", html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:nowrap;width:5">Hello</td></tr></table>`, want: " Hel…\n"},
+		{name: "padding-left truncates content to reduced content width", html: `<table ` + hidden + `><tr><td style="padding-left:1; white-space:nowrap;width:5">Hello</td></tr></table>`, want: " Hell\n"},
 		{name: "padding-top adds blank line above content", html: `<table ` + hidden + `><tr><td style="padding-top:1;width:5">ab</td></tr></table>`, want: "     \nab   \n"},
 		{name: "padding-bottom adds blank line below content", html: `<table ` + hidden + `><tr><td style="padding-bottom:1;width:5">ab</td></tr></table>`, want: "ab   \n     \n"},
 		{name: "padding-top 2 adds two blank lines above", html: `<table ` + hidden + `><tr><td style="padding-top:2;width:4">X</td></tr></table>`, want: "    \n    \nX   \n"},
@@ -238,7 +239,7 @@ func TestTablePreservesInlineChildStyling(t *testing.T) {
 func TestTableMultiLine(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "white-space:normal wraps cell content", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:5">Hello World</td></tr></table>`, want: "Hello\nWorld\n"},
-		{name: "white-space:nowrap still truncates", html: `<table style="border-spacing:0"><tr><td style="white-space:nowrap;width:5">Hello World</td></tr></table>`, want: "Hell…\n"},
+		{name: "white-space:nowrap still truncates", html: `<table style="border-spacing:0"><tr><td style="white-space:nowrap;width:5">Hello World</td></tr></table>`, want: "Hello\n"},
 		{name: "multi-column row where one cell wraps", html: `<table style="border-spacing:0"><tr><td style="width:3">A</td><td style="white-space:normal;width:5">Hi there</td></tr></table>`, want: "A  Hi   \n   there\n"},
 		{name: "long word is hard-broken", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:4">Superlongword</td></tr></table>`, want: "Supe\nrlon\ngwor\nd   \n"},
 		{name: "short content still fits on one line", html: `<table style="border-spacing:0"><tr><td style="white-space:normal;width:10">Hello</td></tr></table>`, want: "Hello     \n"},

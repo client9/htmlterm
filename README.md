@@ -235,6 +235,6 @@ make vuln     # govulncheck ./...
 ## Notes
 
 - Unsupported HTML and CSS are ignored rather than treated as errors.
-- Table cells default to `white-space: nowrap` and `text-overflow: ellipsis`.
+- Table cells word-wrap by default; set `white-space: nowrap` for single-line truncation (`text-overflow` defaults to `clip`, matching the CSS spec).
 - Blockquote, emphasis, strong text, links, and several semantic HTML elements have built-in default styling.
 - The interactive layer (`Document`/`Element`/events/`Loop`) is POSIX-oriented (raw terminal mode via `golang.org/x/term`) and hasn't been verified on Windows. `Loop`'s automatic resize tracking specifically requires `syscall.SIGWINCH`, which doesn't exist on Windows at all — this is a compile-time constraint there, not just an unverified one.

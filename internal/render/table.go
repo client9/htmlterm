@@ -364,9 +364,9 @@ func truncateToWidth(s string, width int, suffix string) string {
 // textOverflowSuffix maps a CSS text-overflow value to the truncation suffix.
 func textOverflowSuffix(val string) string {
 	switch val {
-	case "clip":
+	case "clip", "":
 		return ""
-	case "ellipsis", "":
+	case "ellipsis":
 		return "…"
 	default:
 		// Custom string value — strip surrounding quotes.
