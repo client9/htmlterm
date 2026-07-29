@@ -46,8 +46,8 @@ may still be emitted intentionally. To disable generated OSC 8 hyperlinks, set
 
 ## Trusted Pre-Rendered Content
 
-`Document.SetPreRendered(el, ansi)` is the one deliberate exception to "text
-content is always sanitized." It inserts `ansi` verbatim into `el`, with no
+`Document.SetPreRendered(el, ansi)` is the one exception to "text content is
+always sanitized." It inserts `ansi` verbatim into `el`, with no
 escape-sequence stripping, no whitespace normalization, and no CSS-driven
 styling — on the assumption that `ansi` is the output of a prior
 `Document.Render()` or `Renderer.Render()` call (content this package already

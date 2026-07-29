@@ -143,13 +143,13 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   every `th`/`td` its own independent border box plus `border-spacing`;
   `collapse` merges adjacent cell/table borders into shared lines via real
   conflict resolution and junction-glyph synthesis — see `docs/TABLES.md`.
-- **Flexbox:** a deliberate single-row/single-column subset — `flex-direction`,
-  `justify-content`, `align-items`/`align-self`, `order`, `gap`, `flex-grow`,
-  `flex-shrink`, `flex-basis` (all four working in `column` direction too,
-  once the container has an explicit `height`), the `flex` shorthand, and
-  (row direction only) `flex-wrap`/`align-content`/`margin: auto` (main-axis
-  only). See CSS.md's Flexbox section for the (sizeable) list of
-  real-Flexbox features this subset excludes.
+- **Flexbox:** currently limited to a single row/column of items —
+  `flex-direction`, `justify-content`, `align-items`/`align-self`, `order`,
+  `gap`, `flex-grow`, `flex-shrink`, `flex-basis` (all four working in
+  `column` direction too, once the container has an explicit `height`), the
+  `flex` shorthand, and (row direction only) `flex-wrap`/`align-content`/
+  `margin: auto` (main-axis only). See CSS.md's Flexbox section for the
+  (sizeable) list of real-Flexbox features not yet implemented here.
 - **Forms and interactivity:** `<input>`/`<button>`/`<textarea>`/`<select>`
   (see `docs/SELECT.md`), scrolling (`overflow: auto|scroll`, see
   `docs/SCROLLING.md`/`docs/SCROLLBARS.md`).
@@ -183,8 +183,8 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   `solid`/`rounded`/`heavy`/`double`/`markdown`/`hidden`/`none` (only
   `solid`/`double`/`none`/`hidden` overlap in name with real CSS, and even
   those pick a specific box-drawing character set rather than a line style).
-  `heavy` is deliberately not named `thick`, to avoid colliding with real
-  CSS's `border-width: thick` keyword.
+  `heavy` is not named `thick`, avoiding a collision with real CSS's
+  `border-width: thick` keyword.
 - **The `border`/`border-<edge>` shorthand is matched positionally, not by
   CSS value type** — real CSS's border shorthand allows `<width>`/
   `<style>`/`<color>` in any order, and a real width keyword like `thick`
@@ -459,9 +459,9 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   stop, purely so `PageUp`/`PageDown`/arrow keys have something to scroll
   once focused.
 - **Scrollbar cap buttons** (`::scrollbar-cap-start`/`-end`) are clickable
-  via `DispatchClick`, but deliberately do *not* dispatch a `"click"`
-  `Event` on the scrollable element — they're rendering chrome, not real
-  element content (see `docs/SCROLLBARS.md`).
+  via `DispatchClick`, but do *not* dispatch a `"click"` `Event` on the
+  scrollable element — they're rendering chrome, not real element content
+  (see `docs/SCROLLBARS.md`).
 - **`<select>`'s dropdown popup** is a synthesized text overlay with its
   own synthetic `Rect` per `<option>`, composited on top of already-
   rendered output — real DOM has no equivalent to this text-based popup

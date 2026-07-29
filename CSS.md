@@ -364,8 +364,8 @@ recognized but not implemented — it parses harmlessly as a no-op (same
 
 For both `absolute` and `fixed`, an element with no explicit `width`
 stretches to fill its containing block's width rather than real CSS's
-shrink-to-fit-to-content sizing — a deliberate simplification; set an
-explicit `width` for a tightly-sized overlay. Spec's "static position"
+shrink-to-fit-to-content sizing; set an explicit `width` for a
+tightly-sized overlay. Spec's "static position"
 algorithm (where an unpositioned axis would default to roughly where the
 element would have flowed) is not implemented either — an axis with neither
 side set defaults to the containing block's own top-left corner instead.
@@ -547,7 +547,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 - **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Element.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**) is the same idea transposed: a live horizontal scroll offset (`Element.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
 - **`scroll`** — same scrolling behavior as `auto` per axis, **plus** an always-reserved gutter — a column (default 1 wide) for `overflow-y`, a row (default 1 tall) for `overflow-x` — with a track and thumb tracking the scroll position, drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (content unaffected) if the box is too narrow/short to spare one, or — for `overflow-x`'s gutter row specifically — if the element also has an explicit `height` of its own (both axes' visible gutters can't coexist yet; the scroll offsets themselves still work in that combination — see `docs/SCROLLING.md`). **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*` and their `-x` horizontal counterparts, `scrollbar-style` presets, cap-button click behavior).
 
-See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` deliberately never gets an indicator).
+See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` never gets an indicator).
 
 #### `text-overflow`
 `clip` | `ellipsis` | `"‹str›"`. The truncation marker appended to lines clipped by `overflow: hidden`/`clip`. Only effective when `overflow: hidden` or `overflow: clip` and `white-space: nowrap` and an explicit `width` are all set. Default `clip` (no marker) — including for table cells, where `overflow: hidden` is implicit but `text-overflow` still defaults to `clip`. `ellipsis` appends `…`. A quoted string (e.g. `text-overflow: "+"`) uses that string as the marker. Not inherited.
@@ -688,7 +688,7 @@ directly instead. Not inherited.
 #### `border-style`
 `solid` | `rounded` | `heavy` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
 
-**Note:** these preset names are htmlterm's own vocabulary, not real CSS's `border-style` keyword set (`solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/`none`/`hidden`) — only `solid`/`double`/`none`/`hidden` overlap in name; `rounded`/`heavy`/`markdown` are terminal-specific box-drawing presets with no real-CSS equivalent. `heavy` (drawn with Unicode "Box Drawings Heavy" characters, e.g. `┏━┓`) was deliberately not named `thick`, to avoid colliding with real CSS's `border-width: thick` keyword — see [`border`](#border) above for why that distinction matters.
+**Note:** these preset names are htmlterm's own vocabulary, not real CSS's `border-style` keyword set (`solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/`none`/`hidden`) — only `solid`/`double`/`none`/`hidden` overlap in name; `rounded`/`heavy`/`markdown` are terminal-specific box-drawing presets with no real-CSS equivalent. `heavy` (drawn with Unicode "Box Drawings Heavy" characters, e.g. `┏━┓`) is not named `thick`, avoiding a collision with real CSS's `border-width: thick` keyword — see [`border`](#border) above for why that distinction matters.
 
 #### `border-width`, `border-top-width`, `border-right-width`, `border-bottom-width`, `border-left-width`
 Accepted (parsed without error) and always a no-op. Terminal box-drawing
@@ -827,9 +827,9 @@ produces a two-digit-wide column for items 9 and 10).
 ## Flexbox
 
 `display: flex` and `display: inline-flex` lay out an element's direct
-element children as flex items. This is a deliberately small subset aimed at
-simple single-row and single-column layouts, not full CSS Flexbox — see "Not
-supported" below for the gaps.
+element children as flex items. Only single-row and single-column layouts
+are currently supported, not full CSS Flexbox — see "Not supported" below
+for the gaps.
 
 Text nodes directly inside a flex container are not rendered as flex items
 (wrap loose text in a `<span>` to include it); a child with `display: none`
