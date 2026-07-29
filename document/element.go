@@ -413,6 +413,7 @@ func (e *Element) Contains(other *Element) bool {
 // attached anywhere in the tree.
 func (e *Element) AppendChild(child *Element) {
 	e.node.AppendChild(child.node)
+	markRulesStale(e.doc, child.node)
 }
 
 // InsertBefore inserts newChild immediately before oldChild among e's
@@ -425,6 +426,7 @@ func (e *Element) InsertBefore(newChild, oldChild *Element) {
 		old = oldChild.node
 	}
 	e.node.InsertBefore(newChild.node, old)
+	markRulesStale(e.doc, newChild.node)
 }
 
 // RemoveChild removes child from e's children and returns it, now detached
@@ -440,6 +442,7 @@ func (e *Element) InsertBefore(newChild, oldChild *Element) {
 // Document.RemoveEventListener first if that matters.
 func (e *Element) RemoveChild(child *Element) *Element {
 	e.node.RemoveChild(child.node)
+	markRulesStale(e.doc, child.node)
 	if e.doc != nil {
 		e.doc.clearFocusIfDetached()
 	}
@@ -459,6 +462,8 @@ func (e *Element) ReplaceChild(newChild, oldChild *Element) *Element {
 	}
 	e.node.InsertBefore(newChild.node, oldChild.node)
 	e.node.RemoveChild(oldChild.node)
+	markRulesStale(e.doc, newChild.node)
+	markRulesStale(e.doc, oldChild.node)
 	if e.doc != nil {
 		e.doc.clearFocusIfDetached()
 	}

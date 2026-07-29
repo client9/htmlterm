@@ -89,29 +89,76 @@ type Document struct {
 	// see focusCursorPos).
 	contentOffsets map[*html.Node]int
 
-	// cachedRenderer and cachedRules memoize the parts of a Render call that
-	// are invariant across the Document's whole lifetime, so a host driving
-	// repeated renders in a tight loop (e.g. Loop.paint on every keystroke)
-	// doesn't re-lex the UA stylesheet + Options.CSS and re-run
-	// colorprofile.Detect (an os.Environ scan) on every single frame, the
-	// way calling New(d.opts) fresh each time used to. This is safe without
-	// any locking or invalidation logic because nothing in Document's public
-	// API can change what these two values would resolve to a second time:
-	// there is no setter for Options.CSS/IgnoreDocumentCSS/Profile/
-	// NoOSC8Links/MaxBlankLines/StripHiddenInline after ParseDocument, and
-	// no API to add/remove a <style> element or edit one's text content (see
-	// contentOffsets above for the same "the DOM's element-mutation surface
-	// is attribute-only" reasoning) — so cachedRules (r.rules plus any
-	// <style>-element rules, via documentRules) never goes stale either.
-	// Only Options.Width/Height (SetSize) and scrollOffsets change per
-	// render; Render refreshes cachedRenderer's copies of those directly
-	// rather than invalidating the cache. Like every other Document field,
-	// this assumes the existing single-goroutine-mutates-Document contract
-	// (see CLAUDE.md's "no locking in the interactive layer" invariant) — it
-	// is not safe to call Render concurrently on the same Document, but
-	// nothing in Document ever has been.
+	// cachedEngine memoizes the part of a Render call that is invariant
+	// across the Document's whole lifetime, so a host driving repeated
+	// renders in a tight loop (e.g. Loop.paint on every keystroke) doesn't
+	// re-lex the UA stylesheet + Options.CSS and re-run colorprofile.Detect
+	// (an os.Environ scan) on every single frame, the way calling New(d.opts)
+	// fresh each time used to. This is safe without any locking or
+	// invalidation logic because nothing in Document's public API can change
+	// what it would resolve to a second time: there is no setter for
+	// Options.CSS/IgnoreDocumentCSS/Profile/NoOSC8Links/MaxBlankLines/
+	// StripHiddenInline after ParseDocument. Only Options.Width/Height
+	// (SetSize) and scrollOffsets change per render; Render refreshes
+	// cachedEngine's copies of those directly rather than invalidating the
+	// cache. Like every other Document field, this assumes the existing
+	// single-goroutine-mutates-Document contract (see CLAUDE.md's "no
+	// locking in the interactive layer" invariant) — it is not safe to call
+	// Render concurrently on the same Document, but nothing in Document ever
+	// has been.
+	//
+	// cachedRules memoizes the resolved stylesheet rule set (r.rules plus
+	// any <style>-element rules, via cachedEngine.DocumentRules) as of the
+	// tree ParseDocument first saw or the most recent rules recompute.
+	// Unlike cachedEngine, this *can* go stale: the generic tree-mutation
+	// API (Element.AppendChild/InsertBefore/RemoveChild/ReplaceChild,
+	// Document.SetInnerHTML) has no tag-name restriction, so a caller can
+	// attach or detach a <style> element after the first Render. Every one
+	// of those mutation sites calls markRulesStale on the subtree it
+	// touches, which sets rulesStale whenever that subtree contains a
+	// <style> element; Render recomputes cachedRules from the current tree
+	// whenever rulesStale is set, instead of reusing a stale snapshot. This
+	// only covers a <style> element being attached/detached — editing an
+	// already-attached <style> element's text content in place (there is no
+	// dedicated API for that; see markRulesStale) is not detected. Inline
+	// style="" attributes need no such tracking at all: they're read fresh
+	// off the live node by cssengine.Cascade.Resolve on every single
+	// RenderNode call, never folded into cachedRules.
 	cachedEngine *render.Engine
 	cachedRules  []cssengine.Rule
+	rulesStale   bool
+}
+
+// markRulesStale sets d.rulesStale if n or any of its descendants is a
+// <style> element — called from every tree-structural mutation entry point
+// (Element.AppendChild/InsertBefore/RemoveChild/ReplaceChild,
+// Document.SetInnerHTML) on whichever subtree the mutation attaches or
+// detaches, so cachedRules's doc comment invariant holds: a <style> element
+// entering or leaving the tree always causes the next Render to recompute
+// cachedRules instead of silently reusing a stale rule set. A no-op if d is
+// nil (an Element constructed outside a Document) or n is nil.
+func markRulesStale(d *Document, n *html.Node) {
+	if d == nil || n == nil || d.rulesStale {
+		return
+	}
+	if hasStyleDescendant(n) {
+		d.rulesStale = true
+	}
+}
+
+// hasStyleDescendant reports whether n itself, or any node in its subtree,
+// is a <style> element — markRulesStale's test for whether a mutated
+// subtree can affect the resolved stylesheet rule set.
+func hasStyleDescendant(n *html.Node) bool {
+	if n.Type == html.ElementNode && strings.EqualFold(n.Data, "style") {
+		return true
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if hasStyleDescendant(c) {
+			return true
+		}
+	}
+	return false
 }
 
 // ParseDocument parses htmlStr and returns a Document backed by the
@@ -154,7 +201,10 @@ func (d *Document) Render() (string, error) {
 		}
 		d.cachedEngine = engine
 		d.cachedRules = engine.DocumentRules(d.doc)
+	} else if d.rulesStale {
+		d.cachedRules = d.cachedEngine.DocumentRules(d.doc)
 	}
+	d.rulesStale = false
 	result := d.cachedEngine.RenderNode(d.doc, render.Request{
 		Width:          d.opts.Width,
 		Height:         d.opts.Height,
@@ -1142,12 +1192,13 @@ func (d *Document) FocusPrev() *Element {
 // mutation for content that doesn't — see docs/INTERACTIVE.md's ImportHTML note,
 // which this supersedes).
 //
-// The fragment must not itself contain <style> elements: Document caches its
-// resolved stylesheet rules once, from the tree ParseDocument first saw (see
-// cachedRules), and SetInnerHTML does not invalidate that cache — a
-// <style>-bearing fragment would silently have no effect on the cascade.
-// Page-level CSS belongs in Options.CSS/Stylesheets, set once at
-// ParseDocument time; SetInnerHTML is for markup, not styling.
+// A <style> element in the fragment (or removed along with el's previous
+// children) does take effect: it marks Document's cachedRules stale (see
+// markRulesStale), so the next Render recomputes the resolved stylesheet
+// rule set rather than reusing a snapshot from before the replacement. That
+// said, page-level CSS still belongs in Options.CSS/Stylesheets, set once at
+// ParseDocument time — SetInnerHTML is meant for markup, not styling; a
+// <style>-bearing fragment is supported, not recommended.
 //
 // If the currently focused element is inside the replaced subtree, focus is
 // silently cleared (no "blur" dispatched — the element is gone, not
@@ -1170,10 +1221,12 @@ func (d *Document) SetInnerHTML(el *Element, htmlStr string) error {
 	for c := el.node.FirstChild; c != nil; {
 		next := c.NextSibling
 		el.node.RemoveChild(c)
+		markRulesStale(d, c)
 		c = next
 	}
 	for _, n := range nodes {
 		el.node.AppendChild(n)
+		markRulesStale(d, n)
 	}
 	d.clearFocusIfDetached()
 	return nil

@@ -220,6 +220,59 @@ func TestDocumentGetElementsByNameWithQuoteInName(t *testing.T) {
 	}
 }
 
+func TestDocumentAppendedStyleElementInvalidatesCachedRules(t *testing.T) {
+	// mustParseDoc's own Render call already primed Document.cachedRules
+	// from the tree as ParseDocument first saw it (no <style> at all) —
+	// the scenario cachedRules' doc comment says used to go silently stale.
+	doc := mustParseDoc(t, `<div id="target">secret</div>`)
+
+	before, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(stripANSI(before), "secret") {
+		t.Fatalf("initial render should show %q, got %q", "secret", stripANSI(before))
+	}
+
+	style := doc.CreateElement("style")
+	style.SetTextContent("#target { display: none; }")
+	doc.Body().AppendChild(style)
+
+	after, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(stripANSI(after), "secret") {
+		t.Errorf("render after AppendChild-ing a <style> rule for #target{display:none} should hide it, got %q", stripANSI(after))
+	}
+}
+
+func TestDocumentRemovedStyleElementInvalidatesCachedRules(t *testing.T) {
+	doc := mustParseDoc(t, `<style>#target { display: none; }</style><div id="target">secret</div>`)
+
+	before, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(stripANSI(before), "secret") {
+		t.Fatalf("initial render should hide %q per the <style> rule, got %q", "secret", stripANSI(before))
+	}
+
+	styleEl := doc.QuerySelector("style")
+	if styleEl == nil {
+		t.Fatal("QuerySelector(style) = nil")
+	}
+	styleEl.Remove()
+
+	after, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(stripANSI(after), "secret") {
+		t.Errorf("render after removing the <style> element should show %q again, got %q", "secret", stripANSI(after))
+	}
+}
+
 func TestDocumentBodyHeadTitle(t *testing.T) {
 	doc := mustParseDoc(t, `<html><head><title>Hello</title></head><body><p>x</p></body></html>`)
 
