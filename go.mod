@@ -6,10 +6,10 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/gdamore/tcell/v3 v3.4.1
-	github.com/mattn/go-runewidth v0.0.23
+	github.com/mattn/go-runewidth v0.0.27
 	github.com/mazznoer/csscolorparser v0.1.8
 	github.com/tdewolff/parse/v2 v2.8.14
-	golang.org/x/net v0.56.0
+	golang.org/x/net v0.57.0
 	golang.org/x/term v0.45.0
 )
 
