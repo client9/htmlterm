@@ -462,6 +462,102 @@ func TestFocusNextSkipsDisabledAndWraps(t *testing.T) {
 	}
 }
 
+// TestFocusNextOrdersByPositiveTabindex: elements with a positive tabindex
+// come first, ascending by value (ties broken by document order), followed
+// by every other focusable element in document order — real DOM's
+// tabindex-ordering algorithm.
+func TestFocusNextOrdersByPositiveTabindex(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a"><input id="b" tabindex="2"><input id="c" tabindex="1">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "c" {
+		t.Fatalf("first FocusNext() = %v, want c (tabindex=1)", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "b" {
+		t.Fatalf("second FocusNext() = %v, want b (tabindex=2)", second)
+	}
+	third := doc.FocusNext()
+	if third == nil || third.ID() != "a" {
+		t.Fatalf("third FocusNext() = %v, want a (no tabindex, sorts last)", third)
+	}
+}
+
+// TestTabindexZeroMakesDivFocusable: tabindex="0" makes an otherwise
+// non-focusable element (like <div>) a real tab stop, matching real DOM.
+func TestTabindexZeroMakesDivFocusable(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="a">plain</div><div id="b" tabindex="0">focusable</div>`)
+
+	b := doc.GetElementByID("b")
+	if !b.Focus() {
+		t.Fatal("Focus() on div[tabindex=0] returned false, want true")
+	}
+	if m := doc.QuerySelector("div:focus"); m == nil || m.ID() != "b" {
+		t.Errorf("QuerySelector(div:focus) = %v, want element b", m)
+	}
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "b" {
+		t.Fatalf("FocusNext() = %v, want b (only tabindex-bearing div is a tab stop)", first)
+	}
+}
+
+// TestTabindexOnAnchor: plain <a href> is never a tab stop (an existing,
+// documented deviation from real browsers), but explicit tabindex opts it
+// in, same as any other element.
+func TestTabindexOnAnchor(t *testing.T) {
+	doc := mustParseDoc(t, `<a id="a" href="/x">plain link</a><a id="b" href="/y" tabindex="0">tabbable link</a>`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "b" {
+		t.Fatalf("FocusNext() = %v, want b (only the tabindex anchor is a tab stop)", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "b" {
+		t.Fatalf("second FocusNext() = %v, want b again (wraps, only one tab stop)", second)
+	}
+}
+
+// TestTabindexNegativeExcludedFromTabOrderButFocusable: tabindex="-1" is
+// reachable via Focus()/click but skipped by Tab navigation, matching real
+// DOM's tabindex="-1" semantics.
+func TestTabindexNegativeExcludedFromTabOrderButFocusable(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a"><div id="b" tabindex="-1">panel</div><input id="c">`)
+
+	b := doc.GetElementByID("b")
+	if !b.Focus() {
+		t.Fatal("Focus() on div[tabindex=-1] returned false, want true (focusable, just not in tab order)")
+	}
+
+	doc.GetElementByID("a").Focus()
+	next := doc.FocusNext()
+	if next == nil || next.ID() != "c" {
+		t.Fatalf("FocusNext() from a = %v, want c (tabindex=-1 element b must be skipped)", next)
+	}
+}
+
+// TestTabindexInvalidValueTreatedAsAbsent: a non-integer tabindex value is
+// treated as if the attribute were absent, matching real DOM behavior.
+func TestTabindexInvalidValueTreatedAsAbsent(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="a" tabindex="not-a-number">plain</div>`)
+
+	a := doc.GetElementByID("a")
+	if a.Focus() {
+		t.Error("Focus() on div with invalid tabindex returned true, want false")
+	}
+}
+
+// TestTabindexDisabledStillExcluded: a disabled form control with a
+// tabindex attribute stays excluded from focus, same as without tabindex.
+func TestTabindexDisabledStillExcluded(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" disabled tabindex="0">`)
+
+	a := doc.GetElementByID("a")
+	if a.Focus() {
+		t.Error("Focus() on disabled input with tabindex=0 returned true, want false")
+	}
+}
+
 func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
 	a := doc.GetElementByID("a")

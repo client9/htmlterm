@@ -142,7 +142,8 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `HTMLElement.click()` | `Click()` | Synthesizes the click at e's own `Rect()` (top-left cell) and dispatches through the normal `DispatchClick` path; returns `false` if e has no recorded `Rect` (e.g. `display:none`, or `Render` hasn't run yet). |
 | `HTMLInputElement.value` / `checked` | `Value()`/`SetValue()`, `Checked()`/`SetChecked()` | Attribute-backed, not a separate live property — see `COMPATIBILITY.md`'s "Form controls are attribute-driven" deviation. |
 | `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
-| `HTMLElement.tabIndex`, `.title`, etc. (remaining typed property shortcuts) | Missing | `tabIndex` wouldn't do anything if added — `tabindex` isn't read at all (see COMPATIBILITY.md's "Not Supported"). For the rest, use `GetAttribute`/`SetAttribute` with the matching attribute name. |
+| `HTMLElement.tabIndex` | Missing (typed accessor) | `tabindex` itself *is* read (drives focus order — see COMPATIBILITY.md's DOM & Events "At a Glance" and "Deviations from Spec"); there's just no typed `Element.TabIndex()`/`SetTabIndex()` shortcut — use `GetAttribute`/`SetAttribute("tabindex", ...)` directly, same as the rest of this row. |
+| `HTMLElement.title`, etc. (remaining typed property shortcuts) | Missing | Use `GetAttribute`/`SetAttribute` with the matching attribute name. |
 | `EventTarget.addEventListener` / `removeEventListener` / `dispatchEvent` | `Document.AddEventListener(el, ...)` / `Document.RemoveEventListener(handle)` | Lives on `Document`, not `Element` — see "Also available" below and the `Document` table above. No public `dispatchEvent`. |
 
 ### Also available (no direct spec equivalent)

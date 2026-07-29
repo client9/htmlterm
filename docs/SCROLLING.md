@@ -58,8 +58,9 @@ arrow-cap buttons at the two ends of the track — `::scrollbar-cap-start`/
 `::scrollbar-cap-end`, on by default and included in every `scrollbar-style`
 preset — have since shipped too; see "Scrollbar cap buttons" below. The rest
 of the "explicit non-goals for the scrollbar" listed
-below remain out of scope (`tabindex`/`autofocus` handling, named separately
-under Section 3, likewise remain unimplemented).
+below remain out of scope (`autofocus` handling, named separately under
+Section 3, remains unimplemented — `tabindex` itself has since shipped, see
+that section).
 
 **Horizontal scrolling has since shipped too** — see "Section 2 — Horizontal
 scrolling" below. It reuses the same offset/clamp/gutter/pseudo-element
@@ -821,13 +822,8 @@ container that already has a focusable descendant (e.g. a pane with a button
 in it) is reached through that descendant instead and isn't also made its own
 redundant stop.
 
-Two smaller, honestly-scoped gaps, named but not designed here:
+One smaller, honestly-scoped gap, named but not designed here:
 
-- No explicit `tabindex` *attribute* support — a plain non-scrollable,
-  non-form element can't be opted into tab order via `tabindex="0"`, and
-  `focusableList` never reorders for a positive `tabindex`. (Distinct from
-  the scroll-container case above, which is implicit/automatic and unrelated
-  to the `tabindex` attribute.)
 - No `autofocus` attribute handling at first render. `Document.Focus(el)`
   already fully covers programmatic "set focus"; the one plausible
   addition is honoring `autofocus` at `ParseDocument`/first `Render` time

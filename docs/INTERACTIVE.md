@@ -183,8 +183,20 @@ added to `document.go`.
   and `matchPseudo` checks — exactly the design this section originally
   sketched, avoiding any change to `matchSelector`/cascade's signatures.
   `Document.FocusNext`/`FocusPrev` walk focusable elements (non-disabled
-  `input`/`button`/`textarea`/`select`, `input[type=hidden]` excluded) in
-  document order, rebuilt fresh each call. `:hover`/`:active` are **not**
+  `input`/`button`/`textarea`/`select`, `input[type=hidden]` excluded, plus
+  any element made focusable via `tabindex` — see below) in Tab order,
+  rebuilt fresh each call. **`tabindex` (added after the initial focus-manager
+  pass):** read generically off any element via the plain HTML attribute,
+  not allow-listed by tag — `document.go`'s `isFocusable` treats a valid
+  `tabindex` (parsed by `tabIndexOf`) as sufficient on its own, which is what
+  makes `<div tabindex="0">` or `<a tabindex="0">` focusable at all (plain
+  `<a href>` stays excluded by design — see COMPATIBILITY.md). `inTabOrder`
+  splits focusability from Tab-sequence membership so `tabindex="-1"` stays
+  reachable via `Focus()`/click while `focusableList` skips it. `focusableList`
+  stable-sorts its document-order walk into positive-tabindex elements first
+  (ascending value, ties in document order) then everything else in document
+  order — the real DOM tabindex-ordering algorithm — so documents with no
+  `tabindex` at all see no behavior change. `:hover`/`:active` are **not**
   implemented — no mouse-move/press tracking exists yet — but reserve the
   same attribute pattern (`data-htmlterm-hover`/`-active`) for whenever that
   work happens.

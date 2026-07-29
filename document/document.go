@@ -2,6 +2,8 @@ package document
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -716,7 +718,8 @@ func (d *Document) clearRadioSiblings(target *html.Node) {
 // isFormFocusable reports whether n is a tab-stoppable form control: an
 // <input> other than type="hidden", a <button>, a <textarea>, or a
 // <select>, and not carrying a disabled attribute. See Document.isFocusable
-// for the additional scroll-container case this alone doesn't cover.
+// for the additional scroll-container and tabindex cases this alone doesn't
+// cover.
 func isFormFocusable(n *html.Node) bool {
 	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
 		return false
@@ -730,21 +733,45 @@ func isFormFocusable(n *html.Node) bool {
 	return false
 }
 
-// isFocusable reports whether n is a tab-stoppable element: either a form
-// control (isFormFocusable), or — mirroring real browsers' keyboard-
-// accessible scroll containers — an overflow:scroll|auto element with a
-// resolved height (a key in d.scrollOffsets as of the most recent Render
-// call; see nearestScrollable) that has no focusable descendant of its own.
-// The scroll-container case exists so a scrollable region with no button/
-// input inside it is still Tab-reachable for keyboard-driven scrolling
-// (DispatchKey's PageUp/PageDown/ArrowUp/ArrowDown/ArrowLeft/ArrowRight); a
-// container that already has a focusable descendant is reached through that
-// descendant instead, so it isn't also made its own redundant tab stop.
-// Checks both scrollOffsets and scrollOffsetsX, so a horizontally-only
-// scrollable element (overflow-x:scroll|auto with no vertical counterpart)
-// is just as reachable as a vertically-scrollable one. Always false for the
+// tabIndexOf reports n's tabindex attribute, parsed as a base-10 integer.
+// ok is false if the attribute is absent or its value doesn't parse as an
+// integer — HTML treats an invalid tabindex the same as a missing one,
+// rather than raising an error.
+func tabIndexOf(n *html.Node) (int, bool) {
+	for _, a := range n.Attr {
+		if a.Key == "tabindex" {
+			v, err := strconv.Atoi(strings.TrimSpace(a.Val))
+			if err != nil {
+				return 0, false
+			}
+			return v, true
+		}
+	}
+	return 0, false
+}
+
+// isFocusable reports whether n is a tab-stoppable element: a form control
+// (isFormFocusable), any element carrying a valid tabindex attribute
+// (mirroring real DOM: tabindex makes an otherwise non-focusable element
+// like <div>/<a> focusable, regardless of tag), or — mirroring real
+// browsers' keyboard-accessible scroll containers — an overflow:scroll|auto
+// element with a resolved height (a key in d.scrollOffsets as of the most
+// recent Render call; see nearestScrollable) that has no focusable
+// descendant of its own. The scroll-container case exists so a scrollable
+// region with no button/input inside it is still Tab-reachable for
+// keyboard-driven scrolling (DispatchKey's
+// PageUp/PageDown/ArrowUp/ArrowDown/ArrowLeft/ArrowRight); a container that
+// already has a focusable descendant is reached through that descendant
+// instead, so it isn't also made its own redundant tab stop. Checks both
+// scrollOffsets and scrollOffsetsX, so a horizontally-only scrollable
+// element (overflow-x:scroll|auto with no vertical counterpart) is just as
+// reachable as a vertically-scrollable one. Always false for the
 // scroll-container case before the first Render (both maps are empty then,
 // same staleness as Rect/ScrollVisible).
+//
+// Note this only decides focusability, not sequential (Tab-key) order — a
+// negative tabindex is focusable here but excluded from focusableList's
+// output; see inTabOrder.
 func (d *Document) isFocusable(n *html.Node) bool {
 	if isFormFocusable(n) {
 		return true
@@ -752,12 +779,24 @@ func (d *Document) isFocusable(n *html.Node) bool {
 	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
 		return false
 	}
+	if _, ok := tabIndexOf(n); ok {
+		return true
+	}
 	_, scrollsY := d.scrollOffsets[n]
 	_, scrollsX := d.scrollOffsetsX[n]
 	if !scrollsY && !scrollsX {
 		return false
 	}
 	return !d.hasFocusableDescendant(n)
+}
+
+// inTabOrder reports whether n, already known focusable (isFocusable),
+// participates in sequential Tab navigation. Only a negative tabindex opts
+// an otherwise-focusable element out — matching real DOM's tabindex="-1"
+// semantics: reachable via Focus()/click, skipped by Tab.
+func inTabOrder(n *html.Node) bool {
+	v, ok := tabIndexOf(n)
+	return !ok || v >= 0
 }
 
 // hasFocusableDescendant reports whether n has any descendant (excluding n
@@ -772,12 +811,18 @@ func (d *Document) hasFocusableDescendant(n *html.Node) bool {
 	return false
 }
 
-// focusableList returns every focusable element in document order.
+// focusableList returns every element in sequential (Tab-key) focus order:
+// elements with a positive tabindex first, ascending by value (ties broken
+// by document order), followed by every other focusable element (no
+// tabindex, tabindex="0", or a native/scroll-container tab stop) in document
+// order — matching real DOM's tabindex-ordering algorithm. Elements that are
+// focusable but excluded from Tab order (tabindex="-1", see inTabOrder) are
+// omitted entirely.
 func (d *Document) focusableList() []*html.Node {
 	var out []*html.Node
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
-		if d.isFocusable(n) {
+		if d.isFocusable(n) && inTabOrder(n) {
 			out = append(out, n)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -785,6 +830,20 @@ func (d *Document) focusableList() []*html.Node {
 		}
 	}
 	walk(d.doc)
+
+	sort.SliceStable(out, func(i, j int) bool {
+		vi, oki := tabIndexOf(out[i])
+		vj, okj := tabIndexOf(out[j])
+		pi := oki && vi > 0
+		pj := okj && vj > 0
+		if pi != pj {
+			return pi // positive-tabindex elements sort before everything else
+		}
+		if pi && pj && vi != vj {
+			return vi < vj
+		}
+		return false // stable: preserves document order within each bucket/value
+	})
 	return out
 }
 

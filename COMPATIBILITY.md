@@ -90,9 +90,6 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
 - **The legacy `width` HTML attribute** on table cells/columns — ignored in
   favor of CSS `width`; in real-world markup (especially HTML email) it's
   almost always a pixel value with no reliable pixel-to-column conversion.
-- **`tabindex`** — not read at all; keyboard focus order is a fixed
-  document-order walk (see DOM & Events below), not customizable per
-  element.
 
 ---
 
@@ -375,7 +372,16 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   default actions (checkbox/radio toggle, focus traversal, text entry,
   implicit form submit on Enter).
 - **Focus:** `Element.Focus`/`Blur`, `Document.FocusNext`/`FocusPrev`/
-  `FocusedElement`, matching `:focus` in CSS.
+  `FocusedElement`, matching `:focus` in CSS. **`tabindex`** is read on any
+  element (not just native form controls) via the plain HTML attribute —
+  `tabindex="0"` makes an otherwise non-focusable element (e.g. `<div>`, or
+  `<a href>`, which is never a tab stop without it — see "Deviations from
+  Spec" below) a real tab stop; a positive value front-loads it into Tab
+  order ahead of every `0`/default element, ascending by value; `tabindex="-1"`
+  is reachable via `Focus()`/click but skipped by `FocusNext`/`FocusPrev`.
+  No typed `Element.TabIndex()` accessor exists — use
+  `GetAttribute`/`SetAttribute("tabindex", ...)` directly (see
+  `docs/DOM_API.md`).
 - **Hit-testing:** `Element.Rect()` returns the on-screen box (row/column/
   width/height in terminal cells) as a byproduct of rendering, for
   translating real input coordinates into `DispatchClick` calls.
@@ -414,11 +420,15 @@ behind the DOM/Events/rendering internals, see `docs/INTERACTIVE.md`,
   Shift-held vertical wheel notch to `deltaX` too (the common browser/
   terminal fallback convention for input hardware that never reports a
   horizontal wheel bit at all).
-- **Tab order is a fixed document-order walk** over form controls
+- **Tab order defaults to a document-order walk** over form controls
   (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
-  focusable scroll containers — there is no `tabindex` to reorder or add
-  to it, and plain `<a>` links are never tab stops (real browsers make
-  links focusable by default).
+  focusable scroll containers, reorderable via `tabindex` (see "At a
+  Glance" above) — but **plain `<a>` links are never tab stops** unless
+  given explicit `tabindex` (real browsers make links focusable by default
+  with no attribute needed; htmlterm requires opting in, since link-dense
+  rendered content — documentation pages, HTML email — would otherwise
+  flood Tab order with every inline link ahead of a page's actual
+  controls).
 - **`Element.Style()` doesn't round-trip shorthand properties or preserve
   declaration order.** It mirrors `CSSStyleDeclaration` for the inline
   `style=""` attribute only (there's no `getComputedStyle` — see
