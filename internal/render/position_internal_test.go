@@ -131,7 +131,7 @@ func TestApplyRelativeOffsetsShiftsDescendants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	src := `<div style="position:relative;top:1;left:2"><input data-focus></div>`
+	src := `<div style="position:relative;top:1;left:2"><input data-focus size="1"></div>`
 	result, err := e.RenderHTML(src)
 	if err != nil {
 		t.Fatalf("RenderHTML: %v", err)

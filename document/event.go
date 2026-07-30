@@ -1,6 +1,10 @@
 package document
 
-import "golang.org/x/net/html"
+import (
+	"slices"
+
+	"golang.org/x/net/html"
+)
 
 // focusAttr is the reserved marker attribute Document.Focus/Blur set and
 // clear to record the currently focused node, and that matchPseudo checks
@@ -218,6 +222,16 @@ func (d *Document) RemoveEventListener(h ListenerHandle) {
 	}
 }
 
+// hasListener reports whether the listener with id id is still registered on
+// n — runDispatch's per-listener recheck against the live list, so a listener
+// that another listener removed earlier in the same dispatch isn't called off
+// the snapshot anyway (real DOM's "if listener's removed is true, continue").
+func (d *Document) hasListener(n *html.Node, id listenerID) bool {
+	return slices.ContainsFunc(d.listeners[n], func(e listenerEntry) bool {
+		return e.id == id
+	})
+}
+
 // ancestorChain returns the path from the document root down to n
 // (inclusive), for capture/bubble traversal.
 func ancestorChain(n *html.Node) []*html.Node {
@@ -305,12 +319,23 @@ func (d *Document) runDispatch(ev *Event, target *html.Node, bubbles bool) *Even
 
 	runNode := func(n *html.Node, wantCapture *bool) bool {
 		ev.current = n
-		for _, e := range d.listeners[n] {
+		// Iterate over a snapshot, not d.listeners[n] itself: a listener is
+		// free to call AddEventListener/RemoveEventListener during its own
+		// dispatch (a one-shot handler removing itself is the common case),
+		// and RemoveEventListener shifts the live slice in place — ranging
+		// over it directly would skip the entry after a removed one and run
+		// the last entry twice. Real DOM specifies the same thing: the
+		// listener list is snapshotted per node before it's walked, so
+		// additions during dispatch aren't called for this event either.
+		for _, e := range slices.Clone(d.listeners[n]) {
 			if e.typ != typ {
 				continue
 			}
 			if wantCapture != nil && e.capture != *wantCapture {
 				continue
+			}
+			if !d.hasListener(n, e.id) {
+				continue // removed by an earlier listener in this same dispatch
 			}
 			e.fn(ev)
 			if ev.stoppedImmediate {

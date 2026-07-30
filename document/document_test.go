@@ -414,7 +414,7 @@ func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	if !ok {
 		t.Fatal("Rect() ok = false, want true")
 	}
-	want := document.Rect{Row: 0, Col: 6, Width: 5, Height: 1} // "[Bob]" after "Name: "
+	want := document.Rect{Row: 0, Col: 6, Width: 20, Height: 1} // "Bob" padded to its default size-20 width, after "Name: "
 	if rect != want {
 		t.Errorf("Rect() = %+v, want %+v (rendered: %q)", rect, want, out)
 	}

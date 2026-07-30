@@ -381,7 +381,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						// render.go's top-level dispatch case for why this is
 						// renderInput, not a plain inputDisplayText/
 						// childAcc.render pair.
-						inner = r.renderInput(c, childDecls, childAcc, r.profile)
+						inner = r.renderInput(c, childDecls, childAcc, availWidth, r.profile)
 					case c.Data == "select":
 						// <select>'s closed-state content is synthesized
 						// from its <option> children's labels, not

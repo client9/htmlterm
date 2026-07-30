@@ -419,3 +419,47 @@ func TestClampCellPaddingZeroWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestColumnRuneIndexRoundTrip pins ColumnForRuneIndex/RuneIndexForColumn as
+// exact inverses at every cluster boundary, including double-width CJK and a
+// multi-rune ZWJ emoji cluster. Callers on both sides of the caret (tui's
+// focusCursorPos placing the hardware cursor, document's caretIndexFromClick
+// turning a click back into an offset) depend on that: a click must produce a
+// caret whose cursor lands back on the cell that was clicked.
+func TestColumnRuneIndexRoundTrip(t *testing.T) {
+	const family = "\U0001F468‍\U0001F469‍\U0001F467" // 👨‍👩‍👧, one cluster
+	for _, s := range []string{"", "abc", "日本語", "a日b", "x" + family + "y"} {
+		runes := []rune(s)
+		for idx := 0; idx <= len(runes); idx++ {
+			col := ColumnForRuneIndex(s, idx)
+			back := RuneIndexForColumn(s, col)
+			// back is idx whenever idx is a cluster boundary; when it isn't,
+			// ColumnForRuneIndex already rounded down to the cluster start,
+			// so the round trip must land at or before idx and re-produce the
+			// same column.
+			if back > idx {
+				t.Errorf("%q idx %d: col %d round-tripped to %d, past the original", s, idx, col, back)
+			}
+			if got := ColumnForRuneIndex(s, back); got != col {
+				t.Errorf("%q idx %d: round trip changed column %d -> %d", s, idx, col, got)
+			}
+		}
+	}
+}
+
+// TestColumnForRuneIndexWideRunes pins the concrete column arithmetic the
+// round-trip test above can't (it only checks self-consistency).
+func TestColumnForRuneIndexWideRunes(t *testing.T) {
+	const s = "日本語ab"
+	for _, tc := range []struct{ idx, want int }{{0, 0}, {1, 2}, {2, 4}, {3, 6}, {4, 7}, {5, 8}, {99, 8}} {
+		if got := ColumnForRuneIndex(s, tc.idx); got != tc.want {
+			t.Errorf("ColumnForRuneIndex(%q, %d) = %d, want %d", s, tc.idx, got, tc.want)
+		}
+	}
+	// Either cell of a double-width character maps back to the rune before it.
+	for _, tc := range []struct{ col, want int }{{0, 0}, {1, 0}, {2, 1}, {3, 1}, {6, 3}, {7, 4}, {8, 5}, {99, 5}} {
+		if got := RuneIndexForColumn(s, tc.col); got != tc.want {
+			t.Errorf("RuneIndexForColumn(%q, %d) = %d, want %d", s, tc.col, got, tc.want)
+		}
+	}
+}

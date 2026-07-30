@@ -216,7 +216,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			// inline content — plus, for a text-like input, splices in the
 			// ::selection highlight over any focused non-collapsed
 			// selection (see docs/proposals/CARET_SELECTION.md).
-			inner = r.renderInput(n, decls, acc, r.profile)
+			inner = r.renderInput(n, decls, acc, r.width, r.profile)
 		case n.Data == "select":
 			// <select>'s closed-state content is synthesized from its
 			// <option> children, not rendered as ordinary inline content —

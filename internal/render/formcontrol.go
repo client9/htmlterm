@@ -28,7 +28,16 @@ func nodeHasAttr(n *html.Node, key string) bool {
 // reflecting the checked attribute; submit/button/reset show a bracketed
 // label (falling back to a type-appropriate default when value is unset);
 // hidden renders nothing; every other type (the text-like default) shows
-// its value, falling back to its placeholder.
+// its value, falling back to its placeholder, plain — no brackets. Unlike
+// <button> (a real element with children, so the UA stylesheet's
+// button::before/::after can bracket it like any other content), a
+// text-like <input> gets no boundary glyph at all: it has no children for
+// pseudo-elements to wrap, and — more importantly — a real browser doesn't
+// bracket its text fields either, it just sizes them (see renderInput's
+// width handling) and leaves any visible edge to the author's own
+// background-color/border. Callers needing a fixed-width field pad this
+// return value themselves (renderInput), since this function has no notion
+// of the resolved box width.
 func inputDisplayText(n *html.Node) string {
 	typ := strings.ToLower(nodeAttr(n, "type"))
 	if typ == "" {
@@ -65,8 +74,46 @@ func inputDisplayText(n *html.Node) string {
 		if val == "" {
 			val = nodeAttr(n, "placeholder")
 		}
-		return "[" + val + "]"
+		return val
 	}
+}
+
+// inputSizeAttr reads a text-like <input>'s "size" attribute — the number of
+// visible character cells real HTML sizes such a field to — defaulting to
+// 20 (matching browsers' own default) when absent or not a valid positive
+// integer. This is renderInput's naturalWidth for resolveWidthConstraints,
+// the same width-resolution shared with <progress>/<meter>'s bar: an
+// explicit CSS width/min-width/max-width on the input still overrides it.
+func inputSizeAttr(n *html.Node) int {
+	v := nodeAttr(n, "size")
+	if v == "" {
+		return 20
+	}
+	size, err := strconv.Atoi(v)
+	if err != nil || size <= 0 {
+		return 20
+	}
+	return size
+}
+
+// padInputText right-pads s with spaces to width, so an empty or short
+// value still fills the field's resolved box — matching a real browser,
+// where a text field's empty tail is part of its visible box rather than
+// just wherever the value's own characters happen to end. A value at or
+// past width is returned unchanged: it overflows uncut rather than being
+// truncated or scrolled into view the way a real browser would keep the
+// caret visible — an accepted approximation, see COMPATIBILITY.md.
+//
+// s is measured in terminal columns (textVisualWidth), not runes: a value of
+// CJK or emoji characters occupies two cells apiece, so padding by rune count
+// would render the field wider than its resolved width and break the
+// column-alignment invariant every other box in this package maintains.
+func padInputText(s string, width int) string {
+	n := textVisualWidth(s)
+	if n >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-n)
 }
 
 // selectionRange reports the [start, end) rune range into a focused text
@@ -129,13 +176,19 @@ func (r *Engine) resolveSelectionStyle(n *html.Node, elemDecls map[string]string
 
 // renderInput renders an <input>'s synthesized content, applying acc
 // uniformly — except, for a text-like input with a non-collapsed, focused
-// selection (selectionRange), the [start, end) rune range within its value
-// (not counting the synthesized "["/"]" brackets), which instead renders
-// under resolveSelectionStyle's ::selection style. Checkbox/radio/submit/
-// button/reset/hidden inputs have no notion of a text selection, so they
-// keep rendering as a single acc.render(inputDisplayText(n), p) call, same
-// as before this existed.
-func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inlineStyle, p colorprofile.Profile) string {
+// selection (selectionRange), the [start, end) rune range within its value,
+// which instead renders under resolveSelectionStyle's ::selection style.
+// Checkbox/radio/submit/button/reset/hidden inputs have no notion of a text
+// selection and no resolved width of their own (they size to their glyph/
+// label like <button>), so they keep rendering as a single
+// acc.render(inputDisplayText(n), p) call, same as before this existed. A
+// text-like input's own width instead comes from resolveWidthConstraints
+// (author CSS width/min-width/max-width, falling back to inputSizeAttr's
+// "size"-attribute-or-20 default) — the same mechanism <progress>/<meter>
+// use for their bar — and its display text is padded (padInputText) to
+// fill that width, since without the old "["/"]" brackets there's nothing
+// else marking the field's resolved size.
+func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inlineStyle, availWidth int, p colorprofile.Profile) string {
 	typ := strings.ToLower(nodeAttr(n, "type"))
 	if typ == "" {
 		typ = "text"
@@ -144,9 +197,13 @@ func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inli
 	case "hidden", "checkbox", "radio", "submit", "button", "reset":
 		return acc.render(inputDisplayText(n), p)
 	}
+	innerWidth, _ := resolveWidthConstraints(elemDecls, availWidth, inputSizeAttr(n))
+	if innerWidth < 0 {
+		innerWidth = 0
+	}
 	start, end, has := r.selectionRange(n)
 	if !has {
-		return acc.render(inputDisplayText(n), p)
+		return acc.render(padInputText(inputDisplayText(n), innerWidth), p)
 	}
 	val := nodeAttr(n, "value")
 	if val == "" {
@@ -156,9 +213,13 @@ func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inli
 	start = min(max(start, 0), len(runes))
 	end = min(max(end, 0), len(runes))
 	selStyle := r.resolveSelectionStyle(n, elemDecls)
-	return acc.render("["+string(runes[:start]), p) +
+	// Same column (not rune) measure padInputText uses on the unselected
+	// path above — the two must agree, or a field changes width the moment
+	// a selection appears in it.
+	pad := max(innerWidth-textVisualWidth(string(runes)), 0)
+	return acc.render(string(runes[:start]), p) +
 		selStyle.render(string(runes[start:end]), p) +
-		acc.render(string(runes[end:])+"]", p)
+		acc.render(string(runes[end:])+strings.Repeat(" ", pad), p)
 }
 
 // parseFloatAttr reads n's key attribute as a float, falling back to def

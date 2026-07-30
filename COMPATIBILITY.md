@@ -35,7 +35,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
   are the only source of truth — `Element.Value()`/`SetValue()`/
   `Checked()`/`SetChecked()` read and write those same attributes directly.
   There's no separate "live DOM property vs. reflected HTML attribute"
-  distinction the way real browsers maintain for form controls.
+  distinction the way real browsers maintain for form controls. The one
+  place spec's own setter/attribute split does survive is newline
+  sanitization: `SetValue()` and `DispatchPaste`'s default action strip
+  CR/LF from a single-line control's value (every text entry but
+  `<textarea>`), exactly like a real value setter, while
+  `SetAttribute("value", ...)` writes whatever it's given — and a literal
+  `"\n"` in an inline `<input>`'s value *does* render as a real line break
+  here, unlike a browser, which just ignores it.
 - **Text-field selection is a single flat range, not real DOM's
   `Selection`/`Range` model.** `Element.SelectionStart()`/`SelectionEnd()`/
   `SelectionDirection()`/`SetSelectionRange()` mirror
@@ -46,13 +53,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   all operate on it — but there's no `window.getSelection()`/`Range` object,
   no cross-element selection, and no `contenteditable` selection at all (see
   "`contenteditable`" below). See `docs/proposals/CARET_SELECTION.md`.
-- **A click's caret-column math ignores a text `<input>`'s synthesized `"["`
-  prefix.** `DispatchClick`'s click-to-caret placement (previous bullet) and
-  the terminal's own hardware cursor placement (`tui.Loop`'s
-  `focusCursorPos`) both measure the clicked/caret column as a plain offset
-  from the box's left edge, with no separate accounting for the literal `"["`
-  a text-like `<input>` renders before its value — an existing approximation
-  this shares, not a new one it introduces.
 - **A `<textarea>`'s caret/selection placement doesn't account for
   word-wrapping.** Both the terminal cursor (`focusCursorPos`) and the
   `::selection` highlight locate a rune offset by its `"\n"`-delimited
@@ -376,6 +376,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   Shift-held vertical wheel notch to `deltaX` too (the common browser/
   terminal fallback convention for input hardware that never reports a
   horizontal wheel bit at all).
+- **`readonly` blocks edits but has no matching pseudo-class.** A text
+  entry carrying `readonly` (or `disabled`) still focuses, moves its caret,
+  selects, and submits with its form, but `DispatchKey`'s typing/Backspace/
+  Delete/Enter-newline default actions and `DispatchPaste`'s insertion all
+  skip it, and `DispatchCut` degrades to a copy (`ClipboardData` is still
+  populated; the value is left alone) — matching real HTML. What's missing
+  is the CSS half: there's no `:read-only`/`:read-write` pseudo-class to
+  style the state with (see CSS.md's supported list), and no
+  `Element.SetValue` restriction, since spec's own `readonly` only ever
+  constrained *user* edits.
 - **Tab order defaults to a document-order walk** over form controls
   (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
   focusable scroll containers, reorderable via `tabindex` (see

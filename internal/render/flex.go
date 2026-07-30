@@ -1230,6 +1230,10 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		rowShift++
 	}
 	r.liveContentOffsets[n] = rowShift
+	if r.liveContentOffsetsX == nil {
+		r.liveContentOffsetsX = map[*html.Node]int{}
+	}
+	r.liveContentOffsetsX[n] = pl + runeLen(bl.char) + ml
 	return content, positions
 }
 

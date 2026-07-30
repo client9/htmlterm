@@ -24,8 +24,9 @@ func TestInputSelectionRendersReverseVideoByDefault(t *testing.T) {
 		t.Fatalf("RenderHTML: %v", err)
 	}
 	got := stripPopupANSI(result.Output)
-	if got != "[hello]" {
-		t.Fatalf("stripped output = %q, want %q", got, "[hello]")
+	want := "hello" + strings.Repeat(" ", 15)
+	if got != want {
+		t.Fatalf("stripped output = %q, want %q", got, want)
 	}
 	// Only "ell" (runes [1,4)) is under the highlight — the "[h" prefix and
 	// "o]" suffix render as plain, unstyled text either side of it. The
@@ -33,6 +34,32 @@ func TestInputSelectionRendersReverseVideoByDefault(t *testing.T) {
 	// same as every other inlineStyle.render call.
 	if !strings.Contains(result.Output, "\x1b[7mell\x1b[m") {
 		t.Errorf("expected exactly \"ell\" wrapped in reverse video, got %q", result.Output)
+	}
+}
+
+// TestInputSelectionPadsByDisplayWidth pins that the selection-splicing path
+// pads to the field's resolved width in terminal columns, exactly like the
+// unselected path (padInputText) — measured in runes, "日本語" would leave two
+// spaces too many and the field would visibly widen the moment a selection
+// appeared in it.
+func TestInputSelectionPadsByDisplayWidth(t *testing.T) {
+	src := `<input value="日本語" size="10" ` + defaultFocusAttr + ` ` +
+		defaultSelectionStartAttr + `="0" ` + defaultSelectionEndAttr + `="1">`
+	e, err := New(Options{Width: 20, Profile: colorprofile.TrueColor})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	got := stripPopupANSI(result.Output)
+	want := "日本語" + strings.Repeat(" ", 4) // 6 columns of text in a 10-column field
+	if got != want {
+		t.Fatalf("stripped output = %q, want %q", got, want)
+	}
+	if w := textVisualWidth(got); w != 10 {
+		t.Errorf("field rendered %d columns wide, want 10 (its size attribute)", w)
 	}
 }
 
@@ -60,8 +87,9 @@ func TestInputSelectionReclampsStaleAttrsAgainstCurrentValue(t *testing.T) {
 		t.Fatalf("RenderHTML: %v", err)
 	}
 	got := stripPopupANSI(result.Output)
-	if got != "[hi]" {
-		t.Fatalf("stripped output = %q, want %q", got, "[hi]")
+	want := "hi" + strings.Repeat(" ", 18)
+	if got != want {
+		t.Fatalf("stripped output = %q, want %q", got, want)
 	}
 	if !strings.Contains(result.Output, "\x1b[7mi\x1b[m") {
 		t.Errorf("expected exactly \"i\" wrapped in reverse video, got %q", result.Output)

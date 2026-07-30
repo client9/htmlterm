@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/client9/htmlterm/document"
+	"github.com/client9/htmlterm/internal/render"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -118,7 +119,16 @@ func (l *Loop) Run() error {
 				return nil
 			}
 			if ev.Key() == tcell.KeyCtrlX {
-				if text, ok := l.doc.DispatchCut(); ok && l.screen.HasClipboard() {
+				// Check the clipboard BEFORE dispatching: DispatchCut's
+				// default action removes the text as part of dispatch, so
+				// cutting on a terminal with no clipboard support (no OSC 52)
+				// would destroy it with nowhere for it to go and no undo —
+				// and with a collapsed caret a cut takes the whole field, not
+				// just a selection.
+				if !l.screen.HasClipboard() {
+					break
+				}
+				if text, ok := l.doc.DispatchCut(); ok {
 					l.screen.SetClipboard([]byte(text))
 				}
 				break
@@ -127,7 +137,7 @@ func (l *Loop) Run() error {
 			if !ok {
 				continue
 			}
-			l.doc.DispatchKey(key, modifiers(ev.Modifiers()))
+			l.doc.DispatchKey(key, keyModifiers(ev))
 
 		case *tcell.EventPaste:
 			if ev.Start() {
@@ -211,7 +221,10 @@ func (l *Loop) Quit() {
 // decoder took. "Home"/"End"/"Delete" are needed for
 // DispatchKey's caret/selection default actions (see
 // docs/proposals/CARET_SELECTION.md) — without them, those key presses
-// never reach Document.DispatchKey at all.
+// never reach Document.DispatchKey at all. Shift+Tab maps to "Tab" as well
+// (tcell reports it as its own KeyBacktab code under legacy keyboard
+// reporting); the Shift that makes DispatchKey walk the tab order backwards
+// is supplied by keyModifiers, not by this function.
 func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	switch ev.Key() {
 	case tcell.KeyEnter:
@@ -221,6 +234,11 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	case tcell.KeyDelete:
 		return "Delete", true
 	case tcell.KeyTab:
+		return "Tab", true
+	case tcell.KeyBacktab:
+		// Shift+Tab. Legacy keyboard reporting gives it its own key code
+		// rather than Tab-with-ModShift, so the Shift half is re-attached
+		// separately — see keyModifiers.
 		return "Tab", true
 	case tcell.KeyEsc:
 		return "Escape", true
@@ -245,6 +263,20 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// keyModifiers is keyName's companion: the document.Modifiers to dispatch
+// alongside the key name it returned. Normally that's just tcell's own
+// reported modifier mask (see modifiers), but tcell.KeyBacktab is a key code
+// that *means* Shift+Tab without necessarily carrying ModShift, so the Shift
+// flag is re-attached here — otherwise DispatchKey sees a plain "Tab" and
+// moves focus forward, making Shift+Tab indistinguishable from Tab.
+func keyModifiers(ev *tcell.EventKey) document.Modifiers {
+	mods := modifiers(ev.Modifiers())
+	if ev.Key() == tcell.KeyBacktab {
+		mods.Shift = true
+	}
+	return mods
 }
 
 // pasteKeyText decodes one EventKey received while Loop.pasting is true back
@@ -400,29 +432,37 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 		// block.go) — an accepted narrower approximation gap than not
 		// handling embedded newlines at all.
 		if strings.ToLower(el.TagName()) == "textarea" {
-			// doc.ContentOffset (see its doc comment) is the row shift from
-			// rect.Row down to this textarea's own first content row —
-			// border-top plus padding-top — needed here because Rect alone
-			// is the full border box (see Rect's doc comment) and can't say
-			// where content actually starts within it.
-			line, lineCol := caretLineCol(el.Value(), caret)
+			// doc.ContentOffset/ContentOffsetX (see their doc comments) are
+			// the row and column shifts from rect.Row/rect.Col to this
+			// textarea's own first content cell — border-top plus
+			// padding-top, and border-left plus padding-left — needed here
+			// because Rect alone is the full border box (see Rect's doc
+			// comment) and can't say where content actually starts within
+			// it. The column half matters for the UA stylesheet's own
+			// default <textarea> styling, which draws a border and one
+			// column of padding on each side: without it the cursor lands
+			// two columns left of the real caret, on the border itself.
+			value := el.Value()
+			line, lineCol := caretLineCol(value, caret)
 			offset, _ := doc.ContentOffset(el)
+			offsetX, _ := doc.ContentOffsetX(el)
 			row = rect.Row + offset + line
-			col = rect.Col + lineCol
+			// lineCol is a rune offset; the cursor needs a column, and the
+			// two only coincide for single-width text (see
+			// render.ColumnForRuneIndex).
+			col = rect.Col + offsetX + render.ColumnForRuneIndex(strings.Split(value, "\n")[line], lineCol)
 			if maxRow := rect.Row + rect.Height - 1; row > maxRow {
 				row = maxRow
 			}
 		} else {
-			// +1: a text-like <input> (the only tag reaching this branch —
+			// A text-like <input> (the only tag reaching this branch —
 			// textarea takes the branch above, and checkbox/radio/submit/
 			// button/reset/hidden are excluded from IsTextEntry entirely)
-			// always renders as inputDisplayText's synthesized "["+value+"]"
-			// (formcontrol.go), so its box's first column is the literal
-			// "[", not the value's own first character. Without this, the
-			// terminal cursor lands one column short of the real caret —
-			// e.g. sitting on "[" itself for an empty field instead of
-			// between "[" and "]".
-			col = rect.Col + 1 + caret
+			// renders its value plain (formcontrol.go's inputDisplayText),
+			// so the box's first column is the value's own first
+			// character — no offset needed, but caret is still a rune
+			// offset that has to be measured out in columns.
+			col = rect.Col + render.ColumnForRuneIndex(el.Value(), caret)
 		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {
 			col = maxCol

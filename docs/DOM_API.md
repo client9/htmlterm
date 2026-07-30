@@ -55,8 +55,12 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 - `SetSize`/`Size` — viewport dimensions in character cells; a spec
   equivalent would be `window.innerWidth`/`innerHeight`, but those hang off
   `window`, not `document`.
-- `ContentOffset(el)` — scroll-adjusted content-area offset for a scrollable
-  ancestor.
+- `ContentOffset(el)` / `ContentOffsetX(el)` — the row and column shifts from
+  an element's own `Rect` (the CSS *border* box) to its first content cell,
+  i.e. its border-top/padding-top and border-left/padding-left. No spec
+  equivalent: a browser hands out `clientTop`/`clientLeft` in pixels, and a
+  host here needs cells to place a caret inside a bordered, padded
+  `<textarea>`.
 - `DispatchClick`/`DispatchWheel`/`DispatchKey`/`DispatchResize` — synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
@@ -148,7 +152,7 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `window.getComputedStyle(el)` | Missing | No way to read the resolved cascade result at all from outside `internal/render`. |
 | `HTMLElement.focus()` / `blur()` | `Focus()` / `Blur()` | |
 | `HTMLElement.click()` | `Click()` | Synthesizes the click at e's own `Rect()` (top-left cell) and dispatches through the normal `DispatchClick` path; returns `false` if e has no recorded `Rect` (e.g. `display:none`, or `Render` hasn't run yet). |
-| `HTMLInputElement.value` / `checked` | `Value()`/`SetValue()`, `Checked()`/`SetChecked()` | Attribute-backed, not a separate live property — see `COMPATIBILITY.md`'s "Form controls are attribute-driven" deviation. |
+| `HTMLInputElement.value` / `checked` | `Value()`/`SetValue()`, `Checked()`/`SetChecked()` | Attribute-backed, not a separate live property — see `COMPATIBILITY.md`'s "Form controls are attribute-driven" deviation. `SetValue` does apply spec's newline sanitization for single-line controls (CR/LF stripped for everything but `<textarea>`); `SetAttribute("value", ...)` is the unsanitized escape hatch. |
 | `HTMLInputElement.selectionStart` / `selectionEnd` / `selectionDirection` | `SelectionStart()` / `SelectionEnd()` / `SelectionDirection()` | Rune offsets into `Value()`, not UTF-16 code units. Unlike `value`, this *is* live property state, not a reflected attribute — matching real spec's own split (`Element.SetValue` collapses it to the end, same as a real programmatic `.value` assignment). Defaults to a caret collapsed at the end of the value if `SetSelectionRange` has never been called, matching this package's original append-at-end typing behavior. See `docs/proposals/CARET_SELECTION.md`. |
 | `HTMLInputElement.setSelectionRange(start, end, direction)` | `SetSelectionRange(start, end, direction...)` | `direction` is variadic (0 or 1 args) rather than a required third parameter; an omitted or unrecognized direction normalizes to `"none"`. `DispatchKey`'s arrow/Home/End/Backspace/Delete/typing default actions, and `DispatchClick`'s click-to-caret default action (with Shift extending), all go through this same state — see `docs/proposals/CARET_SELECTION.md`. |
 | `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
@@ -169,7 +173,11 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
   on `Document` instead, keyed off a `ListenerHandle` rather than a
   `(type, listener)` pair (which also means, unlike spec, the *same*
   `(type, fn)` pair registered twice yields two independent listeners, not
-  one de-duplicated registration).
+  one de-duplicated registration). Mutating an element's listeners from
+  inside one of its own running listeners behaves as spec requires: each
+  node's list is snapshotted before it's walked, so a listener added during
+  dispatch isn't called for that same event, and one removed during dispatch
+  doesn't run even though it was in the snapshot.
 - `ScrollTop()`/`SetScrollTop(v)`, `ScrollLeft()`/`SetScrollLeft(v)` — spec's
   `Element.scrollTop`/`scrollLeft` properties, matching spec placement
   exactly.

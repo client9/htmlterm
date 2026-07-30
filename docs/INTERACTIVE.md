@@ -209,7 +209,10 @@ added to `document.go`.
   element; default actions: printable rune → append to a focused text-like
   `<input>`/`<textarea>`'s value, `"Backspace"` → drop the last rune, `" "`
   on a focused checkbox/radio → the same toggle as click's default action,
-  `"Tab"` → `FocusNext()`, `"Enter"`/`" "` on a focused `<select>` → toggle
+  `"Tab"` → `FocusNext()` (or `FocusPrev()` when `mods.Shift` is set — a
+  terminal that reports Shift+Tab as its own key code, e.g. tcell's
+  `KeyBacktab`, is expected to normalize it to `"Tab"` plus Shift on the way
+  in; see `tui`'s `keyModifiers`), `"Enter"`/`" "` on a focused `<select>` → toggle
   its dropdown open/closed, `"Escape"` on a focused `<select>` → close its
   dropdown without changing the selection, `"ArrowUp"`/`"ArrowDown"` on a
   focused `<select>` → move its selection to the previous/next option
@@ -362,8 +365,12 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
   way dispatching each key individually would. `pasteKeyText` reverses
   tcell's own key decoding for the printable-rune/Enter/Tab cases a paste
   can plausibly contain. Ctrl-X triggers `DispatchCut`, handing the returned
-  text to `Screen.SetClipboard` (tcell v3's OSC 52 clipboard support) when
-  `Screen.HasClipboard()` reports the terminal supports it — Ctrl-C was
+  text to `Screen.SetClipboard` (tcell v3's OSC 52 clipboard support). The
+  `Screen.HasClipboard()` check happens *before* the dispatch, and skips it
+  entirely when the terminal has no clipboard: `DispatchCut` removes the
+  text as part of dispatching, so checking afterwards would destroy it with
+  nowhere to put it and no undo — and with a collapsed caret a cut takes the
+  whole field, not just a selection. Ctrl-C was
   already taken (quit), and there's no established terminal-app convention
   for a copy-only binding distinct from cut, so a separate `"copy"`
   dispatch/keybinding was deliberately not added in this pass.

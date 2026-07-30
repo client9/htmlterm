@@ -176,11 +176,11 @@ func TestLoopRunHandlesBracketedPaste(t *testing.T) {
 // TestLoopRunHandlesCtrlXCut drives a real Loop.Run, focuses a text input
 // with an existing value, sends Ctrl-X, and asserts the document-level
 // effect of Document.DispatchCut ran (the value cleared) — end-to-end
-// coverage of tcell_loop.go's KeyCtrlX wiring. It doesn't assert anything
-// about the system clipboard: Screen.HasClipboard() depends on terminfo
-// capability detection the vt.MockTerm-backed test Screen doesn't
-// necessarily satisfy, so Loop's SetClipboard call may or may not fire here
-// — that plumbing is tcell's own, not this package's.
+// coverage of tcell_loop.go's KeyCtrlX wiring. The vt.MockTerm-backed test
+// Screen does report clipboard support, which is what makes the cut run at
+// all — see TestLoopCtrlXWithoutClipboardKeepsValue for the other branch.
+// What actually reaches the OS clipboard is tcell's plumbing, not this
+// package's, and isn't asserted here.
 func TestLoopRunHandlesCtrlXCut(t *testing.T) {
 	doc, err := document.ParseDocument(`<input type="text" id="name" value="secret">`, htmlterm.Options{Width: 40})
 	if err != nil {
@@ -253,8 +253,159 @@ line three"></textarea>`, htmlterm.Options{Width: 40})
 	if wantRow := rect.Row + 3; row != wantRow {
 		t.Errorf("row = %d, want %d (rect=%+v)", row, wantRow, rect)
 	}
-	if wantCol := rect.Col + len("line three"); col != wantCol {
-		t.Errorf("col = %d, want %d (end of last line)", col, wantCol)
+	// ...and, on the same axis logic, two columns right of rect.Col: the UA
+	// stylesheet's border-left plus padding-left (Document.ContentOffsetX).
+	// This was a second, symmetric bug to the row one above — the cursor
+	// used to land on the left border glyph itself.
+	offsetX, ok := doc.ContentOffsetX(el)
+	if !ok || offsetX != 2 {
+		t.Fatalf("ContentOffsetX = %d, %v; want 2, true (border-left + padding-left)", offsetX, ok)
+	}
+	if wantCol := rect.Col + offsetX + len("line three"); col != wantCol {
+		t.Errorf("col = %d, want %d (end of last line, past border+padding)", col, wantCol)
+	}
+}
+
+// TestFocusCursorPosWideRunes pins that caret placement measures columns, not
+// runes: "日本語" is three runes but six cells, so a caret after them belongs
+// at column 6. Placing it at column 3 (the old rune-count math) put the
+// terminal cursor in the middle of 語.
+func TestFocusCursorPosWideRunes(t *testing.T) {
+	doc, err := document.ParseDocument(`<input id="i" value="日本語ab">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("i")
+	el.Focus()
+
+	for _, tc := range []struct {
+		caret   int
+		wantCol int
+	}{
+		{0, 0}, // before 日
+		{1, 2}, // after 日
+		{3, 6}, // after 語
+		{5, 8}, // after "ab" — end of value
+	} {
+		el.SetSelectionRange(tc.caret, tc.caret)
+		if _, err := doc.Render(); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		rect, _ := el.Rect()
+		_, col, ok := focusCursorPos(doc)
+		if !ok {
+			t.Fatal("focusCursorPos ok = false, want true")
+		}
+		if want := rect.Col + tc.wantCol; col != want {
+			t.Errorf("caret %d: col = %d, want %d", tc.caret, col, want)
+		}
+	}
+}
+
+// TestClickCaretRoundTripWideRunes is TestFocusCursorPosWideRunes's inverse:
+// clicking a cell must produce a caret whose cursor lands back on that same
+// cell, including for double-width characters (clicking either half of one
+// puts the caret before it).
+func TestClickCaretRoundTripWideRunes(t *testing.T) {
+	doc, err := document.ParseDocument(`<input id="i" value="日本語ab">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("i")
+	rect, _ := el.Rect()
+
+	for _, tc := range []struct {
+		clickCol  int
+		wantCaret int
+	}{
+		{0, 0}, // left half of 日
+		{1, 0}, // right half of 日 — still before it
+		{2, 1}, // left half of 本
+		{6, 3}, // "a"
+		{7, 4}, // "b"
+	} {
+		doc.DispatchClick(rect.Row, rect.Col+tc.clickCol, document.Modifiers{})
+		if got := el.SelectionStart(); got != tc.wantCaret {
+			t.Errorf("click col %d: caret = %d, want %d", tc.clickCol, got, tc.wantCaret)
+		}
+		if _, err := doc.Render(); err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		_, col, ok := focusCursorPos(doc)
+		if !ok {
+			t.Fatal("focusCursorPos ok = false, want true")
+		}
+		// The cursor lands on the clicked cluster's own first cell — the
+		// clicked cell itself for a single-width character.
+		if wantCol := rect.Col + columnOfCaret("日本語ab", tc.wantCaret); col != wantCol {
+			t.Errorf("click col %d: cursor col = %d, want %d", tc.clickCol, col, wantCol)
+		}
+	}
+}
+
+// columnOfCaret is the test's own independent restatement of the rune-offset
+// to column mapping, so the assertion above doesn't just re-derive itself
+// from the production helper it's checking.
+func columnOfCaret(value string, caret int) int {
+	col := 0
+	for i, r := range []rune(value) {
+		if i >= caret {
+			break
+		}
+		if r > 0x2000 {
+			col += 2 // the CJK characters this test uses
+		} else {
+			col++
+		}
+	}
+	return col
+}
+
+// TestFocusCursorPosTextareaClickRoundTrip pins that a click's caret
+// placement (Document.DispatchClick → caretIndexFromClick) and the terminal
+// cursor's own placement (focusCursorPos) agree on where a given cell is:
+// clicking a character must put the cursor back on that same character.
+// Before both learned about ContentOffsetX they were off by the textarea's
+// border-left + padding-left in opposite directions — a 4-column disagreement
+// on the default UA styling.
+func TestFocusCursorPosTextareaClickRoundTrip(t *testing.T) {
+	doc, err := document.ParseDocument(`<textarea id="ta" style="width:20" value="abcdef"></textarea>`,
+		htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("ta")
+	rect, ok := el.Rect()
+	if !ok {
+		t.Fatalf("textarea has no recorded Rect")
+	}
+	offset, _ := doc.ContentOffset(el)
+	offsetX, _ := doc.ContentOffsetX(el)
+
+	// Click the 'c' — the third content column of the first content row.
+	clickRow, clickCol := rect.Row+offset, rect.Col+offsetX+2
+	doc.DispatchClick(clickRow, clickCol, document.Modifiers{})
+	if got := el.SelectionStart(); got != 2 {
+		t.Errorf("SelectionStart after clicking 'c' = %d, want 2", got)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	if row != clickRow || col != clickCol {
+		t.Errorf("cursor = (%d, %d), want the clicked cell (%d, %d)", row, col, clickRow, clickCol)
 	}
 }
 
@@ -406,5 +557,84 @@ func TestFocusCursorPosSingleLineInputUnaffected(t *testing.T) {
 	}
 	if wantCol := rect.Col + len("hello"); col != wantCol {
 		t.Errorf("col = %d, want %d", col, wantCol)
+	}
+}
+
+// TestKeyNameBacktabIsShiftTab pins that tcell's own Shift+Tab key code
+// arrives at Document as ("Tab", Shift) — the pair DispatchKey needs to walk
+// the tab order backwards. Legacy keyboard reporting sends KeyBacktab with no
+// ModShift at all, so keyName alone can't carry it; keyModifiers re-attaches
+// the Shift. Before this, Shift+Tab was dropped by keyName's default case and
+// never reached Document.
+func TestKeyNameBacktabIsShiftTab(t *testing.T) {
+	ev := tcell.NewEventKey(tcell.KeyBacktab, "", tcell.ModNone)
+	key, ok := keyName(ev)
+	if key != "Tab" || !ok {
+		t.Fatalf("keyName(KeyBacktab) = (%q, %v), want (%q, true)", key, ok, "Tab")
+	}
+	if mods := keyModifiers(ev); !mods.Shift {
+		t.Errorf("keyModifiers(KeyBacktab).Shift = false, want true")
+	}
+	// A plain Tab must not pick up a phantom Shift.
+	if mods := keyModifiers(tcell.NewEventKey(tcell.KeyTab, "", tcell.ModNone)); mods.Shift {
+		t.Errorf("keyModifiers(KeyTab).Shift = true, want false")
+	}
+}
+
+// noClipboardScreen is a tcell.Screen that reports no clipboard support,
+// whatever the underlying screen negotiated — the seam for testing Ctrl-X on
+// a terminal without OSC 52.
+type noClipboardScreen struct {
+	tcell.Screen
+	setCalls int
+}
+
+func (s *noClipboardScreen) HasClipboard() bool { return false }
+
+func (s *noClipboardScreen) SetClipboard(b []byte) { s.setCalls++ }
+
+// TestLoopCtrlXWithoutClipboardKeepsValue pins that Ctrl-X is inert when the
+// terminal can't accept clipboard content. DispatchCut removes the text as
+// part of dispatching, so calling it first and only then checking
+// HasClipboard (as this used to) destroyed the value with nowhere to put it
+// and no undo — and a collapsed caret makes a cut take the whole field.
+func TestLoopCtrlXWithoutClipboardKeepsValue(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="name" value="secret">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	name := doc.GetElementByID("name")
+	name.Focus()
+
+	scr, mt := newUninitScreen(t, 40, 5)
+	wrapped := &noClipboardScreen{Screen: scr}
+	loop := newLoopWithScreen(doc, wrapped)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var runErr error
+	go func() {
+		defer wg.Done()
+		runErr = loop.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+
+	mt.KeyTap(vt.KeyLCtrl, vt.KeyX)
+	mt.Drain()
+	time.Sleep(25 * time.Millisecond)
+
+	mt.KeyTap(vt.KeyLCtrl, vt.KeyC)
+	mt.Drain()
+	wg.Wait()
+
+	if runErr != nil {
+		t.Errorf("Run returned error: %v", runErr)
+	}
+	if got := name.Value(); got != "secret" {
+		t.Errorf("value after Ctrl-X with no clipboard = %q, want it preserved", got)
+	}
+	if wrapped.setCalls != 0 {
+		t.Errorf("SetClipboard called %d times on a clipboard-less terminal, want 0", wrapped.setCalls)
 	}
 }

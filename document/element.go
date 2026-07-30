@@ -167,11 +167,17 @@ func (e *Element) Value() string {
 // setSelectValue). For a text entry, this also collapses any selection to
 // the end of the new value — mirroring real spec's behavior for
 // programmatic value assignment (setSelectionRange, not .value, is the way
-// to set an arbitrary caret position).
+// to set an arbitrary caret position) — and strips any CR/LF from v unless
+// the element is a <textarea>, HTML's own value sanitization for
+// single-line controls (see sanitizeEntryValue). SetAttribute("value", ...)
+// is the unsanitized escape hatch, same as in real DOM.
 func (e *Element) SetValue(v string) {
 	if isSelectControl(e.node) {
 		setSelectValue(e.node, v)
 		return
+	}
+	if isTextEntry(e.node) {
+		v = sanitizeEntryValue(e.node, v)
 	}
 	e.SetAttribute("value", v)
 	if e.doc != nil {
@@ -443,14 +449,14 @@ func (e *Element) InsertBefore(newChild, oldChild *Element) {
 // is child or one of its descendants, focus is silently cleared (no "blur"
 // dispatched — the element is gone, not blurred), the same behavior
 // SetInnerHTML/SetPreRendered already have for a wholesale subtree
-// replacement (see Document.clearFocusIfDetached). Listeners registered on
+// replacement (see Document.pruneDetachedState). Listeners registered on
 // now-detached descendants become unreachable, same as SetInnerHTML — call
 // Document.RemoveEventListener first if that matters.
 func (e *Element) RemoveChild(child *Element) *Element {
 	e.node.RemoveChild(child.node)
 	markRulesStale(e.doc, child.node)
 	if e.doc != nil {
-		e.doc.clearFocusIfDetached()
+		e.doc.pruneDetachedState()
 	}
 	return child
 }
@@ -471,7 +477,7 @@ func (e *Element) ReplaceChild(newChild, oldChild *Element) *Element {
 	markRulesStale(e.doc, newChild.node)
 	markRulesStale(e.doc, oldChild.node)
 	if e.doc != nil {
-		e.doc.clearFocusIfDetached()
+		e.doc.pruneDetachedState()
 	}
 	return oldChild
 }

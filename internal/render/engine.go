@@ -69,6 +69,12 @@ type Engine struct {
 	liveScrollOffsets  map[*html.Node]int
 	liveScrollViewport map[*html.Node]Viewport
 	liveContentOffsets map[*html.Node]int
+	// liveContentOffsetsX is liveContentOffsets' horizontal counterpart: the
+	// column shift from a block's own border box to its first content
+	// column (padding-left + border-left + margin-left), needed wherever a
+	// caret/cursor column has to be placed inside a bordered or padded box
+	// (tui's focusCursorPos, Document's caretIndexFromClick).
+	liveContentOffsetsX map[*html.Node]int
 
 	scrollOffsetsX      map[*html.Node]int
 	liveScrollOffsetsX  map[*html.Node]int
@@ -134,6 +140,7 @@ type Result struct {
 	ScrollOffsetsX  map[*html.Node]int
 	ScrollViewportX map[*html.Node]ViewportX
 	ContentOffsets  map[*html.Node]int
+	ContentOffsetsX map[*html.Node]int
 }
 
 // New parses opts.CSS/opts.Stylesheets and returns a reusable render engine.
@@ -318,6 +325,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		ScrollOffsetsX:  rr.liveScrollOffsetsX,
 		ScrollViewportX: rr.liveScrollViewportX,
 		ContentOffsets:  rr.liveContentOffsets,
+		ContentOffsetsX: rr.liveContentOffsetsX,
 	}
 }
 

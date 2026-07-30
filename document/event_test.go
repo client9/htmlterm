@@ -117,7 +117,8 @@ func TestDispatchClickFocusesTextEntryAndPositionsCaret(t *testing.T) {
 	if !ok {
 		t.Fatalf("Rect(a) not found")
 	}
-	// Rendered content is "[hello]": rect.Col+0 is "[", rect.Col+1 is "h".
+	// A text input renders its value plain, so rect.Col+0 is "h" and
+	// rect.Col+3 is the gap between "l" and "l" — rune offset 3.
 	if !doc.DispatchClick(rect.Row, rect.Col+3, document.Modifiers{}) {
 		t.Fatal("DispatchClick did not hit the input")
 	}
@@ -908,6 +909,67 @@ func TestDispatchPasteReplacesSelection(t *testing.T) {
 	}
 }
 
+// TestDispatchPasteStripsNewlinesForSingleLineInput pins HTML's value
+// sanitization for single-line controls: a multi-line paste into an <input>
+// arrives with its CR/LFs removed. Without this the literal "\n" ends up in
+// the value, and this renderer honors it as a real line break — tearing the
+// input's own line in half.
+func TestDispatchPasteStripsNewlinesForSingleLineInput(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	doc.DispatchPaste("one\ntwo\r\nthree\r")
+	if got, want := a.Value(), "onetwothree"; got != want {
+		t.Fatalf("value after multi-line paste = %q, want %q", got, want)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if n := strings.Count(strings.TrimRight(stripANSI(out), "\n"), "\n"); n != 0 {
+		t.Errorf("rendered %d line breaks, want the input to stay on one line:\n%s", n, out)
+	}
+}
+
+// TestDispatchPasteKeepsNewlinesForTextarea is the other half of
+// TestDispatchPasteStripsNewlinesForSingleLineInput: <textarea> is the one
+// multi-line text entry, so its pasted newlines must survive.
+func TestDispatchPasteKeepsNewlinesForTextarea(t *testing.T) {
+	doc := mustParseDoc(t, `<textarea id="a" value=""></textarea>`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	doc.DispatchPaste("one\ntwo")
+	if got, want := a.Value(), "one\ntwo"; got != want {
+		t.Fatalf("value after multi-line paste into textarea = %q, want %q", got, want)
+	}
+}
+
+// TestSetValueStripsNewlinesForSingleLineInput pins that programmatic
+// assignment goes through the same sanitization as a paste (real DOM
+// sanitizes in the value setter), while SetAttribute stays the raw escape
+// hatch.
+func TestSetValueStripsNewlinesForSingleLineInput(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value=""><textarea id="t"></textarea>`)
+	a := doc.GetElementByID("a")
+	a.SetValue("one\ntwo")
+	if got, want := a.Value(), "onetwo"; got != want {
+		t.Errorf("input SetValue = %q, want %q", got, want)
+	}
+
+	tex := doc.GetElementByID("t")
+	tex.SetValue("one\ntwo")
+	if got, want := tex.Value(), "one\ntwo"; got != want {
+		t.Errorf("textarea SetValue = %q, want %q", got, want)
+	}
+
+	a.SetAttribute("value", "raw\nvalue")
+	if got, want := a.Value(), "raw\nvalue"; got != want {
+		t.Errorf("SetAttribute escape hatch = %q, want %q (unsanitized)", got, want)
+	}
+}
+
 func TestDispatchCutRemovesOnlySelectedRange(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a" value="hello">`)
 	a := doc.GetElementByID("a")
@@ -1060,6 +1122,96 @@ func TestRemoveEventListener(t *testing.T) {
 	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if called {
 		t.Error("listener ran after RemoveEventListener, want it gone")
+	}
+}
+
+// TestRemoveEventListenerDuringDispatch is a regression test for a bug where
+// runDispatch ranged over the live d.listeners[n] slice while
+// RemoveEventListener shifted it in place: a self-removing first listener made
+// the second one get skipped entirely and the third run twice (observed order
+// "one,three,three"). The listener list is snapshotted per node now, matching
+// real DOM.
+func TestRemoveEventListenerDuringDispatch(t *testing.T) {
+	doc := mustParseDoc(t, `<button id="btn">Go</button>`)
+	btn := doc.GetElementByID("btn")
+
+	var order []string
+	var h1 document.ListenerHandle
+	h1 = doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "one")
+		doc.RemoveEventListener(h1)
+	})
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "two")
+	})
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "three")
+	})
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got, want := strings.Join(order, ","), "one,two,three"; got != want {
+		t.Errorf("dispatch order = %q, want %q", got, want)
+	}
+
+	// The removal really took effect for the *next* dispatch.
+	order = nil
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got, want := strings.Join(order, ","), "two,three"; got != want {
+		t.Errorf("second dispatch order = %q, want %q", got, want)
+	}
+}
+
+// TestRemoveEventListenerDuringDispatchSkipsRemovedListener pins the other
+// half of the snapshot rule: a listener removed by an *earlier* listener in
+// the same dispatch must not run off the snapshot anyway — real DOM checks
+// each listener's "removed" flag as it walks (see hasListener).
+func TestRemoveEventListenerDuringDispatchSkipsRemovedListener(t *testing.T) {
+	doc := mustParseDoc(t, `<button id="btn">Go</button>`)
+	btn := doc.GetElementByID("btn")
+
+	var order []string
+	var h2 document.ListenerHandle
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "one")
+		doc.RemoveEventListener(h2)
+	})
+	h2 = doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "two")
+	})
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got, want := strings.Join(order, ","), "one"; got != want {
+		t.Errorf("dispatch order = %q, want %q (removed listener must not run)", got, want)
+	}
+}
+
+// TestAddEventListenerDuringDispatchDoesNotRunForSameEvent pins the third
+// consequence of snapshotting: a listener added while an event is already
+// being dispatched to that node isn't called for that event, only for later
+// ones — again matching real DOM.
+func TestAddEventListenerDuringDispatchDoesNotRunForSameEvent(t *testing.T) {
+	doc := mustParseDoc(t, `<button id="btn">Go</button>`)
+	btn := doc.GetElementByID("btn")
+
+	var order []string
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+		order = append(order, "first")
+		doc.AddEventListener(btn, "click", false, func(e *document.Event) {
+			order = append(order, "added")
+		})
+	})
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got, want := strings.Join(order, ","), "first"; got != want {
+		t.Errorf("dispatch order = %q, want %q", got, want)
+	}
+	order = nil
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got, want := strings.Join(order, ","), "first,added"; got != want {
+		t.Errorf("second dispatch order = %q, want %q", got, want)
 	}
 }
 
@@ -1265,5 +1417,140 @@ func TestElementDispatchEventNilSafe(t *testing.T) {
 	inner := doc.GetElementByID("inner")
 	if inner.DispatchEvent(nil) {
 		t.Error("Element.DispatchEvent(nil) = true, want false")
+	}
+}
+
+// TestDispatchKeyShiftTabMovesFocusBackward pins Shift+Tab's default action.
+// DispatchKey's Tab case used to call FocusNext unconditionally, so
+// Shift+Tab was indistinguishable from Tab and FocusPrev had no key binding
+// at all.
+func TestDispatchKeyShiftTabMovesFocusBackward(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a"><input id="b"><input id="c">`)
+	c := doc.GetElementByID("c")
+
+	c.Focus()
+	doc.DispatchKey("Tab", document.Modifiers{Shift: true})
+	if focusedID(doc) != "b" {
+		t.Fatalf("Shift+Tab from c focused %q, want b", focusedID(doc))
+	}
+	doc.DispatchKey("Tab", document.Modifiers{Shift: true})
+	if focusedID(doc) != "a" {
+		t.Fatalf("Shift+Tab from b focused %q, want a", focusedID(doc))
+	}
+	// ...and wraps around to the last control, same as Tab wraps forward.
+	doc.DispatchKey("Tab", document.Modifiers{Shift: true})
+	if focusedID(doc) != "c" {
+		t.Fatalf("Shift+Tab from a focused %q, want c (wrap-around)", focusedID(doc))
+	}
+	// Plain Tab still goes forward.
+	doc.DispatchKey("Tab", document.Modifiers{})
+	if focusedID(doc) != "a" {
+		t.Fatalf("Tab from c focused %q, want a", focusedID(doc))
+	}
+}
+
+// focusedID returns the currently focused element's id, or "" if nothing is
+// focused — a readability helper for the focus-order assertions above.
+func focusedID(doc *document.Document) string {
+	el := doc.FocusedElement()
+	if el == nil {
+		return ""
+	}
+	id, _ := el.GetAttribute("id")
+	return id
+}
+
+// TestReadonlyTextEntryRejectsEdits pins HTML's readonly semantics: the field
+// still focuses, still moves its caret, still selects, and still submits with
+// its form — but no user edit path (typing, Backspace/Delete, Enter in a
+// textarea, paste) changes its value, and none of them fire "input". Before
+// this, "readonly" appeared nowhere in the package and every one of these
+// mutated the field.
+func TestReadonlyTextEntryRejectsEdits(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello" readonly>`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	inputs := 0
+	doc.AddEventListener(a, "input", false, func(e *document.Event) { inputs++ })
+
+	a.SetSelectionRange(1, 3)
+	doc.DispatchKey("x", document.Modifiers{})
+	doc.DispatchKey("Backspace", document.Modifiers{})
+	doc.DispatchKey("Delete", document.Modifiers{})
+	doc.DispatchPaste("zzz")
+	if got := a.Value(); got != "hello" {
+		t.Errorf("value after edits to a readonly field = %q, want %q", got, "hello")
+	}
+	if inputs != 0 {
+		t.Errorf(`fired %d "input" events on a readonly field, want 0`, inputs)
+	}
+
+	// Caret movement and selection still work — readonly is not disabled.
+	a.SetSelectionRange(0, 0)
+	doc.DispatchKey("End", document.Modifiers{})
+	if got := a.SelectionEnd(); got != 5 {
+		t.Errorf("End on a readonly field left caret at %d, want 5", got)
+	}
+	doc.DispatchKey("a", document.Modifiers{Ctrl: true})
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 0 || end != 5 {
+		t.Errorf("Ctrl+A on a readonly field selected [%d,%d), want [0,5)", start, end)
+	}
+}
+
+// TestReadonlyTextareaSwallowsEnter pins that Enter in a readonly <textarea>
+// does nothing at all — in particular it must not fall through to the
+// single-line implicit-submit branch, since a <textarea> never
+// implicit-submits whether it's editable or not.
+func TestReadonlyTextareaSwallowsEnter(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><textarea id="t" value="ab" readonly></textarea></form>`)
+	tex := doc.GetElementByID("t")
+	tex.Focus()
+
+	submits := 0
+	doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *document.Event) { submits++ })
+
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if got := tex.Value(); got != "ab" {
+		t.Errorf("readonly textarea value after Enter = %q, want %q", got, "ab")
+	}
+	if submits != 0 {
+		t.Errorf("readonly textarea Enter fired %d submits, want 0", submits)
+	}
+}
+
+// TestDispatchCutOnReadonlyCopiesWithoutRemoving pins cut's degrade-to-copy
+// behavior on a non-editable field: the host still gets the text for the
+// system clipboard, but the field keeps it.
+func TestDispatchCutOnReadonlyCopiesWithoutRemoving(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="secret" readonly>`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(0, 3)
+
+	text, ok := doc.DispatchCut()
+	if !ok {
+		t.Fatal("DispatchCut returned ok = false with a focused element")
+	}
+	if text != "sec" {
+		t.Errorf("clipboard text = %q, want %q", text, "sec")
+	}
+	if got := a.Value(); got != "secret" {
+		t.Errorf("readonly value after cut = %q, want it unchanged", got)
+	}
+}
+
+// TestDisabledFocusedTextEntryRejectsEdits pins the same gate for an element
+// disabled *after* it was focused — isFocusable already keeps focus off a
+// disabled control, but a host can disable the one that already has focus.
+func TestDisabledFocusedTextEntryRejectsEdits(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hi">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetAttribute("disabled", "")
+
+	doc.DispatchKey("x", document.Modifiers{})
+	if got := a.Value(); got != "hi" {
+		t.Errorf("value after typing into a disabled field = %q, want %q", got, "hi")
 	}
 }

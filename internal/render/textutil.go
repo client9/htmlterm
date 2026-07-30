@@ -84,6 +84,58 @@ func textVisualWidth(s string) int {
 	return displayWidthOptions().String(s)
 }
 
+// ColumnForRuneIndex returns the terminal column, relative to the start of
+// plain (escape-free) text s, that the caret sits at when it's idx runes into
+// s. Rune offsets and columns are not interchangeable — a CJK or emoji
+// cluster is one offset but two columns — so every caret-placement site has
+// to convert rather than using an offset as a column directly.
+//
+// An idx landing *inside* a multi-rune grapheme cluster resolves to that
+// cluster's own starting column: a terminal cursor can't be placed halfway
+// through a cluster, and rounding down keeps this the exact inverse of
+// RuneIndexForColumn, so a click and the cursor it produces agree on a cell.
+//
+// Exported for htmlterm/tui's use (focusCursorPos), the same reason
+// NextGrapheme is: the terminal's own hardware cursor has to land on the
+// column this package's layout actually put that rune at.
+func ColumnForRuneIndex(s string, idx int) int {
+	runes := []rune(s)
+	col := 0
+	for i := 0; i < len(runes) && i < idx; {
+		w, next := NextGrapheme(runes, i)
+		if next > idx {
+			break // idx is inside this cluster — stay at the cluster's start
+		}
+		col += w
+		i = next
+	}
+	return col
+}
+
+// RuneIndexForColumn is ColumnForRuneIndex's inverse: the rune offset into
+// plain (escape-free) text s that terminal column col falls in. A column
+// landing on the trailing half of a double-width cluster resolves to that
+// cluster's own offset (not the following one), so clicking either cell of a
+// wide character puts the caret before it — and clicking a cell then drawing
+// the cursor for the resulting caret lands back on the same cluster. A column
+// past the end of s returns len([]rune(s)).
+//
+// Exported for document's use (caretIndexFromClick), the click-to-caret
+// counterpart of tui's cursor placement.
+func RuneIndexForColumn(s string, col int) int {
+	runes := []rune(s)
+	x := 0
+	for i := 0; i < len(runes); {
+		w, next := NextGrapheme(runes, i)
+		if col < x+w {
+			return i
+		}
+		x += w
+		i = next
+	}
+	return len(runes)
+}
+
 var superscriptMap = map[rune]rune{
 	'0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
 	'5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',

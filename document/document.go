@@ -50,7 +50,9 @@ type Document struct {
 	// behavior — so a Document that never calls SetSelectionRange or the
 	// selection-aware key handling this map is the foundation for behaves
 	// identically to before this field existed. Lazily initialized, same as
-	// listeners/valueAtFocus below.
+	// listeners/valueAtFocus below. Unlike the render-derived maps further
+	// down, this one isn't rebuilt each frame, so entries for nodes cut out
+	// of the tree are swept explicitly — see pruneDetachedState.
 	selections map[*html.Node]selectionState
 
 	// valueAtFocus snapshots a text-entry element's "value" attribute at the
@@ -100,6 +102,17 @@ type Document struct {
 	// display:block at all (e.g. <input>, which never has this ambiguity —
 	// see focusCursorPos).
 	contentOffsets map[*html.Node]int
+
+	// contentOffsetsX is contentOffsets' horizontal counterpart: the column
+	// shift from an element's own Rect.Col (its full CSS border box) right
+	// to its first actual content column — border-left plus padding-left
+	// plus the horizontal margin Rect doesn't subtract back out (see Rect's
+	// doc comment). Needed for exactly the same reason contentOffsets is,
+	// one axis over: a <textarea> carries a border and padding-left from the
+	// UA stylesheet, so neither tui's focusCursorPos nor caretIndexFromClick
+	// can treat Rect.Col as the value's first character. Rebuilt fresh every
+	// Render, same as contentOffsets.
+	contentOffsetsX map[*html.Node]int
 
 	// cachedEngine memoizes the part of a Render call that is invariant
 	// across the Document's whole lifetime, so a host driving repeated
@@ -232,6 +245,7 @@ func (d *Document) Render() (string, error) {
 	d.scrollOffsetsX = result.ScrollOffsetsX
 	d.scrollViewportX = result.ScrollViewportX
 	d.contentOffsets = result.ContentOffsets
+	d.contentOffsetsX = result.ContentOffsetsX
 	return result.Output, nil
 }
 
@@ -303,6 +317,22 @@ func (d *Document) ContentOffset(el *Element) (int, bool) {
 		return 0, false
 	}
 	offset, ok := d.contentOffsets[el.node]
+	return offset, ok
+}
+
+// ContentOffsetX is ContentOffset's horizontal counterpart: the column shift
+// from el's own Rect.Col (its full CSS border box — see Rect's doc comment)
+// right to el's first actual content column, as of the most recent Render
+// call — e.g. for placing a cursor inside a bordered, padded <textarea> on
+// the right visual column rather than assuming content starts at Rect.Col.
+// ok is false if el is nil, Render hasn't been called yet, or el has no
+// recorded offset (no border/padding/margin columns left of its content, or
+// not a block-level element at all — see contentOffsetsX's doc comment).
+func (d *Document) ContentOffsetX(el *Element) (int, bool) {
+	if el == nil {
+		return 0, false
+	}
+	offset, ok := d.contentOffsetsX[el.node]
 	return offset, ok
 }
 
@@ -670,15 +700,19 @@ func (d *Document) focusAndPositionCaret(target *html.Node, row, col int, shiftE
 }
 
 // caretIndexFromClick computes the rune offset into target's value that
-// (row, col) corresponds to — the reverse of the same simplified column
-// model tui's focusCursorPos uses to place the terminal's own hardware
-// cursor: column offset from the box's left edge, with no separate
-// accounting for a text <input>'s synthesized "[" prefix (an accepted
-// approximation shared with focusCursorPos — see
-// docs/proposals/CARET_SELECTION.md), and, for a <textarea>, row offset
-// from its first content row (d.contentOffsets) rather than its full
-// border box. Returns 0 if target has no recorded Rect (e.g. Render hasn't
-// run since target was attached).
+// (row, col) corresponds to — the reverse of the same column model tui's
+// focusCursorPos uses to place the terminal's own hardware cursor: column
+// offset from the box's left edge (a text-like <input> renders its value
+// plain, with no bracket or other prefix to account for — see
+// docs/proposals/CARET_SELECTION.md), and, for a <textarea>, row *and*
+// column offsets from its first content cell (d.contentOffsets/
+// d.contentOffsetsX) rather than its full border box — the UA stylesheet
+// gives every <textarea> a border and one column of padding on each side,
+// so Rect.Col is two columns left of where its text actually starts. The
+// column-to-offset step goes through render.RuneIndexForColumn rather than
+// plain subtraction, since a rune is not always one cell wide (CJK, emoji).
+// Returns 0 if target has no recorded Rect (e.g. Render hasn't run since
+// target was attached).
 func (d *Document) caretIndexFromClick(target *html.Node, row, col int) int {
 	rect, ok := d.positions[target]
 	if !ok {
@@ -686,12 +720,14 @@ func (d *Document) caretIndexFromClick(target *html.Node, row, col int) int {
 	}
 	value := nodeAttr(target, "value")
 	if strings.ToLower(target.Data) != "textarea" {
-		return clampInt(col-rect.Col, 0, utf8.RuneCountInString(value))
+		return clampInt(render.RuneIndexForColumn(value, col-rect.Col), 0, utf8.RuneCountInString(value))
 	}
 	lines := strings.Split(value, "\n")
 	offset := d.contentOffsets[target]
+	offsetX := d.contentOffsetsX[target]
 	lineIdx := clampInt(row-rect.Row-offset, 0, len(lines)-1)
-	lineCol := clampInt(col-rect.Col, 0, utf8.RuneCountInString(lines[lineIdx]))
+	lineCol := clampInt(render.RuneIndexForColumn(lines[lineIdx], col-rect.Col-offsetX),
+		0, utf8.RuneCountInString(lines[lineIdx]))
 	idx := lineCol
 	for i := 0; i < lineIdx; i++ {
 		idx += utf8.RuneCountInString(lines[i]) + 1 // +1 for that line's own "\n"
@@ -815,6 +851,19 @@ func isTextEntry(n *html.Node) bool {
 	}
 }
 
+// isEditable reports whether n is a text entry whose value the built-in
+// default actions are allowed to modify: a text entry (isTextEntry) that is
+// neither readonly nor disabled. This is the "user edit" gate only —
+// matching real HTML, where readonly blocks typing/pasting/cutting but not
+// focus, caret movement, selection, or programmatic assignment through
+// Element.SetValue, and where a readonly control still submits with its
+// form. A disabled control can't normally be focused at all (isFocusable),
+// but a host can disable one that already is, so it's checked here too
+// rather than assumed unreachable.
+func isEditable(n *html.Node) bool {
+	return isTextEntry(n) && !nodeHasAttr(n, "readonly") && !nodeHasAttr(n, "disabled")
+}
+
 // snapshotValueAtFocus records n's current value as the baseline a later
 // commitChange call compares against, if n is a text entry — called when n
 // becomes focused. A no-op for non-text-entry elements (e.g. <select>, which
@@ -885,8 +934,10 @@ func nearestForm(n *html.Node) *html.Node {
 // DispatchKey dispatches a "keydown" event (with Event.Key set to key) to
 // the currently focused element, and — unless a listener called
 // Event.PreventDefault — runs the built-in default action: "Tab" moves
-// focus to the next focusable element (FocusNext); "Backspace"/"Delete" on a
-// focused text entry delete its current selection, or the one rune before/
+// focus to the next focusable element (FocusNext), or the previous one
+// (FocusPrev) with Shift held; "Backspace"/"Delete" on a focused editable
+// text entry (isEditable — readonly and disabled controls take no edits,
+// though they still focus, select, and move their caret normally) delete its current selection, or the one rune before/
 // after the caret if collapsed (see deleteAt); "ArrowLeft"/"ArrowRight" move
 // or (with Shift) extend the caret by one rune, collapsing an existing
 // selection to its near edge first if Shift isn't held (see
@@ -903,7 +954,9 @@ func nearestForm(n *html.Node) *html.Node {
 // Every text-entry value mutation above (Backspace/Delete, a <textarea>'s
 // Enter-newline, and typed-character insertion) also dispatches "input" on
 // the target, once per keystroke, distinct from "change" which only fires
-// on commit (Enter, or losing focus — see Document.focus/blur); pure caret
+// on commit (Enter, or losing focus — see Document.focus/blur); a readonly
+// or disabled field dispatches neither, since nothing about its value
+// changed; pure caret
 // movement (Arrow*/Home/End/Ctrl+A) dispatches neither, matching real DOM
 // (no value mutation, nothing to report). See
 // docs/proposals/CARET_SELECTION.md for the full caret/selection design.
@@ -928,10 +981,19 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	}
 	switch {
 	case key == "Tab":
-		d.FocusNext()
-	case key == "Backspace" && isTextEntry(target):
+		// Shift+Tab walks the tab order backwards, same as every real UA.
+		// A host whose terminal reports it as its own key name instead of
+		// Tab-with-Shift (tcell's legacy KeyBacktab, say) is expected to
+		// translate that into ("Tab", Modifiers{Shift: true}) — see
+		// tui/tcell_loop.go's keyName.
+		if mods.Shift {
+			d.FocusPrev()
+		} else {
+			d.FocusNext()
+		}
+	case key == "Backspace" && isEditable(target):
 		d.deleteAt(target, key, mods, false)
-	case key == "Delete" && isTextEntry(target):
+	case key == "Delete" && isEditable(target):
 		d.deleteAt(target, key, mods, true)
 	case mods.Ctrl && (key == "a" || key == "A") && isTextEntry(target):
 		v := nodeAttr(target, "value")
@@ -954,8 +1016,13 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// A <textarea> is multi-line, so Enter inserts a newline instead of
 		// submitting — matching HTML's implicit-submit-on-Enter behavior,
 		// which only applies to single-line text fields (isTextEntry's other
-		// members) and submit controls, not <textarea>.
-		d.replaceSelection(target, key, "\n", mods)
+		// members) and submit controls, not <textarea>. A readonly (or
+		// disabled) textarea swallows Enter entirely rather than falling
+		// through to the implicit-submit branch below — a <textarea> never
+		// implicit-submits, editable or not.
+		if isEditable(target) {
+			d.replaceSelection(target, key, "\n", mods)
+		}
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
 		d.commitChange(target, false)
 		if form := nearestForm(target); form != nil {
@@ -998,7 +1065,7 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 			d.scrollOffsetsX[scrollable] += step
 		}
 	default:
-		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
+		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isEditable(target) {
 			d.replaceSelection(target, key, key, mods)
 		}
 	}
@@ -1050,13 +1117,45 @@ func (d *Document) deleteSelectionRange(target *html.Node, sel selectionState) {
 	d.setSelection(target, sel.start, sel.start, "none")
 }
 
+// stripNewlines removes every CR/LF from s — HTML's "strip newlines from the
+// value" sanitization, which applies to every single-line text control
+// (everything isTextEntry accepts except <textarea>, which is the only
+// multi-line one). Without it a pasted or programmatically assigned
+// multi-line string would put a literal "\n" inside an inline <input>, which
+// this renderer honors as a real line break and which therefore tears the
+// surrounding line apart.
+func stripNewlines(s string) string {
+	if !strings.ContainsAny(s, "\r\n") {
+		return s // overwhelmingly the common case; avoid the rewrite entirely
+	}
+	return strings.NewReplacer("\r\n", "", "\r", "", "\n", "").Replace(s)
+}
+
+// sanitizeEntryValue applies stripNewlines to text unless n is a <textarea>,
+// the one text entry whose value is legitimately multi-line — the shared
+// gate every path that writes a text entry's value from caller-supplied
+// content goes through (replaceSelection, covering both DispatchPaste and
+// typed characters; Element.SetValue). Element.SetAttribute("value", ...)
+// deliberately doesn't: it's the raw-attribute escape hatch, matching real
+// DOM, where sanitization is a property of the value *setter*, not of the
+// content attribute.
+func sanitizeEntryValue(n *html.Node, text string) string {
+	if strings.EqualFold(n.Data, "textarea") {
+		return text
+	}
+	return stripNewlines(text)
+}
+
 // replaceSelection implements typed-character insertion and <textarea>'s
 // Enter-newline: replaces target's current selection (or, if collapsed,
 // inserts at the caret) with text, then collapses the caret to just after
 // the inserted text — matching real spec, where typing over a selection
 // always collapses afterward rather than leaving a new selection — and
-// dispatches "input".
+// dispatches "input". text is newline-sanitized for every single-line
+// control (sanitizeEntryValue), so a multi-line paste into an <input>
+// arrives as one line rather than breaking the layout.
 func (d *Document) replaceSelection(target *html.Node, key, text string, mods Modifiers) {
+	text = sanitizeEntryValue(target, text)
 	sel := d.selection(target)
 	v := []rune(nodeAttr(target, "value"))
 	newValue := string(v[:sel.start]) + text + string(v[sel.end:])
@@ -1187,9 +1286,12 @@ func (d *Document) moveCaretToLineEdge(target *html.Node, toEnd, extend bool) {
 // tui.Loop's bracketed-paste handling for where a real terminal's pasted
 // text comes from); Document has no clipboard access of its own. Unless a
 // listener calls Event.PreventDefault, the default action replaces a
-// focused text-like <input>/<textarea>'s current selection with
+// focused editable text-like <input>/<textarea>'s current selection with
 // ev.ClipboardData (a listener may have rewritten it, mirroring a real
 // paste handler calling clipboardData.setData first) via replaceSelection —
+// a readonly or disabled field takes no insertion (isEditable), matching a
+// real browser, where a paste handler still fires but the field is
+// unchanged —
 // inserting at the caret if the selection is collapsed, which is exactly
 // today's append-at-end behavior for any field that has never had
 // SetSelectionRange called on it (the untouched default is a caret
@@ -1209,7 +1311,7 @@ func (d *Document) DispatchPaste(text string) bool {
 	if ev.DefaultPrevented() {
 		return true
 	}
-	if isTextEntry(target) {
+	if isEditable(target) {
 		d.replaceSelection(target, "", ev.ClipboardData, Modifiers{})
 	}
 	return true
@@ -1227,7 +1329,10 @@ func (d *Document) DispatchPaste(text string) bool {
 // reverse. Unless a listener calls Event.PreventDefault, the default action
 // removes exactly what was placed on the clipboard — the selected range via
 // deleteSelectionRange, or the whole value in the collapsed case — and
-// dispatches "input". Returns the final ClipboardData (post-listener) and
+// dispatches "input". A readonly or disabled field still populates
+// ClipboardData (so a host can put it on the real clipboard) but loses
+// nothing, matching a browser, where cutting from a non-editable field
+// degrades to a copy. Returns the final ClipboardData (post-listener) and
 // true if something was focused to cut from, so a host (e.g. tui.Loop) can
 // hand that text to the real system clipboard — Document itself has no OS
 // clipboard access. ok is false, with an empty string, if nothing is
@@ -1251,7 +1356,7 @@ func (d *Document) DispatchCut() (text string, ok bool) {
 	ev := d.newEvent(target, "cut", "", Modifiers{})
 	ev.ClipboardData = clip
 	d.runDispatch(ev, target, ev.Bubbles)
-	if !ev.DefaultPrevented() && isTextEntry(target) {
+	if !ev.DefaultPrevented() && isEditable(target) {
 		// Re-read sel here rather than reusing the copy captured above: a
 		// listener may have mutated target's value (or selection) during
 		// dispatch (e.g. calling SetValue), and d.selection always
@@ -1680,7 +1785,9 @@ func (d *Document) FocusPrev() *Element {
 // scrollOffsets/scrollViewport/contentOffsets need no such cleanup: all
 // three are rebuilt wholesale on the next Render, so stale entries for
 // removed nodes are simply dropped rather than lingering (see their own doc
-// comments on Document).
+// comments on Document). The two per-node maps that *aren't* rebuilt —
+// selections and valueAtFocus — are swept explicitly by pruneDetachedState,
+// alongside the focus clearing above.
 func (d *Document) setInnerHTML(el *Element, htmlStr string) error {
 	if el == nil {
 		return fmt.Errorf("htmlterm: SetInnerHTML on nil element")
@@ -1699,7 +1806,7 @@ func (d *Document) setInnerHTML(el *Element, htmlStr string) error {
 		el.node.AppendChild(n)
 		markRulesStale(d, n)
 	}
-	d.clearFocusIfDetached()
+	d.pruneDetachedState()
 	return nil
 }
 
@@ -1741,24 +1848,49 @@ func (d *Document) SetPreRendered(el *Element, ansi string) {
 		c = next
 	}
 	el.node.AppendChild(&html.Node{Type: html.RawNode, Data: ansi})
-	d.clearFocusIfDetached()
+	d.pruneDetachedState()
 }
 
-// clearFocusIfDetached clears d.focused (silently — no "blur" dispatched,
-// since the element is gone, not blurred) if it's no longer reachable from
-// the document root — the common cleanup every mutation that can cut a
-// subtree out of the tree (SetInnerHTML, SetPreRendered, Element.RemoveChild,
-// Element.ReplaceChild) needs, so focus never dangles on a detached node.
-func (d *Document) clearFocusIfDetached() {
+// pruneDetachedState drops every piece of per-node state Document holds for
+// nodes that are no longer reachable from the document root — the common
+// cleanup every mutation that can cut a subtree out of the tree
+// (SetInnerHTML, SetPreRendered, Element.RemoveChild, Element.ReplaceChild)
+// needs.
+//
+// Focus is cleared silently (no "blur" dispatched — the element is gone, not
+// blurred) rather than left dangling on a detached node. d.selections and
+// d.valueAtFocus are swept the same way: unlike scrollOffsets/scrollViewport/
+// contentOffsets, which Render rebuilds wholesale every frame and which
+// therefore drop stale nodes for free, those two are keyed by node and only
+// ever written on demand — so without this sweep, a long-running Loop that
+// repeatedly refreshes a container via SetInnerHTML (the documented pattern
+// for content that changes shape) would accumulate one entry per text entry
+// it ever rendered, for the Document's whole lifetime. Both maps hold at
+// most a handful of live entries, so the sweep is cheap even though it's a
+// full scan.
+//
+// Event listeners are deliberately NOT swept: dropping a subtree without
+// RemoveEventListener leaks its listeners here exactly as it does in a real
+// DOM, and that's the documented behavior (see setInnerHTML).
+func (d *Document) pruneDetachedState() {
 	if d.focused != nil && !isDescendant(d.doc, d.focused) {
-		delete(d.valueAtFocus, d.focused)
 		d.focused = nil
+	}
+	for n := range d.selections {
+		if !isDescendant(d.doc, n) {
+			delete(d.selections, n)
+		}
+	}
+	for n := range d.valueAtFocus {
+		if n != d.focused && !isDescendant(d.doc, n) {
+			delete(d.valueAtFocus, n)
+		}
 	}
 }
 
 // isDescendant reports whether n is root or a descendant of root, by walking
-// up n's parent chain — used by clearFocusIfDetached to detect a focused
-// node that just got cut out of the tree.
+// up n's parent chain — used by pruneDetachedState to detect nodes that just
+// got cut out of the tree.
 func isDescendant(root, n *html.Node) bool {
 	for cur := n; cur != nil; cur = cur.Parent {
 		if cur == root {

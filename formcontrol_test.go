@@ -4,10 +4,15 @@ import "testing"
 
 func TestFormControls(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "text input shows its value", html: `<input type="text" value="hello">`, want: "[hello]"},
-		{name: "text input falls back to placeholder", html: `<input type="text" placeholder="Name">`, want: "[Name]"},
-		{name: "text input with no value or placeholder is empty brackets", html: `<input type="text">`, want: "[]"},
-		{name: "untyped input defaults to text-like", html: `<input value="hi">`, want: "[hi]"},
+		{name: "text input shows its value, padded to its default size", html: `<input type="text" value="hello">`, want: "hello               "},
+		{name: "text input falls back to placeholder", html: `<input type="text" placeholder="Name">`, want: "Name                "},
+		{name: "text input with no value or placeholder is a blank field", html: `<input type="text">`, want: "                    "},
+		{name: "untyped input defaults to text-like", html: `<input value="hi">`, want: "hi                  "},
+		{name: "size attribute overrides the default 20-column width", html: `<input value="hi" size="5">`, want: "hi   "},
+		{name: "an explicit CSS width overrides the size attribute", html: `<input value="hi" size="5" style="width: 8">`, want: "hi      "},
+		// Padding is measured in terminal columns, not runes: "日本語" is
+		// three runes but six cells, so a size=10 field has four spaces left.
+		{name: "wide runes pad by display width, not rune count", html: `<input value="日本語" size="10">`, want: "日本語    "},
 		{name: "unchecked checkbox", html: `<input type="checkbox">`, want: "☐"},
 		{name: "checked checkbox", html: `<input type="checkbox" checked>`, want: "☑"},
 		{name: "checked=checked also counts as checked", html: `<input type="checkbox" checked="checked">`, want: "☑"},
@@ -20,11 +25,11 @@ func TestFormControls(t *testing.T) {
 		{name: "hidden input renders nothing", html: `<input type="hidden" value="secret">end`, want: "end"},
 		{name: "button wraps its rendered children in brackets", html: `<button>Click me</button>`, want: "[ Click me ]"},
 		{name: "button with styled child content", html: `<button><b>OK</b></button>`, want: "[ OK ]"},
-		{name: "label flows inline with its input", html: `<label>Name: <input type="text" value="Bob"></label>`, want: "Name: [Bob]"},
+		{name: "label flows inline with its input", html: `<label>Name: <input type="text" value="Bob"></label>`, want: "Name: Bob                 "},
 		{name: "textarea uses child text as its default value", html: "<textarea>line one\nline two</textarea>", want: "┌──────────────────────────────────────┐\n│ line one                             │\n│ line two                             │\n└──────────────────────────────────────┘\n"},
 		{name: "textarea strips one leading newline per HTML spec", html: "<textarea>\nhi</textarea>", want: "┌──────────────────────────────────────┐\n│ hi                                   │\n└──────────────────────────────────────┘\n"},
 		{name: "textarea value attribute overrides child text", html: `<textarea value="from attr">ignored</textarea>`, want: "┌──────────────────────────────────────┐\n│ from attr                            │\n└──────────────────────────────────────┘\n"},
-		{name: "fieldset draws a border with legend and content", html: `<form><fieldset><legend>Info</legend><label>Name: <input type="text"></label></fieldset></form>`, width: 30, want: "┌────────────────────────────┐\n│                            │\n│ Info                       │\n│ Name: []                   │\n│                            │\n└────────────────────────────┘\n\n"},
+		{name: "fieldset draws a border with legend and content", html: `<form><fieldset><legend>Info</legend><label>Name: <input type="text"></label></fieldset></form>`, width: 30, want: "┌────────────────────────────┐\n│                            │\n│ Info                       │\n│ Name:                      │\n│                            │\n└────────────────────────────┘\n\n"},
 		{name: "select shows its explicitly selected option", html: `<select><option value="a">Apple</option><option value="b" selected>Banana</option></select>`, want: "[ Banana ▾]"},
 		{name: "select with no selected attribute falls back to the first option", html: `<select><option value="a">Apple</option><option value="b">Banana</option></select>`, want: "[ Apple ▾]"},
 		{name: "select with no options renders empty brackets", html: `<select></select>`, want: "[  ▾]"},

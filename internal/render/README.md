@@ -7,7 +7,7 @@ It is internal so the public root package can stay a small, generic renderer fac
 ## Who uses this
 
 - `github.com/client9/htmlterm` (root package) constructs an `Engine` and calls `Render` for one-shot rendering.
-- `github.com/client9/htmlterm/document` calls `RenderNode` directly (not `Render`) so it can capture the `Result`'s `Positions`/`ScrollOffsets`/`ScrollViewport`/`ContentOffsets` — the data a `Document` needs for hit-testing, focus, scrolling, and cursor placement.
+- `github.com/client9/htmlterm/document` calls `RenderNode` directly (not `Render`) so it can capture the `Result`'s `Positions`/`ScrollOffsets`/`ScrollViewport`/`ContentOffsets`/`ContentOffsetsX` — the data a `Document` needs for hit-testing, focus, scrolling, and cursor placement.
 
 ## Entry points
 
@@ -26,7 +26,7 @@ func (e *Engine) DocumentRules(doc *html.Node) []cssengine.Rule
 ```
 
 - `Render`/`RenderHTML` parse HTML themselves, for callers with no need to keep the tree around (the root package's one-shot `Renderer.Render`).
-- `RenderNode` takes an already-parsed tree plus a `Request` (width/height/rules/scroll offsets for this frame) and returns a `Result` carrying both the rendered `Output` string and the layout metadata (`Positions`, `ScrollOffsets`, `ScrollViewport`, `ContentOffsets`) needed by a live `Document`. This is the seam `document.Document.Render` uses to re-render the same tree repeatedly without losing element positions between frames.
+- `RenderNode` takes an already-parsed tree plus a `Request` (width/height/rules/scroll offsets for this frame) and returns a `Result` carrying both the rendered `Output` string and the layout metadata (`Positions`, `ScrollOffsets`, `ScrollViewport`, `ContentOffsets`, `ContentOffsetsX`) needed by a live `Document`. This is the seam `document.Document.Render` uses to re-render the same tree repeatedly without losing element positions between frames.
 - `DocumentRules` extracts `<style>`-element rules from a tree, so a caller (again, `document.Document`) can merge them with the engine's own base rules once and cache the result instead of re-parsing on every render.
 
 ## Layout and rendering
