@@ -110,6 +110,63 @@ func TestDispatchClickHitTestsInnermostElement(t *testing.T) {
 // text <input> both focuses it (previously nothing did — see
 // docs/proposals/CARET_SELECTION.md) and places the caret at the clicked
 // column, not just at the end of the value.
+// TestDispatchClickHitTestsFlexItemSizedByMinWidth pins that a flex item's
+// recorded Rect matches where it actually paints when the item's own
+// min-width is what determines its size. Flex layout used to resolve an
+// item's main-axis size from flex-basis/width alone while the item's own
+// render honored min-width too, so the second item painted six columns right
+// of the Rect recorded for it — clicking the text you can see hit nothing,
+// and clicking blank padding hit the wrong element.
+func TestDispatchClickHitTestsFlexItemSizedByMinWidth(t *testing.T) {
+	doc := mustParseDoc(t, `<div style="display:flex;width:20"><div id="a" style="width:3;min-width:9">aa</div><div id="b">bb</div></div>`)
+	b := doc.GetElementByID("b")
+
+	var target string
+	doc.AddEventListener(b, "click", false, func(e *document.Event) { target = e.Target.ID() })
+
+	rect, ok := b.Rect()
+	if !ok {
+		t.Fatalf("Rect(b) not found")
+	}
+	if rect.Col != 9 {
+		t.Errorf("Rect(b).Col = %d, want 9 (just past the min-width:9 first item)", rect.Col)
+	}
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
+		t.Fatalf("DispatchClick at b's own Rect did not hit anything")
+	}
+	if target != "b" {
+		t.Errorf("click at b's Rect hit %q, want %q", target, "b")
+	}
+}
+
+// TestDispatchClickHitTestsPastAnOverflowingFlexItem pins that an item whose
+// content is too wide for its resolved main-axis size — which overflows by
+// design rather than being truncated — pushes the Rects of the items after it
+// on the line. Flex layout used to advance by each item's allotted width, so
+// the columns the overflow painted over were still attributed to the next
+// item.
+func TestDispatchClickHitTestsPastAnOverflowingFlexItem(t *testing.T) {
+	doc := mustParseDoc(t, `<div style="display:flex;width:10"><div id="a" style="flex-basis:4">aaaaaa</div><div id="b" style="flex-basis:4">bb</div></div>`)
+	b := doc.GetElementByID("b")
+
+	var target string
+	doc.AddEventListener(b, "click", false, func(e *document.Event) { target = e.Target.ID() })
+
+	rect, ok := b.Rect()
+	if !ok {
+		t.Fatalf("Rect(b) not found")
+	}
+	if rect.Col != 6 {
+		t.Errorf("Rect(b).Col = %d, want 6 (past all six columns the first item painted)", rect.Col)
+	}
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
+		t.Fatalf("DispatchClick at b's own Rect did not hit anything")
+	}
+	if target != "b" {
+		t.Errorf("click at b's Rect hit %q, want %q", target, "b")
+	}
+}
+
 func TestDispatchClickFocusesTextEntryAndPositionsCaret(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="text" id="a" value="hello">`)
 	a := doc.GetElementByID("a")

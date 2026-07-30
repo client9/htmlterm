@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/client9/htmlterm/internal/cssengine"
 	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
@@ -36,12 +37,59 @@ type flexItem struct {
 
 // itemAlign resolves align-self's fallback to the container's align-items:
 // "auto" (the property's real default) and unset both mean "defer to the
-// container," matching CSS's own align-self semantics.
+// container," matching CSS's own align-self semantics. The result is
+// normalized (normalizeAlignKeyword), so every caller switching on it sees the
+// flexbox-era spelling of whatever the author wrote.
 func itemAlign(it flexItem, containerAlign string) string {
 	if v := it.decls["align-self"]; v != "" && v != "auto" {
-		return v
+		return normalizeAlignKeyword(v)
 	}
-	return containerAlign
+	return normalizeAlignKeyword(containerAlign)
+}
+
+// normalizeAlignKeyword folds the CSS Box Alignment module's newer keyword
+// spellings onto the original flexbox ones this file switches on. In a flex
+// container `start`/`self-start` and `end`/`self-end` mean exactly what
+// `flex-start`/`flex-end` do, and `normal` behaves as each property's own
+// default (stretch for align-items/align-self, flex-start for
+// justify-content/align-content) - which is what the unset value already
+// resolves to here, so it normalizes to the empty string. Anything else,
+// including an unrecognized value, is returned unchanged for the caller's own
+// switch to fall through on.
+//
+// The physical `left`/`right` keywords are deliberately not mapped: their
+// meaning depends on the container's direction rather than on its main-start
+// edge, which is the one thing every caller here reasons in terms of.
+func normalizeAlignKeyword(v string) string {
+	switch v {
+	case "start", "self-start":
+		return "flex-start"
+	case "end", "self-end":
+		return "flex-end"
+	case "normal":
+		return ""
+	}
+	return v
+}
+
+// reverseJustify flips justify-content's start/end sense for row-reverse/
+// column-reverse. Reversing the item sequence (reverseFlexItems) only gets
+// half the job done: a reverse direction also moves the main-*start* edge to
+// the right (row-reverse) or the bottom (column-reverse), so the default
+// justify-content:flex-start packs the already-reversed sequence against that
+// far edge, not against the left/top one this file's layout passes work from.
+// Every value that distributes space symmetrically is its own mirror image
+// and passes through unchanged; anything unrecognized (including unset) is
+// flex-start, whose mirror is flex-end.
+func reverseJustify(justify string) string {
+	switch normalizeAlignKeyword(justify) {
+	case "flex-end":
+		return "flex-start"
+	case "center", "space-between", "space-around", "space-evenly":
+		return justify
+	default:
+		return "flex-end"
+	}
 }
 
 // reverseFlexItems returns items in reverse order, for row-reverse/
@@ -61,13 +109,23 @@ func isFlexDisplay(display string) bool {
 	return display == "flex" || display == "inline-flex"
 }
 
-// parseFlexDirection resolves flex-direction into (isColumn, reverse).
-// row-reverse/column-reverse are recognized by their "-reverse" suffix;
-// anything else (including an unset/invalid value) falls back to row,
-// matching flex-direction's own default.
+// parseFlexDirection resolves flex-direction into (isColumn, reverse). Only
+// the four real keywords are recognized; anything else, including an unset or
+// misspelled value, falls back to row, matching flex-direction's own default.
+// Matching on a "column" prefix and a "-reverse" suffix instead would let a
+// typo like "colum-reverse" silently take effect as a partly-honored
+// direction, which is worse than ignoring it: an invalid declaration should
+// leave the property at its initial value, not at half of what was written.
 func parseFlexDirection(decls map[string]string) (isColumn, reverse bool) {
-	direction := decls["flex-direction"]
-	return strings.HasPrefix(direction, "column"), strings.HasSuffix(direction, "-reverse")
+	switch decls["flex-direction"] {
+	case "row-reverse":
+		return false, true
+	case "column":
+		return true, false
+	case "column-reverse":
+		return true, true
+	}
+	return false, false
 }
 
 // layoutFlex dispatches to layoutFlexRow/layoutFlexColumn per decls'
@@ -89,10 +147,14 @@ func (r *Engine) layoutFlex(n *html.Node, decls map[string]string, innerW int) (
 }
 
 // parseFlexGrow parses flex-grow (default 0; negative values are invalid per
-// spec and treated as unset).
+// spec and treated as unset). Parsing goes through cssengine.ParseNumber
+// rather than strconv, so only real CSS <number> syntax is accepted: a
+// non-finite value like "NaN" would otherwise sail through the `f < 0` check
+// (NaN compares false against everything) and then poison the total weight
+// every share is computed against, silently zeroing out well-formed siblings.
 func parseFlexGrow(decls map[string]string) float64 {
-	f, err := strconv.ParseFloat(strings.TrimSpace(decls["flex-grow"]), 64)
-	if err != nil || f < 0 {
+	f, ok := cssengine.ParseNumber(decls["flex-grow"])
+	if !ok || f < 0 {
 		return 0
 	}
 	return f
@@ -100,10 +162,10 @@ func parseFlexGrow(decls map[string]string) float64 {
 
 // parseFlexShrink parses flex-shrink (default 1, per spec; negative values
 // are invalid per spec and treated as unset, falling back to the same
-// default).
+// default). See parseFlexGrow on the parser choice.
 func parseFlexShrink(decls map[string]string) float64 {
-	f, err := strconv.ParseFloat(strings.TrimSpace(decls["flex-shrink"]), 64)
-	if err != nil || f < 0 {
+	f, ok := cssengine.ParseNumber(decls["flex-shrink"])
+	if !ok || f < 0 {
 		return 1
 	}
 	return f
@@ -125,107 +187,188 @@ func flexShrinkFloor(decls map[string]string, key string, axisSize int) int {
 	return 1
 }
 
-// flexGrowCeilingHeight resolves how far flex-grow may increase a
-// column-direction item's height: an explicit max-height (including
-// percentage, resolved against the container's own definite height) if set,
-// else 0 meaning uncapped. Row direction has no equivalent max-width ceiling
-// on flex-grow - a separate, pre-existing gap (see CSS.md's Flexbox
-// section) - so this is column-only.
-func flexGrowCeilingHeight(decls map[string]string, containerHeight int) int {
-	if h, ok := resolveCSSSize(decls["max-height"], containerHeight); ok && h > 0 {
-		return h
+// flexGrowCeiling resolves how far flex-grow may increase an item's main-axis
+// size: an explicit max-width (row direction) or max-height (column
+// direction) - including percentage, resolved against axisSize - if set, else
+// 0 meaning uncapped.
+func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
+	if v, ok := resolveCSSSize(decls[key], axisSize); ok && v > 0 {
+		return v
 	}
 	return 0
+}
+
+// clampFlexBasis clamps a resolved flex base size to the item's own minimum
+// and maximum in the same axis, producing the spec's "hypothetical main size"
+// - the size line-breaking and grow/shrink both start from. maxKey is applied
+// first and minKey second, so a minimum larger than the maximum wins, matching
+// CSS's own min/max resolution order.
+//
+// Without this, an item's declared min/max still reached the item's *own*
+// render (renderBlockContentBox resolves them in resolveWidthConstraints) but
+// not the flex layout around it, so the box painted at a different width than
+// the column flex layout had allotted it: every following item on the line
+// drifted, and the recorded Rects - what click hit-testing reads - pointed at
+// the wrong columns.
+func clampFlexBasis(decls map[string]string, minKey, maxKey string, size, axisSize int) int {
+	if v, ok := resolveCSSSize(decls[maxKey], axisSize); ok && v > 0 && size > v {
+		size = v
+	}
+	if v, ok := resolveCSSSize(decls[minKey], axisSize); ok && size < v {
+		size = v
+	}
+	return max(1, size)
+}
+
+// proportionalShares splits total into one share per group member, weighted
+// by weights[i] (members with a non-positive weight get nothing), using the
+// largest-remainder method: each member first takes the floor of its exact
+// share, then the units that flooring left unassigned go one apiece to the
+// members with the largest fractional parts, earlier members winning ties.
+// The returned slice is indexed by position within group, not by item index.
+//
+// The two properties that matter here are that shares sum to exactly total
+// and that none is ever negative. Rounding each member's share independently
+// (round-half-up) and handing leftover-assigned to the last member - what
+// distributeFlexGrow/distributeFlexShrink used to do - guaranteed neither: the
+// per-member round-ups accumulate, so that last member could be handed a
+// *negative* remainder of up to half a unit per member, ending up narrower
+// than its own flex-basis or outright negative. Twenty items at basis 2
+// sharing 10 leftover columns left the last one at -7, overflowing the
+// container by 9 columns.
+func proportionalShares(weights []float64, group []int, total int) []int {
+	shares := make([]int, len(group))
+	if total <= 0 {
+		return shares
+	}
+	totalWeight := 0.0
+	for _, i := range group {
+		if weights[i] > 0 {
+			totalWeight += weights[i]
+		}
+	}
+	if totalWeight <= 0 {
+		return shares
+	}
+	type remainder struct {
+		pos  int
+		frac float64
+	}
+	var remainders []remainder
+	assigned := 0
+	for gi, i := range group {
+		if weights[i] <= 0 {
+			continue
+		}
+		exact := float64(total) * weights[i] / totalWeight
+		base := int(exact) // exact is never negative, so this floors
+		shares[gi] = base
+		assigned += base
+		remainders = append(remainders, remainder{gi, exact - float64(base)})
+	}
+	sort.SliceStable(remainders, func(a, b int) bool { return remainders[a].frac > remainders[b].frac })
+	for k := 0; k < total-assigned && k < len(remainders); k++ {
+		shares[remainders[k].pos]++
+	}
+	return shares
+}
+
+// distributeFlexSpace hands out total units of main-axis space across group,
+// split by proportionalShares' weighting, offering each member its share via
+// take(i, units) - which applies whatever it can and returns how many units
+// the member actually absorbed, fewer than offered once that member runs into
+// its own limit. A member that couldn't take its whole share is frozen at its
+// limit and the units it left behind are re-split across the members that can
+// still move, repeating until either all of total is placed or nothing more
+// can move. Returns the units that could not be placed anywhere.
+//
+// The repeat is the point: the spec resolves flexible lengths exactly this way
+// ("freeze, recompute the free space, repeat"), and a single pass gets it
+// wrong whenever any item hits a limit. Three items of 10 with shrink 1 and a
+// deficit of 6, the last floored at min-width:9, used to end up 25 wide - the
+// unit the floored item couldn't give back was simply dropped rather than
+// taken from the two items that still had room.
+func distributeFlexSpace(weights []float64, group []int, total int, take func(i, units int) int) int {
+	active := group
+	for total > 0 && len(active) > 0 {
+		placed := 0
+		var next []int
+		for gi, share := range proportionalShares(weights, active, total) {
+			i := active[gi]
+			if share <= 0 {
+				if weights[i] > 0 {
+					next = append(next, i)
+				}
+				continue
+			}
+			took := take(i, share)
+			placed += took
+			if took == share {
+				// Absorbed everything offered, so not (yet) at its limit -
+				// still eligible for whatever the frozen members leave behind.
+				next = append(next, i)
+			}
+		}
+		if placed == 0 {
+			// Every remaining member is frozen at its limit.
+			break
+		}
+		total -= placed
+		active = next
+	}
+	return total
 }
 
 // distributeFlexGrow adds each group member's proportional share of leftover
 // to sizes[i] (i ranges over group, indices into the full item-count-sized
 // sizes/grows/ceilings arrays - matching widths/mt/mb's own convention),
-// weighted by grows[i], the last growable member absorbing the rounding
-// remainder - shared by row direction's per-line width distribution and
-// column direction's height distribution. ceilings, if non-nil, caps
-// sizes[i]'s growth at ceilings[i] (0 meaning uncapped) - real CSS's
-// max-width/max-height on a flex item. Returns however much of leftover
+// weighted by grows[i] - shared by row direction's per-line width
+// distribution and column direction's height distribution. ceilings, if
+// non-nil, caps sizes[i]'s growth at ceilings[i] (0 meaning uncapped) - real
+// CSS's max-width/max-height on a flex item, redistributed to the items that
+// can still grow (see distributeFlexSpace). Returns however much of leftover
 // wasn't actually absorbed (0 unless every growable member hit its ceiling
 // before leftover was exhausted, or no member can grow at all).
 func distributeFlexGrow(sizes []int, grows []float64, group []int, leftover int, ceilings []int) int {
-	totalGrow := 0.0
-	for _, i := range group {
-		totalGrow += grows[i]
-	}
-	if totalGrow <= 0 {
-		return leftover
-	}
-	assigned := 0
-	lastGrowIdx := -1
-	for _, i := range group {
-		if grows[i] <= 0 {
-			continue
-		}
-		lastGrowIdx = i
-		share := int(float64(leftover)*grows[i]/totalGrow + 0.5)
+	return distributeFlexSpace(grows, group, leftover, func(i, units int) int {
 		if ceilings != nil && ceilings[i] > 0 {
-			if maxAdd := ceilings[i] - sizes[i]; share > maxAdd {
-				share = max(0, maxAdd)
+			if maxAdd := ceilings[i] - sizes[i]; units > maxAdd {
+				units = max(0, maxAdd)
 			}
 		}
-		sizes[i] += share
-		assigned += share
-	}
-	extra := leftover - assigned
-	if ceilings != nil && ceilings[lastGrowIdx] > 0 {
-		if maxAdd := ceilings[lastGrowIdx] - sizes[lastGrowIdx]; extra > maxAdd {
-			extra = max(0, maxAdd)
-		}
-	}
-	sizes[lastGrowIdx] += extra
-	assigned += extra
-	return leftover - assigned
+		sizes[i] += units
+		return units
+	})
 }
 
 // distributeFlexShrink subtracts each group member's proportional share of
 // deficit from sizes[i], weighted by shrinks[i]*sizes[i] (the real spec's
-// "scaled flex shrink factor"), floored at floors[i], the last shrinkable
-// member absorbing the rounding remainder - shared by row direction's width
-// distribution and column direction's height distribution. Returns however
-// much of deficit wasn't actually absorbed (0 unless every shrinkable member
-// hit its floor before deficit was exhausted, or no member can shrink at
-// all).
+// "scaled flex shrink factor"), floored at floors[i] - shared by row
+// direction's width distribution and column direction's height distribution.
+// Returns however much of deficit wasn't actually absorbed (0 unless every
+// shrinkable member hit its floor before deficit was exhausted, or no member
+// can shrink at all). Floored members' unabsorbed share is redistributed to
+// the members that can still shrink, and shares come from proportionalShares,
+// for the same reasons distributeFlexGrow's do - see distributeFlexSpace.
+//
+// The scaled shrink factors are computed once, from each member's incoming
+// (flex base) size rather than its current one, matching the spec's own use of
+// the inner flex base size across every round of the loop.
 func distributeFlexShrink(sizes []int, shrinks []float64, floors []int, group []int, deficit int) int {
 	scaled := make([]float64, len(sizes))
-	totalScaled := 0.0
 	for _, i := range group {
 		if shrinks[i] <= 0 {
 			continue
 		}
-		s := shrinks[i] * float64(sizes[i])
-		scaled[i] = s
-		totalScaled += s
+		scaled[i] = shrinks[i] * float64(sizes[i])
 	}
-	if totalScaled <= 0 {
-		return deficit
-	}
-	assigned := 0
-	lastShrinkIdx := -1
-	for _, i := range group {
-		if scaled[i] <= 0 {
-			continue
+	return distributeFlexSpace(scaled, group, deficit, func(i, units int) int {
+		if maxReduce := sizes[i] - floors[i]; units > maxReduce {
+			units = max(0, maxReduce)
 		}
-		lastShrinkIdx = i
-		reduce := int(float64(deficit)*scaled[i]/totalScaled + 0.5)
-		if maxReduce := sizes[i] - floors[i]; reduce > maxReduce {
-			reduce = max(0, maxReduce)
-		}
-		sizes[i] -= reduce
-		assigned += reduce
-	}
-	extra := deficit - assigned
-	if maxReduce := sizes[lastShrinkIdx] - floors[lastShrinkIdx]; extra > maxReduce {
-		extra = max(0, maxReduce)
-	}
-	sizes[lastShrinkIdx] -= extra
-	assigned += extra
-	return deficit - assigned
+		sizes[i] -= units
+		return units
+	})
 }
 
 // parseOrder parses the CSS order property (default 0; invalid values fall
@@ -279,7 +422,21 @@ func resolveFlexContainerHeight(decls map[string]string) (int, bool) {
 // this order-sorted sequence by the caller, matching CSS's own layering of
 // the two.
 func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
-	var items []flexItem
+	items := r.appendFlexItems(nil, n)
+	sort.SliceStable(items, func(i, j int) bool { return items[i].order < items[j].order })
+	return items
+}
+
+// appendFlexItems is collectFlexItems' walk over one element's children,
+// recursing through any display:contents child so that child's own children
+// become flex items of the container instead. A display:contents element
+// generates no box at all (see render.go's and inline.go's "contents" cases),
+// which in a flex container means its children are the items - without the
+// recursion the wrapper itself became a single blockified item and its
+// children stacked inside it as ordinary blocks. Their decls come from
+// r.resolveDecls, which walks real ancestors, so anything inherited through
+// the display:contents wrapper still reaches them.
+func (r *Engine) appendFlexItems(items []flexItem, n *html.Node) []flexItem {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type != html.ElementNode || isSkippedContentElement(c.Data) {
 			continue
@@ -288,9 +445,12 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 		if decls["display"] == "none" || r.outOfFlow[c] {
 			continue
 		}
+		if decls["display"] == "contents" {
+			items = r.appendFlexItems(items, c)
+			continue
+		}
 		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), shrink: parseFlexShrink(decls), order: parseOrder(decls)})
 	}
-	sort.SliceStable(items, func(i, j int) bool { return items[i].order < items[j].order })
 	return items
 }
 
@@ -417,48 +577,93 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 
 // resolveMainBasis resolves a row-direction flex item's starting main-axis
 // (horizontal) size: flex-basis (if set and not auto) takes priority, then
-// width, then the item's own measured natural content width.
+// width, then the item's own measured natural content width - the result
+// clamped by the item's own min-width/max-width (clampFlexBasis). The natural
+// -width path is measured through renderBlockContentBox, which resolves those
+// two itself, so clamping is a no-op there and only really bites on the
+// flex-basis/width paths.
 func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
+	basis := 0
 	if v := it.decls["flex-basis"]; v != "" && v != "auto" {
-		if abs, pct, ok := parseSizeVal(v); ok {
-			if pct > 0 {
-				return max(1, int(pct*float64(innerW)))
-			}
-			return max(1, abs)
+		basis = resolveFlexAxisSize(v, innerW)
+	}
+	if basis == 0 {
+		if v := it.decls["width"]; v != "" {
+			basis = resolveFlexAxisSize(v, innerW)
 		}
 	}
-	if v := it.decls["width"]; v != "" {
-		if abs, pct, ok := parseSizeVal(v); ok {
-			if pct > 0 {
-				return max(1, int(pct*float64(innerW)))
-			}
-			return max(1, abs)
-		}
+	if basis == 0 {
+		basis = r.measureNaturalWidth(it, innerW)
 	}
-	return max(1, r.measureNaturalWidth(it, innerW))
+	return clampFlexBasis(it.decls, "min-width", "max-width", basis, innerW)
+}
+
+// resolveFlexAxisSize resolves one absolute-or-percentage CSS length against
+// axisSize, returning 0 when the value isn't a length at all (so callers can
+// fall through to their next source). A resolved length is floored at 1: this
+// engine can't render a zero-width/zero-height box, so flex-basis:0 - what the
+// common `flex: 1` shorthand expands to - starts at one cell rather than none.
+func resolveFlexAxisSize(v string, axisSize int) int {
+	abs, pct, ok := parseSizeVal(v)
+	if !ok {
+		return 0
+	}
+	if pct > 0 {
+		return max(1, int(pct*float64(axisSize)))
+	}
+	return max(1, abs)
 }
 
 // resolveCrossWidth resolves a column-direction flex item's cross-axis
 // (horizontal) width when align-items isn't stretch: width if set, else the
-// item's own measured natural content width, both capped to innerW.
+// item's own measured natural content width, capped to innerW and then clamped
+// by the item's own min-width/max-width - so a min-width larger than the
+// container still wins and overflows, matching CSS (and matching what the
+// item's own render will do to itself regardless).
 func (r *Engine) resolveCrossWidth(it flexItem, innerW int) int {
+	w := 0
 	if v := it.decls["width"]; v != "" {
-		if abs, pct, ok := parseSizeVal(v); ok {
-			if pct > 0 {
-				return max(1, min(innerW, int(pct*float64(innerW))))
-			}
-			return max(1, min(innerW, abs))
+		w = resolveFlexAxisSize(v, innerW)
+	}
+	if w == 0 {
+		w = r.measureNaturalWidth(it, innerW)
+	}
+	return clampFlexBasis(it.decls, "min-width", "max-width", min(innerW, w), innerW)
+}
+
+// splitEvenly divides total into n parts that differ by at most one, earlier
+// parts taking the remainder. Used for every even-spacing justify-content /
+// align-content value, so none of them can dump a rounding remainder on a
+// single edge.
+func splitEvenly(total, n int) []int {
+	parts := make([]int, n)
+	if n <= 0 || total <= 0 {
+		return parts
+	}
+	base, rem := total/n, total%n
+	for i := range parts {
+		parts[i] = base
+		if i < rem {
+			parts[i]++
 		}
 	}
-	return max(1, min(innerW, r.measureNaturalWidth(it, innerW)))
+	return parts
 }
 
 // distributeJustify resolves justify-content's leftover-main-axis-space
 // distribution into a leading pad (before the first item) and n-1 extra
 // per-gap amounts (added on top of the base column-gap between items).
-// leftover <= 0 (no free space, or the row already overflows) always yields
-// no extra spacing — matching this engine's no-shrink flex-grow pass, which
-// already consumes all leftover space itself whenever any item can grow.
+// leftover <= 0 (no free space, or the line already overflows) always yields
+// no extra spacing - which is the usual case whenever any item can grow, since
+// flex-grow consumes the leftover first.
+//
+// distributeAlignContent shares this: align-content distributes leftover
+// cross-axis space across a wrapped container's lines exactly the way
+// justify-content distributes leftover main-axis space across one line's
+// items, so they are one function rather than two that have to be kept in
+// step. An unrecognized value (including unset, and align-content's
+// "stretch" - see distributeAlignContent) falls through to no distribution,
+// which is flex-start's behavior.
 func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int) {
 	if n > 1 {
 		gaps = make([]int, n-1)
@@ -466,29 +671,34 @@ func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int
 	if leftover <= 0 {
 		return 0, gaps
 	}
-	switch justify {
+	switch normalizeAlignKeyword(justify) {
 	case "flex-end":
 		leadPad = leftover
 	case "center":
 		leadPad = leftover / 2
 	case "space-between":
+		// All of it between the items, none at the edges.
 		if n < 2 {
 			return 0, gaps
 		}
-		base := leftover / (n - 1)
-		rem := leftover % (n - 1)
-		for i := range gaps {
-			gaps[i] = base
-			if i < rem {
-				gaps[i]++
-			}
-		}
+		copy(gaps, splitEvenly(leftover, n-1))
 	case "space-around":
-		unit := leftover / n
-		rem := leftover % n
-		leadPad = unit/2 + rem/2
+		// Each item gets an equal share centered on it, so the edge pads are
+		// half a share and the pad between two items is two halves. Splitting
+		// into 2n half-shares and recombining keeps the rounding remainder
+		// spread across the line instead of landing on one edge.
+		halves := splitEvenly(leftover, 2*n)
+		leadPad = halves[0]
 		for i := range gaps {
-			gaps[i] = unit
+			gaps[i] = halves[2*i+1] + halves[2*i+2]
+		}
+	case "space-evenly":
+		// n+1 equal pads: before the first item, between each pair, and after
+		// the last.
+		units := splitEvenly(leftover, n+1)
+		leadPad = units[0]
+		for i := range gaps {
+			gaps[i] = units[i+1]
 		}
 	}
 	return leadPad, gaps
@@ -497,47 +707,16 @@ func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int
 // distributeAlignContent resolves align-content's leftover cross-axis space
 // across a wrapped row container's lines into a leading blank-row count
 // (before the first line) and n-1 extra row-gap amounts (added on top of the
-// base row-gap between lines) - the same shape as distributeJustify, but
-// operating on whole lines in the cross (vertical) axis rather than items in
-// the main (horizontal) axis. leftover <= 0 (no explicit container height, or
-// the wrapped lines already fill or exceed it) always yields no extra
-// spacing. "stretch" (align-content's real default) has no cell-grid
-// equivalent for growing each line's own items taller than their content, so
-// it's approximated as flex-start (no distribution) rather than half
-// implementing per-item vertical growth - see CSS.md.
+// base row-gap between lines). Same distribution as distributeJustify, just
+// applied to whole lines on the cross (vertical) axis rather than to items on
+// the main (horizontal) axis - see there for the value handling.
+//
+// "stretch" (align-content's real default) has no cell-grid equivalent for
+// growing each line's own items taller than their content, so it falls through
+// to flex-start's no-distribution behavior rather than half implementing
+// per-item vertical growth - see CSS.md.
 func distributeAlignContent(align string, leftover, n int) (leadRows int, gaps []int) {
-	if n > 1 {
-		gaps = make([]int, n-1)
-	}
-	if leftover <= 0 {
-		return 0, gaps
-	}
-	switch align {
-	case "flex-end":
-		leadRows = leftover
-	case "center":
-		leadRows = leftover / 2
-	case "space-between":
-		if n < 2 {
-			return 0, gaps
-		}
-		base := leftover / (n - 1)
-		rem := leftover % (n - 1)
-		for i := range gaps {
-			gaps[i] = base
-			if i < rem {
-				gaps[i]++
-			}
-		}
-	case "space-around":
-		unit := leftover / n
-		rem := leftover % n
-		leadRows = unit/2 + rem/2
-		for i := range gaps {
-			gaps[i] = unit
-		}
-	}
-	return leadRows, gaps
+	return distributeJustify(align, leftover, n)
 }
 
 // crossOffset resolves align-items' vertical offset (row direction) for one
@@ -628,7 +807,14 @@ func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
 // exactly as row-direction flex layout always has for a single line. widths
 // is mutated in place for group's own indices (each index belongs to exactly
 // one line, so this is safe across repeated calls for other lines).
-func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap int, decls map[string]string) (box, int, map[*html.Node]Rect) {
+//
+// minHeight forces the line's cross size (normally its tallest item's outer
+// height) up to at least that many rows - a single-line container's line takes
+// the container's own inner cross size, so align-items/align-self resolve
+// against the container's declared height rather than against the content.
+// 0 means "whatever the items come to", the multi-line case, where each line
+// sizes to its own content and align-content places the lines instead.
+func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap, minHeight int, justify string, decls map[string]string) (box, int, map[*html.Node]Rect) {
 	totalGap := gap * (len(group) - 1)
 	availForItems := max(0, innerW-totalGap)
 
@@ -639,17 +825,21 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	grows := make([]float64, len(items))
 	shrinks := make([]float64, len(items))
 	floors := make([]int, len(items))
+	ceilings := make([]int, len(items))
 	for _, i := range group {
 		grows[i] = items[i].grow
 		shrinks[i] = items[i].shrink
 		floors[i] = flexShrinkFloor(items[i].decls, "min-width", innerW)
+		ceilings[i] = flexGrowCeiling(items[i].decls, "max-width", innerW)
 	}
 	leftover := availForItems - sumW
 	switch {
 	case leftover > 0:
-		// Row direction has no max-width ceiling on flex-grow (a separate,
-		// pre-existing gap - see CSS.md), so growth is always uncapped here.
-		leftover = distributeFlexGrow(widths, grows, group, leftover, nil)
+		// Capped per item at its own max-width, the mirror of column
+		// direction's max-height ceiling. Any leftover the ceilings prevented
+		// from being absorbed flows through to justify-content below rather
+		// than being silently dropped.
+		leftover = distributeFlexGrow(widths, grows, group, leftover, ceilings)
 	case leftover < 0:
 		// Overflow: shrink items proportionally to flex-shrink * basis width
 		// (the real spec's "scaled flex shrink factor"), floored at
@@ -703,7 +893,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	itemBoxes := make(map[int]box, len(group))
 	itemPositions := make(map[int]map[*html.Node]Rect, len(group))
 	outerHeights := make(map[int]int, len(group))
-	height := 1
+	height := max(1, minHeight)
 	for _, i := range group {
 		it := items[i]
 		w := max(1, widths[i])
@@ -730,7 +920,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	var leadPad int
 	extraGaps := make([]int, max(0, len(group)-1))
 	if !marginsOverrideJustify {
-		leadPad, extraGaps = distributeJustify(decls["justify-content"], leftover, len(group))
+		leadPad, extraGaps = distributeJustify(justify, leftover, len(group))
 	}
 
 	rowLines := make([]string, height)
@@ -756,11 +946,19 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 		for li := range rowLines {
 			rowLines[li] += padded.lines[li]
 		}
-		positions[it.node] = Rect{Row: offset, Col: colStart, Width: widths[i], Height: len(itemBoxes[i].lines)}
+		// Column bookkeeping tracks the box's *painted* width, not the width
+		// the main-axis pass allotted it. alignLinesBox above pads a box up to
+		// its allotment but never truncates one that exceeds it - content that
+		// can't fit (an unbreakable word wider than the item's shrink floor)
+		// overflows by design. Advancing by the allotment instead would leave
+		// every later item on the line with a Rect that's short by the
+		// overflow, pointing hit-testing at columns another item is painting.
+		painted := itemBoxes[i].width
+		positions[it.node] = Rect{Row: offset, Col: colStart, Width: painted, Height: len(itemBoxes[i].lines)}
 		if len(itemPositions[i]) > 0 {
 			positions = mergePositions(positions, itemPositions[i], offset, colStart)
 		}
-		colStart += widths[i]
+		colStart += painted
 		if extraRight[gi] > 0 {
 			blank := strings.Repeat(" ", extraRight[gi])
 			for li := range rowLines {
@@ -800,6 +998,10 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	gap := parseGapLen(decls["column-gap"])
 	rowGap := parseGapLen(decls["row-gap"])
 	wrap := parseFlexWrap(decls)
+	justify := decls["justify-content"]
+	if reverse {
+		justify = reverseJustify(justify)
+	}
 
 	// Fixed (non-auto) margin-left/margin-right on a flex item need no
 	// separate handling here: renderFlexItemBox dispatches to the ordinary
@@ -841,6 +1043,22 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	}
 
 	lineGroups := breakFlexLines(len(items), widths, innerW, gap, wrap)
+
+	// A single-line container (flex-wrap: nowrap) has exactly one line, and
+	// that line's cross size is the container's own inner cross size - so an
+	// explicit height on the container is what align-items/align-self resolve
+	// against, which is what makes align-items:center vertically center a
+	// fixed-height row. align-content is inoperative in that case (real CSS
+	// says so outright), and the multi-line case instead sizes each line to
+	// its own content and lets align-content place the lines, so the height
+	// only reaches layoutFlexLine here.
+	lineMinHeight := 0
+	if !wrap {
+		if h, ok := resolveFlexContainerHeight(decls); ok {
+			lineMinHeight = h
+		}
+	}
+
 	type lineResult struct {
 		b   box
 		h   int
@@ -848,12 +1066,8 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	}
 	results := make([]lineResult, len(lineGroups))
 	for li, group := range lineGroups {
-		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, decls)
+		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, lineMinHeight, justify, decls)
 		results[li] = lineResult{b, h, pos}
-	}
-
-	if len(results) == 1 {
-		return results[0].b, results[0].pos
 	}
 
 	contentHeight := 0
@@ -947,6 +1161,13 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	mt := make([]int, len(items))
 	mb := make([]int, len(items))
 	widths := make([]int, len(items))
+	// crossSized[i] marks an item whose cross-axis width this pass resolved
+	// itself (align-items/align-self other than stretch) rather than handing
+	// it the container's full width. Only those get that width enforced on
+	// their rendered box below; a stretched item is left at whatever it
+	// rendered to, so an inline-flex container still shrinks to fit its
+	// content instead of padding out to its caller's wrap bound.
+	crossSized := make([]bool, len(items))
 	basisH := make([]int, len(items))
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
@@ -955,6 +1176,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		w := innerW
 		if itAlign != "" && itAlign != "stretch" {
 			w = r.resolveCrossWidth(it, innerW)
+			crossSized[i] = true
 		}
 		widths[i] = max(1, w)
 		basisH[i] = parseColumnFlexBasis(it.decls, containerHeight, hasContainerHeight)
@@ -1019,17 +1241,16 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			grows[i] = it.grow
 			shrinks[i] = it.shrink
 			floors[i] = flexShrinkFloor(it.decls, "min-height", containerHeight)
-			ceilings[i] = flexGrowCeilingHeight(it.decls, containerHeight)
+			ceilings[i] = flexGrowCeiling(it.decls, "max-height", containerHeight)
 		}
 		switch {
 		case leftover > 0:
 			// Mirrors layoutFlexLine's flex-grow branch, distributing into
 			// height instead of width - capped per item at its own
-			// max-height (ceilings), unlike row direction's flex-grow,
-			// which has no max-width equivalent yet (see CSS.md). Any
-			// leftover the ceilings prevented from being absorbed flows
-			// through to justify-content/the trailing pad below, instead of
-			// being silently dropped.
+			// max-height (ceilings), the mirror of row direction's max-width
+			// ceiling. Any leftover the ceilings prevented from being
+			// absorbed flows through to justify-content/the trailing pad
+			// below, instead of being silently dropped.
 			leftover = distributeFlexGrow(finalHeights, grows, allIdx, leftover, ceilings)
 		case leftover < 0:
 			// Mirrors layoutFlexLine's flex-shrink branch.
@@ -1058,7 +1279,11 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// from 0 above when hasContainerHeight is true, so without an explicit
 	// container height this always resolves to distributeJustify(justify, 0,
 	// n)'s own no-op case - safe to call unconditionally.
-	leadRows, extraGaps := distributeJustify(decls["justify-content"], leftover, len(items))
+	justify := decls["justify-content"]
+	if reverse {
+		justify = reverseJustify(justify)
+	}
+	leadRows, extraGaps := distributeJustify(justify, leftover, len(items))
 
 	var lines []string
 	for range leadRows {
@@ -1076,7 +1301,16 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			lines = append(lines, "")
 			row++
 		}
+		// A cross-axis width this pass resolved itself has to be enforced on
+		// the box, the same way layoutFlexLine enforces the main-axis width in
+		// row direction: renderBlockContentBox only pads to its available
+		// width when something (an explicit width, text-align, a border)
+		// requires it, so an item sized by min-width would otherwise collapse
+		// back to its natural width and be aligned as if it were that narrow.
 		b := boxes[i]
+		if crossSized[i] {
+			b = alignLinesBox(b, it.decls["text-align"], widths[i])
+		}
 		colOffset := 0
 		switch itemAlign(it, align) {
 		case "center":

@@ -93,6 +93,7 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "border-left functional color is not split on internal spaces", prop: "border-left", val: "solid rgb(255 0 0)", want: map[string]string{"border-left": "solid", "border-left-color": "rgb(255 0 0)"}},
 		{name: "border-right invalid arity falls back", prop: "border-right", val: "1px solid red extra", want: map[string]string{"border-right": "1px solid red extra"}},
 		{name: "border-bottom one value is style only", prop: "border-bottom", val: "double", want: map[string]string{"border-bottom": "double"}},
+		{name: "flex NaN is not a number token, so it is the basis component", prop: "flex", val: "NaN", want: map[string]string{"flex-basis": "NaN"}},
 		{name: "gap one value sets both axes", prop: "gap", val: "2", want: map[string]string{"row-gap": "2", "column-gap": "2"}},
 		{name: "gap two values set row then column", prop: "gap", val: "1 2", want: map[string]string{"row-gap": "1", "column-gap": "2"}},
 		{name: "gap invalid arity falls back", prop: "gap", val: "1 2 3", want: map[string]string{"gap": "1 2 3"}},
@@ -105,6 +106,14 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "flex number then basis defaults shrink to 1", prop: "flex", val: "1 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
 		{name: "flex three values are grow shrink basis", prop: "flex", val: "1 2 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
 		{name: "flex invalid arity falls back", prop: "flex", val: "1 2 3 4", want: map[string]string{"flex": "1 2 3 4"}},
+		{name: "flex-flow both components", prop: "flex-flow", val: "row wrap", want: map[string]string{"flex-direction": "row", "flex-wrap": "wrap"}},
+		{name: "flex-flow components in either order", prop: "flex-flow", val: "wrap column-reverse", want: map[string]string{"flex-direction": "column-reverse", "flex-wrap": "wrap"}},
+		{name: "flex-flow direction alone resets wrap to its initial value", prop: "flex-flow", val: "column", want: map[string]string{"flex-direction": "column", "flex-wrap": "nowrap"}},
+		{name: "flex-flow wrap alone resets direction to its initial value", prop: "flex-flow", val: "wrap", want: map[string]string{"flex-direction": "row", "flex-wrap": "wrap"}},
+		{name: "flex-flow is case-insensitive and normalizes to lowercase", prop: "flex-flow", val: "Row WRAP", want: map[string]string{"flex-direction": "row", "flex-wrap": "wrap"}},
+		{name: "flex-flow naming one component twice falls back", prop: "flex-flow", val: "row column", want: map[string]string{"flex-flow": "row column"}},
+		{name: "flex-flow with an unknown keyword falls back", prop: "flex-flow", val: "row sideways", want: map[string]string{"flex-flow": "row sideways"}},
+		{name: "flex-flow invalid arity falls back", prop: "flex-flow", val: "row wrap extra", want: map[string]string{"flex-flow": "row wrap extra"}},
 
 		// CSS-wide keywords (inherit/unset/initial): every longhand a
 		// shorthand covers gets the same keyword, rather than the
@@ -128,6 +137,9 @@ func TestExpandShorthand(t *testing.T) {
 			"list-style-type": "unset", "list-style-position": "unset",
 		}},
 		{name: "background initial expands to background-color", prop: "background", val: "initial", want: map[string]string{"background-color": "initial"}},
+		{name: "flex-flow inherit expands to direction and wrap", prop: "flex-flow", val: "inherit", want: map[string]string{
+			"flex-direction": "inherit", "flex-wrap": "inherit",
+		}},
 		{name: "flex inherit expands to grow shrink basis", prop: "flex", val: "inherit", want: map[string]string{
 			"flex-grow": "inherit", "flex-shrink": "inherit", "flex-basis": "inherit",
 		}},
@@ -1481,5 +1493,40 @@ func TestHoverPseudoMatchesSyntheticAttr(t *testing.T) {
 	}
 	if _, ok := cascade.Resolve(findElementByID(doc, "b"))["background-color"]; ok {
 		t.Errorf(`Cascade.Resolve(#b) should not pick up the p:hover rule (no hover attr)`)
+	}
+}
+
+// TestParseNumber pins ParseNumber to CSS <number> syntax rather than Go
+// literal syntax. The distinction that matters is the non-finite one: a NaN
+// reaching flex layout compares false against every bound, so it survives
+// validity checks and then poisons the total weight the distribution divides
+// by.
+func TestParseNumber(t *testing.T) {
+	valid := []struct {
+		in   string
+		want float64
+	}{
+		{"0", 0}, {"1", 1}, {"-2", -2}, {"+3", 3},
+		{"1.5", 1.5}, {".5", 0.5}, {"5.", 5}, {"-0.25", -0.25},
+		{"1e3", 1000}, {"1E3", 1000}, {"2e-2", 0.02}, {"2e+2", 200},
+		{"  4  ", 4},
+	}
+	for _, tt := range valid {
+		got, ok := ParseNumber(tt.in)
+		if !ok || got != tt.want {
+			t.Errorf("ParseNumber(%q) = (%v, %v), want (%v, true)", tt.in, got, ok, tt.want)
+		}
+	}
+
+	invalid := []string{
+		"", ".", "-", "+", "abc", "1px", "1 2", "1,2", "--1", "1e", "1e+", "1ee2",
+		"NaN", "nan", "Inf", "-Inf", "Infinity", // accepted by strconv.ParseFloat, not by CSS
+		"0x1p-2", "1_000", // Go literal syntax, not CSS
+		"1e400", // syntactically fine but not a finite float64
+	}
+	for _, in := range invalid {
+		if got, ok := ParseNumber(in); ok {
+			t.Errorf("ParseNumber(%q) = (%v, true), want ok = false", in, got)
+		}
 	}
 }

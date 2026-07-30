@@ -302,6 +302,7 @@ var shorthandLonghands = map[string][]string{
 	"border-color":   {"border-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color"},
 	"overflow":       {"overflow-x", "overflow-y"},
 	"gap":            {"row-gap", "column-gap"},
+	"flex-flow":      {"flex-direction", "flex-wrap"},
 	"border-spacing": {"border-spacing-x", "border-spacing-y"},
 	// flex is deliberately absent: expandShorthand routes "flex" straight to
 	// expandFlexShorthand without consulting this table, since that
@@ -509,6 +510,8 @@ func expandShorthand(prop, val string) map[string]string {
 		}
 	case "flex":
 		return expandFlexShorthand(val)
+	case "flex-flow":
+		return expandFlexFlowShorthand(val)
 	case "margin-block-start":
 		return map[string]string{"margin-top": val}
 	case "margin-block-end":
@@ -548,9 +551,7 @@ func expandBackgroundShorthand(val string) map[string]string {
 // flex-shrink 1 and flex-basis 0 — the common `flex: 1` equal-growth
 // pattern), a number followed by a second number (grow shrink, basis 0), a
 // number followed by a non-numeric token (grow basis, shrink 1), or the full
-// three-token grow/shrink/basis form. flex-shrink is expanded like any other
-// longhand but htmlterm's renderer does not yet apply it (items are never
-// shrunk below their resolved basis) — see CSS.md's Flexbox section.
+// three-token grow/shrink/basis form — see CSS.md's Flexbox section.
 func expandFlexShorthand(val string) map[string]string {
 	// inherit/unset only - "initial" is deliberately left to the switch
 	// below: flex's own grammar already treats the literal token "initial"
@@ -587,9 +588,101 @@ func expandFlexShorthand(val string) map[string]string {
 	}
 }
 
+// expandFlexFlowShorthand expands the `flex-flow` shorthand into
+// flex-direction and flex-wrap. Per the CSS grammar the two components are
+// each optional and may appear in either order ("wrap row" is as valid as
+// "row wrap"); whichever is omitted is set to its own initial value, since a
+// shorthand always resets every longhand it covers. Anything that isn't a
+// keyword of exactly one of the two components - or that names the same
+// component twice - is left unexpanded, so it lands in the cascade as an
+// inert `flex-flow` declaration rather than half-applying.
+func expandFlexFlowShorthand(val string) map[string]string {
+	tokens := strings.Fields(strings.ToLower(val))
+	if len(tokens) == 0 || len(tokens) > 2 {
+		return map[string]string{"flex-flow": val}
+	}
+	direction, wrap := "", ""
+	for _, tok := range tokens {
+		switch tok {
+		case "row", "row-reverse", "column", "column-reverse":
+			if direction != "" {
+				return map[string]string{"flex-flow": val}
+			}
+			direction = tok
+		case "nowrap", "wrap", "wrap-reverse":
+			if wrap != "" {
+				return map[string]string{"flex-flow": val}
+			}
+			wrap = tok
+		default:
+			return map[string]string{"flex-flow": val}
+		}
+	}
+	if direction == "" {
+		direction = "row"
+	}
+	if wrap == "" {
+		wrap = "nowrap"
+	}
+	return map[string]string{"flex-direction": direction, "flex-wrap": wrap}
+}
+
 func isCSSNumberToken(s string) bool {
-	_, err := strconv.ParseFloat(s, 64)
-	return err == nil
+	_, ok := ParseNumber(s)
+	return ok
+}
+
+// ParseNumber parses a CSS <number> token: an optional sign, digits with an
+// optional fractional part (either side may be omitted, but not both), and an
+// optional e-notation exponent. Surrounding whitespace is ignored.
+//
+// This is deliberately stricter than strconv.ParseFloat, which is a Go literal
+// parser and also accepts "NaN", "Inf"/"Infinity", hex-float forms like
+// "0x1p-2", and digit-separating underscores. None of those are CSS numbers,
+// and a NaN reaching layout is worse than a dropped declaration: it compares
+// false against every bound, so it slips past validity checks and then
+// poisons any total it's summed into.
+func ParseNumber(s string) (float64, bool) {
+	s = strings.TrimSpace(s)
+	rest := strings.TrimLeft(s, "+-")
+	if len(s)-len(rest) > 1 {
+		return 0, false
+	}
+	mantissa, exponent, hasExponent := rest, "", false
+	if i := strings.IndexAny(rest, "eE"); i >= 0 {
+		mantissa, exponent, hasExponent = rest[:i], rest[i+1:], true
+	}
+	intPart, fracPart, _ := strings.Cut(mantissa, ".")
+	if !isASCIIDigits(intPart) || !isASCIIDigits(fracPart) || intPart+fracPart == "" {
+		return 0, false
+	}
+	if hasExponent {
+		digits := strings.TrimLeft(exponent, "+-")
+		if len(exponent)-len(digits) > 1 || digits == "" || !isASCIIDigits(digits) {
+			return 0, false
+		}
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		// Syntax is already known-good, so this is out-of-range only - a
+		// value like 1e400, whose ParseFloat result is an infinity. Rejecting
+		// it keeps the guarantee callers actually rely on: a successful parse
+		// is always a finite number.
+		return 0, false
+	}
+	return f, true
+}
+
+// isASCIIDigits reports whether s is entirely ASCII digits. An empty string
+// qualifies: ParseNumber's caller checks separately that at least one of the
+// integer and fractional parts is non-empty.
+func isASCIIDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func expandListStyleShorthand(val string) map[string]string {

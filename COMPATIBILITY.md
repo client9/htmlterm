@@ -195,6 +195,26 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `devanagari`, `disclosure-open`/`disclosure-closed`, etc. — see "Not
   Supported" below). `symbols()` itself is a real CSS Counter Styles
   function, just without its `<symbols-type>` keyword or image arguments.
+- **`flex-basis`/`width` on a flex item size the item's whole outer box**, not
+  its content box, so an item's margins come out of that size rather than
+  adding to it: `flex-basis: 6; margin-right: 4` occupies 6 columns of the
+  line here and 10 in a browser. This follows the same convention `width`
+  already has everywhere else in this engine (a declared width is the total
+  visual width of the box, margins and border characters included), which is
+  what makes `width: 100%` line up exactly with the renderer's width.
+- **An atomic inline box taller than one line breaks the line it sits in.**
+  `inline-block` and `inline-flex` elements are rendered as one indivisible
+  unit and spliced into the surrounding inline flow; when that unit is more
+  than one line tall, its line breaks go into the flow as-is instead of the
+  box being placed beside the text on the same baseline, so the text before
+  and after it ends up on separate rows. Keep such boxes to a single line if
+  they share a line with text. Easiest to hit via `inline-flex`, where any
+  item that wraps makes the container two lines tall.
+- **`flex-basis: 0` resolves to one cell, not zero.** No box can render in
+  zero columns/lines, so the floor is one — which means the common `flex: 1`
+  (whose shorthand expansion is `flex-basis: 0`) reserves one cell per item
+  before any leftover space is distributed, making grow ratios slightly off
+  for items with differing `flex-grow` weights.
 
 ### Terminal-Native Additions
 
@@ -311,14 +331,19 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `transform`, `transition`/`animation`, `filter`.
 - **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction,
   `flex-wrap: wrap-reverse`, `align-content: stretch` (approximated as
-  `flex-start`), `baseline` alignment, `margin: auto` beyond row direction's
-  main axis (row direction's `margin-left`/`margin-right: auto` is
-  supported). `flex-grow`/`flex-shrink`/`justify-content` now work in
-  `column` direction too, but only once the container has an explicit CSS
-  `height` — this engine has no other notion of a column flex container's
-  main-axis size (row direction's width is always definite, so it never
-  needed this condition) — see CSS.md's Flexbox section for the full
-  reasoning per gap.
+  `flex-start`), `baseline` alignment, the physical `left`/`right` alignment
+  keywords, `margin: auto` beyond row direction's main axis (row direction's
+  `margin-left`/`margin-right: auto` is supported), and text nodes directly
+  inside a flex container, which real CSS wraps in anonymous flex items but
+  this engine drops (wrap loose text in a `<span>`).
+  `flex-grow`/`flex-shrink`/`justify-content` do work in `column` direction,
+  but only once the container has an explicit CSS `height` — this engine has
+  no other notion of a column flex container's main-axis size (row
+  direction's width is always definite, so it never needed this condition).
+  There is also no min-content measurement to serve as the spec's *automatic*
+  minimum size, so an item whose content can't fit at its resolved size
+  overflows past it rather than forcing the line wider. See CSS.md's Flexbox
+  section for the full reasoning per gap.
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
   consulted, via real conflict resolution against their column's cells). The
