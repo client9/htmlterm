@@ -413,7 +413,16 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 				row = maxRow
 			}
 		} else {
-			col = rect.Col + caret
+			// +1: a text-like <input> (the only tag reaching this branch —
+			// textarea takes the branch above, and checkbox/radio/submit/
+			// button/reset/hidden are excluded from IsTextEntry entirely)
+			// always renders as inputDisplayText's synthesized "["+value+"]"
+			// (formcontrol.go), so its box's first column is the literal
+			// "[", not the value's own first character. Without this, the
+			// terminal cursor lands one column short of the real caret —
+			// e.g. sitting on "[" itself for an empty field instead of
+			// between "[" and "]".
+			col = rect.Col + 1 + caret
 		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {
 			col = maxCol
