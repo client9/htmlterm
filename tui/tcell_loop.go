@@ -203,21 +203,31 @@ func (l *Loop) Quit() {
 
 // keyName maps a tcell.EventKey to htmlterm's existing DispatchKey
 // vocabulary (docs/INTERACTIVE.md): a single printable rune as a UTF-8 string,
-// or a named key from a fixed set ("Enter", "Backspace", "Tab", "Escape",
-// "ArrowUp"/"Down"/"Left"/"Right", "PageUp"/"PageDown"). ok is false for
-// anything outside that vocabulary (function keys, modifier-only events,
-// etc.), which the caller simply ignores — the same restricted-subset
-// stance the previous hand-rolled decoder took.
+// or a named key from a fixed set ("Enter", "Backspace", "Delete", "Tab",
+// "Escape", "Home", "End", "ArrowUp"/"Down"/"Left"/"Right",
+// "PageUp"/"PageDown"). ok is false for anything outside that vocabulary
+// (function keys, modifier-only events, etc.), which the caller simply
+// ignores — the same restricted-subset stance the previous hand-rolled
+// decoder took. "Home"/"End"/"Delete" are needed for
+// DispatchKey's caret/selection default actions (see
+// docs/proposals/CARET_SELECTION.md) — without them, those key presses
+// never reach Document.DispatchKey at all.
 func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	switch ev.Key() {
 	case tcell.KeyEnter:
 		return "Enter", true
 	case tcell.KeyBackspace, tcell.KeyBackspace2:
 		return "Backspace", true
+	case tcell.KeyDelete:
+		return "Delete", true
 	case tcell.KeyTab:
 		return "Tab", true
 	case tcell.KeyEsc:
 		return "Escape", true
+	case tcell.KeyHome:
+		return "Home", true
+	case tcell.KeyEnd:
+		return "End", true
 	case tcell.KeyUp:
 		return "ArrowUp", true
 	case tcell.KeyDown:
@@ -333,17 +343,39 @@ func splitLines(frame string) []string {
 	return lines
 }
 
+// caretLineCol locates rune offset caret within value's "\n"-delimited
+// lines, returning the (zero-based) line index and the column within that
+// line — focusCursorPos's <textarea> helper, mirroring document.go's own
+// lineBounds/DispatchKey caret math (see
+// docs/proposals/CARET_SELECTION.md) rather than reimplementing it
+// differently here. caret is assumed already clamped to
+// [0, len(value) in runes] (true for anything read from
+// Element.SelectionEnd).
+func caretLineCol(value string, caret int) (line, col int) {
+	lines := strings.Split(value, "\n")
+	remaining := caret
+	for i, l := range lines {
+		n := utf8.RuneCountInString(l)
+		if i == len(lines)-1 || remaining <= n {
+			return i, remaining
+		}
+		remaining -= n + 1 // +1 consumes this line's own trailing "\n"
+	}
+	return len(lines) - 1, utf8.RuneCountInString(lines[len(lines)-1])
+}
+
 // focusCursorPos reports where the terminal's real cursor should land for
 // doc's currently focused element, in doc's own coordinate space — unlike
 // the previous originRow-based version, tcell.Screen owns the whole
 // terminal from (0,0), so no origin-row offset is needed. For a text-like
-// input/textarea it lands just past the end of the current value (an
-// insertion-point approximation, clamped inside the element's own box,
-// e.g. "[value]"); for any other focusable element (checkbox, radio,
-// button) it lands on the box's first column. ok is false if nothing is
-// focused, the focused element has no recorded Rect, or it's currently
-// scrolled out of view by one of its scrollable ancestors
-// (Element.ScrollVisible).
+// input/textarea it lands at the element's current caret
+// (Element.SelectionEnd — the same edge a real UA parks its blinking caret
+// at even when a range is selected, see docs/proposals/CARET_SELECTION.md),
+// clamped inside the element's own box (e.g. "[value]"); for any other
+// focusable element (checkbox, radio, button) it lands on the box's first
+// column. ok is false if nothing is focused, the focused element has no
+// recorded Rect, or it's currently scrolled out of view by one of its
+// scrollable ancestors (Element.ScrollVisible).
 func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	el := doc.FocusedElement()
 	if el == nil {
@@ -358,32 +390,30 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	}
 	row, col = rect.Row, rect.Col
 	if el.IsTextEntry() {
-		value := el.Value()
+		caret := el.SelectionEnd()
 		// A <textarea>'s value can span multiple lines (DispatchKey's Enter
-		// default action appends "\n" — see document.go), and every
-		// dispatched edit only ever appends at the end, so the insertion
-		// point is always the end of the last "\n"-delimited line: advance
-		// row by the number of embedded newlines, and measure column from
-		// that last line alone rather than the whole value's total rune
-		// count. This doesn't account for a single line getting further
-		// wrapped by its own width (wordWrapTokens, block.go) — an accepted
-		// narrower approximation gap than not handling embedded newlines at
-		// all.
+		// default action can insert "\n" anywhere, not just append it — see
+		// document.go's replaceSelection), so the caret's row/column need
+		// locating within the right "\n"-delimited line (caretLineCol), not
+		// assumed to be the last one. This doesn't account for a single
+		// line getting further wrapped by its own width (wordWrapTokens,
+		// block.go) — an accepted narrower approximation gap than not
+		// handling embedded newlines at all.
 		if strings.ToLower(el.TagName()) == "textarea" {
 			// doc.ContentOffset (see its doc comment) is the row shift from
 			// rect.Row down to this textarea's own first content row —
 			// border-top plus padding-top — needed here because Rect alone
 			// is the full border box (see Rect's doc comment) and can't say
 			// where content actually starts within it.
-			lines := strings.Split(value, "\n")
+			line, lineCol := caretLineCol(el.Value(), caret)
 			offset, _ := doc.ContentOffset(el)
-			row = rect.Row + offset + len(lines) - 1
-			col = rect.Col + utf8.RuneCountInString(lines[len(lines)-1])
+			row = rect.Row + offset + line
+			col = rect.Col + lineCol
 			if maxRow := rect.Row + rect.Height - 1; row > maxRow {
 				row = maxRow
 			}
 		} else {
-			col = rect.Col + utf8.RuneCountInString(value)
+			col = rect.Col + caret
 		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {
 			col = maxCol

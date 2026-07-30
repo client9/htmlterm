@@ -36,12 +36,30 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `Checked()`/`SetChecked()` read and write those same attributes directly.
   There's no separate "live DOM property vs. reflected HTML attribute"
   distinction the way real browsers maintain for form controls.
-- **Typing has no cursor.** `DispatchKey` on a focused text `<input>`/
-  `<textarea>` always appends to, or trims from, the *end* of `value` —
-  there's no caret position, no text selection, and no Home/End/ArrowLeft/
-  ArrowRight-driven insertion point within the field itself (those arrow
-  keys are reserved for select-popup/scroll navigation instead — see
-  `docs/SELECT.md`).
+- **Text-field selection is a single flat range, not real DOM's
+  `Selection`/`Range` model.** `Element.SelectionStart()`/`SelectionEnd()`/
+  `SelectionDirection()`/`SetSelectionRange()` mirror
+  `HTMLInputElement`/`HTMLTextAreaElement`'s own selection API (rune offsets,
+  not UTF-16 code units), and `DispatchKey`'s
+  ArrowLeft/Right/Home/End/Backspace/Delete/Ctrl+A default actions, plus
+  `DispatchClick`'s click-to-position-caret default action (Shift extends),
+  all operate on it — but there's no `window.getSelection()`/`Range` object,
+  no cross-element selection, and no `contenteditable` selection at all (see
+  "`contenteditable`" below). See `docs/proposals/CARET_SELECTION.md`.
+- **A click's caret-column math ignores a text `<input>`'s synthesized `"["`
+  prefix.** `DispatchClick`'s click-to-caret placement (previous bullet) and
+  the terminal's own hardware cursor placement (`tui.Loop`'s
+  `focusCursorPos`) both measure the clicked/caret column as a plain offset
+  from the box's left edge, with no separate accounting for the literal `"["`
+  a text-like `<input>` renders before its value — an existing approximation
+  this shares, not a new one it introduces.
+- **A `<textarea>`'s caret/selection placement doesn't account for
+  word-wrapping.** Both the terminal cursor (`focusCursorPos`) and the
+  `::selection` highlight locate a rune offset by its `"\n"`-delimited
+  *logical* line, not by which *wrapped* row the renderer actually placed
+  it on — a caret inside a long line that word-wraps onto a second screen
+  row will render one logical line "early." Single-line `<input>` and
+  short/un-wrapped `<textarea>` content are unaffected.
 - **`<noscript>` content always renders** — there's no scripting engine to
   disable it for, so (unlike a browser, which only shows `noscript` content
   when JavaScript is off) it's unconditionally treated as regular markup.
@@ -135,6 +153,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `docs/SELECT.md`). **`:focus`** likewise matches a synthetic marker
   `Element.Focus` sets, not real window/pointer focus, and only means
   anything against a live `Document`, not one-shot `Renderer.Render`.
+- **`::selection` supports a narrower property set than real CSS** —
+  `color`, `background-color`, `font-weight`, `font-style`, and
+  `text-decoration` (mirroring `::marker`'s own supported set here), versus
+  spec's `color`/`background-color`/`text-decoration`/`text-shadow`/
+  `-webkit-text-stroke-color`/`caret-color`. With neither `color` nor
+  `background-color` set, it falls back to reverse video rather than a
+  browser's platform-native selection color, which has no terminal-neutral
+  equivalent — see `docs/proposals/CARET_SELECTION.md`.
 - **`text-transform: superscript`/`subscript`** substitutes each character
   for its Unicode superscript/subscript code point where one exists
   (there's no real script/font rendering) — characters with no Unicode
@@ -326,13 +352,19 @@ For the design rationale behind the DOM/Events/rendering internals, see
   reads a terminal directly outside of `Loop`.
 - **Only one click "kind" exists** — there's no `mousedown`/`mouseup`/
   `dblclick`/`contextmenu`/drag events, just a single synthesized
-  `"click"` that hit-tests and runs default actions atomically.
-- **`"cut"`/`"paste"` always act on a whole field, never a selection** —
-  there's no text-selection/caret-range concept narrower than "the focused
-  text entry's entire value" (see "Not Supported" below), so `DispatchCut`
-  always clears the whole value rather than removing a selected range, and
-  `DispatchPaste` always appends at the end rather than inserting at a caret
-  position. `Event.ClipboardData` is a plain string, not a real
+  `"click"` that hit-tests and runs default actions atomically, including
+  the focus-plus-caret-placement default action a real `mousedown` alone
+  would run (see `docs/proposals/CARET_SELECTION.md`) — there's no way to
+  observe focus having moved before "click" fires, the way a listener on a
+  real page could.
+- **`"cut"`/`"paste"` are selection-scoped, with one narrower-than-spec
+  fallback.** `DispatchCut`/`DispatchPaste` act on the focused text entry's
+  current `[SelectionStart, SelectionEnd)` range when it's non-collapsed
+  (removing it, or replacing it with the pasted text) — but a *collapsed*
+  cut (no active selection) falls back to acting on the field's whole value,
+  rather than real spec's "nothing to cut" no-op, preserving this package's
+  original append/whole-field behavior for any caller that never touches
+  `SetSelectionRange`. `Event.ClipboardData` is a plain string, not a real
   `DataTransfer`/`clipboardData` object with MIME types.
 - **`DispatchWheel` mutates scroll position directly** and returns whether
   anything scrolled — unlike every other `Dispatch*` method, it does not

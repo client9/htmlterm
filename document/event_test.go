@@ -106,6 +106,50 @@ func TestDispatchClickHitTestsInnermostElement(t *testing.T) {
 	}
 }
 
+// TestDispatchClickFocusesTextEntryAndPositionsCaret pins that clicking a
+// text <input> both focuses it (previously nothing did — see
+// docs/proposals/CARET_SELECTION.md) and places the caret at the clicked
+// column, not just at the end of the value.
+func TestDispatchClickFocusesTextEntryAndPositionsCaret(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="text" id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	rect, ok := a.Rect()
+	if !ok {
+		t.Fatalf("Rect(a) not found")
+	}
+	// Rendered content is "[hello]": rect.Col+0 is "[", rect.Col+1 is "h".
+	if !doc.DispatchClick(rect.Row, rect.Col+3, document.Modifiers{}) {
+		t.Fatal("DispatchClick did not hit the input")
+	}
+	if doc.FocusedElement() == nil || !doc.FocusedElement().IsSameNode(a) {
+		t.Fatal("click did not focus the text entry")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 3 || end != 3 {
+		t.Errorf("selection after click = [%d,%d), want collapsed at 3", start, end)
+	}
+}
+
+// TestDispatchClickShiftExtendsSelection pins that Shift+Click extends the
+// existing selection to the click point rather than collapsing it there —
+// real Shift+Click semantics, reachable without any mousemove/drag support.
+func TestDispatchClickShiftExtendsSelection(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="text" id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 1)
+	rect, ok := a.Rect()
+	if !ok {
+		t.Fatalf("Rect(a) not found")
+	}
+
+	if !doc.DispatchClick(rect.Row, rect.Col+4, document.Modifiers{Shift: true}) {
+		t.Fatal("DispatchClick did not hit the input")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 1 || end != 4 {
+		t.Errorf("selection after Shift+Click = [%d,%d), want [1,4)", start, end)
+	}
+}
+
 func TestDispatchClickReturnsFalseWhenNothingHit(t *testing.T) {
 	doc := mustParseDoc(t, `<p>hello</p>`)
 	if doc.DispatchClick(999, 999, document.Modifiers{}) {
@@ -575,6 +619,158 @@ func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	}
 }
 
+// TestSelectionRendersHighlightEndToEnd exercises the full path from
+// Document.DispatchKey through Document.Render: a Shift+Arrow-extended
+// selection on a focused <input> renders under a reverse-video highlight —
+// see docs/proposals/CARET_SELECTION.md's Document->internal/render marker
+// attribute plumbing (Document.setSelection/syncSelectionAttrs).
+func TestSelectionRendersHighlightEndToEnd(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(5, 5)
+
+	doc.DispatchKey("ArrowLeft", document.Modifiers{Shift: true})
+	doc.DispatchKey("ArrowLeft", document.Modifiers{Shift: true})
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "\x1b[7mlo\x1b[m") {
+		t.Errorf("expected \"lo\" wrapped in reverse video, got %q", out)
+	}
+}
+
+func TestDispatchKeyArrowMovesCaretNotJustScroll(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="abc">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	// SelectionStart/End default to the end of the value (3).
+	if got := a.SelectionEnd(); got != 3 {
+		t.Fatalf("initial SelectionEnd() = %d, want 3", got)
+	}
+
+	doc.DispatchKey("ArrowLeft", document.Modifiers{})
+	if got := a.SelectionEnd(); got != 2 {
+		t.Errorf("after ArrowLeft, SelectionEnd() = %d, want 2", got)
+	}
+
+	// Typing at the caret inserts there, not at the end of the value.
+	doc.DispatchKey("X", document.Modifiers{})
+	if got := a.Value(); got != "abXc" {
+		t.Fatalf("value after typing mid-string = %q, want %q", got, "abXc")
+	}
+	if got := a.SelectionEnd(); got != 3 {
+		t.Errorf("SelectionEnd() after insert = %d, want 3 (just after inserted char)", got)
+	}
+}
+
+func TestDispatchKeyShiftArrowExtendsSelectionThenTypeReplaces(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(5, 5) // collapsed at end
+
+	// Shift+ArrowLeft twice: select the last two characters ("lo").
+	doc.DispatchKey("ArrowLeft", document.Modifiers{Shift: true})
+	doc.DispatchKey("ArrowLeft", document.Modifiers{Shift: true})
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 3 || end != 5 {
+		t.Fatalf("selection after Shift+ArrowLeft x2 = [%d,%d), want [3,5)", start, end)
+	}
+	if dir := a.SelectionDirection(); dir != "backward" {
+		t.Errorf("SelectionDirection() = %q, want \"backward\"", dir)
+	}
+
+	// Typing replaces the selection.
+	doc.DispatchKey("!", document.Modifiers{})
+	if got := a.Value(); got != "hel!" {
+		t.Fatalf("value after typing over selection = %q, want %q", got, "hel!")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 4 || end != 4 {
+		t.Errorf("selection after replace = [%d,%d), want collapsed at 4", start, end)
+	}
+}
+
+func TestDispatchKeyHomeEndOnTextarea(t *testing.T) {
+	doc := mustParseDoc(t, `<textarea id="a" value="foo&#10;bar"></textarea>`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(5, 5) // just after "foo\nb" -> caret between "b" and "ar"
+
+	doc.DispatchKey("Home", document.Modifiers{})
+	if got := a.SelectionEnd(); got != 4 { // start of second line ("foo\n" is 4 runes)
+		t.Errorf("after Home, SelectionEnd() = %d, want 4", got)
+	}
+	doc.DispatchKey("End", document.Modifiers{})
+	if got := a.SelectionEnd(); got != 7 { // end of "foo\nbar"
+		t.Errorf("after End, SelectionEnd() = %d, want 7", got)
+	}
+}
+
+func TestDispatchKeyDeleteAndBackspaceOnSelection(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 4) // "ell" selected
+
+	doc.DispatchKey("Delete", document.Modifiers{})
+	if got := a.Value(); got != "ho" {
+		t.Fatalf("value after Delete on selection = %q, want %q", got, "ho")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 1 || end != 1 {
+		t.Errorf("selection after Delete = [%d,%d), want collapsed at 1", start, end)
+	}
+
+	doc.DispatchKey("Backspace", document.Modifiers{})
+	if got := a.Value(); got != "o" {
+		t.Fatalf("value after Backspace = %q, want %q", got, "o")
+	}
+}
+
+func TestDispatchKeyCtrlASelectsAll(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(2, 2)
+
+	doc.DispatchKey("a", document.Modifiers{Ctrl: true})
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 0 || end != 5 {
+		t.Errorf("selection after Ctrl+A = [%d,%d), want [0,5)", start, end)
+	}
+	if dir := a.SelectionDirection(); dir != "forward" {
+		t.Errorf("SelectionDirection() = %q, want \"forward\"", dir)
+	}
+}
+
+func TestDispatchKeyArrowLeftCollapsesSelectionToNearEdge(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 4)
+
+	doc.DispatchKey("ArrowLeft", document.Modifiers{})
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 1 || end != 1 {
+		t.Errorf("selection after unmodified ArrowLeft = [%d,%d), want collapsed at 1 (near edge)", start, end)
+	}
+}
+
+func TestDispatchKeyArrowMovementFiresNoInputEvent(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	var fired bool
+	doc.AddEventListener(a, "input", false, func(e *document.Event) { fired = true })
+
+	doc.DispatchKey("ArrowLeft", document.Modifiers{})
+	doc.DispatchKey("Home", document.Modifiers{})
+	doc.DispatchKey("End", document.Modifiers{Shift: true})
+	if fired {
+		t.Error("pure caret movement fired \"input\", want none (no value mutation)")
+	}
+}
+
 func TestDispatchKeyFiresInputOnEveryMutatingKeystroke(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
 	a := doc.GetElementByID("a")
@@ -692,6 +888,76 @@ func TestDispatchPasteReturnsFalseWhenNothingFocused(t *testing.T) {
 	doc := mustParseDoc(t, `<input id="a">`)
 	if doc.DispatchPaste("x") {
 		t.Fatal("DispatchPaste returned true with nothing focused")
+	}
+}
+
+func TestDispatchPasteReplacesSelection(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 4) // "ell" selected
+
+	if !doc.DispatchPaste("XY") {
+		t.Fatal("DispatchPaste returned false with a focused element")
+	}
+	if got := a.Value(); got != "hXYo" {
+		t.Fatalf("value after paste over selection = %q, want %q", got, "hXYo")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 3 || end != 3 {
+		t.Errorf("selection after paste = [%d,%d), want collapsed at 3 (just after pasted text)", start, end)
+	}
+}
+
+func TestDispatchCutRemovesOnlySelectedRange(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 4) // "ell" selected
+
+	text, ok := doc.DispatchCut()
+	if !ok {
+		t.Fatal("DispatchCut returned ok=false with a focused element")
+	}
+	if text != "ell" {
+		t.Fatalf("DispatchCut text = %q, want %q (just the selected range)", text, "ell")
+	}
+	if got := a.Value(); got != "ho" {
+		t.Fatalf("value after cutting a selection = %q, want %q", got, "ho")
+	}
+	if start, end := a.SelectionStart(), a.SelectionEnd(); start != 1 || end != 1 {
+		t.Errorf("selection after cut = [%d,%d), want collapsed at 1 (start of the removed range)", start, end)
+	}
+}
+
+// TestDispatchCutListenerShrinkingValueDoesNotPanic pins that a "cut"
+// listener mutating (in particular, shortening) the target's value during
+// dispatch doesn't crash the post-dispatch deletion step — it must re-read
+// the selection instead of reusing the pre-dispatch snapshot, since that
+// snapshot can point past the end of a since-shortened value.
+func TestDispatchCutListenerShrinkingValueDoesNotPanic(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="hello">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+	a.SetSelectionRange(1, 4) // "ell" selected, out of a 5-rune value
+
+	doc.AddEventListener(a, "cut", false, func(e *document.Event) {
+		// Shrinks the value below the pre-dispatch selection's end (4).
+		e.Target.SetValue("hi")
+	})
+
+	text, ok := doc.DispatchCut()
+	if !ok {
+		t.Fatal("DispatchCut returned ok=false with a focused element")
+	}
+	if text != "ell" {
+		t.Fatalf("DispatchCut text (populated pre-dispatch) = %q, want %q", text, "ell")
+	}
+	// The listener's SetValue collapsed the selection (SetValue always
+	// does), so the post-dispatch default action falls back to clearing
+	// the (now-current) whole value, rather than operating on the
+	// pre-dispatch range at all.
+	if got := a.Value(); got != "" {
+		t.Errorf("value after cut = %q, want empty", got)
 	}
 }
 

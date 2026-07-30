@@ -350,7 +350,23 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if val == "" {
 			val = strings.TrimPrefix(rawContent(n), "\n")
 		}
-		tokens = appendText(nil, newInlineStyle(), val, r.profile)
+		if start, end, has := r.selectionRange(n); has {
+			// Splice in the ::selection highlight (see
+			// docs/proposals/CARET_SELECTION.md) by tokenizing the
+			// before/selected/after spans separately, at the [start, end)
+			// rune offsets into the whole (possibly multi-line) value —
+			// appendText already knows how to split embedded "\n"s within
+			// each span into brk tokens, same as the single-call form below.
+			runes := []rune(val)
+			start = min(max(start, 0), len(runes))
+			end = min(max(end, 0), len(runes))
+			selStyle := r.resolveSelectionStyle(n, decls)
+			tokens = appendText(tokens, newInlineStyle(), string(runes[:start]), r.profile)
+			tokens = appendText(tokens, selStyle, string(runes[start:end]), r.profile)
+			tokens = appendText(tokens, newInlineStyle(), string(runes[end:]), r.profile)
+		} else {
+			tokens = appendText(nil, newInlineStyle(), val, r.profile)
+		}
 	} else {
 		tokens = r.renderInlineAccTokens(n, acc, innerW)
 	}

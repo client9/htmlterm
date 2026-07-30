@@ -377,8 +377,11 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					case c.Data == "input":
 						// <input> has no children — its visual content is
 						// synthesized from attributes (type/value/placeholder/
-						// checked), not rendered from child nodes.
-						inner = childAcc.render(inputDisplayText(c), r.profile)
+						// checked), not rendered from child nodes. See
+						// render.go's top-level dispatch case for why this is
+						// renderInput, not a plain inputDisplayText/
+						// childAcc.render pair.
+						inner = r.renderInput(c, childDecls, childAcc, r.profile)
 					case c.Data == "select":
 						// <select>'s closed-state content is synthesized
 						// from its <option> children's labels, not

@@ -60,15 +60,21 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 - `DispatchClick`/`DispatchWheel`/`DispatchKey`/`DispatchResize` — synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
+  `DispatchClick` on a focusable text entry also focuses it and positions
+  its caret at the clicked rune (Shift held extends the existing selection
+  instead) — folded into "click" for the same "only one click kind" reason,
+  mirroring a real browser's separate mousedown-driven focus/caret
+  placement — see `docs/proposals/CARET_SELECTION.md`.
 - `DispatchPaste(text)`/`DispatchCut()` — synthesize `"paste"`/`"cut"` with
   `Event.ClipboardData` pre-populated (from `text` for paste, from the
-  focused field's value for cut), and run their default action (insert into,
-  or clear, a focused text-like field's value). Real DOM never exposes a
-  scriptable "fire a paste/cut" call like this — those only ever come from
-  an actual OS clipboard action — but `Document` has no OS clipboard access
-  of its own, so a host (`tui.Loop`, on bracketed paste / Ctrl-X) calls
-  these explicitly instead. Always whole-field, not selection-scoped — see
-  `COMPATIBILITY.md`.
+  selected range — or the focused field's whole value if the selection is
+  collapsed — for cut), and run their default action (insert into, or
+  remove from, a focused text-like field's value at the current selection).
+  Real DOM never exposes a scriptable "fire a paste/cut" call like this —
+  those only ever come from an actual OS clipboard action — but `Document`
+  has no OS clipboard access of its own, so a host (`tui.Loop`, on
+  bracketed paste / Ctrl-X) calls these explicitly instead. See
+  `docs/proposals/CARET_SELECTION.md`.
 - `FocusNext`/`FocusPrev` — programmatic tab-order traversal; no spec
   equivalent (real browsers only move focus this way via actual Tab
   keypresses, not a scriptable method).
@@ -143,6 +149,8 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `HTMLElement.focus()` / `blur()` | `Focus()` / `Blur()` | |
 | `HTMLElement.click()` | `Click()` | Synthesizes the click at e's own `Rect()` (top-left cell) and dispatches through the normal `DispatchClick` path; returns `false` if e has no recorded `Rect` (e.g. `display:none`, or `Render` hasn't run yet). |
 | `HTMLInputElement.value` / `checked` | `Value()`/`SetValue()`, `Checked()`/`SetChecked()` | Attribute-backed, not a separate live property — see `COMPATIBILITY.md`'s "Form controls are attribute-driven" deviation. |
+| `HTMLInputElement.selectionStart` / `selectionEnd` / `selectionDirection` | `SelectionStart()` / `SelectionEnd()` / `SelectionDirection()` | Rune offsets into `Value()`, not UTF-16 code units. Unlike `value`, this *is* live property state, not a reflected attribute — matching real spec's own split (`Element.SetValue` collapses it to the end, same as a real programmatic `.value` assignment). Defaults to a caret collapsed at the end of the value if `SetSelectionRange` has never been called, matching this package's original append-at-end typing behavior. See `docs/proposals/CARET_SELECTION.md`. |
+| `HTMLInputElement.setSelectionRange(start, end, direction)` | `SetSelectionRange(start, end, direction...)` | `direction` is variadic (0 or 1 args) rather than a required third parameter; an omitted or unrecognized direction normalizes to `"none"`. `DispatchKey`'s arrow/Home/End/Backspace/Delete/typing default actions, and `DispatchClick`'s click-to-caret default action (with Shift extending), all go through this same state — see `docs/proposals/CARET_SELECTION.md`. |
 | `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
 | `HTMLElement.tabIndex` | Missing (typed accessor) | `tabindex` itself *is* read (drives focus order — see COMPATIBILITY.md's DOM & Events "At a Glance" and "Deviations from Spec"); there's just no typed `Element.TabIndex()`/`SetTabIndex()` shortcut — use `GetAttribute`/`SetAttribute("tabindex", ...)` directly, same as the rest of this row. |
 | `HTMLElement.title`, etc. (remaining typed property shortcuts) | Missing | Use `GetAttribute`/`SetAttribute` with the matching attribute name. |

@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
@@ -66,6 +67,98 @@ func inputDisplayText(n *html.Node) string {
 		}
 		return "[" + val + "]"
 	}
+}
+
+// selectionRange reports the [start, end) rune range into a focused text
+// entry's value that should render under the ::selection highlight — see
+// docs/proposals/CARET_SELECTION.md. has is false unless n currently
+// carries the focus marker (real UAs don't paint a selection highlight on
+// an unfocused field) and both selectionStartAttr/selectionEndAttr are
+// present. The two attribute values are reclamped against n's *current*
+// value length here, the same way Document.selection reclamps on every
+// read — they normally can't be stale (Document.setSelection/clearSelection
+// keep them in sync with d.selections), but a direct
+// Element.SetAttribute("value", ...) call bypasses SetValue's
+// clearSelection and can leave them pointing past a since-shortened value;
+// reclamping here keeps this function's notion of the selection consistent
+// with Element.SelectionStart()/SelectionEnd() (which reclamp the same way)
+// rather than trusting the raw attributes verbatim. has is false if,
+// after reclamping, the range is malformed or collapsed (start >= end) —
+// including the collapsed-by-reclamping case, not just an originally
+// collapsed one.
+func (r *Engine) selectionRange(n *html.Node) (start, end int, has bool) {
+	if !nodeHasAttr(n, r.focusAttr) {
+		return 0, 0, false
+	}
+	sv := nodeAttr(n, r.selectionStartAttr)
+	ev := nodeAttr(n, r.selectionEndAttr)
+	if sv == "" || ev == "" {
+		return 0, 0, false
+	}
+	s, errS := strconv.Atoi(sv)
+	e, errE := strconv.Atoi(ev)
+	if errS != nil || errE != nil {
+		return 0, 0, false
+	}
+	valueLen := utf8.RuneCountInString(nodeAttr(n, "value"))
+	s = min(max(s, 0), valueLen)
+	e = min(max(e, 0), valueLen)
+	if s >= e {
+		return 0, 0, false
+	}
+	return s, e, true
+}
+
+// resolveSelectionStyle resolves n's effective ::selection style: any
+// author color/background-color declaration wins, the same
+// resolve-then-render shape resolveScrollbarStyle uses for
+// ::scrollbar-track/::scrollbar-thumb. With neither set, it falls back to
+// reverse video (inlineStyle.reverse) — the UA default every terminal
+// editor already uses for a text selection, since there's no
+// terminal-neutral equivalent of a browser's platform selection color to
+// hardcode instead. elemDecls is n's own resolved declarations, read only
+// for var() substitution (see pseudoElemDecls).
+func (r *Engine) resolveSelectionStyle(n *html.Node, elemDecls map[string]string) inlineStyle {
+	decls := r.pseudoElemDecls(n, "selection", customPropSubset(elemDecls))
+	style := extractInlineStyle(decls)
+	if style.fg == nil && style.bg == nil {
+		style.reverse = true
+	}
+	return style
+}
+
+// renderInput renders an <input>'s synthesized content, applying acc
+// uniformly — except, for a text-like input with a non-collapsed, focused
+// selection (selectionRange), the [start, end) rune range within its value
+// (not counting the synthesized "["/"]" brackets), which instead renders
+// under resolveSelectionStyle's ::selection style. Checkbox/radio/submit/
+// button/reset/hidden inputs have no notion of a text selection, so they
+// keep rendering as a single acc.render(inputDisplayText(n), p) call, same
+// as before this existed.
+func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inlineStyle, p colorprofile.Profile) string {
+	typ := strings.ToLower(nodeAttr(n, "type"))
+	if typ == "" {
+		typ = "text"
+	}
+	switch typ {
+	case "hidden", "checkbox", "radio", "submit", "button", "reset":
+		return acc.render(inputDisplayText(n), p)
+	}
+	start, end, has := r.selectionRange(n)
+	if !has {
+		return acc.render(inputDisplayText(n), p)
+	}
+	val := nodeAttr(n, "value")
+	if val == "" {
+		val = nodeAttr(n, "placeholder")
+	}
+	runes := []rune(val)
+	start = min(max(start, 0), len(runes))
+	end = min(max(end, 0), len(runes))
+	selStyle := r.resolveSelectionStyle(n, elemDecls)
+	return acc.render("["+string(runes[:start]), p) +
+		selStyle.render(string(runes[start:end]), p) +
+		acc.render(string(runes[end:])+"]", p)
 }
 
 // parseFloatAttr reads n's key attribute as a float, falling back to def

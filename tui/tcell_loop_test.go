@@ -290,6 +290,94 @@ b"></textarea>`, htmlterm.Options{Width: 40})
 	}
 }
 
+// TestFocusCursorPosUsesSelectionEndNotAlwaysEndOfValue pins that
+// focusCursorPos follows a non-collapsed-at-end caret set via
+// SetSelectionRange, rather than always landing at the end of the value —
+// see docs/proposals/CARET_SELECTION.md.
+func TestFocusCursorPosUsesSelectionEndNotAlwaysEndOfValue(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="in" value="hello">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("in")
+	el.Focus()
+	el.SetSelectionRange(2, 2) // caret after "he"
+
+	rect, ok := el.Rect()
+	if !ok {
+		t.Fatalf("input has no recorded Rect")
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	if row != rect.Row {
+		t.Errorf("row = %d, want %d", row, rect.Row)
+	}
+	if wantCol := rect.Col + 2; col != wantCol {
+		t.Errorf("col = %d, want %d (caret after \"he\", not end of value)", col, wantCol)
+	}
+}
+
+// TestFocusCursorPosTextareaCaretMidValue pins that focusCursorPos's
+// caretLineCol locates a caret on an earlier line, not just the last one —
+// exercising the same "Enter can insert a newline anywhere, not just
+// append" change DispatchKey's replaceSelection made (see
+// docs/proposals/CARET_SELECTION.md).
+func TestFocusCursorPosTextareaCaretMidValue(t *testing.T) {
+	doc, err := document.ParseDocument(`<textarea id="ta" style="border-style:none;padding:0;width:20" value="line one
+line two
+line three"></textarea>`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	el := doc.GetElementByID("ta")
+	el.Focus()
+	// "line one\n" is 9 runes; +4 lands after "line" on the second line.
+	el.SetSelectionRange(13, 13)
+
+	rect, ok := el.Rect()
+	if !ok {
+		t.Fatalf("textarea has no recorded Rect")
+	}
+	row, col, ok := focusCursorPos(doc)
+	if !ok {
+		t.Fatal("focusCursorPos ok = false, want true")
+	}
+	if wantRow := rect.Row + 1; row != wantRow {
+		t.Errorf("row = %d, want %d (second line, not the last)", row, wantRow)
+	}
+	if wantCol := rect.Col + len("line"); col != wantCol {
+		t.Errorf("col = %d, want %d", col, wantCol)
+	}
+}
+
+func TestKeyNameHomeEndDelete(t *testing.T) {
+	tests := []struct {
+		key     tcell.Key
+		want    string
+		wantOK  bool
+		comment string
+	}{
+		{tcell.KeyHome, "Home", true, "Home"},
+		{tcell.KeyEnd, "End", true, "End"},
+		{tcell.KeyDelete, "Delete", true, "Delete"},
+	}
+	for _, tt := range tests {
+		ev := tcell.NewEventKey(tt.key, "", tcell.ModNone)
+		got, ok := keyName(ev)
+		if got != tt.want || ok != tt.wantOK {
+			t.Errorf("keyName(%s) = (%q, %v), want (%q, %v)", tt.comment, got, ok, tt.want, tt.wantOK)
+		}
+	}
+}
+
 // TestFocusCursorPosSingleLineInputUnaffected pins that a single-line text
 // input (no embedded newlines, and never display:block so it never has a
 // ContentOffset entry) still uses the simple rect.Row/whole-value-length

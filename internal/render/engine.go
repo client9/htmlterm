@@ -25,6 +25,8 @@ type Options struct {
 	FocusAttr           string
 	SelectOpenAttr      string
 	SelectHighlightAttr string
+	SelectionStartAttr  string
+	SelectionEndAttr    string
 }
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
@@ -41,6 +43,8 @@ type Engine struct {
 	focusAttr             string
 	selectOpenAttr        string
 	selectHighlightAttr   string
+	selectionStartAttr    string
+	selectionEndAttr      string
 	counterMap            map[*html.Node]counterSnapshot
 	directCache           map[*html.Node]map[string]string
 	quoteDepth            int
@@ -179,6 +183,14 @@ func New(opts Options) (*Engine, error) {
 	if selectHighlightAttr == "" {
 		selectHighlightAttr = defaultSelectHighlightAttr
 	}
+	selectionStartAttr := opts.SelectionStartAttr
+	if selectionStartAttr == "" {
+		selectionStartAttr = defaultSelectionStartAttr
+	}
+	selectionEndAttr := opts.SelectionEndAttr
+	if selectionEndAttr == "" {
+		selectionEndAttr = defaultSelectionEndAttr
+	}
 	return &Engine{
 		baseRules:           rules,
 		width:               opts.Width,
@@ -191,6 +203,8 @@ func New(opts Options) (*Engine, error) {
 		focusAttr:           focusAttr,
 		selectOpenAttr:      selectOpenAttr,
 		selectHighlightAttr: selectHighlightAttr,
+		selectionStartAttr:  selectionStartAttr,
+		selectionEndAttr:    selectionEndAttr,
 	}, nil
 }
 
@@ -248,6 +262,8 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		focusAttr:           e.focusAttr,
 		selectOpenAttr:      e.selectOpenAttr,
 		selectHighlightAttr: e.selectHighlightAttr,
+		selectionStartAttr:  e.selectionStartAttr,
+		selectionEndAttr:    e.selectionEndAttr,
 		scrollOffsets:       req.ScrollOffsets,
 		scrollOffsetsX:      req.ScrollOffsetsX,
 	}
@@ -374,3 +390,17 @@ const defaultSelectOpenAttr = "data-htmlterm-select-open"
 // no option carries this one (e.g. a popup force-opened directly in markup,
 // with no live browsing session behind it — see compositeSelectPopup).
 const defaultSelectHighlightAttr = "data-htmlterm-select-highlight"
+
+// defaultSelectionStartAttr/defaultSelectionEndAttr are the reserved marker
+// attributes (see defaultFocusAttr) a focused text entry carries while it
+// has a non-collapsed selection — set/cleared together by document's
+// Document.setSelection, holding the rune-offset start/end as decimal
+// strings. Read by selectionRange (formcontrol.go) to resolve the
+// ::selection highlight range for a text-like <input>/<textarea>; absent
+// (rather than "0") whenever the selection is collapsed, so their mere
+// presence already implies a non-empty range without needing to compare
+// the two values first.
+const (
+	defaultSelectionStartAttr = "data-htmlterm-selection-start"
+	defaultSelectionEndAttr   = "data-htmlterm-selection-end"
+)

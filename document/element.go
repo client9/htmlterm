@@ -164,13 +164,19 @@ func (e *Element) Value() string {
 // SetValue sets the element's value attribute, or — for a <select> — marks
 // the option whose value matches v as selected, leaving it unchanged if none
 // matches (mirroring the DOM's HTMLSelectElement.value setter; see
-// setSelectValue).
+// setSelectValue). For a text entry, this also collapses any selection to
+// the end of the new value — mirroring real spec's behavior for
+// programmatic value assignment (setSelectionRange, not .value, is the way
+// to set an arbitrary caret position).
 func (e *Element) SetValue(v string) {
 	if isSelectControl(e.node) {
 		setSelectValue(e.node, v)
 		return
 	}
 	e.SetAttribute("value", v)
+	if e.doc != nil {
+		e.doc.clearSelection(e.node)
+	}
 }
 
 // Checked reports whether the element's checked attribute is present, e.g.
@@ -861,6 +867,61 @@ func (e *Element) Dataset() *Dataset {
 // focusCursorPos) should treat as having a text insertion point.
 func (e *Element) IsTextEntry() bool {
 	return isTextEntry(e.node)
+}
+
+// SelectionStart returns the rune offset of the start of e's current
+// selection into its value — mirroring the DOM's
+// HTMLInputElement.selectionStart/HTMLTextAreaElement.selectionStart.
+// Defaults to the end of the value (a collapsed caret) if
+// SetSelectionRange has never been called, matching this package's
+// pre-existing append-at-end behavior. Returns 0 if e is nil or not
+// attached to a Document.
+func (e *Element) SelectionStart() int {
+	if e == nil || e.doc == nil {
+		return 0
+	}
+	return e.doc.selection(e.node).start
+}
+
+// SelectionEnd is SelectionStart's counterpart — mirroring
+// HTMLInputElement.selectionEnd/HTMLTextAreaElement.selectionEnd. For a
+// collapsed selection (no range), SelectionStart and SelectionEnd are
+// equal — that shared value is also where a caret indicator should be
+// drawn, matching real UAs, which show the blinking caret at
+// selectionEnd even when a range is selected.
+func (e *Element) SelectionEnd() int {
+	if e == nil || e.doc == nil {
+		return 0
+	}
+	return e.doc.selection(e.node).end
+}
+
+// SelectionDirection returns "forward", "backward", or "none" — mirroring
+// HTMLInputElement.selectionDirection/HTMLTextAreaElement.selectionDirection.
+// Returns "none" if e is nil or not attached to a Document.
+func (e *Element) SelectionDirection() string {
+	if e == nil || e.doc == nil {
+		return "none"
+	}
+	return e.doc.selection(e.node).direction
+}
+
+// SetSelectionRange sets e's caret/selection to [start, end) (rune offsets
+// into its value, clamped to the value's length and reordered if
+// start > end) — mirroring the DOM's
+// HTMLInputElement.setSelectionRange(start, end, direction). direction is
+// optional, like the real method's third argument; passing more than one
+// value uses only the first, and an omitted or unrecognized direction
+// normalizes to "none". A no-op if e is nil or not attached to a Document.
+func (e *Element) SetSelectionRange(start, end int, direction ...string) {
+	if e == nil || e.doc == nil {
+		return
+	}
+	dir := "none"
+	if len(direction) > 0 {
+		dir = direction[0]
+	}
+	e.doc.setSelection(e.node, start, end, dir)
 }
 
 // ClassList is a DOM-like handle onto an element's class attribute, tokenized

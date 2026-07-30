@@ -11,6 +11,21 @@ import "golang.org/x/net/html"
 // pattern with sibling attribute names, e.g. "data-htmlterm-hover".
 const focusAttr = "data-htmlterm-focus"
 
+// selectionStartAttr/selectionEndAttr are the reserved marker attributes
+// (see focusAttr) Document.setSelection sets/clears together on a text
+// entry to mirror its current d.selections state onto the tree itself —
+// internal/render has no access to Document's own state, so this is how it
+// learns which [start, end) rune range (if any) to render under the
+// ::selection highlight (see internal/render/formcontrol.go's
+// selectionRange and docs/proposals/CARET_SELECTION.md). Both are cleared
+// together whenever the selection collapses, so their presence alone
+// already means "there is an active range" without reading the actual
+// values first.
+const (
+	selectionStartAttr = "data-htmlterm-selection-start"
+	selectionEndAttr   = "data-htmlterm-selection-end"
+)
+
 // listenerID identifies one registered listener within a Document, for
 // RemoveEventListener — Go func values aren't comparable, so a listener
 // can't be removed by passing the same func back.

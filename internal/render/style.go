@@ -24,6 +24,14 @@ type inlineStyle struct {
 	italic    bool
 	underline bool
 	strike    bool
+	// reverse swaps foreground/background at render time (SGR 7) — not a
+	// real CSS property, so mergeInlineStyle never sets it from a
+	// declaration map. It exists purely for resolveSelectionStyle's
+	// ::selection UA-default fallback (no author color/background-color —
+	// see its doc comment), the terminal-native stand-in for a real
+	// browser's platform selection color, which has no terminal-neutral
+	// equivalent to hardcode instead.
+	reverse bool
 }
 
 // newInlineStyle returns the correct base inlineStyle for the start of an
@@ -34,7 +42,7 @@ func newInlineStyle() inlineStyle {
 }
 
 func (s inlineStyle) has() bool {
-	return s.fg != nil || s.bg != nil || s.bold || s.italic || s.underline || s.strike || s.opacity < 1
+	return s.fg != nil || s.bg != nil || s.bold || s.italic || s.underline || s.strike || s.opacity < 1 || s.reverse
 }
 
 func (s inlineStyle) render(text string, p colorprofile.Profile) string {
@@ -81,6 +89,9 @@ func (s inlineStyle) render(text string, p colorprofile.Profile) string {
 	}
 	if s.strike {
 		st = st.Strikethrough(true)
+	}
+	if s.reverse {
+		st = st.Reverse(true)
 	}
 	if len(st) > 0 {
 		text = st.Styled(text)

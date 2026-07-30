@@ -41,6 +41,18 @@ type Document struct {
 	nextListenerID listenerID
 	focused        *html.Node
 
+	// selections holds the current caret/selection state for any text-entry
+	// element that has one explicitly recorded — see selectionState and the
+	// selection/setSelection accessors below, and
+	// docs/proposals/CARET_SELECTION.md for the design this implements. An
+	// absent entry means "collapsed at the end of value", exactly matching
+	// this package's pre-existing (and still default) append/trim-at-end
+	// behavior — so a Document that never calls SetSelectionRange or the
+	// selection-aware key handling this map is the foundation for behaves
+	// identically to before this field existed. Lazily initialized, same as
+	// listeners/valueAtFocus below.
+	selections map[*html.Node]selectionState
+
 	// valueAtFocus snapshots a text-entry element's "value" attribute at the
 	// moment it becomes focused, so focus/blur/DispatchKey's Enter-commit
 	// branch can tell whether the value actually changed since — the
@@ -185,6 +197,8 @@ func renderOptions(opts Options) render.Options {
 		FocusAttr:           focusAttr,
 		SelectOpenAttr:      selectOpenAttr,
 		SelectHighlightAttr: selectHighlightAttr,
+		SelectionStartAttr:  selectionStartAttr,
+		SelectionEndAttr:    selectionEndAttr,
 	}
 }
 
@@ -290,6 +304,105 @@ func (d *Document) ContentOffset(el *Element) (int, bool) {
 	}
 	offset, ok := d.contentOffsets[el.node]
 	return offset, ok
+}
+
+// selectionState is a text-entry element's live caret/selection position —
+// rune offsets into its current "value", with start <= end always enforced
+// by setSelection (never by the zero value directly, which is only ever
+// read through selection's default-filling below). direction mirrors real
+// DOM's selectionDirection: "forward" (end is the moving edge), "backward"
+// (start is), or "none" (a fresh collapsed caret, or a range set without a
+// direction). This is live property state, not a reflected HTML attribute —
+// see docs/proposals/CARET_SELECTION.md's "Data model" section for why that
+// matches real spec's own split rather than introducing a new one.
+type selectionState struct {
+	start, end int
+	direction  string
+}
+
+// selection returns n's current selection state, defaulting to a collapsed
+// caret at the end of its value with direction "none" — the well-defined
+// fallback for a text entry that has never had setSelection called on it,
+// matching this package's pre-existing (and still default) append-at-end
+// behavior exactly. The stored state (if any) is re-clamped against n's
+// current value length on every read, so an external mutation of "value"
+// (e.g. a direct Element.SetAttribute("value", ...) call bypassing SetValue)
+// can never leave a stale offset pointing past the end of a shorter value.
+func (d *Document) selection(n *html.Node) selectionState {
+	valueLen := utf8.RuneCountInString(nodeAttr(n, "value"))
+	s, ok := d.selections[n]
+	if !ok {
+		return selectionState{start: valueLen, end: valueLen, direction: "none"}
+	}
+	s.start = clampInt(s.start, 0, valueLen)
+	s.end = clampInt(s.end, 0, valueLen)
+	if s.start > s.end {
+		s.start, s.end = s.end, s.start
+	}
+	return s
+}
+
+// setSelection records n's selection state, clamping start/end to n's
+// current value length (in runes) and swapping them if start > end — real
+// setSelectionRange silently reorders an inverted range rather than
+// erroring. direction is normalized to "none" unless it's exactly "forward"
+// or "backward", mirroring setSelectionRange's own handling of an
+// unrecognized third argument.
+func (d *Document) setSelection(n *html.Node, start, end int, direction string) {
+	if n == nil {
+		return
+	}
+	valueLen := utf8.RuneCountInString(nodeAttr(n, "value"))
+	start = clampInt(start, 0, valueLen)
+	end = clampInt(end, 0, valueLen)
+	if start > end {
+		start, end = end, start
+	}
+	if direction != "forward" && direction != "backward" {
+		direction = "none"
+	}
+	if d.selections == nil {
+		d.selections = make(map[*html.Node]selectionState)
+	}
+	d.selections[n] = selectionState{start: start, end: end, direction: direction}
+	syncSelectionAttrs(n, start, end)
+}
+
+// syncSelectionAttrs mirrors a text entry's [start, end) selection range
+// onto its own selectionStartAttr/selectionEndAttr marker attributes (see
+// their doc comments) — the only channel internal/render has for reading
+// Document's selection state, the same reserved-attribute pattern
+// focus/blur already use for focusAttr. Removes both attributes entirely
+// when collapsed (start == end): a collapsed caret has nothing for
+// internal/render's ::selection highlight to render, and doing so also
+// means selectionRange's "has" check (formcontrol.go) can treat mere
+// presence of both attributes as proof of a well-formed, non-empty range
+// without comparing the two values itself.
+func syncSelectionAttrs(n *html.Node, start, end int) {
+	if start == end {
+		removeAttr(n, selectionStartAttr)
+		removeAttr(n, selectionEndAttr)
+		return
+	}
+	setAttr(n, selectionStartAttr, strconv.Itoa(start))
+	setAttr(n, selectionEndAttr, strconv.Itoa(end))
+}
+
+// clearSelection removes any explicitly recorded selection state for n, so
+// the next selection call falls back to its default (collapsed at end) —
+// called by SetValue, mirroring real spec's "setting .value collapses
+// selection to the end" behavior for programmatic value assignment. Also
+// clears the mirrored selectionStartAttr/selectionEndAttr marker
+// attributes (syncSelectionAttrs), if any, for the same reason.
+func (d *Document) clearSelection(n *html.Node) {
+	delete(d.selections, n)
+	removeAttr(n, selectionStartAttr)
+	removeAttr(n, selectionEndAttr)
+}
+
+// clampInt clamps v to [lo, hi].
+func clampInt(v, lo, hi int) int {
+	return min(max(v, lo), hi)
 }
 
 // scrollTop is Element.ScrollTop's implementation: el's current vertical
@@ -482,11 +595,20 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // action for it to prevent. A disabled target (nodeHasAttr(target,
 // "disabled")) is inert — matching real browsers, which never fire click on
 // a disabled form control at all — so no event is dispatched and no default
-// action runs. Any open <select> dropdown other than one target is itself
-// inside (see closeSelectsExcept) is closed first, unconditionally — a click
-// anywhere else, including on a disabled element or entirely outside every
-// element's Rect, dismisses it, matching a real dropdown's click-outside
-// behavior. A click landing on a scrollable ancestor's
+// action runs. A click on a focusable text entry also focuses it and
+// positions its caret at the clicked rune (see focusAndPositionCaret) —
+// mirroring a real browser's mousedown-driven focus-plus-caret-placement,
+// folded into "click" here since htmlterm only synthesizes one click event
+// kind (see COMPATIBILITY.md); Shift held extends the existing selection to
+// the click point instead of collapsing it, matching real Shift+Click. This
+// runs before the "click" event dispatches below, same as real
+// mousedown-before-click ordering, and unconditionally — a listener calling
+// PreventDefault on "click" doesn't un-focus a field any more than it does
+// in a real browser. Any open <select> dropdown other than one target is
+// itself inside (see closeSelectsExcept) is closed first, unconditionally —
+// a click anywhere else, including on a disabled element or entirely
+// outside every element's Rect, dismisses it, matching a real dropdown's
+// click-outside behavior. A click landing on a scrollable ancestor's
 // ::scrollbar-cap-start/::scrollbar-cap-end cell (see tryScrollCapClick), or
 // a horizontally-scrollable ancestor's ::scrollbar-cap-start-x/
 // ::scrollbar-cap-end-x cell (see tryScrollCapClickX), is handled before any
@@ -509,6 +631,9 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	if nodeHasAttr(target, "disabled") {
 		return true
 	}
+	if isTextEntry(target) && d.isFocusable(target) {
+		d.focusAndPositionCaret(target, row, col, mods.Shift)
+	}
 	ev := d.dispatch(target, "click", "", mods)
 	if ev.DefaultPrevented() {
 		return true
@@ -521,6 +646,57 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 		}
 	}
 	return true
+}
+
+// focusAndPositionCaret focuses target (a text entry hit by a click) and
+// sets its caret to the rune position (row, col) corresponds to
+// (caretIndexFromClick) — DispatchClick's click-to-caret default action;
+// see its doc comment and docs/proposals/CARET_SELECTION.md. With
+// shiftExtend, the click extends the selection from its current anchor
+// (anchorFocus) to the new position instead of collapsing to it, matching
+// real Shift+Click. The anchor is read before d.focus runs, though nothing
+// about focus() itself would change it (d.selections is keyed by node, not
+// by focus state) — this is just the more obviously-correct order to read
+// from.
+func (d *Document) focusAndPositionCaret(target *html.Node, row, col int, shiftExtend bool) {
+	idx := d.caretIndexFromClick(target, row, col)
+	anchor, _ := anchorFocus(d.selection(target))
+	d.focus(&Element{node: target, doc: d})
+	if shiftExtend {
+		d.setSelection(target, anchor, idx, directionOf(anchor, idx))
+		return
+	}
+	d.setSelection(target, idx, idx, "none")
+}
+
+// caretIndexFromClick computes the rune offset into target's value that
+// (row, col) corresponds to — the reverse of the same simplified column
+// model tui's focusCursorPos uses to place the terminal's own hardware
+// cursor: column offset from the box's left edge, with no separate
+// accounting for a text <input>'s synthesized "[" prefix (an accepted
+// approximation shared with focusCursorPos — see
+// docs/proposals/CARET_SELECTION.md), and, for a <textarea>, row offset
+// from its first content row (d.contentOffsets) rather than its full
+// border box. Returns 0 if target has no recorded Rect (e.g. Render hasn't
+// run since target was attached).
+func (d *Document) caretIndexFromClick(target *html.Node, row, col int) int {
+	rect, ok := d.positions[target]
+	if !ok {
+		return 0
+	}
+	value := nodeAttr(target, "value")
+	if strings.ToLower(target.Data) != "textarea" {
+		return clampInt(col-rect.Col, 0, utf8.RuneCountInString(value))
+	}
+	lines := strings.Split(value, "\n")
+	offset := d.contentOffsets[target]
+	lineIdx := clampInt(row-rect.Row-offset, 0, len(lines)-1)
+	lineCol := clampInt(col-rect.Col, 0, utf8.RuneCountInString(lines[lineIdx]))
+	idx := lineCol
+	for i := 0; i < lineIdx; i++ {
+		idx += utf8.RuneCountInString(lines[i]) + 1 // +1 for that line's own "\n"
+	}
+	return idx
 }
 
 // wheelScrollLines is how many lines one wheel notch scrolls — matching
@@ -709,27 +885,38 @@ func nearestForm(n *html.Node) *html.Node {
 // DispatchKey dispatches a "keydown" event (with Event.Key set to key) to
 // the currently focused element, and — unless a listener called
 // Event.PreventDefault — runs the built-in default action: "Tab" moves
-// focus to the next focusable element (FocusNext); "Backspace" drops the
-// last rune of a focused text entry's value; a lone space (" ") toggles a
-// focused checkbox/radio (applyCheckToggle); "Enter" on a submit control or
-// a focused text entry fires "change" (if the value differs from its value
-// at focus time — see commitChange) and dispatches "submit" on the nearest
-// ancestor <form> — matching HTML's implicit-submit-on-Enter behavior for a
-// single-line text field; any other single-rune key appends to a focused
-// text entry's (input or textarea) value. Every text-entry value mutation
-// above (Backspace, a <textarea>'s Enter-newline, and plain character
-// append) also dispatches "input" on the target, once per keystroke,
-// distinct from "change" which only fires on commit (Enter, or losing
-// focus — see Document.focus/blur). key follows the convention described in
-// docs/INTERACTIVE.md: a single printable rune as a UTF-8 string ("a", "5", " "),
-// or a named key from a fixed vocabulary ("Enter", "Backspace", "Tab",
-// "Escape", "ArrowUp"/"Down"/"Left"/"Right"). mods records which modifier
-// keys were held, mirroring a real KeyboardEvent's ctrlKey/shiftKey/altKey/
-// metaKey — copied onto the dispatched Event but not yet consulted by any
-// default action below (no default action currently distinguishes a
-// modified key from its bare form). The host owns all raw-terminal-byte-
-// to-key-name/modifier translation; htmlterm never reads a terminal itself.
-// Returns false if nothing is focused.
+// focus to the next focusable element (FocusNext); "Backspace"/"Delete" on a
+// focused text entry delete its current selection, or the one rune before/
+// after the caret if collapsed (see deleteAt); "ArrowLeft"/"ArrowRight" move
+// or (with Shift) extend the caret by one rune, collapsing an existing
+// selection to its near edge first if Shift isn't held (see
+// moveCaretHorizontal); "Home"/"End" move or extend to the start/end of the
+// caret's current "\n"-delimited line — for a single-line <input>, its only
+// line is the whole value (see moveCaretToLineEdge); Ctrl+"a"/"A" selects
+// the entire value; a lone space (" ") toggles a focused checkbox/radio
+// (applyCheckToggle); "Enter" on a submit control or a focused text entry
+// fires "change" (if the value differs from its value at focus time — see
+// commitChange) and dispatches "submit" on the nearest ancestor <form> —
+// matching HTML's implicit-submit-on-Enter behavior for a single-line text
+// field; any other single-rune key replaces a focused text entry's current
+// selection (or inserts at the caret if collapsed — see replaceSelection).
+// Every text-entry value mutation above (Backspace/Delete, a <textarea>'s
+// Enter-newline, and typed-character insertion) also dispatches "input" on
+// the target, once per keystroke, distinct from "change" which only fires
+// on commit (Enter, or losing focus — see Document.focus/blur); pure caret
+// movement (Arrow*/Home/End/Ctrl+A) dispatches neither, matching real DOM
+// (no value mutation, nothing to report). See
+// docs/proposals/CARET_SELECTION.md for the full caret/selection design.
+// key follows the convention described in docs/INTERACTIVE.md: a single
+// printable rune as a UTF-8 string ("a", "5", " "), or a named key from a
+// fixed vocabulary ("Enter", "Backspace", "Delete", "Tab", "Escape", "Home",
+// "End", "ArrowUp"/"Down"/"Left"/"Right"). mods records which modifier keys
+// were held, mirroring a real KeyboardEvent's ctrlKey/shiftKey/altKey/
+// metaKey — copied onto the dispatched Event, and now consulted by the
+// caret-movement default actions above (Shift to extend a selection, Ctrl
+// for select-all). The host owns all raw-terminal-byte-to-key-name/modifier
+// translation; htmlterm never reads a terminal itself. Returns false if
+// nothing is focused.
 func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	if d.focused == nil || key == "" {
 		return false
@@ -742,15 +929,13 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	switch {
 	case key == "Tab":
 		d.FocusNext()
-	case key == "Backspace":
-		if isTextEntry(target) {
-			v := nodeAttr(target, "value")
-			if v != "" {
-				_, size := utf8.DecodeLastRuneInString(v)
-				setAttr(target, "value", v[:len(v)-size])
-				d.dispatch(target, "input", key, mods)
-			}
-		}
+	case key == "Backspace" && isTextEntry(target):
+		d.deleteAt(target, key, mods, false)
+	case key == "Delete" && isTextEntry(target):
+		d.deleteAt(target, key, mods, true)
+	case mods.Ctrl && (key == "a" || key == "A") && isTextEntry(target):
+		v := nodeAttr(target, "value")
+		d.setSelection(target, 0, utf8.RuneCountInString(v), "forward")
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
 	case (key == "Enter" || key == " ") && isSelectControl(target):
@@ -770,8 +955,7 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// submitting — matching HTML's implicit-submit-on-Enter behavior,
 		// which only applies to single-line text fields (isTextEntry's other
 		// members) and submit controls, not <textarea>.
-		setAttr(target, "value", nodeAttr(target, "value")+"\n")
-		d.dispatch(target, "input", key, mods)
+		d.replaceSelection(target, key, "\n", mods)
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
 		d.commitChange(target, false)
 		if form := nearestForm(target); form != nil {
@@ -798,12 +982,14 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 			}
 			d.scrollOffsets[scrollable] += step
 		}
+	case (key == "ArrowLeft" || key == "ArrowRight") && isTextEntry(target):
+		d.moveCaretHorizontal(target, key == "ArrowRight", mods.Shift)
+	case (key == "Home" || key == "End") && isTextEntry(target):
+		d.moveCaretToLineEdge(target, key == "End", mods.Shift)
 	case key == "ArrowLeft" || key == "ArrowRight":
-		// Previously unclaimed: ArrowLeft/ArrowRight are never used by
-		// isSelectControl's own arrow handling (ArrowUp/ArrowDown only, see
-		// above) or by text-entry caret movement (there's no caret — see
-		// COMPATIBILITY.md), so this was always the reserved landing spot
-		// for horizontal scrolling once it existed.
+		// Reserved landing spot for horizontal scrolling on anything that
+		// isn't a text entry — text entries claim ArrowLeft/ArrowRight for
+		// caret movement above (see moveCaretHorizontal).
 		if scrollable := d.nearestScrollableX(target); scrollable != nil {
 			step := 1
 			if key == "ArrowLeft" {
@@ -813,27 +999,205 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		}
 	default:
 		if r, size := utf8.DecodeRuneInString(key); size == len(key) && r != utf8.RuneError && isTextEntry(target) {
-			setAttr(target, "value", nodeAttr(target, "value")+key)
-			d.dispatch(target, "input", key, mods)
+			d.replaceSelection(target, key, key, mods)
 		}
 	}
 	return true
+}
+
+// deleteAt implements Backspace's (forward=false) and Delete's (forward=
+// true) default action for a focused text entry: deletes the current
+// selection if non-collapsed (via deleteSelectionRange), otherwise the one
+// rune immediately before or after the caret. Dispatches "input" only if
+// something was actually deleted — an empty value's Backspace, or a caret
+// already at the end's Delete, changes nothing and fires nothing, matching
+// real DOM (no "input" event for a no-op edit).
+func (d *Document) deleteAt(target *html.Node, key string, mods Modifiers, forward bool) {
+	sel := d.selection(target)
+	if sel.start != sel.end {
+		d.deleteSelectionRange(target, sel)
+		d.dispatch(target, "input", key, mods)
+		return
+	}
+	v := []rune(nodeAttr(target, "value"))
+	var newValue []rune
+	var caret int
+	switch {
+	case !forward && sel.start > 0:
+		newValue = append(append([]rune{}, v[:sel.start-1]...), v[sel.start:]...)
+		caret = sel.start - 1
+	case forward && sel.start < len(v):
+		newValue = append(append([]rune{}, v[:sel.start]...), v[sel.start+1:]...)
+		caret = sel.start
+	default:
+		return
+	}
+	setAttr(target, "value", string(newValue))
+	d.setSelection(target, caret, caret, "none")
+	d.dispatch(target, "input", key, mods)
+}
+
+// deleteSelectionRange removes sel's [start, end) span from target's value
+// and collapses the caret to sel.start — the shared "delete whatever's
+// currently selected" step used by deleteAt (Backspace/Delete over a
+// non-collapsed selection) and DispatchCut's range-cut path (see below).
+// Does not itself dispatch "input" — callers do that once, after deciding
+// whether anything actually changed.
+func (d *Document) deleteSelectionRange(target *html.Node, sel selectionState) {
+	v := []rune(nodeAttr(target, "value"))
+	newValue := append(append([]rune{}, v[:sel.start]...), v[sel.end:]...)
+	setAttr(target, "value", string(newValue))
+	d.setSelection(target, sel.start, sel.start, "none")
+}
+
+// replaceSelection implements typed-character insertion and <textarea>'s
+// Enter-newline: replaces target's current selection (or, if collapsed,
+// inserts at the caret) with text, then collapses the caret to just after
+// the inserted text — matching real spec, where typing over a selection
+// always collapses afterward rather than leaving a new selection — and
+// dispatches "input".
+func (d *Document) replaceSelection(target *html.Node, key, text string, mods Modifiers) {
+	sel := d.selection(target)
+	v := []rune(nodeAttr(target, "value"))
+	newValue := string(v[:sel.start]) + text + string(v[sel.end:])
+	setAttr(target, "value", newValue)
+	caret := sel.start + utf8.RuneCountInString(text)
+	d.setSelection(target, caret, caret, "none")
+	d.dispatch(target, "input", key, mods)
+}
+
+// anchorFocus decomposes sel into its anchor (the fixed edge a Shift-extend
+// keeps in place) and focus (the edge that moves) — the inverse of the
+// (start, end, direction) triple setSelection normalizes into. A collapsed
+// selection, or one with direction "none", has no distinguished anchor yet,
+// so both are just the caret position (sel.start == sel.end already in that
+// case) — exactly the state a fresh Shift+Arrow/Home/End should extend
+// from.
+func anchorFocus(sel selectionState) (anchor, focus int) {
+	if sel.direction == "backward" {
+		return sel.end, sel.start
+	}
+	return sel.start, sel.end
+}
+
+// directionOf reports the selectionDirection a raw (anchor, focus) pair
+// normalizes to once setSelection sorts them into (start, end): "forward"
+// if focus is at or past anchor, "backward" if focus is before it, "none"
+// if they're equal (a Shift-extend that lands back where it started reads
+// as no active direction, not a phantom forward selection — matching real
+// spec's own equivalent).
+func directionOf(anchor, focus int) string {
+	switch {
+	case focus > anchor:
+		return "forward"
+	case focus < anchor:
+		return "backward"
+	default:
+		return "none"
+	}
+}
+
+// moveCaretHorizontal implements ArrowLeft's (forward=false)/ArrowRight's
+// (forward=true) default action for a focused text entry. With extend
+// false (no Shift) and an existing selection, this collapses to whichever
+// edge that direction points at — matching real browsers, where an
+// unmodified arrow out of a selection lands at its near edge rather than
+// moving relative to the caret — otherwise it moves a collapsed caret one
+// rune, clamped by setSelection to [0, len(value)]. With extend true
+// (Shift held), it moves the "focus" edge (see anchorFocus) by one rune,
+// keeping the anchor fixed, growing or shrinking the selection.
+func (d *Document) moveCaretHorizontal(target *html.Node, forward, extend bool) {
+	sel := d.selection(target)
+	if !extend {
+		if sel.start != sel.end {
+			pos := sel.start
+			if forward {
+				pos = sel.end
+			}
+			d.setSelection(target, pos, pos, "none")
+			return
+		}
+		pos := sel.start
+		if forward {
+			pos++
+		} else {
+			pos--
+		}
+		d.setSelection(target, pos, pos, "none")
+		return
+	}
+	anchor, focus := anchorFocus(sel)
+	if forward {
+		focus++
+	} else {
+		focus--
+	}
+	d.setSelection(target, anchor, focus, directionOf(anchor, focus))
+}
+
+// lineBounds returns the rune-offset [start, end) of the "\n"-delimited
+// line containing position pos within value — moveCaretToLineEdge's
+// line-relative movement for a multi-line <textarea>. A single-line value
+// (no "\n" at all) has exactly one line spanning the whole string, so
+// start=0 and end=utf8.RuneCountInString(value) regardless of pos, matching
+// Home/End's plain "start/end of value" behavior for a single-line
+// <input>. pos is clamped to [0, len(value in runes)].
+func lineBounds(value string, pos int) (start, end int) {
+	runes := []rune(value)
+	pos = clampInt(pos, 0, len(runes))
+	start = 0
+	for i := 0; i < pos; i++ {
+		if runes[i] == '\n' {
+			start = i + 1
+		}
+	}
+	end = len(runes)
+	for i := pos; i < len(runes); i++ {
+		if runes[i] == '\n' {
+			end = i
+			break
+		}
+	}
+	return start, end
+}
+
+// moveCaretToLineEdge implements Home's (toEnd=false)/End's (toEnd=true)
+// default action for a focused text entry: moves to the start/end of the
+// "\n"-delimited line containing the caret's current "focus" edge (see
+// anchorFocus, lineBounds) — for a single-line <input>, that's simply the
+// start/end of the whole value, since it has exactly one line. extend
+// mirrors moveCaretHorizontal's Shift handling.
+func (d *Document) moveCaretToLineEdge(target *html.Node, toEnd, extend bool) {
+	sel := d.selection(target)
+	anchor, focus := anchorFocus(sel)
+	lineStart, lineEnd := lineBounds(nodeAttr(target, "value"), focus)
+	newFocus := lineStart
+	if toEnd {
+		newFocus = lineEnd
+	}
+	if !extend {
+		d.setSelection(target, newFocus, newFocus, "none")
+		return
+	}
+	d.setSelection(target, anchor, newFocus, directionOf(anchor, newFocus))
 }
 
 // DispatchPaste dispatches a "paste" event on the currently focused element,
 // with Event.ClipboardData set to text — the host's job to supply (see
 // tui.Loop's bracketed-paste handling for where a real terminal's pasted
 // text comes from); Document has no clipboard access of its own. Unless a
-// listener calls Event.PreventDefault, the default action appends
+// listener calls Event.PreventDefault, the default action replaces a
+// focused text-like <input>/<textarea>'s current selection with
 // ev.ClipboardData (a listener may have rewritten it, mirroring a real
-// paste handler calling clipboardData.setData first) to a focused
-// text-like <input>/<textarea>'s value — the same append-at-end model
-// DispatchKey's printable-rune branch uses, since neither tracks a caret
-// position narrower than "end of value" (see COMPATIBILITY.md) — and
-// dispatches "input" on it afterward, mirroring a real paste's per-commit
-// "input" event. A no-op default action for any other focused element (a
-// listener still sees the event; there's just nothing built-in to paste
-// into). Returns false if nothing is focused.
+// paste handler calling clipboardData.setData first) via replaceSelection —
+// inserting at the caret if the selection is collapsed, which is exactly
+// today's append-at-end behavior for any field that has never had
+// SetSelectionRange called on it (the untouched default is a caret
+// collapsed at the end of value) — and dispatches "input" on it afterward,
+// mirroring a real paste's per-commit "input" event. A no-op default action
+// for any other focused element (a listener still sees the event; there's
+// just nothing built-in to paste into). Returns false if nothing is
+// focused.
 func (d *Document) DispatchPaste(text string) bool {
 	if d.focused == nil {
 		return false
@@ -846,39 +1210,61 @@ func (d *Document) DispatchPaste(text string) bool {
 		return true
 	}
 	if isTextEntry(target) {
-		setAttr(target, "value", nodeAttr(target, "value")+ev.ClipboardData)
-		d.dispatch(target, "input", "", Modifiers{})
+		d.replaceSelection(target, "", ev.ClipboardData, Modifiers{})
 	}
 	return true
 }
 
 // DispatchCut dispatches a "cut" event on the currently focused element,
-// with Event.ClipboardData pre-populated from its value (a focused
-// text-like <input>/<textarea>'s whole value — htmlterm has no
-// text-selection concept narrower than that, see COMPATIBILITY.md, so "cut"
-// always acts on the entire field rather than a selected range) for a
-// listener to read or rewrite, the same way DispatchPaste's ClipboardData
-// works in reverse. Unless a listener calls Event.PreventDefault, the
-// default action clears the target's value (the removal half of "cut") and
-// dispatches "input" on it. Returns the final ClipboardData (post-listener)
-// and true if something was focused to cut from, so a host (e.g. tui.Loop)
-// can hand that text to the real system clipboard — Document itself has no
-// OS clipboard access. ok is false, with an empty string, if nothing is
+// with Event.ClipboardData pre-populated from its current selection, if a
+// focused text-like <input>/<textarea> has a non-collapsed one — real cut
+// semantics, scoped to the selected range, now that one exists (see
+// docs/proposals/CARET_SELECTION.md) — or, if the selection is collapsed,
+// from the field's whole value, preserving this package's original
+// (pre-selection) "cut acts on the entire field" behavior for the common
+// case of a caller that never calls SetSelectionRange. A listener may read
+// or rewrite ev.ClipboardData, the same way DispatchPaste's works in
+// reverse. Unless a listener calls Event.PreventDefault, the default action
+// removes exactly what was placed on the clipboard — the selected range via
+// deleteSelectionRange, or the whole value in the collapsed case — and
+// dispatches "input". Returns the final ClipboardData (post-listener) and
+// true if something was focused to cut from, so a host (e.g. tui.Loop) can
+// hand that text to the real system clipboard — Document itself has no OS
+// clipboard access. ok is false, with an empty string, if nothing is
 // focused.
 func (d *Document) DispatchCut() (text string, ok bool) {
 	if d.focused == nil {
 		return "", false
 	}
 	target := d.focused
-	var value string
+	var clip string
+	var sel selectionState
 	if isTextEntry(target) {
-		value = nodeAttr(target, "value")
+		sel = d.selection(target)
+		v := []rune(nodeAttr(target, "value"))
+		if sel.start != sel.end {
+			clip = string(v[sel.start:sel.end])
+		} else {
+			clip = string(v)
+		}
 	}
 	ev := d.newEvent(target, "cut", "", Modifiers{})
-	ev.ClipboardData = value
+	ev.ClipboardData = clip
 	d.runDispatch(ev, target, ev.Bubbles)
 	if !ev.DefaultPrevented() && isTextEntry(target) {
-		setAttr(target, "value", "")
+		// Re-read sel here rather than reusing the copy captured above: a
+		// listener may have mutated target's value (or selection) during
+		// dispatch (e.g. calling SetValue), and d.selection always
+		// reclamps against the *current* value length — reusing the
+		// pre-dispatch snapshot instead could slice past a since-shortened
+		// value.
+		sel = d.selection(target)
+		if sel.start != sel.end {
+			d.deleteSelectionRange(target, sel)
+		} else {
+			setAttr(target, "value", "")
+			d.setSelection(target, 0, 0, "none")
+		}
 		d.dispatch(target, "input", "", Modifiers{})
 	}
 	return ev.ClipboardData, true

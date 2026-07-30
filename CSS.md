@@ -101,8 +101,8 @@ section) most recently marked focused; it has no meaning against
 place it matches anything is `option:hover` inside an open `<select>` popup
 — see `docs/SELECT.md`.
 
-**Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::scrollbar`,
-`::scrollbar-track`, `::scrollbar-thumb`, `::scrollbar-cap-start`,
+**Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::selection`,
+`::scrollbar`, `::scrollbar-track`, `::scrollbar-thumb`, `::scrollbar-cap-start`,
 `::scrollbar-cap-end`, and their horizontal-scrollbar counterparts
 `::scrollbar-x`, `::scrollbar-track-x`, `::scrollbar-thumb-x`,
 `::scrollbar-cap-start-x`, `::scrollbar-cap-end-x` (all also accepted with a
@@ -112,6 +112,14 @@ single colon), `::progress-bar`, `::progress-value`, `::meter-bar`,
 element's content; they require the `content` property. `::marker` styles the list
 prefix (bullet or number) of an `<li>` element; supported properties are `color`,
 `background-color`, `font-weight`, `font-style`, and `text-decoration`.
+`::selection` styles the highlighted range of a focused `<input>`/`<textarea>`
+with a non-collapsed caret selection; supported properties are `color`,
+`background-color`, `font-weight`, `font-style`, and `text-decoration`
+(mirroring `::marker`'s supported set) — with neither `color` nor
+`background-color` set, it falls back to reverse video (the UA default
+every terminal editor already uses), since there's no terminal-neutral
+equivalent of a browser's platform selection color to default to instead.
+See `docs/proposals/CARET_SELECTION.md`.
 `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-start`/
 `::scrollbar-cap-end` style the vertical scrollbar gutter drawn by
 `overflow-y: scroll`; the `-x`-suffixed names style the horizontal
@@ -122,9 +130,11 @@ portions; `::meter-bar`/`::meter-optimum-value`/`::meter-suboptimum-value`/
 filled glyph/style chosen per the value's resolved region) — see
 `docs/PROGRESS_METER.md`.
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
-`li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`, etc. A bare
-`::scrollbar-thumb { … }` (no element/class/id prefix) matches every scrollable
-element, the same way a bare `::before` would match every element.
+`li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`,
+`input::selection`, etc. A bare `::scrollbar-thumb { … }` or `::selection { … }`
+(no element/class/id prefix) matches every scrollable element, or every text
+entry, respectively, the same way a bare `::before` would match every
+element.
 
 **Supported attribute operators:** `[attr]` (presence), `[attr=val]` (exact
 match), `[attr~=val]` (whitespace-separated word), `[attr|=val]` (exact value
