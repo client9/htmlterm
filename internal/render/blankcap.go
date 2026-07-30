@@ -1,6 +1,10 @@
 package render
 
-import "unicode"
+import (
+	"unicode"
+
+	"github.com/client9/htmlterm/internal/textcell"
+)
 
 // isBlankLine reports whether line (with or without a trailing "\n") consists
 // entirely of whitespace once any ANSI/OSC8 escape sequences are stripped —
@@ -13,7 +17,7 @@ func isBlankLine(line string) bool {
 	if end > 0 && line[end-1] == '\n' {
 		end--
 	}
-	for _, r := range stripANSI(line[:end]) {
+	for _, r := range textcell.Strip(line[:end]) {
 		if !unicode.IsSpace(r) {
 			return false
 		}

@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -64,7 +65,7 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 	tablePT := parsePaddingLen(tableDecls["padding-top"])
 	tablePB := parsePaddingLen(tableDecls["padding-bottom"])
 	tableBl, tableBr, tableBt, tableBb, tlCorner, trCorner, blCorner, brCorner := resolveBoxBorders(tableDecls)
-	availWidth = max(1, availWidth-tableML-tableMR-tablePL-tablePR-runeLen(tableBl.char)-runeLen(tableBr.char))
+	availWidth = max(1, availWidth-tableML-tableMR-tablePL-tablePR-textcell.Width(tableBl.char)-textcell.Width(tableBr.char))
 
 	grid := r.resolveTableGrid(n)
 	numCols := grid.numCols
@@ -100,7 +101,7 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 			captionWidth := max(1, availWidth-overhead)
 			savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 			r.nestedTableWidth, r.nestedTableWidthSet = fallbackCellWidth, true
-			captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
+			captionText = plainInlineText(textcell.Strip(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
 			r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 			break
 		}
@@ -142,7 +143,7 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 	colShift := tablePL
 	if tableBl.char != "" || tableBr.char != "" {
 		b = applyBlockBordersBox(b, tableBl, tableBr, r.profile)
-		colShift += runeLen(tableBl.char)
+		colShift += textcell.Width(tableBl.char)
 	}
 	topRuleDrawn := false
 	if top := drawBlockHBorder(tableBt.char, tableBt.color, tlCorner, trCorner, b.width, r.profile); top != "" {
@@ -213,7 +214,7 @@ func (r *Engine) separateColumnBorderOverhead(g tableGrid, colDecls []map[string
 		}
 		decls := r.mergedCellDecls(rep.node, colDecls, rep.colStart)
 		bl, br, _, _, _, _, _, _ := resolveBoxBorders(decls)
-		out[c] = runeLen(bl.char) + runeLen(br.char)
+		out[c] = textcell.Width(bl.char) + textcell.Width(br.char)
 	}
 	return out
 }
@@ -232,7 +233,7 @@ type cellSeparateBorders struct {
 // path's renderTableBody, but composing each cell as its own complete box
 // (content, then padding, then border — the same primitives any other
 // block element uses) and splicing those boxes onto a blank canvas at
-// their resolved (row, col) offset via spliceColumns, rather than
+// their resolved (row, col) offset via textcell.SpliceColumns, rather than
 // interleaving one shared frame's characters directly into each output
 // line. Returned positions are relative to the grid's own (0,0) origin;
 // the caller shifts them once when embedding, the same incremental
@@ -397,7 +398,7 @@ func (r *Engine) composeSeparateGrid(g tableGrid, widths []int, colDecls []map[s
 			cbox = padLinesToWidthBox(cbox, slotWidth)
 		} else if cbox.width > slotWidth {
 			for i, line := range cbox.lines {
-				cbox.lines[i] = truncateToWidth(line, slotWidth, "")
+				cbox.lines[i] = textcell.TruncateToWidth(line, slotWidth, "")
 			}
 			cbox.width = slotWidth
 		}
@@ -405,7 +406,7 @@ func (r *Engine) composeSeparateGrid(g tableGrid, widths []int, colDecls []map[s
 		row := rowGroupTop[cell.rowStart]
 		col := colGroupLeft[cell.colStart]
 		for i, line := range cbox.lines {
-			lines[row+i] = spliceColumns(lines[row+i], col, cbox.width, line)
+			lines[row+i] = textcell.SpliceColumns(lines[row+i], col, cbox.width, line)
 		}
 
 		if len(cell.positions) > 0 {
@@ -415,7 +416,7 @@ func (r *Engine) composeSeparateGrid(g tableGrid, widths []int, colDecls []map[s
 			}
 			contentCol := col + pl
 			if cb.bl.char != "" {
-				contentCol += runeLen(cb.bl.char)
+				contentCol += textcell.Width(cb.bl.char)
 			}
 			positions = mergePositions(positions, cell.positions, contentRow, contentCol)
 		}

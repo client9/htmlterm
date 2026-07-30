@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -425,10 +426,10 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 	}
 	tbl, tbr, _, _, _, _, _, _ := resolveBoxBorders(tableDecls)
 	if tbl.char != "" {
-		overhead += runeLen(tbl.char)
+		overhead += textcell.Width(tbl.char)
 	}
 	if tbr.char != "" {
-		overhead += runeLen(tbr.char)
+		overhead += textcell.Width(tbr.char)
 	}
 	colsEst := r.gridColumnConstraints(grid, colDecls)
 	measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, spacingX)
@@ -667,7 +668,7 @@ func fillGridCellLines(g tableGrid, widths []int, sepW int) {
 		}
 		cell.lines = nil
 		for _, line := range b.lines {
-			cell.lines = append(cell.lines, truncateToWidth(line, contentW, suffix))
+			cell.lines = append(cell.lines, textcell.TruncateToWidth(line, contentW, suffix))
 		}
 		if len(cell.lines) == 0 {
 			cell.lines = []string{""}

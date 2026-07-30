@@ -3,7 +3,6 @@ package render
 import (
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
@@ -338,27 +337,6 @@ func makePainter(cssColor string, p colorprofile.Profile) func(string) string {
 		}
 		return st.Styled(s)
 	}
-}
-
-// runeLen returns the number of runes in s (used for terminal-column overhead).
-func runeLen(s string) int {
-	return utf8.RuneCountInString(s)
-}
-
-// truncateToWidth truncates s to at most width runes. suffix is appended when
-// content is clipped (use "" for clip/no indicator, "…" for ellipsis, etc.).
-func truncateToWidth(s string, width int, suffix string) string {
-	if width <= 0 {
-		return ""
-	}
-	if ansiVisibleLen(s) <= width {
-		return s
-	}
-	cut := width - ansiVisibleLen(suffix)
-	if cut <= 0 {
-		return visiblePrefixWithTrailingEscapes(s, width)
-	}
-	return visiblePrefixWithTrailingEscapes(s, cut) + suffix
 }
 
 // textOverflowSuffix maps a CSS text-overflow value to the truncation suffix.

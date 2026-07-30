@@ -16,6 +16,11 @@ covers both; CSS.md's own `select` entry is a one-line pointer here.
 | `margin-left`, `margin-top` | ✅ | ✅ (shifts the popup relative to the closed control) | n/a |
 | `margin-right`, `margin-bottom` | ✅ | no effect (nothing follows a floating overlay to push against) | n/a |
 | `width`, `min-width`, `max-width` | ✅ | ✅ (overrides the natural label-driven width) | not supported (every row shares the popup's width) |
+
+The "natural label-driven width" is measured in terminal **columns**, not
+runes, so a double-width label (CJK, emoji) sizes the popup to the room it
+actually needs; every row is then padded to that same column width, which is
+what keeps the highlight bar rectangular rather than ragged.
 | `:hover` | n/a | n/a | ✅ — matches the arrow-key-highlighted row (see below), not real mouse hover |
 | `[selected]` | n/a | n/a | ✅ — ordinary attribute selector, no special-casing needed |
 | `<optgroup>` grouping | n/a | ✅ — label header row + indented options (see below) | n/a |

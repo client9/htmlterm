@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -10,7 +11,7 @@ import (
 // <select> in doc currently carrying e.selectOpenAttr — see docs/RENDERING.md's
 // "Popups / z-order" section: the popup is composed as its own little block
 // of lines, then spliced over the base lines at the select's own Rect via
-// spliceColumns (textutil.go), the primitive built for exactly this and
+// textcell.SpliceColumns, the primitive built for exactly this and
 // otherwise unused until now. Runs after capBlankRuns/forceHeight in
 // RenderNode, so it operates on the exact lines/positions about to be
 // emitted, and can extend positions with synthetic Rects for each <option>
@@ -114,9 +115,13 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	const marker = "▸ "
 	naturalWidth := rect.Width
 	for _, r := range rows {
-		w := len([]rune(r.label)) + r.indent
+		// Column width, not rune count: the popup sizes itself to its
+		// widest label and every row is then padded to that. Measured in
+		// runes, a CJK/emoji label under-reports, and the reverse-video
+		// highlight bar comes out visibly ragged row to row.
+		w := textcell.Width(r.label) + r.indent
 		if r.opt != nil {
-			w += len([]rune(marker))
+			w += textcell.Width(marker)
 		}
 		if w > naturalWidth {
 			naturalWidth = w
@@ -127,7 +132,7 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 		contentWidth = style.width
 	}
 
-	blW, brW := runeLen(style.bl.char), runeLen(style.br.char)
+	blW, brW := textcell.Width(style.bl.char), textcell.Width(style.br.char)
 	col := rect.Col + style.ml
 	if !style.widthConstrained {
 		// Natural (auto) sizing is capped to whatever room remains on this
@@ -227,7 +232,7 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 			}
 			rowContent = strings.Repeat(" ", pl) + rowContent + strings.Repeat(" ", pr)
 			rowContent = applyOverlaySideBorders(rowContent, style.bl, style.br, e.profile)
-			lines[row] = spliceColumns(lines[row], col, boxWidth, rowContent)
+			lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, rowContent)
 			row++
 			continue
 		}
@@ -255,7 +260,7 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 		}
 		rowContent = strings.Repeat(" ", pl) + rowContent + strings.Repeat(" ", pr)
 		rowContent = applyOverlaySideBorders(rowContent, style.bl, style.br, e.profile)
-		lines[row] = spliceColumns(lines[row], col, boxWidth, rowContent)
+		lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, rowContent)
 		positions[r.opt] = Rect{Row: row, Col: col + blW + pl, Width: innerW, Height: 1}
 		row++
 	}
@@ -289,14 +294,21 @@ func (e *Engine) resolvePopupRowStyle(n *html.Node, popupBase inlineStyle) inlin
 
 // padPlainToWidth pads or truncates s (assumed to have no embedded ANSI
 // sequences — every caller here builds it from plain extracted option text)
-// to exactly width visible runes.
+// to exactly width visible *columns*.
+//
+// Columns, not runes: every popup row is padded to the same width and then
+// rendered under one highlight/background span, so a row measured in runes
+// comes out visibly shorter or longer than its neighbours — a ragged
+// reverse-video bar. Truncation goes through textcell.VisiblePrefix, which
+// declines to include a double-width cluster that would overshoot the
+// boundary, so the pad below closes the resulting one-column gap rather than
+// letting the row overflow by one.
 func padPlainToWidth(s string, width int) string {
-	r := []rune(s)
-	if len(r) > width {
-		return string(r[:width])
+	if textcell.Width(s) > width {
+		s = textcell.VisiblePrefix(s, width)
 	}
-	if len(r) < width {
-		return s + strings.Repeat(" ", width-len(r))
+	if pad := width - textcell.Width(s); pad > 0 {
+		return s + strings.Repeat(" ", pad)
 	}
 	return s
 }

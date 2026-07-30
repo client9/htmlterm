@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -68,7 +69,7 @@ func (e *Engine) resolveOverlayBoxStyle(n *html.Node, availWidth int) overlayBox
 // index immediately after what was drawn — the first content row, when
 // top is true.
 func (e *Engine) drawOverlayFrame(lines []string, row, col, boxWidth int, style overlayBoxStyle, top bool) ([]string, int) {
-	interior := max(0, boxWidth-runeLen(style.bl.char)-runeLen(style.br.char))
+	interior := max(0, boxWidth-textcell.Width(style.bl.char)-textcell.Width(style.br.char))
 	blank := func() string {
 		content := style.base.render(strings.Repeat(" ", interior), e.profile)
 		return applyOverlaySideBorders(content, style.bl, style.br, e.profile)
@@ -76,22 +77,22 @@ func (e *Engine) drawOverlayFrame(lines []string, row, col, boxWidth int, style 
 	if top {
 		if style.bt.char != "" {
 			border := drawBlockHBorder(style.bt.char, style.bt.color, style.tlCorner, style.trCorner, boxWidth, e.profile)
-			lines[row] = spliceColumns(lines[row], col, boxWidth, border)
+			lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, border)
 			row++
 		}
 		for range style.pt {
-			lines[row] = spliceColumns(lines[row], col, boxWidth, blank())
+			lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, blank())
 			row++
 		}
 		return lines, row
 	}
 	for range style.pb {
-		lines[row] = spliceColumns(lines[row], col, boxWidth, blank())
+		lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, blank())
 		row++
 	}
 	if style.bb.char != "" {
 		border := drawBlockHBorder(style.bb.char, style.bb.color, style.blCorner, style.brCorner, boxWidth, e.profile)
-		lines[row] = spliceColumns(lines[row], col, boxWidth, border)
+		lines[row] = textcell.SpliceColumns(lines[row], col, boxWidth, border)
 		row++
 	}
 	return lines, row

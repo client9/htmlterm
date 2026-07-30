@@ -7,6 +7,8 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
+
+	"github.com/client9/htmlterm/internal/textcell"
 )
 
 var popupAnsiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
@@ -279,7 +281,7 @@ func TestSelectPopupWidthOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Rect recorded for the first <option>")
 	}
-	// The line itself stays the full terminal width (spliceColumns only
+	// The line itself stays the full terminal width (textcell.SpliceColumns only
 	// overwrites its own column range, leaving the rest of the pre-allocated
 	// blank row untouched) — the CSS width override shows up in the row's
 	// own Rect.Width instead.
@@ -427,5 +429,32 @@ func TestSelectPopupGrowsDocumentWhenNoRoomBelow(t *testing.T) {
 	lines := strings.Split(result.Output, "\n")
 	if len(lines) != 4 {
 		t.Fatalf("got %d lines, want 4 (1 closed control + 3 options):\n%q", len(lines), result.Output)
+	}
+}
+
+// TestPopupRowsPadToEqualColumnsWithWideLabels is a regression test for
+// padPlainToWidth measuring in runes: a CJK/emoji option label under-reported
+// its width, so its row came out wider than its neighbours and the
+// reverse-video highlight bar was visibly ragged.
+func TestPopupRowsPadToEqualColumnsWithWideLabels(t *testing.T) {
+	src := `<select ` + defaultSelectOpenAttr + `>` +
+		`<option selected>日本語</option><option>bb</option></select>`
+	e, err := New(Options{Width: 40})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(stripPopupANSI(result.Output), "\n"), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected a closed-state line plus 2 popup rows, got %q", lines)
+	}
+	want := textcell.Width(lines[1])
+	for i, l := range lines[2:] {
+		if got := textcell.Width(l); got != want {
+			t.Errorf("popup row %d = %d columns, row 0 = %d:\n%q\n%q", i+1, got, want, lines[1], l)
+		}
 	}
 }

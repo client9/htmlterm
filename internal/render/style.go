@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/client9/htmlterm/internal/textcell"
 )
 
 // inlineStyle is the accumulated text style passed down through inline
@@ -53,7 +54,7 @@ func (s inlineStyle) render(text string, p colorprofile.Profile) string {
 		// fractional opacity. Blanking to spaces (preserving layout width,
 		// per CSS: opacity:0 keeps its box, just isn't painted) is the only
 		// approximation that's actually invisible on any terminal theme.
-		return strings.Repeat(" ", textVisualWidth(text))
+		return strings.Repeat(" ", textcell.Width(text))
 	}
 	if !s.has() {
 		return text

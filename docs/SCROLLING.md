@@ -128,7 +128,7 @@ implementation didn't end up taking).
   box/token model. Flexbox's own weighted-`flex-grow` distribution
   (`internal/render/flex.go`) ended up as fresh box/token-model code rather
   than a generalization of this algorithm.
-- `spliceColumns` (`textutil.go:340`) — the line-compositing primitive
+- `spliceColumns` — since moved and renamed to `internal/textcell`'s `SpliceColumns` — the line-compositing primitive
   `RENDERING.md`'s "Popups/z-order" section designed for overlaying one
   box's lines over another's at a known row/col range — is implemented and
   unit-tested (`TestSpliceColumns`) but **unwired**. It was considered as the
@@ -598,7 +598,7 @@ undocumented behavior that happens to work, not a supported contract.
 ### Rejected alternative (scrollbar)
 
 Overlaying the indicator onto the already-rendered, full-width content via
-`spliceColumns` (`textutil.go:340`), instead of reserving a column up front.
+`spliceColumns` (now `textcell.SpliceColumns`), instead of reserving a column up front.
 Rejected: it overwrites whatever character was already at that column on
 each line, and the content most likely to need a scrollbar in the first
 place — logs, code, `pre` blocks, wide tables — is exactly the content most

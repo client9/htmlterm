@@ -1,6 +1,10 @@
 package render
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/client9/htmlterm/internal/textcell"
+)
 
 // box is rendered content that hasn't been assigned an absolute position yet
 // — position is assigned by whichever caller embeds it into a parent. lines
@@ -25,12 +29,12 @@ func newBox(s string) box {
 	return box{lines: lines, width: linesWidth(lines)}
 }
 
-// linesWidth is the max ansiVisibleLen across lines — the box.width a set of
+// linesWidth is the max textcell.VisibleLen across lines — the box.width a set of
 // lines would get if wrapped in a box.
 func linesWidth(lines []string) int {
 	w := 0
 	for _, line := range lines {
-		if vl := ansiVisibleLen(line); vl > w {
+		if vl := textcell.VisibleLen(line); vl > w {
 			w = vl
 		}
 	}

@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/client9/htmlterm/document"
-	"github.com/client9/htmlterm/internal/render"
+	"github.com/client9/htmlterm/internal/textcell"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -449,8 +449,8 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 			row = rect.Row + offset + line
 			// lineCol is a rune offset; the cursor needs a column, and the
 			// two only coincide for single-width text (see
-			// render.ColumnForRuneIndex).
-			col = rect.Col + offsetX + render.ColumnForRuneIndex(strings.Split(value, "\n")[line], lineCol)
+			// textcell.ColumnForRuneIndex).
+			col = rect.Col + offsetX + textcell.ColumnForRuneIndex(strings.Split(value, "\n")[line], lineCol)
 			if maxRow := rect.Row + rect.Height - 1; row > maxRow {
 				row = maxRow
 			}
@@ -462,7 +462,7 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 			// so the box's first column is the value's own first
 			// character — no offset needed, but caret is still a rune
 			// offset that has to be measured out in columns.
-			col = rect.Col + render.ColumnForRuneIndex(el.Value(), caret)
+			col = rect.Col + textcell.ColumnForRuneIndex(el.Value(), caret)
 		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {
 			col = maxCol

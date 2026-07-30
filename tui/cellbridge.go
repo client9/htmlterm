@@ -3,10 +3,8 @@ package tui
 import (
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
-	"github.com/charmbracelet/x/ansi"
-	"github.com/client9/htmlterm/internal/render"
+	"github.com/client9/htmlterm/internal/textcell"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -50,13 +48,13 @@ func paintLines(screen tcell.Screen, lines []string) {
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
 // walks left to right — reusing x/ansi's decoder (consumeANSI, below) to
 // tokenize each escape sequence, the same way htmlterm's own ansiCarry
-// does internally. Column position advances by render.NextGrapheme per
+// does internally. Column position advances by textcell.NextGrapheme per
 // visible grapheme cluster (usually one rune, occasionally several for
 // ZWJ/regional-indicator/VS16 sequences; 1 column normally, 2 for East
 // Asian wide/emoji clusters) — this must exactly match
 // ansiVisibleLen/wordWrapTokens' own column accounting, which measures the
 // same clusters the same way (both now go through
-// internal/render.NextGrapheme, backed by the same displaywidth library
+// internal/textcell.NextGrapheme, backed by the same displaywidth library
 // tcell itself uses for SetContent, so layout-time and paint-time width
 // math can't disagree). Advancing by a flat 1 per rune regardless of width
 // (an earlier, since-corrected assumption) desynced the painted frame from
@@ -84,12 +82,12 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	i := 0
 	for i < len(runes) && col < width {
 		if runes[i] == '\x1b' {
-			end := consumeANSI(runes, i)
+			end := textcell.ConsumeANSI(runes, i)
 			applySequence(&state, string(runes[i:end]), nextLinkID)
 			i = end
 			continue
 		}
-		w, next := render.NextGrapheme(runes, i)
+		w, next := textcell.NextGrapheme(runes, i)
 		if w > 0 {
 			cluster := runes[i:next]
 			screen.SetContent(col, row, cluster[0], cluster[1:], state.style)
@@ -100,24 +98,6 @@ func writeANSILine(screen tcell.Screen, row int, line string, width int, nextLin
 	for ; col < width; col++ {
 		screen.SetContent(col, row, ' ', nil, tcell.StyleDefault)
 	}
-}
-
-// consumeANSI returns the index just past the escape sequence starting at
-// runes[i] (runes[i] must be '\x1b'), delegating to x/ansi's decoder rather
-// than hand-rolling CSI/OSC recognition — the same approach internal/render
-// takes for its own copy of this helper. runes[i:] is re-encoded to a string
-// because the decoder works in bytes, and the consumed byte count is
-// converted back to a rune count since writeANSILine indexes into a []rune.
-func consumeANSI(runes []rune, i int) int {
-	if i >= len(runes) || runes[i] != '\x1b' {
-		return i + 1
-	}
-	s := string(runes[i:])
-	_, _, n, _ := ansi.DecodeSequence(s, ansi.NormalState, nil)
-	if n <= 0 {
-		return i + 1
-	}
-	return i + utf8.RuneCountInString(s[:n])
 }
 
 // applySequence classifies one fully-extracted escape sequence (as produced

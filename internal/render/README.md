@@ -34,7 +34,7 @@ func (e *Engine) DocumentRules(doc *html.Node) []cssengine.Rule
 - `engine.go`, `render.go` — `Engine`/`Options`/`Viewport`/`Request`/`Result` and root-level render dispatch.
 - `block.go`, `inline.go`, `list.go`, `table.go`, `table_render.go` — block, inline, list, and table layout.
 - `box.go`, `wraptoken.go`, `blankcap.go` — position tracking (`Rect`, `mergePositions`), token-level word wrapping, and blank-line-run capping.
-- `cascade.go`, `style.go`, `color.go`, `strip.go`, `formcontrol.go`, `counter.go`, `textutil.go` — CSS resolution on top of `cssengine` (shorthand expansion and declaration parsing itself live in `internal/cssengine/css.go`, not here), style synthesis, color parsing, hidden-inline stripping, form control rendering, list/heading counters, and text utilities.
+- `cascade.go`, `style.go`, `color.go`, `strip.go`, `formcontrol.go`, `counter.go`, `csstext.go` — CSS resolution on top of `cssengine` (shorthand expansion and declaration parsing itself live in `internal/cssengine/css.go`, not here), style synthesis, color parsing, hidden-inline stripping, form control rendering, list/heading counters (roman numerals included), and CSS-level text semantics. See "Not in this package" below for where column/width math went.
 - `attrs.go` — small attribute-lookup helpers shared across the above.
 
 ## Key invariants
@@ -59,3 +59,7 @@ These are load-bearing enough that changing them without updating every call sit
 - [`internal/cssengine`](../cssengine) — CSS parsing, selector matching, and cascade resolution this package builds on.
 - [`RENDERING.md`](../../docs/RENDERING.md) — design history and rationale for the layout engine.
 - [`CSS.md`](../../CSS.md) — the full supported CSS surface as seen by users of `htmlterm`.
+
+## Not in this package
+
+Column/width measurement lives in `internal/textcell` — a leaf package this one, `tui`, and `document` all depend on, so all three agree exactly on how wide a string is. `csstext.go` — what's left of the old `textutil.go` — keeps only *CSS-level* text semantics (white-space normalization, `text-transform`, tab expansion, terminal-escape sanitization): things that need to know what the text means, rather than how much room it takes.

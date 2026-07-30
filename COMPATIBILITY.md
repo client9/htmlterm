@@ -53,6 +53,17 @@ For the design rationale behind the DOM/Events/rendering internals, see
   all operate on it — but there's no `window.getSelection()`/`Range` object,
   no cross-element selection, and no `contenteditable` selection at all (see
   "`contenteditable`" below). See `docs/proposals/CARET_SELECTION.md`.
+
+  Those offsets are **runes, not UTF-16 code units and not terminal
+  columns**. The first half is the deviation from spec (real DOM counts
+  UTF-16 code units, so an emoji costs 2 there and 1 here). The second half
+  is not a deviation but a distinction worth stating, because this renderer
+  makes it tempting to conflate them: a caret at offset 3 in `"日本語ab"`
+  sits at screen column 6, and only the cursor-placement and click
+  hit-testing paths ever convert between the two
+  (`internal/textcell`'s `ColumnForRuneIndex`/`RuneIndexForColumn`).
+  `SelectionStart`/`SelectionEnd` always answer in runes, whether or not the
+  document has ever been rendered.
 - **A `<textarea>`'s caret/selection placement doesn't account for
   word-wrapping.** Both the terminal cursor (`focusCursorPos`) and the
   `::selection` highlight locate a rune offset by its `"\n"`-delimited

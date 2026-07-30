@@ -41,6 +41,15 @@ string has no way to represent two things occupying the same screen area.
 These are the concrete seams the rewrite exploits, confirmed by reading the
 code (not paraphrased from memory):
 
+> **Reading note (post-rewrite):** the findings below describe the code *as it
+> was before* this rewrite, so their file:line references are long stale, and
+> `wordWrapANSI` — the wrap entry point findings 3, 4 and the sizing section
+> are written against — no longer exists. It became a one-line shim over
+> `wordWrapTokens` when the token model landed, and was deleted once its last
+> production caller went away; its ANSI-carry documentation now lives on
+> `wordWrapTokens` itself (wraptoken.go). Read `wordWrapANSI` below as "the
+> wrapping function", which is `wordWrapTokens` today.
+
 1. **The "lines as a slice" representation already exists, it's just
    ephemeral.** `applyLineEdges`, `alignLines`, `padLinesToWidth`, and
    `applyBlockBorders` (all block.go) each independently do

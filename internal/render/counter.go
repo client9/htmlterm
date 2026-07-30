@@ -3,6 +3,7 @@ package render
 import (
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/net/html"
 )
@@ -246,4 +247,41 @@ func consumeQuotedToken(s string) (value, rest string, ok bool) {
 		i++
 	}
 	return parseCSSString(s[:i]), s[i:], true
+}
+
+// toRoman converts n to a Roman numeral string (upper or lower case).
+func toRoman(n int, upper bool) string {
+	vals := []int{1000, 900, 500, 400, 100, 90, 50, 40, 10, 9, 5, 4, 1}
+	syms := []string{"m", "cm", "d", "cd", "c", "xc", "l", "xl", "x", "ix", "v", "iv", "i"}
+	var b strings.Builder
+	for i, v := range vals {
+		for n >= v {
+			if upper {
+				b.WriteString(strings.ToUpper(syms[i]))
+			} else {
+				b.WriteString(syms[i])
+			}
+			n -= v
+		}
+	}
+	return b.String()
+}
+
+// maxRomanPrefixWidth returns the maximum roman numeral prefix width
+// (numeral + ". ") across all items 1..count. Instead of scanning every item,
+// it checks the ~15 threshold numbers where the maximum roman numeral length
+// grows (3, 8, 18, 28, …, 3888).
+func maxRomanPrefixWidth(count int) int {
+	// Each entry is the first N for which that numeral becomes the widest in 1..N.
+	thresholds := []int{1, 2, 3, 8, 18, 28, 38, 88, 188, 288, 388, 888, 1888, 2888, 3888}
+	widest := 0
+	for _, n := range thresholds {
+		if n > count {
+			break
+		}
+		if w := utf8.RuneCountInString(toRoman(n, false)); w > widest {
+			widest = w
+		}
+	}
+	return widest + 2 // +2 for ". "
 }

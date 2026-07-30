@@ -71,96 +71,6 @@ func TestMergeInlineStyleTextDecoration(t *testing.T) {
 	}
 }
 
-func TestSplitANSITokens(t *testing.T) {
-	osc := "\x1b]8;;https://example.com\x07"
-	oscEnd := "\x1b]8;;\x07"
-	text := "pre " + osc + "link text" + oscEnd + " post\t\x1b[31mred\x1b[0m"
-	want := []string{
-		"pre",
-		osc + "link",
-		"text" + oscEnd,
-		"post",
-		"\x1b[31mred\x1b[0m",
-	}
-	if got := splitANSITokens(text); !reflect.DeepEqual(got, want) {
-		t.Fatalf("splitANSITokens() = %#v, want %#v", got, want)
-	}
-}
-
-func TestStripANSI(t *testing.T) {
-	osc := "\x1b]8;;https://example.com\x1b\\"
-	oscEnd := "\x1b]8;;\x1b\\"
-	text := "a\x1b[31mred\x1b[0m" + osc + "link" + oscEnd + "b"
-	if got := stripANSI(text); got != "aredlinkb" {
-		t.Fatalf("stripANSI() = %q, want %q", got, "aredlinkb")
-	}
-}
-
-func TestTrimOneTrailingVisibleSpace(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-		ok   bool
-	}{
-		{"plain trailing space", "hi ", "hi", true},
-		{"no trailing space", "hi", "hi", false},
-		{"styled trailing space removed, escapes preserved", "\x1b[31mhi \x1b[0m", "\x1b[31mhi\x1b[0m", true},
-		{"two trailing spaces only removes one", "hi  ", "hi ", true},
-		{"space before a trailing escape sequence still counts as trailing", "hi \x1b[0m", "hi\x1b[0m", true},
-	}
-	for _, c := range cases {
-		got, ok := trimOneTrailingVisibleSpace(c.in)
-		if got != c.want || ok != c.ok {
-			t.Errorf("%s: trimOneTrailingVisibleSpace(%q) = (%q, %v), want (%q, %v)", c.name, c.in, got, ok, c.want, c.ok)
-		}
-	}
-}
-
-// TestLastRuneSeesThroughANSIStyling verifies lastRune reports a styled
-// trailing space's true last visible rune (' '), not the last byte of its
-// closing SGR reset — the fix that lets appendTextSegment keep a styled
-// run's trailing space inside its own ANSI span (see inline.go) without
-// breaking whitespace-collapse decisions that key off lastRune.
-func TestLastRuneSeesThroughANSIStyling(t *testing.T) {
-	tokens := []wrapToken{{text: "\x1b[31mred \x1b[0m"}}
-	r, ok := lastRune(tokens)
-	if !ok || r != ' ' {
-		t.Fatalf("lastRune(styled trailing space) = (%q, %v), want (' ', true)", r, ok)
-	}
-}
-
-// TestANSIIntermediateByte verifies that two-byte escape sequences whose first
-// byte is an intermediate (0x20–0x3F, e.g. ESC '(' for ISO 2022 G0 charset)
-// are fully consumed and do not leak their final byte as visible content.
-func TestANSIIntermediateByte(t *testing.T) {
-	// ESC '(' 'B' — G0 charset designation to US-ASCII (ISO 2022).
-	seq := "\x1b(B"
-
-	// ansiVisibleLen must not count the final byte 'B' as visible.
-	if got := ansiVisibleLen(seq); got != 0 {
-		t.Errorf("ansiVisibleLen(ESC ( B) = %d, want 0", got)
-	}
-	// stripANSI must consume the whole 3-byte sequence, producing no output.
-	if got := stripANSI(seq); got != "" {
-		t.Errorf("stripANSI(ESC ( B) = %q, want %q", got, "")
-	}
-
-	// Mixed: visible text around the sequence.
-	mixed := "ab" + seq + "cd"
-	if got := ansiVisibleLen(mixed); got != 4 {
-		t.Errorf("ansiVisibleLen(mixed) = %d, want 4", got)
-	}
-	if got := stripANSI(mixed); got != "abcd" {
-		t.Errorf("stripANSI(mixed) = %q, want %q", got, "abcd")
-	}
-	// splitANSITokens must produce one token containing the word with the
-	// sequence attached — the sequence must not cause an extra word split.
-	if got := splitANSITokens("hi" + seq + " there"); !reflect.DeepEqual(got, []string{"hi" + seq, "there"}) {
-		t.Errorf("splitANSITokens with intermediate escape = %#v", got)
-	}
-}
-
 func TestToRoman(t *testing.T) {
 	if got := toRoman(49, false); got != "xlix" {
 		t.Fatalf("toRoman lower = %q, want %q", got, "xlix")
@@ -288,115 +198,6 @@ func TestEffectiveMinMaxPercent(t *testing.T) {
 	}
 }
 
-func TestSplitAtVisualWidthEdgeCases(t *testing.T) {
-	// Empty string early return
-	got := splitAtVisualWidth("", 5)
-	if !reflect.DeepEqual(got, []string{""}) {
-		t.Errorf("splitAtVisualWidth(%q, 5) = %#v, want [%q]", "", got, "")
-	}
-
-	// OSC hyperlink sequences don't count toward visible width and are preserved
-	osc := "\x1b]8;;https://example.com\x07"
-	// "abc" (3 visible) + OSC + "def" (3 visible), split at width 3
-	text := "abc" + osc + "def"
-	lines := splitAtVisualWidth(text, 3)
-	if len(lines) != 2 {
-		t.Fatalf("OSC split: want 2 lines, got %d: %#v", len(lines), lines)
-	}
-	if v := ansiVisibleLen(lines[0]); v != 3 {
-		t.Errorf("OSC split lines[0] visible len = %d, want 3", v)
-	}
-	if v := stripANSI(lines[0]); v != "abc" {
-		t.Errorf("OSC split lines[0] text = %q, want %q", v, "abc")
-	}
-	// The hyperlink span is reopened on the continuation line so it stays
-	// active across the break (see ansiCarry in textutil.go).
-	if lines[1] != osc+"def" {
-		t.Errorf("OSC split lines[1] = %q, want %q", lines[1], osc+"def")
-	}
-}
-
-func TestSpliceColumns(t *testing.T) {
-	t.Run("plain text interior splice", func(t *testing.T) {
-		got := spliceColumns("0123456789", 3, 4, "XXXX")
-		want := "012XXXX789"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("splice at column 0", func(t *testing.T) {
-		got := spliceColumns("0123456789", 0, 3, "XXX")
-		want := "XXX3456789"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("splice reaching past line's end preserves nothing after", func(t *testing.T) {
-		got := spliceColumns("012345", 3, 10, "XXXXXXXXXX")
-		want := "012XXXXXXXXXX"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("splice starting past line's end pads with spaces", func(t *testing.T) {
-		got := spliceColumns("01", 4, 2, "XX")
-		want := "01  XX"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("width<=0 or negative col is a no-op", func(t *testing.T) {
-		if got := spliceColumns("hello", 2, 0, "X"); got != "hello" {
-			t.Errorf("width=0: spliceColumns = %q, want unchanged %q", got, "hello")
-		}
-		if got := spliceColumns("hello", -1, 2, "X"); got != "hello" {
-			t.Errorf("col<0: spliceColumns = %q, want unchanged %q", got, "hello")
-		}
-	})
-
-	t.Run("a span that closes before the cut region needs no reopening", func(t *testing.T) {
-		bold := "\x1b[1m"
-		reset := "\x1b[m"
-		// The bold span closes right after "012", well before the cut
-		// region [3,7) even starts, so the suffix "789" was never bold in
-		// the original and shouldn't be reopened as bold either.
-		line := bold + "012" + reset + "3456789"
-		got := spliceColumns(line, 3, 4, "XXXX")
-		want := bold + "012" + reset + "XXXX" + "789"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("a span spanning the whole cut region is reopened for the resuming suffix", func(t *testing.T) {
-		bold := "\x1b[1m"
-		reset := "\x1b[m"
-		// The bold span opens before col 3 and stays open across the whole
-		// cut region [3,7) and into the resuming suffix, only closing at
-		// the very end — without carry-through, "789" would resume
-		// unstyled even though the original span was still active there.
-		line := "012" + bold + "3456789" + reset
-		got := spliceColumns(line, 3, 4, "XXXX")
-		want := "012" + "XXXX" + bold + "789" + reset
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("replacement content is inserted verbatim, including its own styling", func(t *testing.T) {
-		styled := "\x1b[31mpopup\x1b[m"
-		got := spliceColumns("0123456789", 3, 5, styled)
-		want := "012" + styled + "89"
-		if got != want {
-			t.Errorf("spliceColumns = %q, want %q", got, want)
-		}
-	})
-}
-
 func TestParseCSSContentStringNoOOBPanic(t *testing.T) {
 	r := &Engine{}
 	// Quoted string whose last byte is a backslash (malformed CSS): must not panic.
@@ -420,46 +221,15 @@ func TestClampCellPaddingZeroWidth(t *testing.T) {
 	}
 }
 
-// TestColumnRuneIndexRoundTrip pins ColumnForRuneIndex/RuneIndexForColumn as
-// exact inverses at every cluster boundary, including double-width CJK and a
-// multi-rune ZWJ emoji cluster. Callers on both sides of the caret (tui's
-// focusCursorPos placing the hardware cursor, document's caretIndexFromClick
-// turning a click back into an offset) depend on that: a click must produce a
-// caret whose cursor lands back on the cell that was clicked.
-func TestColumnRuneIndexRoundTrip(t *testing.T) {
-	const family = "\U0001F468‍\U0001F469‍\U0001F467" // 👨‍👩‍👧, one cluster
-	for _, s := range []string{"", "abc", "日本語", "a日b", "x" + family + "y"} {
-		runes := []rune(s)
-		for idx := 0; idx <= len(runes); idx++ {
-			col := ColumnForRuneIndex(s, idx)
-			back := RuneIndexForColumn(s, col)
-			// back is idx whenever idx is a cluster boundary; when it isn't,
-			// ColumnForRuneIndex already rounded down to the cluster start,
-			// so the round trip must land at or before idx and re-produce the
-			// same column.
-			if back > idx {
-				t.Errorf("%q idx %d: col %d round-tripped to %d, past the original", s, idx, col, back)
-			}
-			if got := ColumnForRuneIndex(s, back); got != col {
-				t.Errorf("%q idx %d: round trip changed column %d -> %d", s, idx, col, got)
-			}
-		}
-	}
-}
-
-// TestColumnForRuneIndexWideRunes pins the concrete column arithmetic the
-// round-trip test above can't (it only checks self-consistency).
-func TestColumnForRuneIndexWideRunes(t *testing.T) {
-	const s = "日本語ab"
-	for _, tc := range []struct{ idx, want int }{{0, 0}, {1, 2}, {2, 4}, {3, 6}, {4, 7}, {5, 8}, {99, 8}} {
-		if got := ColumnForRuneIndex(s, tc.idx); got != tc.want {
-			t.Errorf("ColumnForRuneIndex(%q, %d) = %d, want %d", s, tc.idx, got, tc.want)
-		}
-	}
-	// Either cell of a double-width character maps back to the rune before it.
-	for _, tc := range []struct{ col, want int }{{0, 0}, {1, 0}, {2, 1}, {3, 1}, {6, 3}, {7, 4}, {8, 5}, {99, 5}} {
-		if got := RuneIndexForColumn(s, tc.col); got != tc.want {
-			t.Errorf("RuneIndexForColumn(%q, %d) = %d, want %d", s, tc.col, got, tc.want)
-		}
+// TestLastRuneSeesThroughANSIStyling verifies lastRune reports a styled
+// trailing space's true last visible rune (' '), not the last byte of its
+// closing SGR reset — the fix that lets appendTextSegment keep a styled
+// run's trailing space inside its own ANSI span (see inline.go) without
+// breaking whitespace-collapse decisions that key off lastRune.
+func TestLastRuneSeesThroughANSIStyling(t *testing.T) {
+	tokens := []wrapToken{{text: "\x1b[31mred \x1b[0m"}}
+	r, ok := lastRune(tokens)
+	if !ok || r != ' ' {
+		t.Fatalf("lastRune(styled trailing space) = (%q, %v), want (' ', true)", r, ok)
 	}
 }

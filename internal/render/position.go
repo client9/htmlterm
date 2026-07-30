@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -105,19 +106,19 @@ func (e *Engine) shiftRelativeElement(n *html.Node, decls map[string]string, lin
 
 	extracted := make([]string, rect.Height)
 	for i := range rect.Height {
-		extracted[i] = visibleWindowCarry(lines[rect.Row+i], rect.Col, rect.Width)
+		extracted[i] = textcell.VisibleWindow(lines[rect.Row+i], rect.Col, rect.Width)
 	}
 	blank := strings.Repeat(" ", rect.Width)
 	for i := range rect.Height {
 		row := rect.Row + i
-		lines[row] = spliceColumns(lines[row], rect.Col, rect.Width, blank)
+		lines[row] = textcell.SpliceColumns(lines[row], rect.Col, rect.Width, blank)
 	}
 
 	newRow := max(0, min(rect.Row+dRow, len(lines)-rect.Height))
 	newCol := max(0, min(rect.Col+dCol, width-rect.Width))
 	for i := range rect.Height {
 		row := newRow + i
-		lines[row] = spliceColumns(lines[row], newCol, rect.Width, extracted[i])
+		lines[row] = textcell.SpliceColumns(lines[row], newCol, rect.Width, extracted[i])
 	}
 
 	shiftRow, shiftCol := newRow-rect.Row, newCol-rect.Col

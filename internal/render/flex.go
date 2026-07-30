@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -1135,8 +1136,8 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
-		inner := max(1, totalW-ml-runeLen(bl.char)-pl-pr-runeLen(br.char)-mr)
-		hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
+		inner := max(1, totalW-ml-textcell.Width(bl.char)-pl-pr-textcell.Width(br.char)-mr)
+		hBorderWidth = textcell.Width(bl.char) + pl + inner + pr + textcell.Width(br.char)
 		hasExplicitWidth = true
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {
@@ -1144,7 +1145,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		ml, mr = splitAutoMargins(remaining, ml, mr, mlAuto, mrAuto)
 	}
 
-	avail := hBorderWidth - runeLen(bl.char) - runeLen(br.char)
+	avail := hBorderWidth - textcell.Width(bl.char) - textcell.Width(br.char)
 	var innerW int
 	pl, pr, innerW = clampCellPadding(avail, pl, pr)
 	if innerW < 1 {
@@ -1188,7 +1189,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	if bl.char != "" || br.char != "" {
 		content = applyBlockBordersBox(content, bl, br, r.profile)
 		if len(positions) > 0 {
-			positions = mergePositions(nil, positions, 0, runeLen(bl.char))
+			positions = mergePositions(nil, positions, 0, textcell.Width(bl.char))
 		}
 	}
 	isEmpty := len(content.lines) == 1 && content.lines[0] == ""
@@ -1233,7 +1234,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	if r.liveContentOffsetsX == nil {
 		r.liveContentOffsetsX = map[*html.Node]int{}
 	}
-	r.liveContentOffsetsX[n] = pl + runeLen(bl.char) + ml
+	r.liveContentOffsetsX[n] = pl + textcell.Width(bl.char) + ml
 	return content, positions
 }
 

@@ -1,6 +1,10 @@
 package render
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/client9/htmlterm/internal/textcell"
+)
 
 // Regression test for the scrollbar-gutter-off-by-one bug: ambiguous-width
 // emoji (heart, warning triangle, play button, ...) paired with VARIATION
@@ -25,11 +29,11 @@ func TestVS16WidthCorrection(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := textVisualWidth(tc.s); got != tc.want {
-				t.Errorf("textVisualWidth(%q) = %d, want %d", tc.s, got, tc.want)
+			if got := textcell.Width(tc.s); got != tc.want {
+				t.Errorf("textcell.Width(%q) = %d, want %d", tc.s, got, tc.want)
 			}
-			if got := ansiVisibleLen(tc.s); got != tc.want {
-				t.Errorf("ansiVisibleLen(%q) = %d, want %d", tc.s, got, tc.want)
+			if got := textcell.VisibleLen(tc.s); got != tc.want {
+				t.Errorf("textcell.VisibleLen(%q) = %d, want %d", tc.s, got, tc.want)
 			}
 		})
 	}

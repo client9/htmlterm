@@ -10,6 +10,7 @@ import (
 	htmlterm "github.com/client9/htmlterm"
 	"github.com/client9/htmlterm/internal/cssengine"
 	"github.com/client9/htmlterm/internal/render"
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -345,6 +346,28 @@ func (d *Document) ContentOffsetX(el *Element) (int, bool) {
 // direction). This is live property state, not a reflected HTML attribute —
 // see docs/proposals/CARET_SELECTION.md's "Data model" section for why that
 // matches real spec's own split rather than introducing a new one.
+//
+// These offsets are RUNES, and must stay runes. It is tempting — especially
+// when reading the rendering side, where everything is measured in terminal
+// columns — to think of the two as the same kind of number and unify them.
+// They are not:
+//
+//   - Real DOM's selectionStart/selectionEnd/setSelectionRange are offsets
+//     into the value's character sequence. Mirroring that is the whole point
+//     of this type; a caller who knows the web platform must get the answer
+//     they expect (rune offsets rather than spec's UTF-16 code units is
+//     already one deliberate deviation, documented in COMPATIBILITY.md —
+//     a second one into columns would not be).
+//   - Columns are a property of how a value happens to be *rendered*. They
+//     shift with East Asian width settings, and they don't exist at all for
+//     a Document that has never been rendered — which still has a perfectly
+//     well-defined selection.
+//
+// The two units meet at exactly two functions, textcell.ColumnForRuneIndex
+// and textcell.RuneIndexForColumn, called only at the edges: placing the
+// terminal cursor (tui's focusCursorPos) and turning a click into a caret
+// (caretIndexFromClick, below). Everything else in this package stays in
+// runes. See internal/textcell/README.md, which exists largely to say this.
 type selectionState struct {
 	start, end int
 	direction  string
@@ -709,7 +732,7 @@ func (d *Document) focusAndPositionCaret(target *html.Node, row, col int, shiftE
 // d.contentOffsetsX) rather than its full border box — the UA stylesheet
 // gives every <textarea> a border and one column of padding on each side,
 // so Rect.Col is two columns left of where its text actually starts. The
-// column-to-offset step goes through render.RuneIndexForColumn rather than
+// column-to-offset step goes through textcell.RuneIndexForColumn rather than
 // plain subtraction, since a rune is not always one cell wide (CJK, emoji).
 // Returns 0 if target has no recorded Rect (e.g. Render hasn't run since
 // target was attached).
@@ -720,13 +743,13 @@ func (d *Document) caretIndexFromClick(target *html.Node, row, col int) int {
 	}
 	value := nodeAttr(target, "value")
 	if strings.ToLower(target.Data) != "textarea" {
-		return clampInt(render.RuneIndexForColumn(value, col-rect.Col), 0, utf8.RuneCountInString(value))
+		return clampInt(textcell.RuneIndexForColumn(value, col-rect.Col), 0, utf8.RuneCountInString(value))
 	}
 	lines := strings.Split(value, "\n")
 	offset := d.contentOffsets[target]
 	offsetX := d.contentOffsetsX[target]
 	lineIdx := clampInt(row-rect.Row-offset, 0, len(lines)-1)
-	lineCol := clampInt(render.RuneIndexForColumn(lines[lineIdx], col-rect.Col-offsetX),
+	lineCol := clampInt(textcell.RuneIndexForColumn(lines[lineIdx], col-rect.Col-offsetX),
 		0, utf8.RuneCountInString(lines[lineIdx]))
 	idx := lineCol
 	for i := 0; i < lineIdx; i++ {
@@ -1827,7 +1850,7 @@ func (d *Document) setInnerHTML(el *Element, htmlStr string) error {
 // rendered (and, in producing it, already sanitized) once. It is inserted
 // exactly as given, with no re-wrapping: word-wrap and overflow-y
 // scroll-clipping still apply around it the same as any other content (both
-// are already ANSI-aware — see wordWrapANSI/textutil.go — so embedded
+// are already ANSI-aware — see wordWrapTokens/wraptoken.go — so embedded
 // SGR/OSC8 sequences are treated as zero-width), but SetPreRendered performs
 // no validation that ansi's line widths actually match el's resolved
 // content width; a caller re-using stale ansi after a resize will see it

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/client9/htmlterm/internal/textcell"
 )
 
 // TestInputSelectionRendersReverseVideoByDefault pins the ::selection UA
@@ -58,7 +59,7 @@ func TestInputSelectionPadsByDisplayWidth(t *testing.T) {
 	if got != want {
 		t.Fatalf("stripped output = %q, want %q", got, want)
 	}
-	if w := textVisualWidth(got); w != 10 {
+	if w := textcell.Width(got); w != 10 {
 		t.Errorf("field rendered %d columns wide, want 10 (its size attribute)", w)
 	}
 }

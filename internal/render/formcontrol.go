@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -104,12 +105,12 @@ func inputSizeAttr(n *html.Node) int {
 // truncated or scrolled into view the way a real browser would keep the
 // caret visible — an accepted approximation, see COMPATIBILITY.md.
 //
-// s is measured in terminal columns (textVisualWidth), not runes: a value of
+// s is measured in terminal columns (textcell.Width), not runes: a value of
 // CJK or emoji characters occupies two cells apiece, so padding by rune count
 // would render the field wider than its resolved width and break the
 // column-alignment invariant every other box in this package maintains.
 func padInputText(s string, width int) string {
-	n := textVisualWidth(s)
+	n := textcell.Width(s)
 	if n >= width {
 		return s
 	}
@@ -216,7 +217,7 @@ func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inli
 	// Same column (not rune) measure padInputText uses on the unselected
 	// path above — the two must agree, or a field changes width the moment
 	// a selection appears in it.
-	pad := max(innerWidth-textVisualWidth(string(runes)), 0)
+	pad := max(innerWidth-textcell.Width(string(runes)), 0)
 	return acc.render(string(runes[:start]), p) +
 		selStyle.render(string(runes[start:end]), p) +
 		acc.render(string(runes[end:])+strings.Repeat(" ", pad), p)

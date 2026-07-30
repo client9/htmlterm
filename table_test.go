@@ -389,3 +389,31 @@ func TestColWidthAttrIgnored(t *testing.T) {
 		},
 	})
 }
+
+// TestBorderGlyphWidthChargedInColumns is a regression test for a bug where
+// border-glyph widths were measured in runes (runeLen, since deleted in
+// favor of textcell.Width): a double-width glyph reserved one column but
+// drew two, so the box's right edge landed a column past its declared width.
+// Literal-glyph borders are a documented feature, so this is reachable from
+// ordinary author CSS.
+func TestBorderGlyphWidthChargedInColumns(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "double-width left border glyph costs two columns",
+			css:   `div { border-style: solid; border-left: "🔥" }`,
+			html:  `<div>hi</div>`,
+			width: 12,
+			// 12 columns total: 🔥 (2) + "hi" (2) + 7 pad + │ (1). The
+			// horizontal rules span the same 12, corners included.
+			want: "┌──────────┐\n🔥hi       │\n└──────────┘\n",
+		},
+		{
+			name:  "double-width glyph on both sides",
+			css:   `div { border-style: solid; border-left: "🔥"; border-right: "🔥" }`,
+			html:  `<div>hi</div>`,
+			width: 12,
+			// 2 + 2 + 6 pad + 2 = 12, same as the rules above and below.
+			want: "┌──────────┐\n🔥hi      🔥\n└──────────┘\n",
+		},
+	})
+}

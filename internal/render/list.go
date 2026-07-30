@@ -3,8 +3,8 @@ package render
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -104,7 +104,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 	var sb strings.Builder
 	var positions map[*html.Node]Rect
 	outRow := 0
-	hangCol := ansiVisibleLen(hangStr)
+	hangCol := textcell.VisibleLen(hangStr)
 
 	if pt := parseMargin(decls["padding-top"]); pt > 0 {
 		sb.WriteString(strings.Repeat("\n", pt))
@@ -173,7 +173,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 			outRow++
 		}
 		if len(itemPositions) > 0 {
-			firstLineCol := ansiVisibleLen(indentStr + prefix)
+			firstLineCol := textcell.VisibleLen(indentStr + prefix)
 			if positions == nil {
 				positions = make(map[*html.Node]Rect, len(itemPositions))
 			}
@@ -213,15 +213,19 @@ func listStyleCustomString(style string) (string, bool) {
 	return "", false
 }
 
-// listItemPrefixWidth returns the column width of the widest prefix for the list.
+// listItemPrefixWidth returns the column width of the widest prefix for the
+// list. Every branch measures in terminal columns (textcell.Width), which is
+// what the hanging indent on a wrapped list item is expressed in — an emoji
+// or CJK marker measured in runes indents continuation lines too little, so
+// they don't line up under the first line's content.
 func listItemPrefixWidth(style string, ordered bool, count int) int {
 	if custom, ok := listStyleCustomString(style); ok {
-		return utf8.RuneCountInString(custom)
+		return textcell.Width(custom)
 	}
 	if items, ok := parseSymbolsArgs(style); ok {
 		width := 0
 		for _, item := range items {
-			if w := textVisualWidth(item); w > width {
+			if w := textcell.Width(item); w > width {
 				width = w
 			}
 		}
@@ -232,11 +236,11 @@ func listItemPrefixWidth(style string, ordered bool, count int) int {
 		case "none":
 			return 0
 		case "circle":
-			return utf8.RuneCountInString("○ ")
+			return textcell.Width("○ ")
 		case "square":
-			return utf8.RuneCountInString("■ ")
+			return textcell.Width("■ ")
 		default:
-			return utf8.RuneCountInString("• ")
+			return textcell.Width("• ")
 		}
 	}
 	switch style {

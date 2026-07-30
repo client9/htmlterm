@@ -103,3 +103,40 @@ func TestBlockquoteBlocks(t *testing.T) {
 		{name: "two paragraphs in blockquote separated by one blank bordered line", html: `<blockquote><p>A</p><p>B</p></blockquote>`, want: "│ A  \n│   \n│ B  \n\n"},
 	})
 }
+
+// TestVisibilityHiddenPreservesColumns is a regression test for
+// blankLineVisible measuring in runes: hiding a double-width payload freed
+// fewer columns than it occupied, sliding the following content left. That
+// defeats the only reason to choose visibility:hidden over display:none.
+func TestVisibilityHiddenPreservesColumns(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name: "hidden CJK still occupies its six columns",
+			html: `<div><span style="visibility:hidden">日本語</span>|end</div>`,
+			want: "      |end\n",
+		},
+		{
+			name: "hidden emoji still occupies its two columns",
+			html: `<div><span style="visibility:hidden">🔥</span>|end</div>`,
+			want: "  |end\n",
+		},
+	})
+}
+
+// TestCustomListMarkerIndentsWrappedLinesByColumns is a regression test for
+// listItemPrefixWidth measuring a custom list-style-type in runes: the
+// hanging indent on a wrapped item came up short, so continuation lines
+// didn't line up under the first line's content.
+func TestCustomListMarkerIndentsWrappedLinesByColumns(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "emoji marker indents continuation to the content column",
+			css:   `ul { list-style-type: "🔥 " }`,
+			html:  `<ul><li>aaa bbb ccc ddd</li></ul>`,
+			width: 18,
+			// "    🔥 " is 4 + 2 + 1 = 7 columns, so the wrapped line is
+			// indented by 7 spaces, not 6.
+			want: "    🔥 aaa bbb ccc\n       ddd\n",
+		},
+	})
+}

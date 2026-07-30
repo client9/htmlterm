@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -91,7 +92,7 @@ func lastRune(tokens []wrapToken) (r rune, ok bool) {
 		// Opaque: a box token is never itself a space or a line-start marker.
 		return 0, true
 	default:
-		rs := []rune(stripANSI(last.text))
+		rs := []rune(textcell.Strip(last.text))
 		if len(rs) == 0 {
 			return 0, false
 		}
@@ -275,16 +276,18 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 	return out
 }
 
-// wordWrapTokens is wordWrapANSI's generalization: it greedily fills lines of
-// at most width visible columns from a mixed stream of text/brk/box tokens.
-// text tokens are word-wrapped exactly as wordWrapANSI does (reusing
-// splitANSITokens + the same fill/break-word/break-all logic); a brk token
+// wordWrapTokens greedily fills lines of at most width visible columns from
+// a mixed stream of text/brk/box tokens. text tokens are word-wrapped via
+// textcell.SplitTokens plus the fill/break-word/break-all logic below (breakMode:
+// "" or "normal" = word boundaries only; "break-word" = also hard-break
+// tokens that overflow the width; "break-all" = break at any character
+// boundary); a brk token
 // always ends the current line; a box token is placed whole — single-line
 // boxes behave like an atomic word (can share a line with surrounding text),
 // multi-line boxes force a line break before and after themselves and
 // contribute their own lines verbatim (no reflow), per docs/RENDERING.md's stated
 // scope of not flowing text around a tall embedded object. A box wider than
-// width is clipped (overflow:hidden semantics), matching truncateToWidth's
+// width is clipped (overflow:hidden semantics), matching textcell.TruncateToWidth's
 // use elsewhere for explicit-width overflow.
 //
 // firstLineWidth, when > 0, constrains fill width until the first
@@ -296,6 +299,12 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 // as width". It affects only the text/box fit-checks, not break-word/
 // break-all's internal hard-split width, which is never combined with a
 // first-line width by any current caller.
+//
+// Any SGR style or OSC8 hyperlink span that gets split across an inserted
+// line break is closed before the break and reopened at the start of the
+// next line (see textcell.Carry), so a line's own trailing padding/margin never
+// inherits a style left open by a wrapped span, and every wrapped line of a
+// styled/linked run remains independently styled.
 //
 // positions records each box token's placement (Row/Col/Width/Height)
 // relative to this call's own output — not yet absolute document
@@ -322,12 +331,12 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 
 	// Fast path: a single text-only run (no brk/box at all) that fits within
-	// its line's width needs no tokenizing at all — mirrors wordWrapANSI's
+	// its line's width needs no tokenizing at all — the same
 	// own fits-on-one-line early exit. Only valid with no brk/box tokens
 	// present, since those always force a break regardless of width.
 	if len(coalesced) == 1 && coalesced[0].box == nil && !coalesced[0].brk {
-		if ansiVisibleLen(coalesced[0].text) <= curWidth() {
-			return box{lines: []string{coalesced[0].text}, width: ansiVisibleLen(coalesced[0].text)}, positions
+		if textcell.VisibleLen(coalesced[0].text) <= curWidth() {
+			return box{lines: []string{coalesced[0].text}, width: textcell.VisibleLen(coalesced[0].text)}, positions
 		}
 	}
 
@@ -337,7 +346,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	var cur strings.Builder
 	curLen := 0
 	curPre := false
-	var carry ansiCarry
+	var carry textcell.Carry
 	freshLine := true
 
 	// pushLine appends both a line and its pre-flag in lockstep — every
@@ -371,8 +380,8 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			return
 		}
 		boxJustClosed = false
-		if !carry.empty() {
-			cur.WriteString(carry.closeSeq())
+		if !carry.Empty() {
+			cur.WriteString(carry.CloseSeq())
 		}
 		pushLine(cur.String(), curPre)
 		cur.Reset()
@@ -382,8 +391,8 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 	ensureOpen := func() {
 		if freshLine {
-			if !carry.empty() {
-				cur.WriteString(carry.openSeq())
+			if !carry.Empty() {
+				cur.WriteString(carry.OpenSeq())
 			}
 			freshLine = false
 		}
@@ -395,7 +404,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	// source space justified it) — the first word of a run immediately
 	// following a box token has no such justification and must glue to it.
 	placeWord := func(tok string, glueLeft bool) {
-		vl := ansiVisibleLen(tok)
+		vl := textcell.VisibleLen(tok)
 		space := " "
 		if curLen == 0 || glueLeft {
 			space = ""
@@ -408,14 +417,14 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			if curLen > 0 {
 				closeAndPush()
 			}
-			chunks, endCarry := splitAtVisualWidthCarry(tok, width, carry)
+			chunks, endCarry := textcell.SplitAtWidth(tok, width, carry)
 			carry = endCarry
 			for k, chunk := range chunks {
 				if k < len(chunks)-1 {
 					pushLine(chunk, false)
 				} else {
 					cur.WriteString(chunk)
-					curLen = ansiVisibleLen(chunk)
+					curLen = textcell.VisibleLen(chunk)
 					freshLine = false
 				}
 			}
@@ -424,13 +433,13 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		ensureOpen()
 		cur.WriteString(space + tok)
 		curLen += len(space) + vl
-		carry.scan(tok)
+		carry.Scan(tok)
 	}
 
 	// placeGlued places a single-line box token directly adjacent to
 	// whatever precedes/follows it — unlike placeWord, it never inserts an
 	// automatic space, since a box token boundary (an element boundary)
-	// doesn't imply source whitespace the way a splitANSITokens word
+	// doesn't imply source whitespace the way a textcell.SplitTokens word
 	// boundary does; any real whitespace there is already its own preceding
 	// or following text token. Its content is already fully self-styled, so
 	// it neither reopens the surrounding carry nor scans into it. isPre
@@ -453,14 +462,14 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		if curLen > 0 {
 			closeAndPush()
 		}
-		chunks, endCarry := splitAtVisualWidthCarry(text, width, carry)
+		chunks, endCarry := textcell.SplitAtWidth(text, width, carry)
 		carry = endCarry
 		for k, chunk := range chunks {
 			if k < len(chunks)-1 {
 				pushLine(chunk, false)
 			} else {
 				cur.WriteString(chunk)
-				curLen = ansiVisibleLen(chunk)
+				curLen = textcell.VisibleLen(chunk)
 				freshLine = false
 			}
 		}
@@ -522,27 +531,27 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			}
 			// A run starting fresh (nothing pending on the current line)
 			// that fits verbatim is placed as-is, whitespace untouched —
-			// mirrors wordWrapANSI's own fits-on-one-line early exit, applied
+			// the same fits-on-one-line early exit as above, applied
 			// per coalesced run rather than only when there's a single run
 			// overall. This matters for exact-whitespace content (pre-line/
 			// pre-wrap runs, or blanked visibility:hidden runs) whose
-			// interior/leading/trailing spaces splitANSITokens would
+			// interior/leading/trailing spaces textcell.SplitTokens would
 			// otherwise collapse or drop entirely, since it tokenizes on
 			// whitespace as pure word-separators.
 			if curLen == 0 {
-				if vl := ansiVisibleLen(t.text); vl <= curWidth() {
+				if vl := textcell.VisibleLen(t.text); vl <= curWidth() {
 					ensureOpen()
 					cur.WriteString(t.text)
 					curLen = vl
-					carry.scan(t.text)
+					carry.Scan(t.text)
 					continue
 				}
 			}
-			toks := splitANSITokens(t.text)
+			toks := textcell.SplitTokens(t.text)
 			if len(toks) == 0 {
 				// t.text is pure whitespace too wide to fit verbatim above
 				// (rare) — place it as one glued unit rather than silently
-				// dropping it, which splitANSITokens would otherwise do.
+				// dropping it, which textcell.SplitTokens would otherwise do.
 				placeWord(t.text, true)
 				continue
 			}
@@ -560,9 +569,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	// coalesceTextRuns) can leave dead, pointless escape sequences behind at
 	// span/word boundaries — harmless to a compliant terminal but visible
 	// noise; strip them per line before returning. See
-	// collapseDeadANSISpans's own doc comment for why this happens.
+	// textcell.CollapseDeadSpans's own doc comment for why this happens.
 	for i, ln := range outLines {
-		outLines[i] = collapseDeadANSISpans(ln)
+		outLines[i] = textcell.CollapseDeadSpans(ln)
 	}
 	var pre []bool
 	if anyPre {

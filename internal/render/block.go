@@ -4,10 +4,10 @@ import (
 	"maps"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -53,7 +53,7 @@ func applyLineEdges(content, prefix, suffix string) string {
 func alignLinesBox(b box, dir string, width int) box {
 	lines := make([]string, len(b.lines))
 	for i, line := range b.lines {
-		vl := ansiVisibleLen(line)
+		vl := textcell.VisibleLen(line)
 		if vl >= width {
 			lines[i] = line
 			continue
@@ -91,7 +91,7 @@ func alignLines(content, dir string, width int) string {
 func padLinesToWidthBox(b box, width int) box {
 	lines := make([]string, len(b.lines))
 	for i, line := range b.lines {
-		if vl := ansiVisibleLen(line); vl < width {
+		if vl := textcell.VisibleLen(line); vl < width {
 			lines[i] = line + strings.Repeat(" ", width-vl)
 		} else {
 			lines[i] = line
@@ -126,7 +126,7 @@ func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int, p 
 	if rc == "" {
 		rc = fill
 	}
-	return drawHRule([]int{max(0, width-runeLen(lc)-runeLen(rc))}, fill, color, lc, "", rc, p)
+	return drawHRule([]int{max(0, width-textcell.Width(lc)-textcell.Width(rc))}, fill, color, lc, "", rc, p)
 }
 
 func resolveCSSSize(s string, availWidth int) (int, bool) {
@@ -160,7 +160,7 @@ func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth i
 func maxVisibleLineWidth(s string) int {
 	maxW := 0
 	for _, line := range strings.Split(s, "\n") {
-		if w := ansiVisibleLen(line); w > maxW {
+		if w := textcell.VisibleLen(line); w > maxW {
 			maxW = w
 		}
 	}
@@ -293,7 +293,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
-		inner := totalW - ml - runeLen(bl.char) - pl - pr - runeLen(br.char) - mr
+		inner := totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
 		// A width too small to fit this element's own border+padding is
 		// clamped to a 1-column minimum rather than discarded — CSS itself
 		// never lets border+padding shrink content below 0, so "too small
@@ -302,7 +302,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if inner < 1 {
 			inner = 1
 		}
-		hBorderWidth = runeLen(bl.char) + pl + inner + pr + runeLen(br.char)
+		hBorderWidth = textcell.Width(bl.char) + pl + inner + pr + textcell.Width(br.char)
 		hasExplicitWidth = true
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {
@@ -310,7 +310,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		ml, mr = splitAutoMargins(remaining, ml, mr, mlAuto, mrAuto)
 	}
 
-	avail := hBorderWidth - runeLen(bl.char) - runeLen(br.char)
+	avail := hBorderWidth - textcell.Width(bl.char) - textcell.Width(br.char)
 	// gutterWidth reserves a column for the scrollbar indicator up front,
 	// before wrapping — see docs/SCROLLING.md's "Scrollbar gutter and indicator"
 	// for why this must happen before wordWrapTokens runs (below), not as a
@@ -424,9 +424,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		last := len(tokens) - 1
 		if tokens[last].box == nil && !tokens[last].brk {
 			t := tokens[last].text
-			stripped := stripANSI(t)
+			stripped := textcell.Strip(t)
 			if strings.HasSuffix(stripped, " ") && !strings.HasSuffix(stripped, "  ") {
-				if trimmed, ok := trimOneTrailingVisibleSpace(t); ok {
+				if trimmed, ok := textcell.TrimTrailingSpace(t); ok {
 					tokens[last] = wrapToken{text: trimmed}
 				}
 			}
@@ -472,7 +472,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			suffix := textOverflowSuffix(decls["text-overflow"])
 			newLines := make([]string, len(b.lines))
 			for i, ln := range b.lines {
-				newLines[i] = truncateToWidth(ln, innerW, suffix)
+				newLines[i] = textcell.TruncateToWidth(ln, innerW, suffix)
 			}
 			b = box{lines: newLines, width: linesWidth(newLines)}
 		case "scroll", "auto":
@@ -487,7 +487,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			offsetX := r.scrollOffsetsX[n]
 			maxLineWidth := 0
 			for _, ln := range b.lines {
-				if w := ansiVisibleLen(ln); w > maxLineWidth {
+				if w := textcell.VisibleLen(ln); w > maxLineWidth {
 					maxLineWidth = w
 				}
 			}
@@ -499,8 +499,8 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			r.liveScrollOffsetsX[n] = offsetX
 			lines := make([]string, len(b.lines))
 			for i, ln := range b.lines {
-				window := visibleWindowCarry(ln, offsetX, innerW)
-				if pad := innerW - ansiVisibleLen(window); pad > 0 {
+				window := textcell.VisibleWindow(ln, offsetX, innerW)
+				if pad := innerW - textcell.VisibleLen(window); pad > 0 {
 					window += strings.Repeat(" ", pad)
 				}
 				lines[i] = window
@@ -726,7 +726,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if topRuleDrawn {
 		rowShift++
 	}
-	colShift := pl + runeLen(bl.char) + ml
+	colShift := pl + textcell.Width(bl.char) + ml
 	positions = mergePositions(nil, positions, rowShift, colShift)
 	if r.liveContentOffsets == nil {
 		r.liveContentOffsets = map[*html.Node]int{}
@@ -1188,8 +1188,8 @@ func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, inne
 				g = thumb
 			}
 		}
-		ln = truncateToWidth(ln, innerW, "")
-		if pad := innerW - ansiVisibleLen(ln); pad > 0 {
+		ln = textcell.TruncateToWidth(ln, innerW, "")
+		if pad := innerW - textcell.VisibleLen(ln); pad > 0 {
 			ln += strings.Repeat(" ", pad)
 		}
 		out[i] = ln + g.style.render(strings.Repeat(g.char, gutterWidth), profile)
@@ -1289,10 +1289,14 @@ func blankVisibleContent(s string) string {
 	return blankVisibleContentBox(newBox(s)).join()
 }
 
-// blankLineVisible strips ANSI from line and replaces every remaining rune
-// with a space, preserving rune count.
+// blankLineVisible replaces line's visible content with spaces, preserving
+// its **column** count — not its rune count, which is what this used to do.
+// The distinction is the whole point of visibility:hidden over display:none:
+// a hidden element must go on occupying exactly the room it occupied, so the
+// content after it doesn't move. Blanking "日本語" (3 runes, 6 columns) to 3
+// spaces slid the rest of the line 3 columns left.
 func blankLineVisible(line string) string {
-	return strings.Repeat(" ", utf8.RuneCountInString(stripANSI(line)))
+	return strings.Repeat(" ", textcell.VisibleLen(line))
 }
 
 // blankVisibleContentBox is blankVisibleContent's box-based core.

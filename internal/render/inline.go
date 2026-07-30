@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -28,7 +29,7 @@ func (r *Engine) renderInlineAcc(n *html.Node, acc inlineStyle, availWidth int) 
 // newlines instead of collapsing them, are the two sources of this). A
 // styled segment's trailing space stays inside its ANSI span (lastRune,
 // wraptoken.go, and block.go's own trailing-space trim are ANSI-aware, via
-// stripANSI/trimOneTrailingVisibleSpace, so they don't need it kept plain).
+// textcell.Strip/textcell.TrimTrailingSpace, so they don't need it kept plain).
 func appendText(tokens []wrapToken, st inlineStyle, text string, p colorprofile.Profile) []wrapToken {
 	if text == "" {
 		return tokens
@@ -86,7 +87,7 @@ func restyleTrailingWhitespaceOnlyToken(tokens []wrapToken, outerAcc inlineStyle
 	if tokens[last].box != nil || tokens[last].brk {
 		return tokens
 	}
-	if stripANSI(tokens[last].text) != " " {
+	if textcell.Strip(tokens[last].text) != " " {
 		return tokens
 	}
 	text := " "

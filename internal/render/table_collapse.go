@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -387,7 +388,7 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 			captionWidth := max(1, availWidth-overhead)
 			savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 			r.nestedTableWidth, r.nestedTableWidthSet = fallbackCellWidth, true
-			captionText = plainInlineText(stripANSI(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
+			captionText = plainInlineText(textcell.Strip(r.renderInlineAcc(c, newInlineStyle(), captionWidth)))
 			r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 			break
 		}
@@ -774,7 +775,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 		line := lines[row]
 		for cl := 0; cl <= numCols; cl++ {
 			if colGutter[cl] > 0 {
-				line = spliceColumns(line, xOfGutter[cl], 1, vertexGlyph(rl, cl))
+				line = textcell.SpliceColumns(line, xOfGutter[cl], 1, vertexGlyph(rl, cl))
 			}
 			if cl < numCols {
 				seg := hSeg[rl][cl]
@@ -782,7 +783,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 				if seg.border.char != "" {
 					content = makePainter(seg.border.color, r.profile)(strings.Repeat(seg.border.char, widths[cl]))
 				}
-				line = spliceColumns(line, xOfContent[cl], widths[cl], content)
+				line = textcell.SpliceColumns(line, xOfContent[cl], widths[cl], content)
 			}
 		}
 		lines[row] = line
@@ -802,7 +803,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 					if vseg.border.char != "" {
 						content = makePainter(vseg.border.color, r.profile)(vseg.border.char)
 					}
-					line = spliceColumns(line, xOfGutter[c], 1, content)
+					line = textcell.SpliceColumns(line, xOfGutter[c], 1, content)
 				}
 				cell := g.rows[rowIdx][c]
 				if cell == nil || cell.colStart != c {
@@ -826,7 +827,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 				if pr > 0 {
 					rendered += strings.Repeat(" ", pr)
 				}
-				line = spliceColumns(line, xOfContent[c], spanWidth, rendered)
+				line = textcell.SpliceColumns(line, xOfContent[c], spanWidth, rendered)
 			}
 			if colGutter[numCols] > 0 {
 				vseg := vSeg[numCols][rowIdx]
@@ -834,7 +835,7 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 				if vseg.border.char != "" {
 					content = makePainter(vseg.border.color, r.profile)(vseg.border.char)
 				}
-				line = spliceColumns(line, xOfGutter[numCols], 1, content)
+				line = textcell.SpliceColumns(line, xOfGutter[numCols], 1, content)
 			}
 			lines[row] = line
 		}

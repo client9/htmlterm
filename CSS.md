@@ -609,7 +609,7 @@ See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` ne
 `<integer>`. Tab-stop interval for expanding `\t` characters inside `white-space: pre` or `pre-wrap` content. Tab characters advance to the next multiple of `tab-size` columns. Default: `8`. Has no effect when `white-space` is `normal`, `nowrap`, or `pre-line` (tabs are collapsed to a single space like any other whitespace). Inherited.
 
 #### `visibility`
-`visible` | `hidden`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
+`visible` | `hidden`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead, measured in terminal columns, so a double-width character (CJK, emoji) is replaced by the two spaces it occupied rather than one. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
 
 #### `content`
 
@@ -742,7 +742,7 @@ Each accepts **two different forms**, dispatched on whether the value is quoted:
 
 | Form | Example | Meaning |
 |------|---------|---------|
-| Quoted string | `border-left: "▌"` | This engine's literal-glyph form (predates the shorthand below, and remains the primary way to use box-drawing characters that have no CSS style-keyword equivalent). The exact character(s) prepended/appended (for `-left`/`-right`) or repeated as the horizontal-rule fill (for `-top`/`-bottom`). `none` (unquoted) or unset = no border. |
+| Quoted string | `border-left: "▌"` | This engine's literal-glyph form (predates the shorthand below, and remains the primary way to use box-drawing characters that have no CSS style-keyword equivalent). The exact character(s) prepended/appended (for `-left`/`-right`) or repeated as the horizontal-rule fill (for `-top`/`-bottom`). `none` (unquoted) or unset = no border. A glyph is charged its real terminal width, so a double-width one (CJK, emoji) costs the box two columns per side rather than one. |
 | Bareword, standard CSS shorthand grammar | `border-left: solid red` | `<style>`, `<style> <color>`, or `<width> <style> <color>` (`<width>` ignored) — the same positional grammar as the [`border`](#border) shorthand, just resolved to *this one edge's* glyph from the named preset (e.g. `top.fill` for `border-top`, `left`/`right` for `border-left`/`border-right`) instead of the whole box. `<style>` is one of the [`border-style`](#border-style) preset names. An explicit `border-top: none` clears just that edge, even when `border-style` is also set on the same element (this used to be silently overridden by the preset — no longer). |
 
 ```css

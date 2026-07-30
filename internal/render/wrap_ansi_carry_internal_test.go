@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/colorprofile"
+	"github.com/client9/htmlterm/internal/textcell"
 )
 
 // TestWordWrapANSIStyleCarry verifies that a single SGR-styled run spanning
@@ -14,14 +15,14 @@ import (
 // the start of the next line, so every emitted line is self-contained.
 func TestWordWrapANSIStyleCarry(t *testing.T) {
 	text := "\x1b[4m" + "alpha beta gamma delta epsilon" + "\x1b[m"
-	got := wordWrapANSI(text, 12, "")
+	got := wrapText(text, 12, "")
 	want := []string{
 		"\x1b[4malpha beta\x1b[m",
 		"\x1b[4mgamma delta\x1b[m",
 		"\x1b[4mepsilon\x1b[m",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("wordWrapANSI() = %#v, want %#v", got, want)
+		t.Fatalf("wrapText() = %#v, want %#v", got, want)
 	}
 }
 
@@ -60,7 +61,7 @@ func TestWrapHyperlinkMarginNotUnderlined(t *testing.T) {
 // reopens the style at each internal cut point.
 func TestSplitAtVisualWidthCarryHardBreak(t *testing.T) {
 	text := "\x1b[1m" + "Supercalifragilisticexpialidocious" + "\x1b[m"
-	got := wordWrapANSI(text, 10, "break-word")
+	got := wrapText(text, 10, "break-word")
 	want := []string{
 		"\x1b[1mSupercalif\x1b[m",
 		"\x1b[1mragilistic\x1b[m",
@@ -68,7 +69,7 @@ func TestSplitAtVisualWidthCarryHardBreak(t *testing.T) {
 		"\x1b[1mious\x1b[m",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("wordWrapANSI(break-word) = %#v, want %#v", got, want)
+		t.Fatalf("wrapText(break-word) = %#v, want %#v", got, want)
 	}
 }
 
@@ -78,7 +79,7 @@ func TestSplitAtVisualWidthCarryHardBreak(t *testing.T) {
 // same token (an over-width word arriving right after already-packed words).
 func TestWordWrapANSINoDoubleOpenOnCombinedBreak(t *testing.T) {
 	text := "\x1b[4m" + "hi Supercalifragilisticexpialidocious" + "\x1b[m"
-	got := wordWrapANSI(text, 10, "break-word")
+	got := wrapText(text, 10, "break-word")
 	want := []string{
 		"\x1b[4mhi\x1b[m",
 		"\x1b[4mSupercalif\x1b[m",
@@ -87,11 +88,11 @@ func TestWordWrapANSINoDoubleOpenOnCombinedBreak(t *testing.T) {
 		"\x1b[4mious\x1b[m",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("wordWrapANSI() = %#v, want %#v (check for doubled \\x1b[4m open codes)", got, want)
+		t.Fatalf("wrapText() = %#v, want %#v (check for doubled \\x1b[4m open codes)", got, want)
 	}
 }
 
-// TestCollapseDeadANSISpans is a direct unit test of collapseDeadANSISpans,
+// TestCollapseDeadANSISpans is a direct unit test of textcell.CollapseDeadSpans,
 // the final cleanup pass wordWrapTokens applies to every line it emits.
 func TestCollapseDeadANSISpans(t *testing.T) {
 	cases := []struct {
@@ -157,9 +158,9 @@ func TestCollapseDeadANSISpans(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := collapseDeadANSISpans(tc.in)
+			got := textcell.CollapseDeadSpans(tc.in)
 			if got != tc.want {
-				t.Errorf("collapseDeadANSISpans(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Errorf("textcell.CollapseDeadSpans(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -169,9 +170,9 @@ func TestCollapseDeadANSISpans(t *testing.T) {
 // regression: an <a> wrapping an <em> and immediately followed by its own
 // trailing whitespace-only text node (a real, pretty-printed-HTML pattern —
 // indentation between a child element and its closing tag) sits right next
-// to a differently-styled <em> sibling. coalesceTextRuns/splitANSITokens
+// to a differently-styled <em> sibling. coalesceTextRuns/textcell.SplitTokens
 // misattribute the escape sequences at that junction (see
-// collapseDeadANSISpans's doc comment on wordWrapTokens); at some widths
+// textcell.CollapseDeadSpans's doc comment on wordWrapTokens); at some widths
 // this used to surface as a dangling/empty style span, or as leaked
 // underline styling on the following word. This pins the end-to-end
 // rendered output, not just the cleanup pass in isolation.
@@ -194,7 +195,7 @@ func TestRenderNoDeadSpanAroundLinkWithTrailingWhitespace(t *testing.T) {
 			if strings.Contains(got, "\x1b[3m\x1b[m") || strings.Contains(got, "\x1b[4m\x1b[m") {
 				t.Errorf("width %d: output contains a dead empty-style span:\n%q", width, got)
 			}
-			if plain := stripANSI(got); strings.Contains(plain, "registerto") || strings.Contains(plain, "register  to") {
+			if plain := textcell.Strip(got); strings.Contains(plain, "registerto") || strings.Contains(plain, "register  to") {
 				t.Errorf("width %d: visible text malformed around the link:\n%q", width, plain)
 			}
 			// "to" (from the trailing <em>) must never inherit the <a>'s
@@ -233,7 +234,7 @@ func TestRestyleTrailingWhitespaceOnlyTokenPreservesTheSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if plain := strings.TrimSpace(stripANSI(got)); plain != "foo register bar" {
+	if plain := strings.TrimSpace(textcell.Strip(got)); plain != "foo register bar" {
 		t.Fatalf("Render() = %q, want text %q", plain, "foo register bar")
 	}
 	if strings.Contains(got, "\x1b[4m \x1b[m") {
@@ -267,10 +268,20 @@ func TestRestyleTrailingWhitespaceOnlyTokenPlainInlineBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if plain := strings.TrimSpace(stripANSI(got)); plain != "foo bold bar" {
+	if plain := strings.TrimSpace(textcell.Strip(got)); plain != "foo bold bar" {
 		t.Fatalf("Render() = %q, want text %q", plain, "foo bold bar")
 	}
 	if strings.Contains(got, "\x1b[1m \x1b[m") {
 		t.Errorf("separator space still carries <b>'s own bold styling:\n%q", got)
 	}
+}
+
+// wrapText wraps a single text run through wordWrapTokens — the shape these
+// ANSI-carry tests care about. It used to exist in the old textutil.go as
+// wordWrapANSI, kept alive solely by this file after its last production
+// caller went away; it lives here now so the production package carries no
+// test-only wrapper.
+func wrapText(text string, width int, breakMode string) []string {
+	b, _ := wordWrapTokens([]wrapToken{{text: text}}, width, breakMode, 0)
+	return b.lines
 }

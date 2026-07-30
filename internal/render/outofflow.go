@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
 )
 
@@ -144,7 +145,7 @@ func clampOutOfFlowRect(rect Rect, width, docHeight int, canGrow bool) Rect {
 //
 // Phase B paints the results in z-index order (ties broken by the same
 // document order collectOutOfFlow already established, via
-// sort.SliceStable) using the same spliceColumns-based painter's-algorithm
+// sort.SliceStable) using the same textcell.SpliceColumns-based painter's-algorithm
 // compositing applyRelativeOffsets and compositeOpenSelects already use — a
 // later splice fully overwrites whatever an earlier one painted into the
 // same cells, no partial blending.
@@ -217,7 +218,7 @@ func (e *Engine) paintOutOfFlow(res resolvedOutOfFlow, lines []string, positions
 	}
 	for i := range rect.Height {
 		row := rect.Row + i
-		lines[row] = spliceColumns(lines[row], rect.Col, rect.Width, res.box.lines[i])
+		lines[row] = textcell.SpliceColumns(lines[row], rect.Col, rect.Width, res.box.lines[i])
 	}
 	positions = mergePositions(positions, res.subPositions, rect.Row, rect.Col)
 	positions[res.node] = rect
