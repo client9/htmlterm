@@ -573,6 +573,22 @@ func (d *Document) DispatchResize() {
 	d.dispatch(d.doc, "resize", "", Modifiers{})
 }
 
+// dispatchEvent is Element.DispatchEvent's actual logic — the same
+// Document-holds-the-logic split Focus/Blur/DispatchClick already use for
+// their own Element wrappers. Checks ev.dispatching itself, before calling
+// runDispatch, so a blocked reentrant call (the same *Event already
+// mid-dispatch elsewhere) returns false unconditionally rather than
+// evaluating Cancelable/DefaultPrevented against ev's stale, pre-existing
+// state (see docs/proposals/CUSTOM_EVENTS.md's "Fixing the reentrancy
+// return value").
+func (d *Document) dispatchEvent(el *Element, ev *Event) bool {
+	if ev.dispatching {
+		return false
+	}
+	d.runDispatch(ev, el.node, ev.Bubbles)
+	return !(ev.Cancelable && ev.DefaultPrevented())
+}
+
 // applyCheckToggle runs the checkbox/radio default action for target: a
 // checkbox flips its checked attribute; a radio is checked and its sibling
 // radios (see clearRadioSiblings) are cleared. Shared by DispatchClick and
@@ -825,7 +841,7 @@ func (d *Document) DispatchPaste(text string) bool {
 	target := d.focused
 	ev := d.newEvent(target, "paste", "", Modifiers{})
 	ev.ClipboardData = text
-	d.runDispatch(ev, target)
+	d.runDispatch(ev, target, ev.Bubbles)
 	if ev.DefaultPrevented() {
 		return true
 	}
@@ -860,7 +876,7 @@ func (d *Document) DispatchCut() (text string, ok bool) {
 	}
 	ev := d.newEvent(target, "cut", "", Modifiers{})
 	ev.ClipboardData = value
-	d.runDispatch(ev, target)
+	d.runDispatch(ev, target, ev.Bubbles)
 	if !ev.DefaultPrevented() && isTextEntry(target) {
 		setAttr(target, "value", "")
 		d.dispatch(target, "input", "", Modifiers{})

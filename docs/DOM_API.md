@@ -28,7 +28,7 @@ network, no scripting engine).
 | `createTextNode(text)` | `CreateTextNode(text)` | |
 | `createDocumentFragment()` | Missing | No `DocumentFragment` type; build a detached `Element` subtree via `CreateElement`/`AppendChild` and attach it directly instead. |
 | `createComment(text)` | `CreateComment(text)` | A comment node never produces visible output once attached — `internal/render`'s dispatch explicitly skips `html.CommentNode` wherever it appears, the same way a browser never renders comment content either. |
-| `createEvent()` / `Event` constructor | N/A | Events are only ever synthesized internally by `Dispatch*` calls; there's no way to construct and dispatch an arbitrary custom event. |
+| `createEvent()` / `Event` constructor | `NewCustomEvent(typ, CustomEventInit{...})` | Mirrors `new CustomEvent(type, init)`, not the legacy `createEvent`/`initEvent` two-step. Pair with `Element.DispatchEvent(ev)` to fire it — see the `dispatchEvent` row below. |
 | `importNode(node, deep)` / `adoptNode(node)` | N/A | Single-document model — no cross-document node transfer exists to import/adopt between. |
 | `documentElement` | `DocumentElement()` | |
 | `body` | `Body()` | |
@@ -39,7 +39,7 @@ network, no scripting engine).
 | `URL` / `domain` / `cookie` / `location` / `defaultView` / `readyState` / `characterSet` / `doctype` | N/A | No network origin, no window, no navigation, no async loading — none of these concepts exist for a one-shot/embedded document. |
 | `addEventListener(type, fn, opts)` (via `EventTarget`) | `AddEventListener(el, typ, capture, fn)` | Lives on `Document`, not `Element` — takes the target `*Element` as a parameter rather than being called on it. See "Also available" under Element below. |
 | `removeEventListener` | `RemoveEventListener(handle)` | Takes the `ListenerHandle` returned by `AddEventListener`, not a `(type, fn)` pair. |
-| `dispatchEvent(event)` | Missing (public) | Internal `dispatch` exists but isn't exported; only the fixed built-in event types (`DispatchClick`/`DispatchKey`/`DispatchWheel`/`DispatchResize`/`DispatchPaste`/`DispatchCut`) can be fired — no arbitrary custom-event dispatch. |
+| `dispatchEvent(event)` | `Element.DispatchEvent(ev)` | Lives on `Element`, not `Document` — spec's other `EventTarget` implementer, `Document` itself, is reached here via `doc.DocumentElement().DispatchEvent(ev)` rather than a second method. Runs listeners through the same capture/target/bubble engine every built-in `Dispatch*` uses, but fires no default action, even for a built-in-named type like `"click"` — see `COMPATIBILITY.md`. |
 | `write()` / `writeln()` / `open()` / `close()` | N/A | Legacy streaming-parser API; `ParseDocument` is parse-once instead. |
 | `execCommand()` | N/A | Legacy rich-text-editing API; no editable-content model exists. |
 
@@ -146,7 +146,8 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 | `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
 | `HTMLElement.tabIndex` | Missing (typed accessor) | `tabindex` itself *is* read (drives focus order — see COMPATIBILITY.md's DOM & Events "At a Glance" and "Deviations from Spec"); there's just no typed `Element.TabIndex()`/`SetTabIndex()` shortcut — use `GetAttribute`/`SetAttribute("tabindex", ...)` directly, same as the rest of this row. |
 | `HTMLElement.title`, etc. (remaining typed property shortcuts) | Missing | Use `GetAttribute`/`SetAttribute` with the matching attribute name. |
-| `EventTarget.addEventListener` / `removeEventListener` / `dispatchEvent` | `Document.AddEventListener(el, ...)` / `Document.RemoveEventListener(handle)` | Lives on `Document`, not `Element` — see "Also available" below and the `Document` table above. No public `dispatchEvent`. |
+| `EventTarget.addEventListener` / `removeEventListener` | `Document.AddEventListener(el, ...)` / `Document.RemoveEventListener(handle)` | Registration lives on `Document`, not `Element` — see "Also available" below and the `Document` table above. |
+| `EventTarget.dispatchEvent` | `Element.DispatchEvent(ev)` | Unlike registration, dispatch *does* live on `Element` here, matching spec's `target.dispatchEvent(...)` shape — pair with `NewCustomEvent`/`CustomEventInit` to build `ev`. See the `Document` table's `dispatchEvent` row above for how `Document`-wide dispatch is covered without a second method. |
 
 ### Also available (no direct spec equivalent)
 

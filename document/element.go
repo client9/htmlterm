@@ -687,6 +687,34 @@ func (e *Element) Click() bool {
 	return e.doc.DispatchClick(r.Row, r.Col, Modifiers{})
 }
 
+// DispatchEvent dispatches ev at e through the same capture/target/bubble
+// walk every built-in Dispatch* method uses, mirroring EventTarget's
+// dispatchEvent (implemented by both Node/Element and Document in real
+// spec — Document-wide dispatch is reached here via
+// doc.DocumentElement().DispatchEvent(ev), since DocumentElement() already
+// returns the one Element that covers it). Skips the bubble phase entirely
+// if ev.Bubbles is false. Returns false if e or ev is nil, or if e is not
+// attached to a Document; false if ev is already mid-dispatch elsewhere
+// (reentrancy — checked before anything else runs, so this is unconditional
+// and does not depend on ev's current Cancelable/DefaultPrevented state);
+// otherwise false if a listener called PreventDefault and ev.Cancelable is
+// true (matching spec's dispatchEvent return value), true otherwise.
+//
+// There is no built-in default action for a custom event type, unlike
+// DispatchClick/DispatchKey/etc. — the returned bool is the entire signal;
+// it's up to the caller's own code, immediately after this call, to act on
+// it (skip whatever it was about to do next), the same way application code
+// built on a real dispatchEvent would. This also means dispatching a
+// built-in-named type (e.g. "click") through DispatchEvent runs any
+// registered listeners but no default action (checkbox toggle, submit
+// forwarding, etc.) — see COMPATIBILITY.md.
+func (e *Element) DispatchEvent(ev *Event) bool {
+	if e == nil || e.doc == nil || ev == nil {
+		return false
+	}
+	return e.doc.dispatchEvent(e, ev)
+}
+
 // Rect returns e's position and size as of the most recent Document.Render
 // call (the CSS border box — content+padding+border, excluding margin — see
 // docs/RENDERING.md's Position tracking section for the exact semantics and its

@@ -360,6 +360,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   doesn't have separately-named events for). An ancestor listener can
   observe a descendant's `"focus"`/`"blur"` directly here; no
   `focusin`/`focusout` equivalent is needed or provided.
+- **`Element.DispatchEvent` runs no default action for a built-in-named
+  event type.** Dispatching e.g. `NewCustomEvent("click", ...)` through
+  `DispatchEvent` runs any registered listeners normally, but skips
+  checkbox/radio toggle, submit forwarding, focus traversal, and every other
+  default action a real browser *would* still run for a synthetically
+  dispatched built-in event (`checkbox.dispatchEvent(new MouseEvent("click"))`
+  genuinely toggles it in a real browser). Here, that behavior lives inside
+  each specific `Dispatch*` method (`DispatchClick`, `DispatchKey`, etc.),
+  not in the shared dispatch engine `DispatchEvent` also uses — a real,
+  named gap versus spec, not spec ambiguity.
 
 ### Terminal-Native Additions
 
@@ -376,6 +386,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
   own synthetic `Rect` per `<option>`, composited on top of already-
   rendered output — real DOM has no equivalent to this text-based popup
   compositing step (see `docs/RENDERING.md`).
+- **`Event` is one flat struct, not a class hierarchy.** `NewCustomEvent`/
+  `Element.DispatchEvent` support custom events with an untyped
+  `Detail any` payload, `Bubbles`, and `Cancelable` — real DOM instead has
+  `Event`/`CustomEvent`/`UIEvent`/`MouseEvent`/`KeyboardEvent` as separate
+  constructors/types in a class hierarchy. htmlterm reuses the same `Event`
+  type (with `ClipboardData`/`Key`/modifier fields already sitting unused
+  alongside `Detail` for a custom event) for every event, built-in or
+  custom, matching this package's existing "one struct, not subclasses"
+  style.
 
 ### Not Supported
 
@@ -397,8 +416,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   falls back to native OS selection/copy). `"cut"`/`"paste"` are supported
   (see "Clipboard" above) but always act on a whole field, not a selected
   range, since there's no selection to scope them to.
-- **Custom events / arbitrary `dispatchEvent`** — only the fixed built-in
-  event names above are ever dispatched.
 - **Shadow DOM, custom elements, `MutationObserver`** — there is no tree-
   change observation API; a host must re-render after mutating.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,

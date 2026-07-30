@@ -76,12 +76,63 @@ type Event struct {
 	// rewritten) value is what each event's default action then acts on.
 	// Unset (empty) for every other event type.
 	ClipboardData string
+	// Detail is an arbitrary caller-defined payload, mirroring
+	// CustomEvent.detail — htmlterm never inspects it. Unset (nil) for
+	// every built-in event type.
+	Detail any
+	// Bubbles reports whether this event's dispatch runs the bubble phase
+	// after target, mirroring Event.bubbles. Always true for built-in event
+	// types (see newEvent) — even though real spec's own per-type table
+	// isn't uniform (focus/blur/resize don't bubble per spec), this package
+	// has no per-type bubbling suppression, so Bubbles reflects actual
+	// behavior rather than spec's table. For custom events, set via
+	// CustomEventInit.Bubbles, defaulting to false per spec.
+	Bubbles bool
+	// Cancelable reports whether PreventDefault has any effect on this
+	// event, mirroring Event.cancelable. Set per type for built-in events
+	// (see defaultCancelable) to match which Dispatch* methods already gate
+	// their default action on DefaultPrevented(). For custom events, set
+	// via CustomEventInit.Cancelable, defaulting to false per spec.
+	Cancelable bool
 
 	doc              *Document
 	current          *html.Node
 	stopped          bool
 	stoppedImmediate bool
 	defaultPrevented bool
+	dispatching      bool
+}
+
+// CustomEventInit configures NewCustomEvent, mirroring the DOM's
+// CustomEventInit dictionary (the object literal passed as
+// `new CustomEvent(type, init)`'s second argument). Named to match spec
+// rather than Go's usual "Options" convention — consistent with this
+// package's existing practice of borrowing DOM vocabulary where it aids
+// readability (Modifiers, ClipboardData, ListenerHandle).
+type CustomEventInit struct {
+	// Detail is an arbitrary caller-defined payload, mirroring
+	// CustomEvent.detail — htmlterm never inspects it.
+	Detail any
+	// Bubbles controls whether DispatchEvent runs the bubble phase after
+	// target, mirroring CustomEventInit.bubbles. Defaults to false (Go's
+	// zero value), matching spec's own default.
+	Bubbles bool
+	// Cancelable controls DispatchEvent's return value (and whether
+	// PreventDefault has any effect at all): false only if both Cancelable
+	// is true and a listener called PreventDefault. Mirrors
+	// CustomEventInit.cancelable, also defaulting to false.
+	Cancelable bool
+}
+
+// NewCustomEvent constructs an Event for use with Element.DispatchEvent,
+// mirroring the DOM's `new CustomEvent(type, init)` constructor.
+func NewCustomEvent(typ string, init CustomEventInit) *Event {
+	return &Event{
+		Type:       typ,
+		Detail:     init.Detail,
+		Bubbles:    init.Bubbles,
+		Cancelable: init.Cancelable,
+	}
 }
 
 // CurrentTarget returns the element whose listener is currently running —
@@ -105,9 +156,12 @@ func (e *Event) StopImmediatePropagation() {
 }
 
 // PreventDefault suppresses the event's built-in default action (e.g. a
-// checkbox toggling its checked state on click).
+// checkbox toggling its checked state on click) — a no-op unless
+// e.Cancelable is true, matching real DOM's preventDefault behavior.
 func (e *Event) PreventDefault() {
-	e.defaultPrevented = true
+	if e.Cancelable {
+		e.defaultPrevented = true
+	}
 }
 
 // DefaultPrevented reports whether PreventDefault was called.
@@ -169,14 +223,33 @@ func ancestorChain(n *html.Node) []*html.Node {
 // time a listener sees it.
 func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) *Event {
 	return &Event{
-		Type:     typ,
-		Target:   &Element{node: target, doc: d},
-		Key:      key,
-		ShiftKey: mods.Shift,
-		CtrlKey:  mods.Ctrl,
-		AltKey:   mods.Alt,
-		MetaKey:  mods.Meta,
-		doc:      d,
+		Type:       typ,
+		Target:     &Element{node: target, doc: d},
+		Key:        key,
+		ShiftKey:   mods.Shift,
+		CtrlKey:    mods.Ctrl,
+		AltKey:     mods.Alt,
+		MetaKey:    mods.Meta,
+		Bubbles:    true,
+		Cancelable: defaultCancelable(typ),
+		doc:        d,
+	}
+}
+
+// defaultCancelable reports whether a built-in event type typ's own
+// Dispatch* method already gates its default action on DefaultPrevented() —
+// click/keydown/paste/cut (clipboard-insert/-clear) and submit are, since
+// each already has default-action code it skips when prevented;
+// input/change/focus/blur/resize aren't, since nothing gates on them today
+// (matching real spec for input/change/focus/blur, and simply having
+// nothing to skip for resize). Any other (custom) type is false here —
+// custom events get their Cancelable from CustomEventInit instead.
+func defaultCancelable(typ string) bool {
+	switch typ {
+	case "click", "keydown", "paste", "cut", "submit":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -184,14 +257,34 @@ func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) 
 // caller other than DispatchPaste/DispatchCut uses, which don't need to set
 // any field between construction and the listener walk.
 func (d *Document) dispatch(target *html.Node, typ, key string, mods Modifiers) *Event {
-	return d.runDispatch(d.newEvent(target, typ, key, mods), target)
+	ev := d.newEvent(target, typ, key, mods)
+	return d.runDispatch(ev, target, ev.Bubbles)
 }
 
 // runDispatch runs ev's typ-listeners registered against target and its
 // ancestors, in capture order (root toward target), then target-phase
-// order, then bubble order (target toward root), honoring
-// StopPropagation/StopImmediatePropagation.
-func (d *Document) runDispatch(ev *Event, target *html.Node) *Event {
+// order, then, if bubbles is true, bubble order (target toward root),
+// honoring StopPropagation/StopImmediatePropagation. Guards against
+// reentrant dispatch of the same Event object (e.g. a listener calling
+// DispatchEvent on the very Event it's currently handling): a call while
+// ev.dispatching is already true is a no-op, returning ev unchanged. Also
+// centralizes ev's per-dispatch state — Target/doc assignment and resetting
+// stopped/stoppedImmediate (but deliberately not defaultPrevented, which
+// real spec never resets on redispatch — see docs/proposals/CUSTOM_EVENTS.md)
+// — inside the same guarded block, so a blocked reentrant call can't
+// corrupt an outer, in-flight dispatch's state before the guard runs.
+func (d *Document) runDispatch(ev *Event, target *html.Node, bubbles bool) *Event {
+	if ev.dispatching {
+		return ev
+	}
+	ev.dispatching = true
+	defer func() { ev.dispatching = false }()
+
+	ev.doc = d
+	ev.Target = &Element{node: target, doc: d}
+	ev.stopped = false
+	ev.stoppedImmediate = false
+
 	typ := ev.Type
 	chain := ancestorChain(target)
 
@@ -223,10 +316,12 @@ func (d *Document) runDispatch(ev *Event, target *html.Node) *Event {
 		return ev
 	}
 
-	bubble := false
-	for i := len(chain) - 2; i >= 0; i-- {
-		if !runNode(chain[i], &bubble) || ev.stopped {
-			return ev
+	if bubbles {
+		bubble := false
+		for i := len(chain) - 2; i >= 0; i-- {
+			if !runNode(chain[i], &bubble) || ev.stopped {
+				return ev
+			}
 		}
 	}
 

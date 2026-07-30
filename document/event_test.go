@@ -796,3 +796,208 @@ func TestRemoveEventListener(t *testing.T) {
 		t.Error("listener ran after RemoveEventListener, want it gone")
 	}
 }
+
+func TestDispatchEventCaptureTargetBubbleOrder(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="outer"><div id="mid"><span id="inner">x</span></div></div>`)
+	outer := doc.GetElementByID("outer")
+	mid := doc.GetElementByID("mid")
+	inner := doc.GetElementByID("inner")
+
+	var order []string
+	doc.AddEventListener(outer, "tabchange", true, func(e *document.Event) { order = append(order, "outer-capture") })
+	doc.AddEventListener(mid, "tabchange", true, func(e *document.Event) { order = append(order, "mid-capture") })
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) { order = append(order, "inner-target") })
+	doc.AddEventListener(mid, "tabchange", false, func(e *document.Event) { order = append(order, "mid-bubble") })
+	doc.AddEventListener(outer, "tabchange", false, func(e *document.Event) { order = append(order, "outer-bubble") })
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Bubbles: true})
+	if !inner.DispatchEvent(ev) {
+		t.Fatal("DispatchEvent = false, want true")
+	}
+
+	want := []string{"outer-capture", "mid-capture", "inner-target", "mid-bubble", "outer-bubble"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("order[%d] = %q, want %q (full: %v)", i, order[i], want[i], order)
+		}
+	}
+}
+
+func TestDispatchEventNonBubblingSkipsBubblePhaseButRunsCapture(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="outer"><span id="inner">x</span></div>`)
+	outer := doc.GetElementByID("outer")
+	inner := doc.GetElementByID("inner")
+
+	captureCalled, bubbleCalled := false, false
+	doc.AddEventListener(outer, "tabchange", true, func(e *document.Event) { captureCalled = true })
+	doc.AddEventListener(outer, "tabchange", false, func(e *document.Event) { bubbleCalled = true })
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Bubbles: false})
+	inner.DispatchEvent(ev)
+
+	if !captureCalled {
+		t.Error("capture-phase listener did not run for non-bubbling event")
+	}
+	if bubbleCalled {
+		t.Error("bubble-phase listener ran for a Bubbles:false event, want suppressed")
+	}
+}
+
+func TestDispatchEventCancelablePreventDefault(t *testing.T) {
+	doc := mustParseDoc(t, `<span id="inner">x</span>`)
+	inner := doc.GetElementByID("inner")
+
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) { e.PreventDefault() })
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Cancelable: true})
+	if inner.DispatchEvent(ev) {
+		t.Error("DispatchEvent = true after PreventDefault on a cancelable event, want false")
+	}
+	if !ev.DefaultPrevented() {
+		t.Error("DefaultPrevented() = false after PreventDefault on a cancelable event, want true")
+	}
+}
+
+func TestDispatchEventNonCancelablePreventDefaultIsNoop(t *testing.T) {
+	doc := mustParseDoc(t, `<span id="inner">x</span>`)
+	inner := doc.GetElementByID("inner")
+
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) { e.PreventDefault() })
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Cancelable: false})
+	if !inner.DispatchEvent(ev) {
+		t.Error("DispatchEvent = false for a non-cancelable event, want true (PreventDefault should be a no-op)")
+	}
+	if ev.DefaultPrevented() {
+		t.Error("DefaultPrevented() = true on a non-cancelable event, want false")
+	}
+}
+
+func TestDispatchEventDetailRoundTrips(t *testing.T) {
+	doc := mustParseDoc(t, `<span id="inner">x</span>`)
+	inner := doc.GetElementByID("inner")
+
+	type payload struct{ Tab string }
+	want := payload{Tab: "settings"}
+
+	var got any
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) { got = e.Detail })
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Detail: want})
+	inner.DispatchEvent(ev)
+
+	if got != want {
+		t.Errorf("Detail seen by listener = %#v, want %#v", got, want)
+	}
+}
+
+func TestDispatchEventReentrancyBlockedAndDoesNotCorruptOuterDispatch(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="outer"><span id="inner">x</span></div>`)
+	outer := doc.GetElementByID("outer")
+	inner := doc.GetElementByID("inner")
+
+	var nestedResult bool
+	var outerRanAfterNested bool
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Bubbles: true})
+
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) {
+		nestedResult = inner.DispatchEvent(ev) // reentrant: same *Event, still mid-dispatch
+	})
+	doc.AddEventListener(outer, "tabchange", false, func(e *document.Event) {
+		outerRanAfterNested = true
+		if e.Target.ID() != "inner" {
+			t.Errorf("outer bubble listener saw Target = %q, want inner (nested call must not have corrupted it)", e.Target.ID())
+		}
+	})
+
+	if !inner.DispatchEvent(ev) {
+		t.Error("outer DispatchEvent = false, want true")
+	}
+	if nestedResult {
+		t.Error("nested (reentrant) DispatchEvent = true, want false")
+	}
+	if !outerRanAfterNested {
+		t.Error("outer bubble listener did not run after the blocked nested dispatch")
+	}
+}
+
+func TestDispatchEventSequentialRedispatchResetsStateButKeepsDefaultPrevented(t *testing.T) {
+	doc := mustParseDoc(t, `<span id="inner">x</span>`)
+	inner := doc.GetElementByID("inner")
+
+	calls := 0
+	doc.AddEventListener(inner, "tabchange", false, func(e *document.Event) {
+		calls++
+		e.PreventDefault()
+	})
+
+	ev := document.NewCustomEvent("tabchange", document.CustomEventInit{Cancelable: true})
+	inner.DispatchEvent(ev)
+	inner.DispatchEvent(ev)
+
+	if calls != 2 {
+		t.Errorf("listener ran %d times across two sequential dispatches, want 2", calls)
+	}
+	if !ev.DefaultPrevented() {
+		t.Error("DefaultPrevented() = false after a second dispatch, want true (canceled flag persists across redispatch of the same Event)")
+	}
+}
+
+func TestBuiltinEventsPopulateBubblesAndCancelable(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
+	cb := doc.GetElementByID("cb")
+
+	var click, focus *document.Event
+	doc.AddEventListener(cb, "click", false, func(e *document.Event) { click = e })
+	doc.AddEventListener(cb, "focus", false, func(e *document.Event) { focus = e })
+
+	rect, _ := cb.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	cb.Focus()
+
+	if click == nil || !click.Bubbles || !click.Cancelable {
+		t.Errorf("click event Bubbles/Cancelable = %v/%v, want true/true", click.Bubbles, click.Cancelable)
+	}
+	if focus == nil || !focus.Bubbles || focus.Cancelable {
+		t.Errorf("focus event Bubbles/Cancelable = %v/%v, want true/false", focus.Bubbles, focus.Cancelable)
+	}
+
+	focus.PreventDefault()
+	if focus.DefaultPrevented() {
+		t.Error("PreventDefault on a non-cancelable focus event took effect, want no-op")
+	}
+}
+
+func TestDispatchEventReservedTypeNameRunsNoDefaultAction(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
+	cb := doc.GetElementByID("cb")
+
+	listenerRan := false
+	doc.AddEventListener(cb, "click", false, func(e *document.Event) { listenerRan = true })
+
+	ev := document.NewCustomEvent("click", document.CustomEventInit{})
+	cb.DispatchEvent(ev)
+
+	if !listenerRan {
+		t.Error("listener for reserved type name \"click\" did not run via DispatchEvent")
+	}
+	if cb.HasAttribute("checked") {
+		t.Error("checkbox toggled via DispatchEvent(\"click\"), want no default action to fire")
+	}
+}
+
+func TestElementDispatchEventNilSafe(t *testing.T) {
+	var el *document.Element
+	if el.DispatchEvent(document.NewCustomEvent("x", document.CustomEventInit{})) {
+		t.Error("nil Element.DispatchEvent(...) = true, want false")
+	}
+
+	doc := mustParseDoc(t, `<span id="inner">x</span>`)
+	inner := doc.GetElementByID("inner")
+	if inner.DispatchEvent(nil) {
+		t.Error("Element.DispatchEvent(nil) = true, want false")
+	}
+}
