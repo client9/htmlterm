@@ -56,8 +56,8 @@ styles.
 `:only-child`, `:first-of-type`, `:last-of-type`, `:only-of-type`, `:empty`,
 `:nth-child(<An+B>)`, `:nth-last-child(<An+B>)`, `:nth-of-type(<An+B>)`,
 `:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`,
-`:is(<selector-list>)`, `:where(<selector-list>)`, `:checked`,
-`:disabled`, `:required`, `:focus`, `:hover`. `:root` matches the document element
+`:is(<selector-list>)`, `:where(<selector-list>)`, `:has(<relative-selector-list>)`,
+`:checked`, `:disabled`, `:required`, `:indeterminate`, `:focus`, `:hover`. `:root` matches the document element
 (`html` for parsed HTML documents/fragments). The `:nth-*` family accepts the
 full CSS `An+B` micro-syntax (`odd`, `even`, `3`, `2n`, `2n+1`, `-n+3`, etc.),
 matched against sibling position (`:nth-child`/`:nth-last-child`) or position
@@ -76,6 +76,22 @@ the specificity of its most specific argument (so `:is(#a, .b)` counts as an
 ID selector), while `:where()` always contributes zero specificity
 regardless of its argument — useful for writing override-friendly base
 rules, e.g. in a user stylesheet layered under `Options.Stylesheets`.
+`:has()` takes a comma-separated *relative-selector* list and, unlike
+`:not()`/`:is()`/`:where()`, does support combinators inside it —
+`:has(div > p)` and `:has(a, div > p)` are both valid. An argument item with
+no leading combinator is implicitly a descendant relation (`:has(img)`
+matches an element with an `img` descendant at any depth); one that starts
+with `>`, `+`, or `~` matches against a direct child, the immediately
+following sibling, or any later sibling, respectively (`:has(> p)`,
+`:has(+ p)`, `:has(~ p)`). Specificity follows the same "most specific
+argument wins" rule as `:is()`. `:indeterminate` matches a `<progress>`
+element with no `value` attribute (the sole indeterminate trigger per spec —
+an unparseable-but-present value is just clamped like any other bad numeric
+attribute, not a second indeterminate case). Real spec's `:indeterminate`
+also matches `<input type=checkbox>`/`<input type=radio>` in certain
+JS-driven states; that slice is not supported here, since this renderer's
+checkboxes are attribute-driven only, with no separate `indeterminate` IDL
+property to reflect — see `docs/PROGRESS_METER.md`.
 `:checked`/`:disabled`/`:required` match
 the real HTML `checked`/`disabled`/`required` attributes' presence. `:focus`
 matches whichever element `Element.Focus` (see the package godoc's events
@@ -90,7 +106,9 @@ place it matches anything is `option:hover` inside an open `<select>` popup
 `::scrollbar-cap-end`, and their horizontal-scrollbar counterparts
 `::scrollbar-x`, `::scrollbar-track-x`, `::scrollbar-thumb-x`,
 `::scrollbar-cap-start-x`, `::scrollbar-cap-end-x` (all also accepted with a
-single colon). `::before`/`::after` inject inline text at the start or end of an
+single colon), `::progress-bar`, `::progress-value`, `::meter-bar`,
+`::meter-optimum-value`, `::meter-suboptimum-value`,
+`::meter-even-less-good-value`. `::before`/`::after` inject inline text at the start or end of an
 element's content; they require the `content` property. `::marker` styles the list
 prefix (bullet or number) of an `<li>` element; supported properties are `color`,
 `background-color`, `font-weight`, `font-style`, and `text-decoration`.
@@ -98,6 +116,11 @@ prefix (bullet or number) of an `<li>` element; supported properties are `color`
 `::scrollbar-cap-end` style the vertical scrollbar gutter drawn by
 `overflow-y: scroll`; the `-x`-suffixed names style the horizontal
 counterpart drawn by `overflow-x: scroll` — see `docs/SCROLLBARS.md`.
+`::progress-bar`/`::progress-value` style `<progress>`'s track/filled
+portions; `::meter-bar`/`::meter-optimum-value`/`::meter-suboptimum-value`/
+`::meter-even-less-good-value` style `<meter>`'s track/filled portions (the
+filled glyph/style chosen per the value's resolved region) — see
+`docs/PROGRESS_METER.md`.
 All combinator and element-matching forms work: `div p::before`, `.warn::after`,
 `li::marker`, `ul.fancy li::marker`, `#pane::scrollbar-thumb`, etc. A bare
 `::scrollbar-thumb { … }` (no element/class/id prefix) matches every scrollable
@@ -279,6 +302,8 @@ notes live in `docs/proposals/VARIABLES.md`.
 | `button` | Renders its children normally, wrapped in brackets via the UA stylesheet's `button::before { content: "[ "; }` / `button::after { content: " ]"; }` (default: `display: inline-block`). |
 | `textarea` | Multi-line bordered box (default: `display: block; border-style: solid; padding-left: 1; padding-right: 1`). Shows the `value` attribute if set (matching `Element.Value()`/`SetValue()`); otherwise falls back to its child text, with one leading newline right after the opening tag ignored, per the HTML spec's default-value rule. |
 | `select` | Void of its own text content; content is synthesized from `<option>` children, including those nested one level inside an `<optgroup>` (default: `display: inline-block`). Closed state shows the selected option's label bracketed with a disclosure indicator, e.g. `[ Banana ▾]`, styled like any other inline-block element. On a live `Document`, clicking or pressing Enter/Space while focused opens a dropdown popup listing every `<option>`, independently styleable via CSS; an `<optgroup>`'s `label` renders as its own non-navigable header row, and `<optgroup disabled>` cascades to every option inside it. `Element.Value()`/`SetValue()` read and write the selected option's `value` attribute, mirroring `HTMLSelectElement.value`. **See `docs/SELECT.md`** for the full styling reference (popup border/padding/margin/width, per-option colors, `option:hover`, the `optgroup` label-row selector, fallback behavior) and interactive keybindings. |
+| `progress` | Void element; content is synthesized as a fixed-width bar from `value`/`max` (default: `display: inline-block; width: 20; height: 1`). A missing `value` is the sole indeterminate trigger, matched by `:indeterminate`. **See `docs/PROGRESS_METER.md`** for the full styling reference (`::progress-bar`/`::progress-value`, `progress-style` presets, indeterminate rendering). |
+| `meter` | Void element; content is synthesized as a fixed-width, region-colored bar from `value`/`min`/`max`/`low`/`high`/`optimum` (default: `display: inline-block; width: 20; height: 1`). **See `docs/PROGRESS_METER.md`** for the full styling reference (`::meter-bar`/`::meter-optimum-value`/`::meter-suboptimum-value`/`::meter-even-less-good-value`, the region algorithm, `meter-style` presets). |
 
 ---
 

@@ -46,6 +46,11 @@ func TestSelectors(t *testing.T) {
 		{name: "[attr$=val] matches suffix", css: `a[href$=".pdf"] { text-transform: uppercase; }`, html: `<p><a href="/files/report.pdf">pdf</a> <a href="/files/report.pdfx">pdfx</a></p>`, want: "PDF pdfx\n\n"},
 		{name: "[attr*=val] matches substring", css: `a[href*=example] { text-transform: uppercase; }`, html: `<p><a href="https://example.com">example</a> <a href="https://other.test">other</a></p>`, want: "EXAMPLE other\n\n"},
 
+		// :has() relational pseudo-class
+		{name: ":has(descendant) matches an element containing that descendant", css: `div:has(strong) { text-transform: uppercase; }`, html: `<div><p>has <strong>bold</strong></p></div><div><p>plain</p></div>`, want: "HAS BOLD\n\nplain\n\n"},
+		{name: ":has(> child) matches only a direct child, not a nested one", css: `div:has(> p) { text-transform: uppercase; }`, html: `<div><p>direct</p></div><div><section><p>nested</p></section></div>`, want: "DIRECT\n\nnested\n\n"},
+		{name: ":has() with a selector list is a logical OR", css: `div:has(.a, .b) { text-transform: uppercase; }`, html: `<div><span class="a">x</span></div><div><span class="c">y</span></div>`, want: "X\ny\n"},
+
 		// Adjacent sibling combinator (+)
 		{name: "adjacent sibling matches immediately following sibling", css: `h2 + p { text-transform: uppercase; }`, html: `<h2>Title</h2><p>first</p><p>second</p>`, want: "Title\nFIRST\n\nsecond\n\n"},
 		{name: "adjacent sibling does not match non-adjacent sibling", css: `h2 + p { text-transform: uppercase; }`, html: `<p>before</p><h2>Title</h2><p>after</p>`, want: "before\n\nTitle\nAFTER\n\n"},

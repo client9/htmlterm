@@ -62,14 +62,15 @@ type selectorPart struct {
 // matchPseudo, same as before.
 type pseudoClass struct {
 	raw      string
-	notParts []selectorPart // set for :not(<selector-list>)
-	isParts  []selectorPart // set for :is(<list>) / :where(<list>)
-	isWhere  bool           // true if isParts came from :where(), which contributes zero specificity
+	notParts []selectorPart   // set for :not(<selector-list>)
+	isParts  []selectorPart   // set for :is(<list>) / :where(<list>)
+	isWhere  bool             // true if isParts came from :where(), which contributes zero specificity
+	hasParts [][]selectorPart // set for :has(<relative-selector-list>) — one full combinator chain per comma-separated item, unlike isParts/notParts which are single compounds
 }
 
 // parsePseudoClass parses a single lowercased pseudo-class token (e.g.
 // "not(.x)", "is(.x, .y)", "nth-child(2n+1)", "hover") into a pseudoClass,
-// pre-parsing any nested :not()/:is()/:where() selector argument.
+// pre-parsing any nested :not()/:is()/:where()/:has() selector argument.
 func parsePseudoClass(ps string) pseudoClass {
 	pc := pseudoClass{raw: ps}
 	if arg, ok := pseudoArg(ps, "not("); ok {
@@ -90,6 +91,10 @@ func parsePseudoClass(ps string) pseudoClass {
 		pc.isWhere = true
 		return pc
 	}
+	if arg, ok := pseudoArg(ps, "has("); ok {
+		pc.hasParts = parseRelativeSelectorList(arg)
+		return pc
+	}
 	return pc
 }
 
@@ -104,6 +109,29 @@ func parseSelectorList(list string) []selectorPart {
 		}
 	}
 	return parts
+}
+
+// parseRelativeSelectorList parses a :has() argument (a comma-separated list
+// of relative selectors, e.g. "img, > p, + span, ~ div") into one full
+// combinator chain per item, via parseSelector rather than
+// parseSimpleSelector — unlike :is()/:where()/:not(), :has()'s argument is a
+// *relative selector*, which both supports internal combinators (":has(div >
+// p)") and may itself start with a combinator (">", "+", "~") naming the
+// relation between the element being tested and the argument's first
+// compound selector. parseSelector already treats a leading combinator as
+// establishing parts[0].combo (normally unused by matchSelector, since
+// there's nothing before parts[0] in an ordinary selector) — matchesHasChain
+// reads that field to know which relation :has() itself must check.
+func parseRelativeSelectorList(list string) [][]selectorPart {
+	var chains [][]selectorPart
+	for _, item := range splitSelectorList(list) {
+		if item = strings.TrimSpace(item); item != "" {
+			if chain := parseSelector(item); len(chain) > 0 {
+				chains = append(chains, chain)
+			}
+		}
+	}
+	return chains
 }
 
 // SelectorGroup is a parsed comma-separated selector group.
@@ -287,7 +315,9 @@ func parseSimpleSelector(tok string) selectorPart {
 				switch ps {
 				case "before", "after", "marker",
 					"scrollbar", "scrollbar-track", "scrollbar-thumb", "scrollbar-cap-start", "scrollbar-cap-end",
-					"scrollbar-x", "scrollbar-track-x", "scrollbar-thumb-x", "scrollbar-cap-start-x", "scrollbar-cap-end-x":
+					"scrollbar-x", "scrollbar-track-x", "scrollbar-thumb-x", "scrollbar-cap-start-x", "scrollbar-cap-end-x",
+					"progress-bar", "progress-value",
+					"meter-bar", "meter-optimum-value", "meter-suboptimum-value", "meter-even-less-good-value":
 					p.pseudoElem = ps
 				default:
 					p.pseudos = append(p.pseudos, parsePseudoClass(ps))
@@ -452,6 +482,16 @@ func specificity(parts []selectorPart) specificityScore {
 				s.ids += innerSpec.ids
 				s.classes += innerSpec.classes
 				s.elements += innerSpec.elements
+			case pc.hasParts != nil:
+				// :has()'s specificity is that of the most specific complex
+				// selector in its argument, same rule as :is()/:not() — but
+				// each argument item here is a full chain, not a single
+				// compound, so specificity (which already sums over a whole
+				// chain) is computed per chain rather than per part.
+				innerSpec := maxSpecificityOfChains(pc.hasParts)
+				s.ids += innerSpec.ids
+				s.classes += innerSpec.classes
+				s.elements += innerSpec.elements
 			default:
 				s.classes++
 			}
@@ -469,6 +509,86 @@ func matchesAnyCompoundParts(n *html.Node, parts []selectorPart, focusAttr, hove
 		}
 	}
 	return false
+}
+
+// matchesHas reports whether n satisfies :has(<relative-selector-list>): true
+// if it matches at least one of the pre-parsed relative-selector chains in
+// chains (one per comma-separated argument item).
+func matchesHas(n *html.Node, chains [][]selectorPart, focusAttr, hoverAttr string) bool {
+	for _, chain := range chains {
+		if matchesHasChain(n, chain, focusAttr, hoverAttr) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesHasChain walks one relative-selector chain outward from anchor.
+// chain[0].combo is the relation between anchor and chain[0] — descendant
+// (any depth) if the argument had no leading combinator, matching plain
+// ":has(img)" meaning "anchor has an img descendant somewhere," or
+// child/adjacent/general if the argument explicitly started with
+// ">"/"+"/"~" (see parseRelativeSelectorList). Each candidate satisfying
+// chain[0] becomes the new anchor for the remainder of the chain,
+// recursively: ":has(div p)" requires p to be a descendant of some div that
+// is itself a descendant of anchor, not a descendant of anchor directly, so
+// the search space for p must be rooted at the matched div, not at anchor.
+func matchesHasChain(anchor *html.Node, chain []selectorPart, focusAttr, hoverAttr string) bool {
+	if len(chain) == 0 {
+		return false
+	}
+	head, rest := chain[0], chain[1:]
+	for _, cand := range hasCandidates(anchor, head.combo) {
+		if !matchPart(cand, head, focusAttr, hoverAttr) {
+			continue
+		}
+		if len(rest) == 0 || matchesHasChain(cand, rest, focusAttr, hoverAttr) {
+			return true
+		}
+	}
+	return false
+}
+
+// hasCandidates returns the search space :has() draws candidates from for a
+// given relation to anchor: every element descendant at any depth for the
+// default (no leading combinator) case, direct children only for child
+// ("> "), the single immediately-following element sibling for adjacent
+// ("+ "), and every later element sibling for general ("~ ").
+func hasCandidates(anchor *html.Node, combo combinator) []*html.Node {
+	var out []*html.Node
+	switch combo {
+	case child:
+		for c := anchor.FirstChild; c != nil; c = c.NextSibling {
+			if c.Type == html.ElementNode {
+				out = append(out, c)
+			}
+		}
+	case adjacent:
+		for s := anchor.NextSibling; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode {
+				out = append(out, s)
+				break
+			}
+		}
+	case general:
+		for s := anchor.NextSibling; s != nil; s = s.NextSibling {
+			if s.Type == html.ElementNode {
+				out = append(out, s)
+			}
+		}
+	default: // descendant
+		var walk func(*html.Node)
+		walk = func(p *html.Node) {
+			for c := p.FirstChild; c != nil; c = c.NextSibling {
+				if c.Type == html.ElementNode {
+					out = append(out, c)
+					walk(c)
+				}
+			}
+		}
+		walk(anchor)
+	}
+	return out
 }
 
 // splitSelectorList splits a selector-list argument (as passed to
@@ -505,6 +625,25 @@ func maxSpecificityOfParts(parts []selectorPart) specificityScore {
 	first := true
 	for _, p := range parts {
 		sc := specificity([]selectorPart{p})
+		if first || max.less(sc) {
+			max = sc
+			first = false
+		}
+	}
+	return max
+}
+
+// maxSpecificityOfChains returns the highest specificity among a pre-parsed
+// list of complex-selector chains — :has()'s counterpart to
+// maxSpecificityOfParts, which only ever handles single compound selectors
+// (as used by :is()/:where()/:not()); :has()'s argument can itself be a full
+// combinator chain (e.g. ":has(div > p)"), so specificity must be computed
+// over the whole chain via specificity() itself, not per individual part.
+func maxSpecificityOfChains(chains [][]selectorPart) specificityScore {
+	var max specificityScore
+	first := true
+	for _, chain := range chains {
+		sc := specificity(chain)
 		if first || max.less(sc) {
 			max = sc
 			first = false
@@ -571,6 +710,12 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 	if pc.isParts != nil {
 		return matchesAnyCompoundParts(n, pc.isParts, focusAttr, hoverAttr)
 	}
+	// :has(<relative-selector-list>) — matches n if n satisfies at least one
+	// of the pre-parsed relative-selector chains (comma is a logical OR,
+	// same as :is()/:where()).
+	if pc.hasParts != nil {
+		return matchesHas(n, pc.hasParts, focusAttr, hoverAttr)
+	}
 
 	pseudo := pc.raw
 	if n.Parent == nil {
@@ -624,6 +769,17 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 			strings.EqualFold(n.Parent.Data, "optgroup") && nodeHasAttr(n.Parent, "disabled")
 	case "required":
 		return nodeHasAttr(n, "required")
+	case "indeterminate":
+		// Real :indeterminate also matches <input type=checkbox>/<input
+		// type=radio> whose IDL indeterminate property is set (checkbox) or
+		// whose group has no checked button (radio) — out of scope here
+		// since this renderer's checkboxes are attribute-driven only, with
+		// no separate JS-settable indeterminate property to reflect (see
+		// COMPATIBILITY.md). This only ever matches the one slice real spec
+		// defines that's expressible from static attributes alone: a
+		// <progress> with no value attribute (see progressFraction's own
+		// "value absent is the only indeterminate trigger" comment).
+		return strings.EqualFold(n.Data, "progress") && !nodeHasAttr(n, "value")
 	case "focus":
 		return focusAttr != "" && nodeHasAttr(n, focusAttr)
 	case "hover":

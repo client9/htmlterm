@@ -347,6 +347,7 @@ form                    { display: block; }
 fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
 legend                  { display: block; font-weight: bold; }
 input, button, select   { display: inline-block; }
+progress, meter         { display: inline-block; width: 20; height: 1; }
 textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
 button::before          { content: "[ "; }
 button::after           { content: " ]"; }

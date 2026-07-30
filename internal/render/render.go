@@ -220,6 +220,27 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			// <option> children, not rendered as ordinary inline content —
 			// see inline.go's nested case for why.
 			inner = acc.render(selectDisplayText(n), r.profile)
+		case n.Data == "progress" || n.Data == "meter":
+			// <progress>/<meter> synthesize a fixed-width bar from
+			// attributes, not from children (neither has any) — see
+			// inline.go's nested case for why, and
+			// docs/proposals/PROGRESS_METER.md. Each glyph run is already
+			// individually styled via its own resolved ::progress-*/
+			// ::meter-* declarations, so (unlike inputDisplayText/
+			// selectDisplayText) this is not additionally wrapped in
+			// acc.render — that would flatten the bar's per-segment colors
+			// (e.g. <meter>'s region coloring) under one uniform style.
+			innerWidth, _ := resolveWidthConstraints(decls, r.width, formControlBarDefaultWidth)
+			if innerWidth < 0 {
+				innerWidth = 0
+			}
+			if n.Data == "progress" {
+				bar, value := r.resolveProgressStyle(n, decls)
+				inner = progressDisplayText(n, innerWidth, bar, value, r.profile)
+			} else {
+				bar, optimum, suboptimum, evenLessGood := r.resolveMeterStyle(n, decls)
+				inner = meterDisplayText(n, innerWidth, bar, optimum, suboptimum, evenLessGood, r.profile)
+			}
 		case decls["display"] == "inline-flex":
 			inner = r.renderInlineFlexContent(n, decls, r.width)
 		default:

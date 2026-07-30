@@ -1,8 +1,11 @@
 package render
 
 import (
+	"math"
+	"strconv"
 	"strings"
 
+	"github.com/charmbracelet/colorprofile"
 	"golang.org/x/net/html"
 )
 
@@ -63,6 +66,157 @@ func inputDisplayText(n *html.Node) string {
 		}
 		return "[" + val + "]"
 	}
+}
+
+// parseFloatAttr reads n's key attribute as a float, falling back to def
+// when the attribute is absent or unparseable — the same "bad numeric
+// attribute silently falls back" behavior real HTML's IDL attribute
+// reflection uses for <progress>/<meter>'s value/max/min/low/high/optimum,
+// none of which have a distinct "invalid" rendering state of their own (see
+// docs/proposals/PROGRESS_METER.md).
+func parseFloatAttr(n *html.Node, key string, def float64) float64 {
+	v, err := strconv.ParseFloat(nodeAttr(n, key), 64)
+	if err != nil {
+		return def
+	}
+	return v
+}
+
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// progressFraction reads a <progress>'s value/max attributes and returns
+// its completion fraction in [0,1]. indeterminate is true iff the value
+// attribute is absent — per spec, that is the *only* indeterminate trigger;
+// an explicitly present but unparseable value is just clamped like any
+// other bad numeric attribute (parseFloatAttr's def=0), not a second
+// indeterminate case. max defaults to 1; an unparseable or non-positive max
+// also falls back to 1, matching real UAs' "candidate maximum value" step.
+func progressFraction(n *html.Node) (fraction float64, indeterminate bool) {
+	if !nodeHasAttr(n, "value") {
+		return 0, true
+	}
+	value := parseFloatAttr(n, "value", 0)
+	max := parseFloatAttr(n, "max", 1)
+	if max <= 0 {
+		max = 1
+	}
+	return clampFloat(value, 0, max) / max, false
+}
+
+// meterFraction reads a <meter>'s value/min/max/low/high/optimum attributes
+// (defaults 0/0/1/min/max/midpoint respectively) and returns its fraction
+// in [0,1] plus which of the three WebKit-precedented regions the value
+// falls in ("optimum"/"suboptimum"/"even-less-good"), resolved via the
+// boundary-clamping order real UAs use: max is forced up to min if given as
+// less than min, value/low/high are each clamped into the resulting
+// [min,max] (high additionally floored at low), then optimum is clamped
+// into [min,max] before the 3-case region algorithm runs (see
+// docs/proposals/PROGRESS_METER.md for why this is 3 distinct cases, not one
+// formula). A zero-width range (max==min after clamping) reports fraction
+// 1.0 if value is at or above min, else 0.0 — real UAs converge on some sane
+// behavior for this degenerate case rather than dividing by zero.
+func meterFraction(n *html.Node) (fraction float64, region string) {
+	min := parseFloatAttr(n, "min", 0)
+	max := parseFloatAttr(n, "max", 1)
+	if max < min {
+		max = min
+	}
+	value := clampFloat(parseFloatAttr(n, "value", 0), min, max)
+	low := clampFloat(parseFloatAttr(n, "low", min), min, max)
+	high := clampFloat(parseFloatAttr(n, "high", max), low, max)
+	optimum := clampFloat(parseFloatAttr(n, "optimum", (min+max)/2), min, max)
+
+	region = meterRegion(optimum, low, high, value)
+	if max == min {
+		if value >= min {
+			return 1.0, region
+		}
+		return 0.0, region
+	}
+	return (value - min) / (max - min), region
+}
+
+// meterRegion implements <meter>'s 3-case region algorithm: which of
+// optimum/suboptimum/even-less-good value falls in, given optimum's
+// position relative to [low,high].
+func meterRegion(optimum, low, high, value float64) string {
+	switch {
+	case optimum >= low && optimum <= high:
+		// optimum inside [low,high]: that range alone is optimum, and both
+		// outer ranges are suboptimum — no even-less-good region exists.
+		if value >= low && value <= high {
+			return "optimum"
+		}
+		return "suboptimum"
+	case optimum < low:
+		// lower is better: [min,low] optimum, [low,high] suboptimum,
+		// (high,max] even-less-good.
+		switch {
+		case value <= low:
+			return "optimum"
+		case value <= high:
+			return "suboptimum"
+		default:
+			return "even-less-good"
+		}
+	default: // optimum > high
+		// higher is better: [high,max] optimum, [low,high] suboptimum,
+		// [min,low) even-less-good.
+		switch {
+		case value >= high:
+			return "optimum"
+		case value >= low:
+			return "suboptimum"
+		default:
+			return "even-less-good"
+		}
+	}
+}
+
+// progressDisplayText synthesizes a <progress>'s visual content: innerWidth
+// columns of bar.char, with the leading fraction*innerWidth columns (rounded
+// to the nearest whole column, matching this codebase's existing
+// fractional-to-integer convention — see estimateColumnWidths) replaced by
+// value.char, each portion styled independently via its own resolved
+// ::progress-bar/::progress-value declarations. An indeterminate <progress>
+// (no value attribute) has no fraction to size a fill from, so real UAs'
+// animated barber-pole becomes a static full-width bar.char run here — the
+// one deliberate static-not-animated deviation from spec this feature has
+// (no animation support exists at all).
+func progressDisplayText(n *html.Node, innerWidth int, bar, value scrollbarStyle, profile colorprofile.Profile) string {
+	fraction, indeterminate := progressFraction(n)
+	if indeterminate {
+		return bar.style.render(strings.Repeat(bar.char, innerWidth), profile)
+	}
+	filled := max(0, min(innerWidth, int(math.Round(fraction*float64(innerWidth)))))
+	return value.style.render(strings.Repeat(value.char, filled), profile) +
+		bar.style.render(strings.Repeat(bar.char, innerWidth-filled), profile)
+}
+
+// meterDisplayText is progressDisplayText's <meter> counterpart: the same
+// filled/unfilled bar, but the filled portion's glyph/style is chosen from
+// optimum/suboptimum/evenLessGood according to meterFraction's resolved
+// region rather than always being one fixed "value" style.
+func meterDisplayText(n *html.Node, innerWidth int, bar, optimum, suboptimum, evenLessGood scrollbarStyle, profile colorprofile.Profile) string {
+	fraction, region := meterFraction(n)
+	value := optimum
+	switch region {
+	case "suboptimum":
+		value = suboptimum
+	case "even-less-good":
+		value = evenLessGood
+	}
+	filled := max(0, min(innerWidth, int(math.Round(fraction*float64(innerWidth)))))
+	return value.style.render(strings.Repeat(value.char, filled), profile) +
+		bar.style.render(strings.Repeat(bar.char, innerWidth-filled), profile)
 }
 
 // selectOptionNodes returns n's <option> descendants usable for layout and

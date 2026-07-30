@@ -48,6 +48,11 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`<details>`/`<summary>` always render fully expanded** — no collapse/
   expand interactivity exists; a real browser's native disclosure widget
   has no terminal equivalent here.
+- **An indeterminate `<progress>` (no `value` attribute) renders statically,
+  not animated.** Real browsers show an animated barber-pole; this renderer
+  has no `animation` support at all, so `:indeterminate` instead shows
+  `::progress-bar`'s track glyph repeated across the full width, with no
+  fill — see `docs/PROGRESS_METER.md`.
 
 ### Terminal-Native Additions
 
@@ -58,6 +63,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
   there's no hover-tooltip concept in a terminal to show it in instead.
 - **`<hr>`** renders as a text rule line via `border-top`, not a pixel-drawn
   line.
+- **`progress-style`/`meter-style` and `::progress-bar`/`::progress-value`/
+  `::meter-bar`/`::meter-optimum-value`/`::meter-suboptimum-value`/
+  `::meter-even-less-good-value`** — real CSS has no author-facing hook to
+  restyle `<progress>`/`<meter>`'s bar glyphs at all (WebKit's own
+  `-webkit-`-prefixed pseudo-elements this borrows names from are
+  non-standard); `progress-style`/`meter-style` reuse `scrollbar-style`'s
+  exact five preset names and merge mechanism — see `docs/PROGRESS_METER.md`.
 
 ### Not Supported
 
@@ -70,9 +82,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **The legacy `width` HTML attribute** on table cells/columns — ignored in
   favor of CSS `width`; in real-world markup (especially HTML email) it's
   almost always a pixel value with no reliable pixel-to-column conversion.
-- **`<progress>`/`<meter>`** — no terminal rendering exists for either,
-  despite both having a plausible ASCII/block-bar terminal representation;
-  not implemented.
 - **`<dialog>`/`<datalist>`** — no native-modal or autocomplete-popup
   equivalent exists; unhandled the same way any other unrecognized element
   is (generic inline fallback, usually rendering no visible content).
@@ -212,7 +221,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   or theme-change event, not for `cssengine` to evaluate conditions itself.
   See `docs/proposals/RESPONSIVE.md`.
 - **Pseudo-classes/elements beyond the supported list** — notably
-  `:active`, `:has()`, and any real mouse-hover semantics.
+  `:active`, and any real mouse-hover semantics.
 - **`revert`** (the fourth CSS-wide cascade keyword, alongside `inherit`/
   `unset`/`initial`, which are supported) — reverting to the user-agent
   stylesheet's value requires distinguishing UA-stylesheet origin from

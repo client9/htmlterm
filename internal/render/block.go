@@ -960,6 +960,137 @@ func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, 
 	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}, true
 }
 
+// defaultBarPreset is progressPresets/meterPresets' fallback name when
+// progress-style/meter-style is unset or names a preset that doesn't
+// exist — same value and reasoning as defaultScrollbarStyle, kept as its
+// own constant since progress-style/meter-style are properties in their own
+// right, not scrollbar-style itself.
+const defaultBarPreset = "block"
+
+// progressPreset is one named progress-style's baseline ::progress-bar/
+// ::progress-value declarations — mirrors scrollbarPreset's track/thumb
+// shape for <progress>'s two-glyph bar. See docs/proposals/PROGRESS_METER.md.
+type progressPreset struct {
+	bar, value map[string]string
+}
+
+// progressPresets backs the progress-style property: block|shaded|classic|
+// ascii|line — the exact same five names scrollbar-style already uses, for
+// the same "one small, memorable vocabulary across this codebase's
+// terminal-native styling surfaces" reason docs/TABLES.md's border presets
+// and docs/SCROLLBARS.md's scrollbar presets already share. An element's own
+// ::progress-bar/::progress-value rule still overrides property-by-property
+// on top of these — see mergePresetStyle.
+var progressPresets = map[string]progressPreset{
+	"block":   {bar: map[string]string{"content": `"░"`}, value: map[string]string{"content": `"█"`}},
+	"shaded":  {bar: map[string]string{"content": `"░"`}, value: map[string]string{"content": `"▓"`}},
+	"classic": {bar: map[string]string{"content": `" "`, "background-color": "#444444"}, value: map[string]string{"content": `" "`, "background-color": "#aaaaaa"}},
+	"ascii":   {bar: map[string]string{"content": `"-"`}, value: map[string]string{"content": `"#"`}},
+	"line":    {bar: map[string]string{"content": `"─"`}, value: map[string]string{"content": `"━"`}},
+}
+
+// meterPreset is one named meter-style's baseline ::meter-bar/
+// ::meter-optimum-value/::meter-suboptimum-value/::meter-even-less-good-value
+// declarations. <meter> gets three value pseudo-elements instead of
+// ::progress-value's one because real UAs already color-code by region;
+// collapsing them to a single glyph would lose that distinction.
+type meterPreset struct {
+	bar, optimum, suboptimum, evenLessGood map[string]string
+}
+
+// meterPresets backs the meter-style property, sharing progressPresets'
+// exact five names. classic's region colors (green/yellow/red) are the same
+// ones WebKit's own UA stylesheet uses by default for <meter> — picked for
+// recognizability, not an invented palette — and are reused, unchanged,
+// across all five presets here (only the glyph/background varies per
+// preset), matching the proposal's preset table.
+var meterPresets = map[string]meterPreset{
+	"block": {
+		bar:          map[string]string{"content": `"░"`},
+		optimum:      map[string]string{"content": `"█"`, "color": "#2e7d32"},
+		suboptimum:   map[string]string{"content": `"█"`, "color": "#f9a825"},
+		evenLessGood: map[string]string{"content": `"█"`, "color": "#c62828"},
+	},
+	"shaded": {
+		bar:          map[string]string{"content": `"░"`},
+		optimum:      map[string]string{"content": `"▓"`, "color": "#2e7d32"},
+		suboptimum:   map[string]string{"content": `"▓"`, "color": "#f9a825"},
+		evenLessGood: map[string]string{"content": `"▓"`, "color": "#c62828"},
+	},
+	"classic": {
+		bar:          map[string]string{"content": `" "`, "background-color": "#444444"},
+		optimum:      map[string]string{"content": `" "`, "background-color": "#2e7d32"},
+		suboptimum:   map[string]string{"content": `" "`, "background-color": "#f9a825"},
+		evenLessGood: map[string]string{"content": `" "`, "background-color": "#c62828"},
+	},
+	"ascii": {
+		bar:          map[string]string{"content": `"-"`},
+		optimum:      map[string]string{"content": `"#"`, "color": "#2e7d32"},
+		suboptimum:   map[string]string{"content": `"#"`, "color": "#f9a825"},
+		evenLessGood: map[string]string{"content": `"#"`, "color": "#c62828"},
+	},
+	"line": {
+		bar:          map[string]string{"content": `"─"`},
+		optimum:      map[string]string{"content": `"━"`, "color": "#2e7d32"},
+		suboptimum:   map[string]string{"content": `"━"`, "color": "#f9a825"},
+		evenLessGood: map[string]string{"content": `"━"`, "color": "#c62828"},
+	},
+}
+
+// mergePresetStyle merges base (a progressPresets/meterPresets entry's
+// baseline declarations for one pseudo-element) with n's own ::which rule —
+// which always wins property-by-property, anything it doesn't set falls
+// through to base — then resolves the merged content/color/etc. into a
+// glyph plus text style. Generalizes the exact merge contract
+// resolveScrollbarStyle/resolveScrollbarCap already use, since progress/
+// meter need it across six pseudo-elements (::progress-bar/-value,
+// ::meter-bar/-optimum-value/-suboptimum-value/-even-less-good-value)
+// instead of scrollbar's four.
+func (r *Engine) mergePresetStyle(n *html.Node, elemDecls, base map[string]string, which string) scrollbarStyle {
+	merged := make(map[string]string, len(base))
+	maps.Copy(merged, base)
+	maps.Copy(merged, r.pseudoElemDecls(n, which, customPropSubset(elemDecls)))
+	ch := r.parseCSSContentString(merged["content"], n)
+	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}
+}
+
+// resolveProgressStyle resolves a <progress>'s effective ::progress-bar and
+// ::progress-value styles: progressPresets[elemDecls["progress-style"]] (or
+// defaultBarPreset when unset/unrecognized) as the baseline, with n's own
+// ::progress-bar/::progress-value rule layered on top property-by-property.
+func (r *Engine) resolveProgressStyle(n *html.Node, elemDecls map[string]string) (bar, value scrollbarStyle) {
+	preset, ok := progressPresets[elemDecls["progress-style"]]
+	if !ok {
+		preset = progressPresets[defaultBarPreset]
+	}
+	bar = r.mergePresetStyle(n, elemDecls, preset.bar, "progress-bar")
+	value = r.mergePresetStyle(n, elemDecls, preset.value, "progress-value")
+	return bar, value
+}
+
+// resolveMeterStyle is resolveProgressStyle's <meter> counterpart, resolving
+// all four of ::meter-bar/::meter-optimum-value/::meter-suboptimum-value/
+// ::meter-even-less-good-value the same way.
+func (r *Engine) resolveMeterStyle(n *html.Node, elemDecls map[string]string) (bar, optimum, suboptimum, evenLessGood scrollbarStyle) {
+	preset, ok := meterPresets[elemDecls["meter-style"]]
+	if !ok {
+		preset = meterPresets[defaultBarPreset]
+	}
+	bar = r.mergePresetStyle(n, elemDecls, preset.bar, "meter-bar")
+	optimum = r.mergePresetStyle(n, elemDecls, preset.optimum, "meter-optimum-value")
+	suboptimum = r.mergePresetStyle(n, elemDecls, preset.suboptimum, "meter-suboptimum-value")
+	evenLessGood = r.mergePresetStyle(n, elemDecls, preset.evenLessGood, "meter-even-less-good-value")
+	return bar, optimum, suboptimum, evenLessGood
+}
+
+// formControlBarDefaultWidth is the fallback inner width for a <progress>/
+// <meter> bar when, unexpectedly, no width resolves at all (the UA
+// stylesheet always sets width:20, so resolveWidthConstraints should
+// normally already return this exact value as decls["width"]'s resolved
+// size) — see docs/proposals/PROGRESS_METER.md's Sizing section for why 20
+// was chosen.
+const formControlBarDefaultWidth = 20
+
 // appendScrollbarColumn appends one scrollbar-gutter — gutterWidth columns
 // wide, each column holding either track.char or thumb.char (styled per
 // track.style/thumb.style) — to each of lines, using the standard

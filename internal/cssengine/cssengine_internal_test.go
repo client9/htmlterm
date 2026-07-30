@@ -950,6 +950,134 @@ func TestIsPreservesIDCase(t *testing.T) {
 	}
 }
 
+func TestHasDescendantRelativeSelector(t *testing.T) {
+	// ":has(img)" with no leading combinator is a descendant relative
+	// selector — matches an element with an img descendant at any depth,
+	// not just a direct child.
+	part := parseSimpleSelector("div:has(img)")
+	if len(part.pseudos) != 1 || len(part.pseudos[0].hasParts) != 1 {
+		t.Fatalf("parseSimpleSelector(%q) = %#v, want one hasParts chain", "div:has(img)", part)
+	}
+
+	doc, err := html.Parse(strings.NewReader(`
+		<div id="d1"><img></div>
+		<div id="d2"><p><img></p></div>
+		<div id="d3"><p>no image</p></div>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	parts := parseSelector("div:has(img)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"d1", true},  // direct child img
+		{"d2", true},  // img nested two levels deep — still a descendant
+		{"d3", false}, // no img anywhere inside
+	}
+	for _, tc := range tests {
+		n := findElementByID(doc, tc.id)
+		if n == nil {
+			t.Fatalf("element #%s not found", tc.id)
+		}
+		if got := matchSelector(n, parts, "", ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:has(img)", tc.id, got, tc.want)
+		}
+	}
+}
+
+func TestHasWithLeadingCombinators(t *testing.T) {
+	// ":has(> p)" — direct-child relation between the tested element and
+	// the argument's first (and here, only) compound selector.
+	doc, err := html.Parse(strings.NewReader(`
+		<div id="d1"><p>direct</p></div>
+		<div id="d2"><section><p>nested</p></section></div>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	childParts := parseSelector("div:has(> p)")
+	if got := matchSelector(findElementByID(doc, "d1"), childParts, "", ""); !got {
+		t.Errorf(`div:has(> p) should match a div with a direct <p> child`)
+	}
+	if got := matchSelector(findElementByID(doc, "d2"), childParts, "", ""); got {
+		t.Errorf(`div:has(> p) should not match a div whose <p> is nested inside <section>`)
+	}
+
+	// ":has(+ p)" — the tested element's immediately-following sibling must
+	// match p; ":has(~ p)" — any later sibling must match p.
+	doc2, err := html.Parse(strings.NewReader(`
+		<h2 id="h1">A</h2><div>divider</div><p>after divider</p>
+		<h2 id="h2">B</h2><p>right after</p>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	adjacentParts := parseSelector("h2:has(+ p)")
+	if got := matchSelector(findElementByID(doc2, "h1"), adjacentParts, "", ""); got {
+		t.Errorf(`h2:has(+ p) should not match when a <div> sits between the h2 and the p`)
+	}
+	if got := matchSelector(findElementByID(doc2, "h2"), adjacentParts, "", ""); !got {
+		t.Errorf(`h2:has(+ p) should match when p immediately follows the h2`)
+	}
+	generalParts := parseSelector("h2:has(~ p)")
+	if got := matchSelector(findElementByID(doc2, "h1"), generalParts, "", ""); !got {
+		t.Errorf(`h2:has(~ p) should match a later sibling p even with a <div> in between`)
+	}
+}
+
+func TestHasWithSelectorListAndNestedChain(t *testing.T) {
+	// ":has(a, b)" is a comma-separated relative-selector list — a logical
+	// OR, same as :is()/:where().
+	doc, err := html.Parse(strings.NewReader(`
+		<div id="d1"><span class="x"></span></div>
+		<div id="d2"><span class="y"></span></div>
+		<div id="d3"><span class="z"></span></div>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	listParts := parseSelector("div:has(.x, .y)")
+	tests := []struct {
+		id   string
+		want bool
+	}{
+		{"d1", true},
+		{"d2", true},
+		{"d3", false},
+	}
+	for _, tc := range tests {
+		if got := matchSelector(findElementByID(doc, tc.id), listParts, "", ""); got != tc.want {
+			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:has(.x, .y)", tc.id, got, tc.want)
+		}
+	}
+
+	// ":has(div > p)" is a multi-part relative chain: p must be a direct
+	// child of a div that is itself a descendant of the tested element —
+	// exercises matchesHasChain's recursion past the first compound.
+	doc2, err := html.Parse(strings.NewReader(`
+		<section id="s1"><div><p>direct</p></div></section>
+		<section id="s2"><div><span><p>too deep</p></span></div></section>
+	`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	chainParts := parseSelector("section:has(div > p)")
+	if got := matchSelector(findElementByID(doc2, "s1"), chainParts, "", ""); !got {
+		t.Errorf(`section:has(div > p) should match when p is a direct child of a descendant div`)
+	}
+	if got := matchSelector(findElementByID(doc2, "s2"), chainParts, "", ""); got {
+		t.Errorf(`section:has(div > p) should not match when p is nested inside <span>, not a direct child of div`)
+	}
+
+	// Specificity of :has(<list>) is that of the most specific chain in the
+	// list, same rule as :is()/:not() — :has(#a, .b) should score as an ID.
+	if got, want := specificity(parseSelector(":has(#a, .b)")), (specificityScore{ids: 1}); got != want {
+		t.Fatalf("specificity(%q) = %#v, want %#v", ":has(#a, .b)", got, want)
+	}
+}
+
 func TestNthChildArgumentStillMatchesRegardlessOfCase(t *testing.T) {
 	// parseNth lowercases its own argument, so preserving raw case for
 	// :not()/:is() arguments must not break plain functional pseudo-classes

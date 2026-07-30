@@ -384,6 +384,24 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						// from its <option> children's labels, not
 						// rendered as ordinary inline content.
 						inner = childAcc.render(selectDisplayText(c), r.profile)
+					case c.Data == "progress" || c.Data == "meter":
+						// <progress>/<meter> synthesize a fixed-width bar
+						// from attributes, not from children — see the
+						// top-level dispatch case in render.go for why this
+						// is not wrapped in childAcc.render like input/select
+						// above (per-segment glyph styling would be
+						// flattened by a single outer style).
+						innerWidth, _ := resolveWidthConstraints(childDecls, availWidth, formControlBarDefaultWidth)
+						if innerWidth < 0 {
+							innerWidth = 0
+						}
+						if c.Data == "progress" {
+							bar, value := r.resolveProgressStyle(c, childDecls)
+							inner = progressDisplayText(c, innerWidth, bar, value, r.profile)
+						} else {
+							bar, optimum, suboptimum, evenLessGood := r.resolveMeterStyle(c, childDecls)
+							inner = meterDisplayText(c, innerWidth, bar, optimum, suboptimum, evenLessGood, r.profile)
+						}
 					case display == "inline-flex":
 						inner = r.renderInlineFlexContent(c, childDecls, availWidth)
 					default:
