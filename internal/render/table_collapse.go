@@ -363,16 +363,24 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 		return "", nil
 	}
 
-	// Column-width overhead: a rough estimate of how many columns the
-	// eventual vertical gridlines will consume — exact activity (does this
-	// boundary have a real border anywhere) isn't known until cell borders
-	// are resolved below, so this uses the same representative-cell
-	// approximation table_separate.go's own column allocation uses.
-	colBorderW := r.separateColumnBorderOverhead(grid, colDecls, numCols)
-	overhead := 0
-	for _, w := range colBorderW {
-		overhead += w
-	}
+	// Column-width overhead: how many columns the vertical grid lines will
+	// actually consume. Border conflict resolution compares styles and widths,
+	// never sizes, so the whole grid can be resolved up front - which is what
+	// makes this the exact count rather than an estimate, and lets
+	// composeCollapsedGrid below reuse the same answer instead of deriving its
+	// own.
+	//
+	// This used to borrow separateColumnBorderOverhead, the *separate* model's
+	// per-cell (left + right) sum, and that model doesn't hold under collapse in
+	// either direction. Adjacent cells' facing borders merge into one shared
+	// column, so bordered cells over-counted by one per interior boundary: a
+	// `width: 100%` table came out that many columns short of the width it was
+	// given. And a table whose border comes from the *table* rather than its
+	// cells counted zero, where collapse still draws the table's own left and
+	// right edges as grid lines: such a table overran its width by two columns,
+	// which at full width is two columns past the terminal.
+	borders := r.resolveCollapsedBorders(grid, colDecls, tableDecls)
+	overhead := borders.colOverhead()
 
 	colsEst := r.gridColumnConstraints(grid, colDecls)
 	estWidths := estimateColumnWidths(colsEst, availWidth-overhead, fullWidth)
@@ -399,7 +407,7 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 	widths := sizeColumns(cols, availWidth-overhead, fullWidth)
 	fillGridCellLines(grid, widths, 0)
 
-	gridBox, positions := r.composeCollapsedGrid(grid, widths, colDecls, tableDecls)
+	gridBox, positions := r.composeCollapsedGrid(grid, widths, borders, tableDecls)
 
 	if mlAuto || mrAuto {
 		remaining := origAvailWidth - gridBox.width - tableML - tableMR
@@ -424,16 +432,50 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 	return b.join() + "\n", positions
 }
 
-// composeCollapsedGrid builds the shared-grid content for
-// border-collapse:collapse. Returned positions are relative to the grid's
-// own (0,0) origin; the caller shifts them once when embedding (the same
-// incremental convention used throughout the render package).
-func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[string]string, tableDecls map[string]string) (box, map[*html.Node]Rect) {
+// collapsedBorders is a collapsed table's fully resolved grid of border
+// segments: which of the numCols+1 vertical and numRows+1 horizontal grid
+// lines exist, and what each stretch of them is made of.
+//
+// It is resolved from declarations and grid topology alone - CSS 2.1
+// §17.6.2.1 conflict resolution compares border styles and widths, never
+// sizes - so it can be, and is, computed *before* column widths, which need
+// its hasCol to know how many columns the gridlines will occupy. See
+// resolveCollapsedBorders.
+type collapsedBorders struct {
+	// cellDecls is each cell's merged declarations, kept because junction
+	// glyph resolution reads each cell's own border-*-corner overrides.
+	cellDecls map[*tableCell]map[string]string
+	// hSeg[rl][c] is the border along the grid line above row rl's content,
+	// for column c; vSeg[cl][r] the one left of column cl's content, for row
+	// r. Empty entries are boundaries with no border at all.
+	hSeg, vSeg [][]edgeCandidate
+	// hasRow[rl]/hasCol[cl] report whether that grid line is active anywhere
+	// along its length, which is what decides whether it gets a gutter row/
+	// column of its own.
+	hasRow, hasCol []bool
+}
+
+// colOverhead is how many columns the vertical grid lines will consume: one
+// per active line, since under collapse a line between two cells is a single
+// shared column, not one per cell.
+func (b *collapsedBorders) colOverhead() int {
+	n := 0
+	for _, active := range b.hasCol {
+		if active {
+			n++
+		}
+	}
+	return n
+}
+
+// resolveCollapsedBorders resolves every segment of a collapsed table's shared
+// grid, plus which grid lines are active. Split out of composeCollapsedGrid so
+// renderTableCollapse can size columns against the real gridline overhead
+// (colOverhead) instead of an estimate, and then hand the same answer back to
+// composeCollapsedGrid rather than having it recompute one.
+func (r *Engine) resolveCollapsedBorders(g tableGrid, colDecls []map[string]string, tableDecls map[string]string) *collapsedBorders {
 	numCols := g.numCols
 	numRows := len(g.rows)
-	if numRows == 0 || numCols == 0 {
-		return box{lines: []string{""}, width: 0}, nil
-	}
 	cells := uniqueCells(g)
 
 	cellEdges := make(map[*tableCell][4]edgeCandidate, len(cells))
@@ -539,6 +581,22 @@ func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, colDecls []map[
 			}
 		}
 	}
+	return &collapsedBorders{cellDecls: cellDecls, hSeg: hSeg, vSeg: vSeg, hasRow: hasRow, hasCol: hasCol}
+}
+
+// composeCollapsedGrid builds the shared-grid content for
+// border-collapse:collapse, from the grid lines resolveCollapsedBorders
+// already resolved. Returned positions are relative to the grid's own (0,0)
+// origin; the caller shifts them once when embedding (the same incremental
+// convention used throughout the render package).
+func (r *Engine) composeCollapsedGrid(g tableGrid, widths []int, bd *collapsedBorders, tableDecls map[string]string) (box, map[*html.Node]Rect) {
+	numCols := g.numCols
+	numRows := len(g.rows)
+	if numRows == 0 || numCols == 0 {
+		return box{lines: []string{""}, width: 0}, nil
+	}
+	cells := uniqueCells(g)
+	cellDecls, hSeg, vSeg, hasRow, hasCol := bd.cellDecls, bd.hSeg, bd.vSeg, bd.hasRow, bd.hasCol
 
 	// Content row-height equalization: identical in shape to the original
 	// (pre-border-collapse-support) row-height logic — content-only, no

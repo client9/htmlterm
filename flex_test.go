@@ -726,11 +726,7 @@ func TestFlexItemElementDispatch(t *testing.T) {
 		{name: "a meter renders its bar", width: 12, html: `<div style="display:flex;width:100%"><meter value="0.5" style="width:4"></meter></div>`, want: "██░░        \n"},
 		{name: "an unordered list keeps its markers", width: 12, html: `<div style="display:flex;width:100%"><ul><li>a</li><li>b</li></ul></div>`, want: "    • a     \n    • b     \n"},
 		{name: "an ordered list keeps its numbering", width: 12, html: `<div style="display:flex;width:100%"><ol><li>a</li><li>b</li></ol></div>`, want: "    1. a    \n    2. b    \n"},
-		// The interior column widths here are the table renderer's own
-		// business (a collapsed table renders one column inside its budget —
-		// same in a plain `width: 9` block, nothing to do with flex); what this
-		// pins is that the grid is drawn at all rather than "ab".
-		{name: "a table goes through the table renderer", width: 14, css: `table{border-collapse:collapse}td{border-style:solid;padding-left:1;padding-right:1}`, html: `<div style="display:flex;width:100%"><table><tr><td>a</td><td>b</td></tr></table></div>`, want: "┌──┬───┐      \n│ a│ b │      \n└──┴───┘      \n"},
+		{name: "a table goes through the table renderer", width: 14, css: `table{border-collapse:collapse}td{border-style:solid;padding-left:1;padding-right:1}`, html: `<div style="display:flex;width:100%"><table><tr><td>a</td><td>b</td></tr></table></div>`, want: "┌───┬───┐     \n│ a │ b │     \n└───┴───┘     \n"},
 	})
 }
 

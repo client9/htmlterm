@@ -413,23 +413,30 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 	if grid.numCols == 0 {
 		return 0
 	}
-	// Approximates whichever border mode actually applies (separate's own
-	// per-column border-width overhead, reused regardless of collapse/
-	// separate) - this is only ever a shrink-to-fit natural-width estimate
-	// for a nested table, immediately superseded by that table's own real
-	// render, so it doesn't need to be mode-exact.
+	// Border overhead, resolved per the mode that actually applies. Collapse's
+	// count is one column per *active grid line* (adjacent cells share theirs,
+	// and the table's own border becomes the outermost two), which is a
+	// different number from separate's per-cell left+right sum in both
+	// directions - see renderTableCollapse. Neither mode's count depends on
+	// column widths, so both are exact here rather than estimates, and this
+	// stays a measurement: resolving declarations over an already-built grid is
+	// what this function was doing anyway, not the full cell render it exists
+	// to avoid.
 	spacingX := parseSpacingLen(tableDecls["border-spacing-x"])
-	colBorderW := r.separateColumnBorderOverhead(grid, colDecls, grid.numCols)
 	overhead := (grid.numCols + 1) * spacingX
-	for _, w := range colBorderW {
-		overhead += w
-	}
-	tbl, tbr, _, _, _, _, _, _ := resolveBoxBorders(tableDecls)
-	if tbl.char != "" {
-		overhead += textcell.Width(tbl.char)
-	}
-	if tbr.char != "" {
-		overhead += textcell.Width(tbr.char)
+	if tableDecls["border-collapse"] == "collapse" {
+		overhead += r.resolveCollapsedBorders(grid, colDecls, tableDecls).colOverhead()
+	} else {
+		for _, w := range r.separateColumnBorderOverhead(grid, colDecls, grid.numCols) {
+			overhead += w
+		}
+		tbl, tbr, _, _, _, _, _, _ := resolveBoxBorders(tableDecls)
+		if tbl.char != "" {
+			overhead += textcell.Width(tbl.char)
+		}
+		if tbr.char != "" {
+			overhead += textcell.Width(tbr.char)
+		}
 	}
 	colsEst := r.gridColumnConstraints(grid, colDecls)
 	measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, spacingX)

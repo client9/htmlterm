@@ -364,6 +364,25 @@ boundary is active below it — matching real CSS (`colspan`/`rowspan`
 suppress the interior grid-line segments they cover; only a spanning cell's
 own outer edges participate in conflict resolution).
 
+### How much width the grid lines take
+
+A collapsed table's columns are sized against the space its **grid lines**
+will occupy: one column per *active* vertical line, where a line is active if
+any row draws a border there at all (rule 2 above — a boundary nobody borders
+consumes no space). There are `columns + 1` boundaries, so an N-column table of
+fully bordered cells spends N+1 columns on grid lines, not 2N: the border
+between two cells is a single shared column that both sides resolved, and the
+outermost two come from whichever of the table's or the edge cells' borders won
+there.
+
+That count is exact, not estimated — conflict resolution compares border styles
+and widths, never sizes, so the whole grid can be resolved before any column is
+measured. It matters in both directions. Sizing a collapsed table as if each
+cell kept its own two borders (`separate`'s model) leaves a `width: 100%` table
+one column short per interior boundary; sizing it from its cells' borders alone
+misses the two outer lines a table-level `border` contributes, and the table
+then overruns its width — at full width, past the terminal.
+
 ## Junction and corner overrides
 
 `border-*-corner` (`border-top-left-corner`/`border-top-right-corner`/

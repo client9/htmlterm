@@ -417,3 +417,66 @@ func TestBorderGlyphWidthChargedInColumns(t *testing.T) {
 		},
 	})
 }
+
+// TestCollapsedGridLineWidthBudget covers how much width a `border-collapse:
+// collapse` table reserves for its grid lines: one column per *active* vertical
+// line, of which there are at most columns+1, since adjacent cells share the
+// border between them and the outermost two come from whichever of the table's
+// or the edge cells' borders won there.
+//
+// This used to be budgeted with `separate`'s model — each cell's own left plus
+// right border, summed — which is a different number in both directions. Cells
+// that both border a shared boundary over-counted it once per interior
+// boundary, leaving a `width: 100%` table that many columns short; a table whose
+// border comes from the table element rather than its cells counted zero, and
+// overran its width by the two outer lines collapse still draws, which at full
+// width is two columns past the terminal.
+func TestCollapsedGridLineWidthBudget(t *testing.T) {
+	const cells = `<table><tr><td>aaaa</td><td>bbbb</td></tr></table>`
+	runCases(t, []renderCase{
+		// 24 columns: 3 grid lines + 21 of content, split 11/10.
+		{
+			name:  "a full-width collapsed table with bordered cells fills exactly its width",
+			css:   `table{border-collapse:collapse;width:100%}td{border-style:solid;padding-left:1;padding-right:1}`,
+			html:  cells,
+			width: 24,
+			want:  "┌──────────┬───────────┐\n│ aaaa     │ bbbb      │\n└──────────┴───────────┘\n",
+		},
+		// The table's own border supplies the two outer lines; the boundary
+		// between the cells has no border on either side, so it costs nothing.
+		{
+			name:  "a full-width collapsed table bordered at the table level fills exactly its width",
+			css:   `table{border-collapse:collapse;width:100%;border-style:solid}td{padding-left:1;padding-right:1}`,
+			html:  cells,
+			width: 24,
+			want:  "┌──────────────────────┐\n│ aaaa       bbbb      │\n└──────────────────────┘\n",
+		},
+		// Shrink-to-fit: handed exactly its natural width, the table paints it,
+		// rather than giving a column back per interior boundary.
+		{
+			name:  "a collapsed table handed its natural width paints it",
+			css:   `table{border-collapse:collapse}td{border-style:solid;padding-left:1;padding-right:1}`,
+			html:  `<div style="width:13"><table><tr><td>a</td><td>b</td><td>c</td></tr></table></div>`,
+			width: 13,
+			want:  "┌───┬───┬───┐\n│ a │ b │ c │\n└───┴───┴───┘\n",
+		},
+		// A boundary nobody borders is absent and consumes no space, so the
+		// middle cell's content butts straight up against its neighbors' boxes.
+		{
+			name:  "an unbordered boundary costs no column",
+			css:   `table{border-collapse:collapse}td{padding-left:1;padding-right:1}td.b{border-style:solid}`,
+			html:  `<table><tr><td class="b">a</td><td>b</td><td class="b">c</td></tr></table>`,
+			width: 20,
+			want:  "┌───┐   ┌───┐\n│ a │ b │ c │\n└───┘   └───┘\n",
+		},
+		// separate keeps every cell's own two borders, so its own budget is
+		// unchanged by any of the above.
+		{
+			name:  "border-collapse:separate still budgets both of each cell's borders",
+			css:   `table{border-collapse:separate;width:100%}td{border-style:solid;padding-left:1;padding-right:1}`,
+			html:  cells,
+			width: 24,
+			want:  "┌──────────┐┌──────────┐\n│ aaaa     ││ bbbb     │\n└──────────┘└──────────┘\n",
+		},
+	})
+}
