@@ -51,6 +51,20 @@ type Engine struct {
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
 	measuringNaturalWidth bool
+	// shrinkToFit makes renderBlockContentBox/renderFlexContentBox size
+	// themselves to their own content rather than filling the available
+	// width they were handed, for the duration of a discardable measurement
+	// render. A block box normally fills its containing block (real CSS
+	// width:auto behavior), and this engine materializes that fill as actual
+	// padding whenever anything needs a rectangle - a border, text-align, a
+	// closed box - so "render it at a generous width and read the result's
+	// width back" measures the generous width, not the content. flex.go's
+	// measureNaturalWidth needs the content answer (an item's flex base size
+	// under flex-basis/width:auto), and needs it recursively: a bordered
+	// *child* of the item being measured has to shrink to its own content
+	// too, or the item measures as wide as its widest filling descendant.
+	// Only ever set around a trial render whose output is thrown away.
+	shrinkToFit bool
 	// outOfFlow is the set of elements with position: absolute/fixed,
 	// collected once up front (collectOutOfFlow, outofflow.go) before
 	// normal layout runs — see outofflow.go's doc comment for why this is a

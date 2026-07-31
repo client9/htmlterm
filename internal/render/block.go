@@ -530,6 +530,19 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		}
 	}
 
+	// Under a shrink-to-fit measurement render (see Engine.shrinkToFit),
+	// this box reports its own content width instead of filling the width it
+	// was handed. Applied here, after wrapping and overflow handling, and
+	// only when no explicit width was declared (an explicit width is the
+	// answer, not something to measure): every step below - align padding,
+	// height/padding blank lines, the top/bottom rules - then sizes itself
+	// from the narrowed innerW/hBorderWidth, so the whole box shrinks
+	// together instead of content hugging inside a full-width border.
+	if r.shrinkToFit && !hasExplicitWidth && b.width < innerW {
+		innerW = max(1, b.width)
+		hBorderWidth = textcell.Width(bl.char) + pl + innerW + gutterWidth + pr + textcell.Width(br.char)
+	}
+
 	// closedBox is true when a top/bottom rule is combined with a right
 	// border: the rule always spans the full box width, so the right
 	// border must be pushed out to meet it rather than hugging content.

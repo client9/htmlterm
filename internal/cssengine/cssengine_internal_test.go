@@ -93,7 +93,10 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "border-left functional color is not split on internal spaces", prop: "border-left", val: "solid rgb(255 0 0)", want: map[string]string{"border-left": "solid", "border-left-color": "rgb(255 0 0)"}},
 		{name: "border-right invalid arity falls back", prop: "border-right", val: "1px solid red extra", want: map[string]string{"border-right": "1px solid red extra"}},
 		{name: "border-bottom one value is style only", prop: "border-bottom", val: "double", want: map[string]string{"border-bottom": "double"}},
-		{name: "flex NaN is not a number token, so it is the basis component", prop: "flex", val: "NaN", want: map[string]string{"flex-basis": "NaN"}},
+		// Not a CSS number and not a basis either, so it lands as an inert
+		// flex-basis rather than picking up the shorthand's grow/shrink
+		// defaults - an invalid declaration must not change layout.
+		{name: "flex NaN is neither a number token nor a valid basis", prop: "flex", val: "NaN", want: map[string]string{"flex-basis": "NaN"}},
 		{name: "gap one value sets both axes", prop: "gap", val: "2", want: map[string]string{"row-gap": "2", "column-gap": "2"}},
 		{name: "gap two values set row then column", prop: "gap", val: "1 2", want: map[string]string{"row-gap": "1", "column-gap": "2"}},
 		{name: "gap invalid arity falls back", prop: "gap", val: "1 2 3", want: map[string]string{"gap": "1 2 3"}},
@@ -101,11 +104,22 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "flex auto sets grow and shrink to 1 with auto basis", prop: "flex", val: "auto", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}},
 		{name: "flex initial sets no grow, shrink 1, auto basis", prop: "flex", val: "initial", want: map[string]string{"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto"}},
 		{name: "flex single number sets grow with zero basis", prop: "flex", val: "2", want: map[string]string{"flex-grow": "2", "flex-shrink": "1", "flex-basis": "0"}},
-		{name: "flex single basis value with no number", prop: "flex", val: "30%", want: map[string]string{"flex-basis": "30%"}},
+		{name: "flex single basis value with no number defaults grow and shrink to 1", prop: "flex", val: "30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
+		{name: "flex single basis keyword auto defaults grow and shrink to 1", prop: "flex", val: "auto", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}},
+		{name: "flex single basis with a unit defaults grow and shrink to 1", prop: "flex", val: "10ch", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "10ch"}},
 		{name: "flex two numbers are grow then shrink with zero basis", prop: "flex", val: "1 2", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "0"}},
 		{name: "flex number then basis defaults shrink to 1", prop: "flex", val: "1 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
 		{name: "flex three values are grow shrink basis", prop: "flex", val: "1 2 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
 		{name: "flex invalid arity falls back", prop: "flex", val: "1 2 3 4", want: map[string]string{"flex": "1 2 3 4"}},
+		{name: "place-content one value sets both axes", prop: "place-content", val: "center", want: map[string]string{"align-content": "center", "justify-content": "center"}},
+		{name: "place-content two values are align then justify", prop: "place-content", val: "flex-start flex-end", want: map[string]string{"align-content": "flex-start", "justify-content": "flex-end"}},
+		{name: "place-items expands to the items pair", prop: "place-items", val: "center", want: map[string]string{"align-items": "center", "justify-items": "center"}},
+		{name: "place-self expands to the self pair", prop: "place-self", val: "flex-end start", want: map[string]string{"align-self": "flex-end", "justify-self": "start"}},
+		{name: "place-content is case-insensitive and normalizes to lowercase", prop: "place-content", val: "Center", want: map[string]string{"align-content": "center", "justify-content": "center"}},
+		// "safe"/"unsafe" makes one component two tokens, which the arity
+		// split can't distinguish from a two-component value.
+		{name: "place-content with a safe prefix falls back", prop: "place-content", val: "safe center", want: map[string]string{"place-content": "safe center"}},
+		{name: "place-content invalid arity falls back", prop: "place-content", val: "a b c", want: map[string]string{"place-content": "a b c"}},
 		{name: "flex-flow both components", prop: "flex-flow", val: "row wrap", want: map[string]string{"flex-direction": "row", "flex-wrap": "wrap"}},
 		{name: "flex-flow components in either order", prop: "flex-flow", val: "wrap column-reverse", want: map[string]string{"flex-direction": "column-reverse", "flex-wrap": "wrap"}},
 		{name: "flex-flow direction alone resets wrap to its initial value", prop: "flex-flow", val: "column", want: map[string]string{"flex-direction": "column", "flex-wrap": "nowrap"}},

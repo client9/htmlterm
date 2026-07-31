@@ -303,6 +303,9 @@ var shorthandLonghands = map[string][]string{
 	"overflow":       {"overflow-x", "overflow-y"},
 	"gap":            {"row-gap", "column-gap"},
 	"flex-flow":      {"flex-direction", "flex-wrap"},
+	"place-content":  {"align-content", "justify-content"},
+	"place-items":    {"align-items", "justify-items"},
+	"place-self":     {"align-self", "justify-self"},
 	"border-spacing": {"border-spacing-x", "border-spacing-y"},
 	// flex is deliberately absent: expandShorthand routes "flex" straight to
 	// expandFlexShorthand without consulting this table, since that
@@ -512,6 +515,12 @@ func expandShorthand(prop, val string) map[string]string {
 		return expandFlexShorthand(val)
 	case "flex-flow":
 		return expandFlexFlowShorthand(val)
+	case "place-content":
+		return expandPlaceShorthand(prop, val, "align-content", "justify-content")
+	case "place-items":
+		return expandPlaceShorthand(prop, val, "align-items", "justify-items")
+	case "place-self":
+		return expandPlaceShorthand(prop, val, "align-self", "justify-self")
 	case "margin-block-start":
 		return map[string]string{"margin-top": val}
 	case "margin-block-end":
@@ -549,9 +558,12 @@ func expandBackgroundShorthand(val string) map[string]string {
 // flex-shrink, and flex-basis longhands, per the CSS grammar: `none` (0 0
 // auto), `auto` (1 1 auto), a single number (that number's flex-grow, with
 // flex-shrink 1 and flex-basis 0 — the common `flex: 1` equal-growth
-// pattern), a number followed by a second number (grow shrink, basis 0), a
-// number followed by a non-numeric token (grow basis, shrink 1), or the full
-// three-token grow/shrink/basis form — see CSS.md's Flexbox section.
+// pattern), a single non-numeric token (that token's flex-basis, with
+// flex-grow and flex-shrink both 1 — the shorthand's own omitted-value
+// defaults, not the longhands' initial values), a number followed by a second
+// number (grow shrink, basis 0), a number followed by a non-numeric token
+// (grow basis, shrink 1), or the full three-token grow/shrink/basis form —
+// see CSS.md's Flexbox section.
 func expandFlexShorthand(val string) map[string]string {
 	// inherit/unset only - "initial" is deliberately left to the switch
 	// below: flex's own grammar already treats the literal token "initial"
@@ -575,6 +587,17 @@ func expandFlexShorthand(val string) map[string]string {
 		if isCSSNumberToken(tokens[0]) {
 			return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": "0"}
 		}
+		// One-value basis form. A shorthand always resets every longhand it
+		// covers, and flex's own omitted-value defaults are 1/1 (not the
+		// longhands' initial 0/1), so `flex: 30%` is `1 1 30%` - leaving
+		// flex-grow at its own initial 0 would make the item refuse to grow,
+		// the opposite of what the shorthand asks for. The token has to
+		// actually be a basis for that, though: granting flex-grow: 1 off a
+		// junk value would let an invalid declaration change layout, which is
+		// worse than the inert flex-basis it lands as instead.
+		if isCSSFlexBasisToken(tokens[0]) {
+			return map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": tokens[0]}
+		}
 		return map[string]string{"flex-basis": tokens[0]}
 	case 2:
 		if isCSSNumberToken(tokens[1]) {
@@ -585,6 +608,34 @@ func expandFlexShorthand(val string) map[string]string {
 		return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": tokens[2]}
 	default:
 		return map[string]string{"flex": val}
+	}
+}
+
+// expandPlaceShorthand expands one of the CSS Box Alignment `place-*`
+// shorthands into its align/justify longhand pair: one value sets both axes,
+// two set the align (block/cross) axis then the justify (inline/main) one -
+// note the order, which is the opposite of the axis order most other
+// two-value shorthands use.
+//
+// A `safe`/`unsafe` overflow-alignment prefix makes a single component two
+// tokens, which this arity-based split can't tell from a two-component value;
+// since neither keyword does anything in this engine, such a value is left
+// unexpanded (an inert shorthand declaration) rather than misparsed into a
+// wrong axis assignment.
+func expandPlaceShorthand(prop, val, alignProp, justifyProp string) map[string]string {
+	tokens := strings.Fields(strings.ToLower(val))
+	for _, tok := range tokens {
+		if tok == "safe" || tok == "unsafe" {
+			return map[string]string{prop: val}
+		}
+	}
+	switch len(tokens) {
+	case 1:
+		return map[string]string{alignProp: tokens[0], justifyProp: tokens[0]}
+	case 2:
+		return map[string]string{alignProp: tokens[0], justifyProp: tokens[1]}
+	default:
+		return map[string]string{prop: val}
 	}
 }
 
@@ -630,6 +681,25 @@ func expandFlexFlowShorthand(val string) map[string]string {
 func isCSSNumberToken(s string) bool {
 	_, ok := ParseNumber(s)
 	return ok
+}
+
+// isCSSFlexBasisToken reports whether s is usable as flex's <'flex-basis'>
+// component: the auto/content keywords, or a <length-percentage> - a CSS
+// number with an optional "%" or unit suffix. Deliberately not a full unit
+// vocabulary check (this engine's own sizing accepts bare counts and "ch", and
+// ignores any other unit): it only has to separate a real basis from a junk
+// token, so that `flex: <junk>` stays inert instead of picking up the
+// shorthand's grow/shrink defaults. Callers that need the value itself parse
+// it later, and an unrecognized unit lands as an ignored flex-basis exactly as
+// it would from the longhand.
+func isCSSFlexBasisToken(s string) bool {
+	s = strings.TrimSpace(s)
+	switch strings.ToLower(s) {
+	case "auto", "content":
+		return true
+	}
+	num := strings.TrimRight(s, "%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	return num != "" && isCSSNumberToken(num)
 }
 
 // ParseNumber parses a CSS <number> token: an optional sign, digits with an

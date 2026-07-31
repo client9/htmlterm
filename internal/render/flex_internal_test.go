@@ -142,6 +142,59 @@ func TestDistributeFlexGrow(t *testing.T) {
 			t.Errorf("sizes = %v, want %v", sizes, want)
 		}
 	})
+
+	// CSS Flexbox 1 section 9.7 step 4b: flex factors summing to less than one
+	// distribute only that fraction of the initial free space. Without the
+	// clamp, proportionalShares' normalize-by-total-weight handed a lone
+	// flex-grow:0.5 item all of the free space.
+	t.Run("factors summing below one distribute only that fraction", func(t *testing.T) {
+		sizes := []int{10}
+		left := distributeFlexGrow(sizes, []float64{0.5}, allIndices(1), 20, nil)
+		if want := []int{20}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (0.5 x 20 free = 10 absorbed)", sizes, want)
+		}
+		if left != 10 {
+			t.Errorf("unabsorbed = %d, want 10", left)
+		}
+	})
+
+	t.Run("the sub-one clamp sums across every growable member", func(t *testing.T) {
+		sizes := []int{5, 5}
+		left := distributeFlexGrow(sizes, []float64{0.25, 0.25}, allIndices(2), 20, nil)
+		if want := []int{10, 10}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (0.5 x 20 free = 10, split evenly)", sizes, want)
+		}
+		if left != 10 {
+			t.Errorf("unabsorbed = %d, want 10", left)
+		}
+	})
+
+	t.Run("factors summing to one or more still absorb everything", func(t *testing.T) {
+		sizes := []int{5, 5}
+		left := distributeFlexGrow(sizes, []float64{0.5, 0.5}, allIndices(2), 20, nil)
+		if want := []int{15, 15}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v", sizes, want)
+		}
+		if left != 0 {
+			t.Errorf("unabsorbed = %d, want 0", left)
+		}
+	})
+
+	// A member frozen at its ceiling drops out of the factor sum, tightening
+	// the clamp on the next round; the survivor's entitlement is a cumulative
+	// bound on what it may hold in total, not a fresh per-round allowance, so
+	// the units the frozen member couldn't use stay unplaced here rather than
+	// moving to the survivor the way an unclamped redistribution would.
+	t.Run("a frozen member's factor leaves the sub-one sum", func(t *testing.T) {
+		sizes := []int{10, 10}
+		left := distributeFlexGrow(sizes, []float64{0.3, 0.3}, allIndices(2), 20, []int{11, 0})
+		if want := []int{11, 16}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (0.6 x 20 = 12: 6 each, item 0 capped at 11; item 1's own 0.3 x 20 = 6 entitlement is already spent)", sizes, want)
+		}
+		if left != 13 {
+			t.Errorf("unabsorbed = %d, want 13", left)
+		}
+	})
 }
 
 func TestDistributeFlexShrink(t *testing.T) {

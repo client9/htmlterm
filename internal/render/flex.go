@@ -288,12 +288,48 @@ func proportionalShares(weights []float64, group []int, total int) []int {
 // deficit of 6, the last floored at min-width:9, used to end up 25 wide - the
 // unit the floored item couldn't give back was simply dropped rather than
 // taken from the two items that still had room.
-func distributeFlexSpace(weights []float64, group []int, total int, take func(i, units int) int) int {
+//
+// factors is the members' *raw* flex-grow/flex-shrink factors, used only for
+// the spec's sub-1 clamp (§9.7 step 4b: "if the sum of the unfrozen flex
+// items' flex factors is less than one, multiply the initial free space by
+// this sum; if the magnitude of this value is less than the magnitude of the
+// remaining free space, use this as the remaining free space"). It is a
+// separate argument from weights because the shrink path weights by the scaled
+// flex shrink factor (shrink x base size) while the clamp is defined on the
+// unscaled one. Without the clamp a lone flex-grow:0.5 item absorbed all of
+// the free space rather than half of it, since proportionalShares normalizes
+// by the total weight and so can't tell 0.5 from 5.
+func distributeFlexSpace(weights, factors []float64, group []int, total int, take func(i, units int) int) int {
 	active := group
+	initial := total
+	// absorbed[i] is what member i has taken across all rounds so far. The
+	// spec recomputes each unfrozen item's *target* size from its flex base
+	// every round, so the sub-1 clamp bounds a member's cumulative share, not
+	// each round's increment - subtracting what the still-active members
+	// already hold is what turns this loop's incremental offers back into that
+	// target-based bound. Without it, a clamped round that froze somebody
+	// would re-offer the survivors their whole entitlement a second time.
+	absorbed := make(map[int]int, len(group))
 	for total > 0 && len(active) > 0 {
+		// The clamp is recomputed every round against the still-unfrozen
+		// members (a frozen member's factor drops out of the sum) but always
+		// applies to the *initial* free space, as the spec has it.
+		round := total
+		if sum := sumFlexFactors(factors, active); sum < 1 {
+			entitled := int(sum * float64(initial))
+			for _, i := range active {
+				entitled -= absorbed[i]
+			}
+			if entitled < round {
+				round = entitled
+			}
+		}
+		if round <= 0 {
+			break
+		}
 		placed := 0
 		var next []int
-		for gi, share := range proportionalShares(weights, active, total) {
+		for gi, share := range proportionalShares(weights, active, round) {
 			i := active[gi]
 			if share <= 0 {
 				if weights[i] > 0 {
@@ -303,6 +339,7 @@ func distributeFlexSpace(weights []float64, group []int, total int, take func(i,
 			}
 			took := take(i, share)
 			placed += took
+			absorbed[i] += took
 			if took == share {
 				// Absorbed everything offered, so not (yet) at its limit -
 				// still eligible for whatever the frozen members leave behind.
@@ -319,6 +356,18 @@ func distributeFlexSpace(weights []float64, group []int, total int, take func(i,
 	return total
 }
 
+// sumFlexFactors totals the positive flex factors across group, for
+// distributeFlexSpace's sub-1 clamp.
+func sumFlexFactors(factors []float64, group []int) float64 {
+	sum := 0.0
+	for _, i := range group {
+		if factors[i] > 0 {
+			sum += factors[i]
+		}
+	}
+	return sum
+}
+
 // distributeFlexGrow adds each group member's proportional share of leftover
 // to sizes[i] (i ranges over group, indices into the full item-count-sized
 // sizes/grows/ceilings arrays - matching widths/mt/mb's own convention),
@@ -330,7 +379,7 @@ func distributeFlexSpace(weights []float64, group []int, total int, take func(i,
 // wasn't actually absorbed (0 unless every growable member hit its ceiling
 // before leftover was exhausted, or no member can grow at all).
 func distributeFlexGrow(sizes []int, grows []float64, group []int, leftover int, ceilings []int) int {
-	return distributeFlexSpace(grows, group, leftover, func(i, units int) int {
+	return distributeFlexSpace(grows, grows, group, leftover, func(i, units int) int {
 		if ceilings != nil && ceilings[i] > 0 {
 			if maxAdd := ceilings[i] - sizes[i]; units > maxAdd {
 				units = max(0, maxAdd)
@@ -362,7 +411,7 @@ func distributeFlexShrink(sizes []int, shrinks []float64, floors []int, group []
 		}
 		scaled[i] = shrinks[i] * float64(sizes[i])
 	}
-	return distributeFlexSpace(scaled, group, deficit, func(i, units int) int {
+	return distributeFlexSpace(scaled, shrinks, group, deficit, func(i, units int) int {
 		if maxReduce := sizes[i] - floors[i]; units > maxReduce {
 			units = max(0, maxReduce)
 		}
@@ -395,8 +444,15 @@ func parseGapLen(v string) int {
 // parseFlexWrap parses flex-wrap: "wrap" enables multi-line row layout;
 // nowrap (the default, and any other/invalid value) keeps the single-line
 // behavior row-direction flex layout has always had.
+//
+// "wrap-reverse" is accepted as an alias for "wrap": its cross-axis line order
+// (last line first) isn't implemented, but line breaking itself is the whole
+// point of the property, and treating it as nowrap instead made a container
+// that should have wrapped overflow its width on a single line - the loudest
+// possible failure for the part that does work here. See CSS.md.
 func parseFlexWrap(decls map[string]string) bool {
-	return decls["flex-wrap"] == "wrap"
+	v := decls["flex-wrap"]
+	return v == "wrap" || v == "wrap-reverse"
 }
 
 // resolveFlexContainerHeight resolves an explicit CSS height on a flex
@@ -454,27 +510,58 @@ func (r *Engine) appendFlexItems(items []flexItem, n *html.Node) []flexItem {
 	return items
 }
 
-// renderFlexItemBox renders one flex item's own box at the given resolved
-// width, dispatching to a nested flex layout when the item is itself a flex
-// container (display:flex/inline-flex nests normally) or the ordinary block
-// box model otherwise — flex items are blockified regardless of their own
-// declared display, matching real CSS.
+// renderFlexItemBox renders one row-direction flex item's own box at the
+// main-axis width flex layout resolved for it, dispatching to a nested flex
+// layout when the item is itself a flex container (display:flex/inline-flex
+// nests normally) or the ordinary block box model otherwise — flex items are
+// blockified regardless of their own declared display, matching real CSS.
+//
+// width is imposed as a synthetic declaration, not merely offered as the
+// available width: an item's used main size is whatever flex layout resolved
+// (its flex base size, adjusted by flex-grow/flex-shrink), which per spec
+// overrides its own width property outright. Passing it as available width
+// only would let renderBlockContentBox re-resolve the item's declared width
+// and win - a grown item would paint at its declared width with the growth
+// left as trailing blanks, and a shrunk one would paint at full width and
+// overflow the container, dragging every later item's recorded Rect with it.
+// Re-resolving min-width/max-width inside the item's own render is harmless:
+// resolveMainBasis already clamped the base size through clampFlexBasis, and
+// flex-grow/flex-shrink respect the same two as their ceiling/floor, so the
+// width handed here is already inside that range.
 func (r *Engine) renderFlexItemBox(it flexItem, width int) (box, map[*html.Node]Rect) {
-	return r.renderFlexItemBoxHeight(it, width, 0)
+	return r.renderFlexItemBoxSized(it, width, width, 0)
 }
 
-// renderFlexItemBoxHeight is renderFlexItemBox with an optional column-
-// direction main-axis (vertical) size override: heightOverride > 0 injects a
-// synthetic "height" declaration (taking priority over any "height" the item
+// renderFlexItemBoxHeight is renderFlexItemBox for column direction: width is
+// the item's cross-axis size and is offered as available width only (an
+// item's own width property legitimately wins over align-items: stretch,
+// since stretch applies only to an auto cross size), while heightOverride > 0
+// imposes the column-direction main-axis size the same way and for the same
+// reason renderFlexItemBox imposes width.
+func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int) (box, map[*html.Node]Rect) {
+	return r.renderFlexItemBoxSized(it, width, 0, heightOverride)
+}
+
+// renderFlexItemBoxSized renders one flex item at availWidth, with optional
+// main-axis size overrides: widthOverride/heightOverride > 0 inject a
+// synthetic "width"/"height" declaration (taking priority over any the item
 // already declares - matching flex-basis's real-CSS precedence over the
-// height property) before rendering, so the existing block box model's own
-// height handling (block.go's fixed-height pad/clip logic) does the actual
-// work for a non-flex item; heightOverride == 0 renders unmodified, identical
-// to renderFlexItemBox. Used by layoutFlexColumn to resolve flex-basis and
-// apply flex-grow/flex-shrink's height adjustments - see CSS.md's Flexbox
-// section.
+// width/height properties) before rendering, so the existing block box model's
+// own sizing (block.go's width resolution and fixed-height pad/clip logic)
+// does the actual work for a non-flex item. 0 means "no override".
 //
-// decls is always cloned, even when heightOverride == 0: layoutFlexColumn
+// Both overrides are *outer* box sizes - the item's whole painted extent,
+// border characters and padding included - since that's the size flex layout
+// resolved and reserved space for, and the convention a declared width already
+// follows everywhere else in this engine (see COMPATIBILITY.md). The width
+// property means exactly that already, but the height property is content-box
+// here, so the vertical override subtracts the item's own top/bottom border
+// and padding rows (blockVerticalChrome) before injecting it. Without that
+// subtraction a bordered item overshot its allotted rows by exactly its chrome
+// and had the overflow silently clipped off the bottom of the line - the
+// stretched box's bottom border vanished.
+//
+// decls is always cloned, even with no override at all: layoutFlexColumn
 // can render the same item twice (a basis-measurement pass, then a second
 // pass if flex-grow/flex-shrink changes its height), and block.go's own
 // margin-top/margin-bottom collapse-through bookkeeping mutates its decls
@@ -482,10 +569,14 @@ func (r *Engine) renderFlexItemBox(it flexItem, width int) (box, map[*html.Node]
 // stale mutation in it.decls for the second render (or any later reader) to
 // pick up. Row direction's layoutFlexLine renders every item exactly once,
 // so this is strictly defensive there, not required by the row path itself.
-func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int) (box, map[*html.Node]Rect) {
+func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, heightOverride int) (box, map[*html.Node]Rect) {
+	width := availWidth
 	decls := maps.Clone(it.decls)
-	if heightOverride > 0 {
-		decls["height"] = strconv.Itoa(heightOverride)
+	if widthOverride > 0 {
+		decls["width"] = strconv.Itoa(widthOverride)
+	}
+	if heightOverride > 0 && !isFlexDisplay(decls["display"]) {
+		decls["height"] = strconv.Itoa(max(1, heightOverride-blockVerticalChrome(decls)))
 		if ov := decls["overflow-y"]; ov == "scroll" || ov == "auto" {
 			// This height is synthetic - it exists purely to drive
 			// flex-basis/flex-grow/flex-shrink sizing, not a real declared
@@ -523,6 +614,23 @@ func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int)
 	return r.renderBlockContentBox(it.node, decls, width)
 }
 
+// blockVerticalChrome is how many rows of an ordinary block box's height are
+// its own chrome rather than its content: a drawn top/bottom border rule plus
+// padding-top/padding-bottom. Flex layout resolves outer sizes, while the
+// height property is content-box in this engine, so this is the difference
+// between the two - see renderFlexItemBoxSized.
+func blockVerticalChrome(decls map[string]string) int {
+	_, _, bt, bb, _, _, _, _ := resolveBoxBorders(decls)
+	rows := parsePaddingLen(decls["padding-top"]) + parsePaddingLen(decls["padding-bottom"])
+	if bt.char != "" {
+		rows++
+	}
+	if bb.char != "" {
+		rows++
+	}
+	return rows
+}
+
 // parseColumnFlexBasis resolves a column-direction flex item's flex-basis to
 // an absolute line count: 0 means unset/auto (or a percentage basis with no
 // definite container height to resolve against - real CSS treats a
@@ -558,6 +666,14 @@ func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasConta
 // unconditionally afterward.
 func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 	saved := r.quoteDepth
+	savedShrink := r.shrinkToFit
+	// Shrink-to-fit for the duration of the trial render: without it a flex
+	// item that paints a rectangle (a border, text-align, an explicit height)
+	// measures as however wide cap is rather than as its own content, so every
+	// such item on a line reports an identical basis and flex-shrink's
+	// content-proportional split flattens to an even one. See
+	// Engine.shrinkToFit.
+	r.shrinkToFit = true
 	var b box
 	if isFlexDisplay(it.decls["display"]) {
 		// Unlike renderFlexItemBox's real (final) render, measurement must
@@ -572,6 +688,7 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 		b, _ = r.renderBlockContentBox(it.node, it.decls, cap)
 	}
 	r.quoteDepth = saved
+	r.shrinkToFit = savedShrink
 	return b.width
 }
 
@@ -890,13 +1007,21 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 		}
 	}
 
+	align := decls["align-items"]
 	itemBoxes := make(map[int]box, len(group))
 	itemPositions := make(map[int]map[*html.Node]Rect, len(group))
 	outerHeights := make(map[int]int, len(group))
+	// quoteBefore[i] captures r.quoteDepth immediately before item i's own
+	// render, so the stretch pass below can replay a re-rendered item from the
+	// correct starting depth - content: open-quote/close-quote mutates
+	// r.quoteDepth live (see block.go), and layoutFlexColumn's own
+	// repeated-render site does the same for the same reason.
+	quoteBefore := make(map[int]int, len(group))
 	height := max(1, minHeight)
 	for _, i := range group {
 		it := items[i]
 		w := max(1, widths[i])
+		quoteBefore[i] = r.quoteDepth
 		b, pos := r.renderFlexItemBox(it, w)
 		// An item with no CSS width of its own doesn't auto-fill the
 		// available width the way a plain block box would (renderBlockContentBox
@@ -916,7 +1041,38 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 		height = max(height, outerHeights[i])
 	}
 
-	align := decls["align-items"]
+	// align-items: stretch (the default) means the item's own box grows to the
+	// line's cross size, not just that blank rows are parked underneath it -
+	// so a bordered or filled item has to be re-rendered at that height rather
+	// than padded from outside, or its border closes at its content height and
+	// leaves the stretch visible as a gap below the box. Only items that
+	// actually come up short are re-rendered, and only when their own cross
+	// size is auto: an explicit height opts an item out of stretching, per
+	// spec. quoteDepth is replayed per item and restored afterward (see
+	// quoteBefore above), since this is a second render of content the first
+	// pass already walked.
+	quoteAfter := r.quoteDepth
+	for _, i := range group {
+		it := items[i]
+		if a := itemAlign(it, align); a != "" && a != "stretch" {
+			continue
+		}
+		if abs, _, ok := parseSizeVal(it.decls["height"]); ok && abs > 0 {
+			continue
+		}
+		want := height - mt[i] - mb[i]
+		if want <= len(itemBoxes[i].lines) {
+			continue
+		}
+		w := max(1, widths[i])
+		r.quoteDepth = quoteBefore[i]
+		b, pos := r.renderFlexItemBoxSized(it, w, w, want)
+		b = alignLinesBox(b, it.decls["text-align"], w)
+		itemBoxes[i], itemPositions[i] = b, pos
+		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
+	}
+	r.quoteDepth = quoteAfter
+
 	var leadPad int
 	extraGaps := make([]int, max(0, len(group)-1))
 	if !marginsOverrideJustify {
@@ -1387,6 +1543,15 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	}
 
 	content, positions := r.layoutFlex(n, decls, innerW)
+	// Under a shrink-to-fit measurement render, report the laid-out content's
+	// own width rather than the available width — the flex-container mirror of
+	// renderBlockContentBox's identical narrowing, and what lets a nested
+	// display:flex item measure as its items' natural extent. See
+	// Engine.shrinkToFit.
+	if r.shrinkToFit && !hasExplicitWidth && content.width < innerW {
+		innerW = max(1, content.width)
+		hBorderWidth = textcell.Width(bl.char) + pl + innerW + pr + textcell.Width(br.char)
+	}
 	// A block-level flex container fills its available width by default,
 	// same as any other block box — pad any leftover columns after the last
 	// item/row (a row narrower than innerW, or a column item narrower than
@@ -1479,7 +1644,53 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 // (see inline.go's nested "inline-block" case for the identical, already-
 // accepted rationale) — its own position is tracked by the caller boxing
 // this string, but individual descendants inside it are not.
+// availWidth really is only a bound: an inline-flex container is shrink-to-fit
+// (real CSS sizes it by fit-content, not by its containing block), so it lays
+// out at its own natural extent whenever that's narrower. Handing availWidth
+// straight through as the container's main size instead made it a *definite*
+// size that flex-grow and justify-content then had free space to spread items
+// across - `display: inline-flex; justify-content: space-between` pushed its
+// items to the far edges of the surrounding text's wrap bound rather than
+// sitting compactly wherever it was placed.
 func (r *Engine) renderInlineFlexContent(n *html.Node, decls map[string]string, availWidth int) string {
+	if r.measuringNaturalWidth && availWidth > measureBlockWidthCap {
+		availWidth = measureBlockWidthCap
+	}
+	if w, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained && w > 0 {
+		// A declared width (or a min/max-width that bites) is a definite main
+		// size: shrink-to-fit is what an *auto* size resolves to, and
+		// justify-content/flex-grow do have that space to distribute.
+		availWidth = w
+	} else if natural := r.inlineFlexNaturalWidth(n, decls, availWidth); natural > 0 && natural < availWidth {
+		availWidth = natural
+	}
 	b, _ := r.layoutFlex(n, decls, availWidth)
 	return b.join()
+}
+
+// inlineFlexNaturalWidth is an inline-flex container's shrink-to-fit main-axis
+// extent: in row direction its items' own resolved base sizes plus the gaps
+// between them, in column direction its widest single item. flex-grow and
+// justify-content are deliberately not consulted - both only distribute space
+// that a definite container size makes available, and the whole point of a
+// shrink-to-fit container is that it has none to hand out. flex-shrink isn't
+// either: a natural width wider than availWidth is simply capped by the
+// caller, which is what puts the items back into a shrinking line.
+func (r *Engine) inlineFlexNaturalWidth(n *html.Node, decls map[string]string, availWidth int) int {
+	items := r.collectFlexItems(n)
+	if len(items) == 0 {
+		return 0
+	}
+	if isColumn, _ := parseFlexDirection(decls); isColumn {
+		widest := 0
+		for _, it := range items {
+			widest = max(widest, r.resolveCrossWidth(it, availWidth))
+		}
+		return widest
+	}
+	total := parseGapLen(decls["column-gap"]) * (len(items) - 1)
+	for _, it := range items {
+		total += r.resolveMainBasis(it, availWidth)
+	}
+	return total
 }

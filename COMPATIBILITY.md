@@ -195,13 +195,27 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `devanagari`, `disclosure-open`/`disclosure-closed`, etc. — see "Not
   Supported" below). `symbols()` itself is a real CSS Counter Styles
   function, just without its `<symbols-type>` keyword or image arguments.
+- **`width` is a border-box size but `height` is a content-box one.** A
+  declared `width` is the box's total visual width — margins, border
+  characters, and padding all come out of it — while a declared `height` is
+  the number of *content* lines, with the box's own top/bottom border rules
+  and vertical padding added on top. `width: 10; height: 3; padding: 1;
+  border-style: solid` is 10 columns wide and 7 rows tall. The asymmetry is
+  deliberate (a width that didn't include its border characters wouldn't let
+  `width: 100%` line up with the terminal's own width), but it does mean the
+  two properties can't be reasoned about interchangeably. Flex layout resolves
+  main-axis sizes as outer sizes on *both* axes and converts at the boundary,
+  so a flex item is exempt — see the next entry.
 - **`flex-basis`/`width` on a flex item size the item's whole outer box**, not
   its content box, so an item's margins come out of that size rather than
   adding to it: `flex-basis: 6; margin-right: 4` occupies 6 columns of the
   line here and 10 in a browser. This follows the same convention `width`
   already has everywhere else in this engine (a declared width is the total
   visual width of the box, margins and border characters included), which is
-  what makes `width: 100%` line up exactly with the renderer's width.
+  what makes `width: 100%` line up exactly with the renderer's width. Every
+  main-axis size flex layout resolves is an outer size in the same sense,
+  including `column` direction's heights: a `flex-basis: 4` bordered column
+  item is 4 rows tall in total, two of which are its own border rules.
 - **An atomic inline box taller than one line breaks the line it sits in.**
   `inline-block` and `inline-flex` elements are rendered as one indivisible
   unit and spliced into the surrounding inline flow; when that unit is more
@@ -215,6 +229,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
   (whose shorthand expansion is `flex-basis: 0`) reserves one cell per item
   before any leftover space is distributed, making grow ratios slightly off
   for items with differing `flex-grow` weights.
+- **`flex-basis: auto` measures `fit-content`, not `max-content`.** An item
+  with no `flex-basis`/`width` gets a shrink-to-fit measurement of its own
+  content — but the measurement is taken at the container's content width, so
+  an item whose text is longer than that reports the container width (its text
+  already wrapped) rather than the single-line length a browser would use.
+  Items narrower than the container measure exactly as they would in a
+  browser; the difference only shows up in how `flex-shrink` splits a deficit
+  among items that are individually wider than their container.
 
 ### Terminal-Native Additions
 
@@ -330,8 +352,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.
 - **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction,
-  `flex-wrap: wrap-reverse`, `align-content: stretch` (approximated as
-  `flex-start`), `baseline` alignment, the physical `left`/`right` alignment
+  `flex-wrap: wrap-reverse`'s reversed line order (it wraps, but the lines
+  stack top to bottom like plain `wrap`), `align-content: stretch` (approximated as
+  `flex-start`), `justify-items`/`justify-self` (grid properties, inert in a
+  flex container anyway — so the `place-items`/`place-self` shorthands that
+  set them are effectively just `align-items`/`align-self`),
+  `baseline` alignment, the physical `left`/`right` alignment
   keywords, `margin: auto` beyond row direction's main axis (row direction's
   `margin-left`/`margin-right: auto` is supported), and text nodes directly
   inside a flex container, which real CSS wraps in anonymous flex items but

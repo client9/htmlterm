@@ -865,7 +865,13 @@ produces a two-digit-wide column for items 9 and 10).
 ## Flexbox
 
 `display: flex` and `display: inline-flex` lay out an element's direct
-element children as flex items. Only single-row and single-column layouts
+element children as flex items. A `flex` container is block-level and fills
+the width available to it; an `inline-flex` container is **shrink-to-fit**,
+sized to its items' own extent unless it declares a `width` of its own (or
+their extent exceeds the space available, in which case that space bounds it).
+That matters for `justify-content` and `flex-grow`, which have free space to
+distribute only when the container's main size is definite — inside a plain
+`inline-flex` there is none, so both are inert. Only single-row and single-column layouts
 are currently supported, not full CSS Flexbox — see "Not supported" below
 for the gaps.
 
@@ -897,7 +903,7 @@ those four exact keywords are recognized — a misspelling falls back to `row`
 rather than partly applying. Not inherited.
 
 #### `flex-wrap`
-`nowrap` (default) | `wrap`. `row` direction only — `column` direction has no
+`nowrap` (default) | `wrap` | `wrap-reverse`. `row` direction only — `column` direction has no
 wrapping support (see "Not supported"). `nowrap` keeps every item on one line
 (overflowing the container's width if they don't fit, same as always).
 `wrap` buckets items into multiple lines using each item's resolved
@@ -907,8 +913,11 @@ starts; an item wider than the container still gets its own line rather than
 being dropped or split. Lines stack top to bottom with `row-gap` between
 them; `flex-grow`/`justify-content` are then resolved independently within
 each line, matching real CSS ("the line" is the scope `flex-grow` distributes
-within once wrapping is in play, not the whole container). `flex-wrap:
-wrap-reverse` is not supported. Not inherited.
+within once wrapping is in play, not the whole container). `wrap-reverse`
+wraps exactly like `wrap`: its one distinguishing feature — stacking the lines
+bottom to top, so the first line is the last row — is not implemented, and it
+is otherwise treated as `wrap` rather than as `nowrap`, since the alternative
+was overflowing the container's width on a single line. Not inherited.
 
 ```css
 /* items reflow onto additional lines once the row is full */
@@ -951,10 +960,13 @@ Not inherited.
 #### `align-items`
 `stretch` (default) | `flex-start` | `center` | `flex-end`. Aligns items on
 the cross axis. In `row` direction (cross axis = vertical), `stretch` and
-`flex-start` both align content to the top of the row — this engine has no
-way to stretch text content itself, so `stretch` is approximated by padding
-a shorter item with blank lines up to the row's own height, which is
-visually equivalent to a real stretched box with blank interior. That row
+`flex-start` both align content to the top of the row; `stretch` additionally
+grows a shorter item's own box to the row's height, so a bordered or filled
+item's box really does reach the full height rather than sitting short with
+blank rows underneath. The interior of the grown box is blank — this engine
+has no way to stretch text content itself. An item that declares its own
+`height` is not stretched, matching CSS's "stretch applies only to an auto
+cross size". That row
 height is the tallest item's, unless the container is single-line
 (`flex-wrap: nowrap`, the default) and has an explicit `height` — then the
 line takes the container's height instead, so `align-items: center` on a
@@ -975,6 +987,26 @@ a flex item to override the container's `align-items` for that one item;
 `auto` (or leaving it unset) defers to the container. Same value vocabulary
 (including the `start`/`self-start`/`end`/`self-end`/`normal` synonyms) and
 per-direction meaning as `align-items` above. Not inherited.
+
+#### `place-content`, `place-items`, `place-self`
+The CSS Box Alignment shorthands: `place-content` sets `align-content` and
+`justify-content`, `place-items` sets `align-items` and `justify-items`, and
+`place-self` sets `align-self` and `justify-self`. One value sets both
+components; two set the **align** component first and the **justify** one
+second — the opposite order from most two-value shorthands, and worth
+double-checking against the axis you meant.
+
+`justify-items` and `justify-self` are grid properties with no effect in a
+flex container, and this engine doesn't implement them at all, so
+`place-items`/`place-self` are in practice just spellings of
+`align-items`/`align-self`. A value carrying a `safe`/`unsafe` overflow-
+alignment prefix (e.g. `place-content: safe center`) is dropped as a whole
+rather than misparsed — neither keyword does anything here.
+
+```css
+/* align-content: flex-end; justify-content: center */
+.row { display: flex; flex-wrap: wrap; height: 10; place-content: flex-end center; }
+```
 
 #### `align-content`
 `flex-start` | `flex-end` | `center` | `space-between` | `space-around` |
@@ -1016,10 +1048,13 @@ sequence, matching real CSS. Not inherited.
 #### `gap`, `row-gap`, `column-gap`
 `gap` is shorthand for `row-gap`/`column-gap`: one value sets both, two set
 `row-gap` then `column-gap`. `column-gap` inserts blank columns between items
-in `row` direction; `row-gap` inserts blank lines between items in `column`
-direction (a container's cross-axis gap property has no effect — there's
-only ever one row/column of items in this subset). Absolute rune counts only
-(e.g. `gap: 2`); percentage gaps are not supported. Not inherited.
+along a row; `row-gap` inserts blank lines between items stacked in a `column`
+container, and between the lines of a **wrapping** `row` container
+(`flex-wrap: wrap`) — that's the one case where both gap properties are live
+at once. `column-gap` has no effect in `column` direction, and `row-gap` none
+in a single-line (`nowrap`) row: there's only one row/column of items to space
+apart. Absolute rune counts only (e.g. `gap: 2`); percentage gaps are not
+supported. Not inherited.
 
 #### `flex-grow`
 `<number>` (default `0`). In `row` direction, distributes leftover main-axis
@@ -1039,8 +1074,18 @@ that hits its cap is frozen there and the space it couldn't use is re-split
 across the items that can still grow, repeating until either the leftover is
 placed or every item is capped (real CSS resolves flexible lengths with the
 same freeze-and-repeat loop). Leftover that no item can absorb flows through
-to `justify-content`/the trailing padding instead of being silently dropped. A
-nested `display: flex`/`inline-flex` item's own height still responds to its
+to `justify-content`/the trailing padding instead of being silently dropped.
+
+Factors summing to **less than one** distribute only that fraction of the free
+space, matching CSS: two items at `flex-grow: 0.25` share half the leftover
+between them and leave the other half for `justify-content`, where two items at
+`flex-grow: 1` would consume all of it. (The same rule applies to
+`flex-shrink` — see there.) The sum is recomputed as items freeze at their
+`max-width`/`max-height`, and it bounds each item's share of the *initial* free
+space in total, not per round, so a frozen item's unused space stays unplaced
+rather than moving to the items that could still grow.
+
+A nested `display: flex`/`inline-flex` item's own height still responds to its
 parent's `flex-grow`/`flex-shrink`/`flex-basis`, the same as an ordinary
 block child. Negative values are treated as `0`, as is any value that isn't a
 CSS `<number>` — `NaN`/`Inf` are Go float literals, not CSS numbers, and are
@@ -1057,6 +1102,13 @@ rejected. Not inherited.
 before `flex-grow`/`flex-shrink` distribute any leftover space: width in
 `row` direction, height in `column` direction. `auto` falls back to the
 item's own `width`/`height` if set, else its measured/rendered natural size.
+That natural size is a genuine **shrink-to-fit** measurement of the item's own
+content: an item that paints a rectangle — a border, `text-align`, a closed
+box — is measured at the width its content needs, not at the width it would
+fill, and the same applies recursively to its descendants, so a bordered child
+doesn't inflate its parent's basis. The measurement is taken at the container's
+content width, though, so it's `fit-content` rather than real CSS's
+`max-content` — see [COMPATIBILITY.md](COMPATIBILITY.md).
 Percentages resolve against the container's content width in `row`
 direction; in `column` direction they resolve against the container's
 explicit `height` if one is set, else (matching real CSS's "percentage basis
@@ -1065,7 +1117,18 @@ item's own natural height, same as `auto`. A `flex-basis` taller/wider than
 an item's own natural content pads it with blank lines/spaces; one shorter
 than the natural content doesn't force a fit — the item's content still
 renders in full and overflows past the resolved size, the same graceful
-degradation `flex-shrink` below relies on.
+degradation `flex-shrink` below relies on. The size is the item's whole
+**outer** box either way — a `flex-basis: 4` bordered item in a `column`
+container is 4 rows including its two border rules, not 4 rows of content
+inside them (see [COMPATIBILITY.md](COMPATIBILITY.md)).
+
+Whatever main size flex layout finally resolves — the basis above, adjusted by
+`flex-grow`/`flex-shrink` — is the size the item actually renders at, taking
+precedence over the item's own `width` (`row`) / `height` (`column`)
+declaration, matching CSS's own "the used main size overrides the main size
+property" rule. An item declaring `width: 5` on a line that grows it to `8`
+paints 8 columns wide (border included), not 5 columns plus 3 blank ones; one
+that shrinks to `5` paints 5, rather than overflowing at its declared width.
 
 However it was arrived at, the resolved size is then clamped by the item's own
 minimum and maximum in the same axis — `min-width`/`max-width` in `row`
@@ -1100,7 +1163,10 @@ content taller than its floor in column direction, since text can't be
 forced into fewer lines) simply overflows past it. An item that reaches its
 floor is frozen there and the overflow it couldn't absorb is re-split across
 the items that can still shrink, the same freeze-and-repeat loop `flex-grow`
-uses against `max-width`/`max-height`. In `column` direction,
+uses against `max-width`/`max-height`. `flex-shrink` factors summing to less
+than one absorb only that fraction of the overflow, and the rest simply
+overflows — the mirror of `flex-grow`'s own sub-one rule (see above).
+In `column` direction,
 with no explicit container `height`, there's nothing to overflow against, so
 `flex-shrink` never applies. Negative values are treated as `1` (the
 default), as is any value that isn't a CSS `<number>` — see `flex-grow`. Not
@@ -1121,6 +1187,7 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
 | `auto` | `flex-grow: 1; flex-shrink: 1; flex-basis: auto` |
 | `initial` | `flex-grow: 0; flex-shrink: 1; flex-basis: auto` |
 | `<number>` | `flex-grow: <number>; flex-shrink: 1; flex-basis: 0` (the common `flex: 1` equal-growth pattern) |
+| `<basis>` | `flex-grow: 1; flex-shrink: 1; flex-basis: <basis>` — the shorthand's omitted-value defaults are `1`/`1`, not the longhands' own initial `0`/`1`, so `flex: 30%` grows |
 | `<number> <number>` | grow, shrink; `flex-basis: 0` |
 | `<number> <basis>` | grow, `flex-basis: <basis>`; `flex-shrink: 1` |
 | `<number> <number> <basis>` | grow, shrink, basis |

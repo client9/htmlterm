@@ -88,6 +88,14 @@ func TestInlineFlex(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "inline-flex renders as one atomic unit within inline flow", width: 40, html: `<p>before <span style="display:inline-flex;gap:1"><span>a</span><span>b</span></span></p>`, want: "before a b\n\n"},
 		{name: "inline-flex column direction stacks items", width: 40, html: `<span style="display:inline-flex;flex-direction:column"><span>a</span><span>b</span></span>`, want: "a\nb"},
+		// An inline-flex container is shrink-to-fit, so there's no free space
+		// for justify-content or flex-grow to spread items across; both used to
+		// treat the surrounding wrap bound as the container's own size and push
+		// the items out to it.
+		{name: "inline-flex is shrink-to-fit, leaving justify-content nothing to spread", width: 30, html: `<span style="display:inline-flex;justify-content:space-between"><span style="border-style:solid">a</span><span style="border-style:solid">b</span></span>`, want: "┌─┐┌─┐\n│a││b│\n└─┘└─┘"},
+		{name: "flex-grow has no free space in a shrink-to-fit container", width: 30, html: `<span style="display:inline-flex"><span style="flex-grow:1;border-style:solid">a</span><span style="flex-grow:1;border-style:solid">b</span></span>`, want: "┌─┐┌─┐\n│a││b│\n└─┘└─┘"},
+		{name: "an explicit width makes the main size definite again", width: 20, html: `<span style="display:inline-flex;width:10;justify-content:space-between"><span>a</span><span>b</span></span>z`, want: "a        bz"},
+		{name: "items wider than the wrap bound still shrink to it", width: 10, html: `<span style="display:inline-flex"><span style="flex-basis:20">a</span><span style="flex-basis:20">b</span></span>`, want: "a    b    "},
 	})
 }
 
@@ -105,6 +113,19 @@ func TestFlexReverseAndOrder(t *testing.T) {
 		{name: "column-reverse packs items against the bottom of a taller container", width: 5, html: `<div style="display:flex;flex-direction:column-reverse;width:100%;height:4"><div>a</div><div>b</div></div>`, want: "     \n     \nb    \na    \n"},
 		{name: "order re-sequences items ascending, ties keep document order", width: 10, html: `<div style="display:flex;width:100%"><div style="order:2">a</div><div style="order:1">b</div><div>c</div></div>`, want: "cba       \n"},
 		{name: "order is resolved before row-reverse flips the sequence", width: 10, html: `<div style="display:flex;flex-direction:row-reverse;width:100%"><div style="order:2">a</div><div style="order:1">b</div></div>`, want: "        ab\n"},
+	})
+}
+
+// TestFlexPlaceShorthands covers the CSS Box Alignment place-* shorthands.
+// Two-value forms are align-then-justify, the opposite order from most
+// two-value shorthands.
+func TestFlexPlaceShorthands(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "place-content one value sets justify-content too", width: 10, html: `<div style="display:flex;width:100%;place-content:center"><div>ab</div></div>`, want: "    ab    \n"},
+		{name: "place-content two values are align-content then justify-content", width: 10, html: `<div style="display:flex;width:100%;place-content:flex-start flex-end"><div>ab</div></div>`, want: "        ab\n"},
+		{name: "place-items sets align-items", width: 10, html: `<div style="display:flex;width:100%;place-items:center"><div>a<br>b<br>c</div><div>x</div></div>`, want: "a         \nbx        \nc         \n"},
+		{name: "place-self sets align-self on one item", width: 10, html: `<div style="display:flex;width:100%;align-items:flex-start"><div>a<br>b</div><div style="place-self:flex-end">x</div></div>`, want: "a         \nbx        \n"},
+		{name: "place-content drives both axes of a wrapping container", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:8;place-content:flex-end"><div style="width:6">a</div><div style="width:6">b</div></div>`, want: "          \n          \n          \n          \n          \n          \n    a     \n    b     \n"},
 	})
 }
 
@@ -172,6 +193,62 @@ func TestFlexShrink(t *testing.T) {
 // two for the item's own render regardless, so without the clamp here the box
 // painted at a different width than flex layout had allotted it and every
 // later item on the line drifted.
+// TestFlexFactorsBelowOne pins CSS Flexbox 1 section 9.7 step 4b: when the
+// flex factors sum to less than one, only that fraction of the free space is
+// distributed and the rest goes to justify-content. The shares used to be
+// normalized by the total weight, so any positive factor consumed all of it.
+// TestFlexShorthandBasisOnly pins the one-value `flex: <basis>` form. The
+// shorthand's omitted-value defaults are 1/1, so such an item grows; it used
+// to expand to flex-basis alone, leaving flex-grow at the longhand's own
+// initial 0 and the item stuck at its basis.
+// TestFlexAlignItemsStretchGrowsTheBox pins that align-items: stretch grows a
+// short item's own box to the line's cross size rather than parking blank rows
+// under it — the difference is invisible for plain text but not for anything
+// that paints a rectangle, where the border used to close at the content
+// height and leave the stretch showing as a gap below the box.
+func TestFlexAlignItemsStretchGrowsTheBox(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a bordered item stretches to the tallest item on the line", width: 8, html: `<div style="display:flex;width:100%"><div style="border-style:solid">a</div><div style="border-style:solid">b<br>c<br>d</div></div>`, want: "┌─┐┌─┐  \n│a││b│  \n│ ││c│  \n│ ││d│  \n└─┘└─┘  \n"},
+		{name: "a single-line container stretches items to its own height", width: 6, html: `<div style="display:flex;width:100%;height:5"><div style="border-style:solid">a</div></div>`, want: "┌─┐   \n│a│   \n│ │   \n│ │   \n└─┘   \n"},
+		{name: "an explicit height opts an item out of stretching", width: 8, html: `<div style="display:flex;width:100%"><div style="border-style:solid;height:1">a</div><div style="border-style:solid">b<br>c<br>d</div></div>`, want: "┌─┐┌─┐  \n│a││b│  \n└─┘│c│  \n   │d│  \n   └─┘  \n"},
+		{name: "align-items flex-start leaves a short item at its own height", width: 8, html: `<div style="display:flex;width:100%;align-items:flex-start"><div style="border-style:solid">a</div><div style="border-style:solid">b<br>c</div></div>`, want: "┌─┐┌─┐  \n│a││b│  \n└─┘│c│  \n   └─┘  \n"},
+		{name: "align-self stretch overrides a centering container", width: 8, html: `<div style="display:flex;width:100%;align-items:center"><div style="border-style:solid;align-self:stretch">a</div><div>b<br>c<br>d</div></div>`, want: "┌─┐b    \n│a│c    \n└─┘d    \n"},
+		{name: "plain text items are unaffected", width: 10, html: `<div style="display:flex;width:100%"><div>a<br>b</div><div>x</div></div>`, want: "ax        \nb         \n"},
+	})
+}
+
+// TestFlexColumnOuterHeight pins that a column-direction item's resolved main
+// size is its whole outer box — border rows included — matching the outer-box
+// convention flex-basis/width already follow on the main axis. A bordered item
+// used to take its own chrome on top of the size flex layout allotted it,
+// overflowing the container by exactly its border rows.
+func TestFlexColumnOuterHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "flex-basis counts a column item's border rows", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:4;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n└────────┘\nz         \n"},
+		{name: "flex-grow fills a column container's height exactly", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:6"><div style="flex-grow:1;border-style:solid">a</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n│        │\n└────────┘\n"},
+		{name: "two grown bordered items split the height without overflow", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;border-style:solid">a</div><div style="flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐\n│a       │\n│        │\n└────────┘\n┌────────┐\n│b       │\n│        │\n└────────┘\n"},
+	})
+}
+
+func TestFlexShorthandBasisOnly(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "flex:<basis> grows the item to fill the line", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:30%;border-style:solid">a</div></div>`, want: "┌──────────────────┐\n│a                 │\n└──────────────────┘\n"},
+		{name: "an invalid flex value grants no grow", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:NaN;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+	})
+}
+
+func TestFlexFactorsBelowOne(t *testing.T) {
+	runCases(t, []renderCase{
+		// Bordered, so each item's resolved main size is visible: basis 10 plus
+		// 0.5 of the 10 free columns is 15, not the whole 20.
+		{name: "flex-grow:0.5 takes half the free space, not all of it", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:10;flex-grow:0.5;border-style:solid">a</div></div>`, want: "┌─────────────┐     \n│a            │     \n└─────────────┘     \n"},
+		{name: "the fraction is the sum across every growable item", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:5;flex-grow:0.25;border-style:solid">a</div><div style="flex-basis:5;flex-grow:0.25;border-style:solid">b</div></div>`, want: "┌──────┐┌─────┐     \n│a     ││b    │     \n└──────┘└─────┘     \n"},
+		{name: "factors summing to one or more still absorb the whole leftover", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:5;flex-grow:0.5">a</div><div style="flex-basis:5;flex-grow:0.5">b</div></div>`, want: "a         b         \n"},
+		{name: "space the sub-one factors leave behind flows to justify-content", width: 20, html: `<div style="display:flex;width:100%;justify-content:flex-end"><div style="flex-basis:10;flex-grow:0.5">a</div></div>`, want: "     a              \n"},
+		{name: "flex-shrink below one absorbs only that fraction of the overflow", width: 10, html: `<div style="display:flex;width:100%"><div style="flex-basis:10;flex-shrink:0.25;border-style:solid">a</div><div style="flex-basis:10;flex-shrink:0.25;border-style:solid">b</div></div>`, want: "┌─────┐┌──────┐\n│a    ││b     │\n└─────┘└──────┘\n"},
+	})
+}
+
 func TestFlexBasisMinMaxClamp(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "min-width raises an item's basis above its own width", width: 20, html: `<div style="display:flex;width:100%"><div style="width:3;min-width:9">aa</div><div>bb</div></div>`, want: "aa       bb         \n"},
@@ -186,9 +263,51 @@ func TestFlexBasisMinMaxClamp(t *testing.T) {
 	})
 }
 
+// TestFlexResolvedMainSizeWins pins that an item's *used* main size is the one
+// flex layout resolved (basis, adjusted by flex-grow/flex-shrink), not the
+// width the item declares for itself. The resolved size used to be passed only
+// as available width, so renderBlockContentBox re-resolved the declared width
+// and won: a grown item painted at its declared width with the growth left as
+// trailing blanks, and a shrunk one painted full width and overflowed the
+// container. A border makes the item's real painted extent visible.
+func TestFlexResolvedMainSizeWins(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "flex-grow widens an item past its own declared width", width: 12, html: `<div style="display:flex;width:100%"><div style="width:5;flex-grow:1;border-style:solid">a</div><div style="width:5;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────┐┌────┐\n│a   ││b   │\n└────┘└────┘\n"},
+		{name: "flex-shrink narrows an item below its own declared width", width: 10, html: `<div style="display:flex;width:100%"><div style="width:10;border-style:solid">a</div><div style="width:10;border-style:solid">b</div></div>`, want: "┌───┐┌───┐\n│a  ││b  │\n└───┘└───┘\n"},
+		{name: "an unbordered grown item fills its resolved width too", width: 12, html: `<div style="display:flex;width:100%"><div style="width:5;flex-grow:1">a</div><div style="width:5;flex-grow:1">b</div></div>`, want: "a     b     \n"},
+		{name: "min-width still floors the shrunk size", width: 10, html: `<div style="display:flex;width:100%"><div style="width:10;min-width:8;border-style:solid">a</div><div style="width:10;border-style:solid">b</div></div>`, want: "┌──────┐┌─┐\n│a     ││b│\n└──────┘└─┘\n"},
+	})
+}
+
+// TestFlexNaturalBasisIsContentWidth pins that an item with no flex-basis and
+// no width measures its own content, not the width it was offered. The
+// measurement render used to go through the ordinary block box model, which
+// fills its available width whenever it has to paint a rectangle (a border,
+// text-align, a closed box) — so every such item reported the whole container
+// as its basis, and flex-shrink's content-proportional split flattened to an
+// even one.
+func TestFlexNaturalBasisIsContentWidth(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a bordered item's basis is its content, not the container", width: 20, html: `<div style="display:flex;width:100%"><div style="border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "text-align doesn't inflate an item's basis", width: 20, html: `<div style="display:flex;width:100%"><div style="text-align:center">a</div><div>rest</div></div>`, want: "arest               \n"},
+		{name: "a bordered child shrinks with the item being measured", width: 20, html: `<div style="display:flex;width:100%"><div><div style="border-style:solid">a</div></div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "a nested flex item measures its own items", width: 20, html: `<div style="display:flex;width:100%"><div style="display:flex;border-style:solid"><div>a</div></div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "flex-shrink splits the deficit by content width, not evenly", width: 10, html: `<div style="display:flex;width:100%"><div style="border-style:solid">aaaaaa</div><div style="border-style:solid">b</div></div>`, want: "┌─────┐┌─┐\n│aaaaaa││b│\n└─────┘└─┘\n"},
+		{name: "flex-wrap breaks lines on content widths", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%"><div style="border-style:solid">aa</div><div style="border-style:solid">bb</div><div style="border-style:solid">cc</div><div style="border-style:solid">dd</div></div>`, want: "┌──┐┌──┐┌──┐\n│aa││bb││cc│\n└──┘└──┘└──┘\n┌──┐        \n│dd│        \n└──┘        \n"},
+		// The shrink-to-fit narrowing is scoped to the discarded measurement
+		// render; an ordinary block still fills its containing block.
+		{name: "a block outside flex layout still fills its available width", width: 20, html: `<div style="border-style:solid">a</div>`, want: "┌──────────────────┐\n│a                 │\n└──────────────────┘\n"},
+	})
+}
+
 func TestFlexWrap(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "flex-wrap:wrap moves overflowing items to a second line", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
+		// wrap-reverse's reversed cross-axis line order isn't implemented, but
+		// it still wraps: falling back to nowrap made a container that should
+		// have wrapped overflow its width on one line instead.
+		{name: "flex-wrap:wrap-reverse wraps, without reversing the line order", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
+		{name: "flex-flow's wrap-reverse component wraps too", width: 10, html: `<div style="display:flex;flex-flow:row wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
 		{name: "gap sets both column-gap and row-gap, including between wrapped lines", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;gap:1"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a    b    \n          \nc         \n"},
 		{name: "nowrap (default) keeps items on one line, shrinking to fit rather than wrapping", width: 10, html: `<div style="display:flex;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a  b  c   \n"},
 		{name: "the flex-flow shorthand sets flex-direction and flex-wrap together", width: 10, html: `<div style="display:flex;flex-flow:row wrap;width:100%"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \nb         \n"},
