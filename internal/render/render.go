@@ -217,42 +217,12 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		acc := extractInlineStyle(decls)
 		savedDepth := r.quoteDepth
 		var inner string
-		switch {
-		case n.Data == "input":
-			// <input> has no children — see inline.go's nested case for why.
-			// renderInput applies the element's own resolved style (e.g.
-			// :focus background-color) to the synthesized box text, same as
-			// the default branch does via renderInlineAcc for ordinary
-			// inline content — plus, for a text-like input, splices in the
-			// ::selection highlight over any focused non-collapsed
-			// selection (see docs/proposals/CARET_SELECTION.md).
-			inner = r.renderInput(n, decls, acc, r.width, r.profile)
-		case n.Data == "select":
-			// <select>'s closed-state content is synthesized from its
-			// <option> children, not rendered as ordinary inline content —
-			// see inline.go's nested case for why.
-			inner = acc.render(selectDisplayText(n), r.profile)
-		case n.Data == "progress" || n.Data == "meter":
-			// <progress>/<meter> synthesize a fixed-width bar from
-			// attributes, not from children (neither has any) — see
-			// inline.go's nested case for why, and
-			// docs/proposals/PROGRESS_METER.md. Each glyph run is already
-			// individually styled via its own resolved ::progress-*/
-			// ::meter-* declarations, so (unlike inputDisplayText/
-			// selectDisplayText) this is not additionally wrapped in
-			// acc.render — that would flatten the bar's per-segment colors
-			// (e.g. <meter>'s region coloring) under one uniform style.
-			innerWidth, _ := resolveWidthConstraints(decls, r.width, formControlBarDefaultWidth)
-			if innerWidth < 0 {
-				innerWidth = 0
-			}
-			if n.Data == "progress" {
-				bar, value := r.resolveProgressStyle(n, decls)
-				inner = progressDisplayText(n, innerWidth, bar, value, r.profile)
-			} else {
-				bar, optimum, suboptimum, evenLessGood := r.resolveMeterStyle(n, decls)
-				inner = meterDisplayText(n, innerWidth, bar, optimum, suboptimum, evenLessGood, r.profile)
-			}
+		switch text, synthesized := r.synthesizedControlText(n, decls, acc, r.width); {
+		case synthesized:
+			// <input>/<select>/<progress>/<meter> build their content from
+			// attributes rather than from child nodes — see
+			// synthesizedControlText (formcontrol.go).
+			inner = text
 		case decls["display"] == "inline-flex":
 			inner = r.renderInlineFlexContent(n, decls, r.width)
 		default:

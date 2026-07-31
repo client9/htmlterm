@@ -157,6 +157,34 @@ func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth i
 	return width, constrained
 }
 
+// controlContentDecls narrows a synthesized form control's own width
+// declaration to the content box its block layout already resolved, for the
+// block-level path in renderBlockContentBox. The control's synthesized text
+// (renderInput's padInputText, <progress>/<meter>'s bar) sizes itself from
+// resolveWidthConstraints, and the width property is an *outer* size
+// everywhere in this engine — so a bordered `width: 20` input would otherwise
+// paint 20 columns of field inside a 20-column box and overflow by its own
+// border and padding. innerW is what's actually left for content.
+//
+// Only applied when the box's width really was constrained: an unconstrained
+// control must keep falling back to its own intrinsic size (an <input>'s
+// "size" attribute, the bar's default width), which is what a natural-width
+// measurement — a flex item's basis, among others — has to see. Handing it
+// innerW there would report whatever width it happened to be offered.
+func controlContentDecls(decls map[string]string, innerW, availWidth int) map[string]string {
+	if _, constrained := resolveWidthConstraints(decls, availWidth, 0); !constrained {
+		return decls
+	}
+	out := maps.Clone(decls)
+	out["width"] = strconv.Itoa(max(0, innerW))
+	// The min/max pair has already had its say (it's part of what resolved
+	// innerW); leaving it in place would re-clamp the content box against
+	// bounds meant for the outer one.
+	delete(out, "min-width")
+	delete(out, "max-width")
+	return out
+}
+
 func maxVisibleLineWidth(s string) int {
 	maxW := 0
 	for _, line := range strings.Split(s, "\n") {
@@ -367,6 +395,16 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		} else {
 			tokens = appendText(nil, newInlineStyle(), val, r.profile)
 		}
+	} else if text, synthesized := r.synthesizedControlText(n, controlContentDecls(decls, innerW, availWidth), acc, innerW); synthesized {
+		// <input>/<select>/<progress>/<meter> as a block-level box: their
+		// content comes from their attributes, not from child nodes (they have
+		// none worth walking), so renderInlineAccTokens would produce an empty
+		// box. Reached whenever such a control is blockified — a flex item
+		// always is, per Flexbox §4, and author CSS can do it directly with
+		// `display: block`. The text arrives already styled (acc is applied
+		// inside), so it's appended under the neutral style, same as
+		// <textarea>'s value above.
+		tokens = appendText(nil, newInlineStyle(), text, r.profile)
 	} else {
 		tokens = r.renderInlineAccTokens(n, acc, innerW)
 	}

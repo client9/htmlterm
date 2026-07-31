@@ -224,6 +224,20 @@ For the design rationale behind the DOM/Events/rendering internals, see
   and after it ends up on separate rows. Keep such boxes to a single line if
   they share a line with text. Easiest to hit via `inline-flex`, where any
   item that wraps makes the container two lines tall.
+- **Flex alignment is `safe`, not `unsafe`, when content overflows.** With
+  negative free space, `justify-content`/`align-content` and
+  `align-items`/`align-self` all pack against the start edge, as if the value
+  carried CSS Box Alignment's `safe` keyword. Browsers default to `unsafe`
+  there: `center` overflows equally off both edges, `flex-end` off the start
+  edge. Aligning that way means placing content at a negative offset from the
+  container's own content origin — columns to the left of it, or rows above it —
+  and on a character grid those cells belong to the container's border/padding
+  or to a sibling, so the content wouldn't overflow, it would be lost. Safe
+  alignment is what CSS itself defines for exactly that case. (This also
+  matches, incidentally, the spec's own negative-free-space fallbacks for the
+  `space-*` values — §8.2 makes `space-between` behave as `flex-start`, and
+  `space-around`/`space-evenly` as `center`, which needs the same
+  unrepresentable negative shift.)
 - **A flex item is never narrower or shorter than one cell.** No box can render
   in zero columns/lines, so every resolved main size floors at one — which is
   visible where CSS would produce a genuinely empty box: `max-width: 0` caps an
@@ -259,6 +273,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
   unbreakable content exceeds its `width` also paints past its own border. Only
   the item-vs-allotment case is clipped, because only that case corrupts the
   positions of *other* elements.
+
+  Nor does it have a `column`-direction counterpart. An item that ends up
+  shorter than its content overflows *downward*, and a taller row stack pushes
+  nothing sideways, so there's nothing to desynchronize and the item simply
+  paints in full past its resolved height, as it would in a browser. The
+  vertical automatic minimum keeps `flex-shrink` from producing that situation
+  in the first place, same as the horizontal one.
 - **`flex-basis: auto` measures `fit-content`, not `max-content`.** An item
   with no `flex-basis`/`width` gets a shrink-to-fit measurement of its own
   content — but the measurement is taken at the container's content width, so

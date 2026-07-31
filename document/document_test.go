@@ -366,6 +366,52 @@ func TestDocumentRectFlexItems(t *testing.T) {
 	}
 }
 
+// TestDocumentRectColumnFlexItemCrossSize pins a column-direction item's
+// recorded cross size (its Rect width) against what actually decides it. A
+// stretched item takes the container's whole content width and claims it —
+// including the blank columns to its right, which belong to the item, not the
+// container — but `stretch` applies only to an *auto* cross size (Flexbox §8.3),
+// so an item with a definite width, or one whose own min-width/max-width bites,
+// is not stretched and must not claim more than it has.
+//
+// Every stretch-resolved item used to be recorded at the container's full inner
+// width regardless, so a click well to the right of a `width: 5` item
+// hit-tested to that item instead of to the container.
+func TestDocumentRectColumnFlexItemCrossSize(t *testing.T) {
+	const container = `display:flex;flex-direction:column;width:20`
+	for _, tc := range []struct {
+		name  string
+		style string
+		want  int
+	}{
+		{name: "auto cross size stretches to the container", style: "", want: 20},
+		{name: "definite width opts out of stretching", style: "width:5", want: 5},
+		{name: "max-width caps how far stretch goes", style: "max-width:5", want: 5},
+		{name: "min-width larger than the container still wins", style: "min-width:25", want: 25},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := document.ParseDocument(
+				`<div style="`+container+`"><div id="a" style="`+tc.style+`">a</div></div>`,
+				htmlterm.Options{Width: 20},
+			)
+			if err != nil {
+				t.Fatalf("ParseDocument: %v", err)
+			}
+			out, err := doc.Render()
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			rect, ok := doc.GetElementByID("a").Rect()
+			if !ok {
+				t.Fatal("Rect(a) ok = false, want true")
+			}
+			if want := (document.Rect{Row: 0, Col: 0, Width: tc.want, Height: 1}); rect != want {
+				t.Errorf("Rect(a) = %+v, want %+v (rendered: %q)", rect, want, out)
+			}
+		})
+	}
+}
+
 func TestDocumentRectFlexItemsWithOrder(t *testing.T) {
 	// order re-sequences items for layout purposes only — each item's Rect
 	// still has to key correctly back to its own *html.Node afterward, not

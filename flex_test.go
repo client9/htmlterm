@@ -52,6 +52,15 @@ func TestFlexColumn(t *testing.T) {
 		{name: "align-items flex-end right-aligns items", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;align-items:flex-end"><div>a</div><div>bbb</div></div>`, want: "         a\n       bbb\n"},
 		{name: "align-items center honors an item's own explicit width over its natural content width", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;align-items:center"><div style="width:6">a</div></div>`, want: "   a        \n"},
 		{name: "align-items stretch (default) fills the full width", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div>a</div></div>`, want: "a         \n"},
+		// stretch applies only to an *auto* cross size (Flexbox §8.3), so the
+		// item's own definite width wins outright and its own min/max still
+		// clamps how far it stretches. text-align resolves within the size that
+		// leaves, which is what makes the difference visible: a stretched item
+		// right-aligns against the container's edge, a non-stretched one against
+		// its own.
+		{name: "a definite width opts an item out of stretching", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="width:6;text-align:right">a</div></div>`, want: "     a      \n"},
+		{name: "max-width caps how far a stretched item grows", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="max-width:6;text-align:right;border-style:solid">a</div></div>`, want: "┌────┐      \n│   a│      \n└────┘      \n"},
+		{name: "min-width larger than the container still wins over stretch", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="min-width:14;text-align:right">a</div></div>`, want: "             a\n"},
 	})
 }
 
@@ -113,6 +122,32 @@ func TestFlexReverseAndOrder(t *testing.T) {
 		{name: "column-reverse packs items against the bottom of a taller container", width: 5, html: `<div style="display:flex;flex-direction:column-reverse;width:100%;height:4"><div>a</div><div>b</div></div>`, want: "     \n     \nb    \na    \n"},
 		{name: "order re-sequences items ascending, ties keep document order", width: 10, html: `<div style="display:flex;width:100%"><div style="order:2">a</div><div style="order:1">b</div><div>c</div></div>`, want: "cba       \n"},
 		{name: "order is resolved before row-reverse flips the sequence", width: 10, html: `<div style="display:flex;flex-direction:row-reverse;width:100%"><div style="order:2">a</div><div style="order:1">b</div></div>`, want: "        ab\n"},
+	})
+}
+
+// TestFlexRowReverseWrap pins that row-reverse flips each line's placement, not
+// the sequence line breaking runs over. Items are collected into lines in
+// order-modified *document* order whichever way the main axis points (§9.3
+// collects lines before §9.5 places anything); the reversed direction only
+// moves where along the line each item lands.
+//
+// This used to reverse the whole item sequence before breaking lines, which
+// changed line membership: five equal items over three lines came out 5/4, 3/2,
+// 1 instead of 1/2, 3/4, 5. Both the grouping and each line's contents were
+// wrong.
+func TestFlexRowReverseWrap(t *testing.T) {
+	runCases(t, []renderCase{
+		// Lines hold {1,2}, {3,4}, {5} — the same membership as plain `wrap` —
+		// each painted right-to-left and packed against the right edge, since
+		// row-reverse puts main-start there.
+		{name: "row-reverse wrap breaks lines in document order and reverses within each", width: 12, css: `.r{display:flex;flex-direction:row-reverse;flex-wrap:wrap;width:12}.r>div{width:5}`, html: `<div class="r"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div></div>`, want: "  2    1    \n  4    3    \n       5    \n"},
+		{name: "plain wrap is the same membership, laid out left to right", width: 12, css: `.r{display:flex;flex-wrap:wrap;width:12}.r>div{width:5}`, html: `<div class="r"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div></div>`, want: "1    2      \n3    4      \n5           \n"},
+		// justify-content is still mirrored per line, so flex-end packs each
+		// line against the left edge with its items still right-to-left.
+		{name: "row-reverse wrap mirrors justify-content per line", width: 12, css: `.r{display:flex;flex-direction:row-reverse;flex-wrap:wrap;width:12;justify-content:flex-end}.r>div{width:5}`, html: `<div class="r"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div></div>`, want: "2    1      \n4    3      \n5           \n"},
+		// order still resolves first, so the sequence broken into lines is
+		// b,a and the single line is then painted a,b.
+		{name: "order still resolves before row-reverse under wrap", width: 12, css: `.r{display:flex;flex-direction:row-reverse;flex-wrap:wrap;width:12}.r>div{width:5}`, html: `<div class="r"><div style="order:2">a</div><div style="order:1">b</div></div>`, want: "  a    b    \n"},
 	})
 }
 
@@ -668,5 +703,109 @@ func TestFlexShorthandInvalidComponents(t *testing.T) {
 		// A bare number is both a valid <number> and a valid basis here, so the
 		// grow-first reading has to win the overlap.
 		{name: "flex:1 2 stays grow 1 shrink 2 with a zero basis", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 2;border-style:solid">a</div><div style="flex:1 2;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│a       ││b       │\n└────────┘└────────┘\n"},
+	})
+}
+
+// TestFlexItemElementDispatch covers flex items whose box isn't produced by the
+// ordinary block box model. Flex items are blockified, but blockification only
+// changes an element's *outer* display type — a <table> item is still a table,
+// a <ul> item is still a list, and an <input> item still synthesizes its
+// content from its attributes. Flex layout used to hand every non-flex item
+// straight to the block box model, which walks an element's children as
+// ordinary content: tables came out as their cells' text run together, lists
+// lost their markers, and a control with no children at all — every <input>,
+// the single most common thing to put in a `display: flex` row — rendered as
+// nothing whatsoever.
+func TestFlexItemElementDispatch(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a text input renders its field, not an empty box", width: 24, html: `<div style="display:flex;width:100%"><input value="hi"><div>|</div></div>`, want: "hi                  |   \n"},
+		{name: "a checkbox renders its glyph", width: 10, html: `<div style="display:flex;width:100%"><input type="checkbox" checked><div>x</div></div>`, want: "☑x        \n"},
+		{name: "a radio renders its glyph", width: 10, html: `<div style="display:flex;width:100%"><input type="radio" checked><div>x</div></div>`, want: "●x        \n"},
+		{name: "a select renders its closed-state widget", width: 12, html: `<div style="display:flex;width:100%"><select><option>aa</option></select></div>`, want: "[ aa ▾]     \n"},
+		{name: "a progress bar renders its bar", width: 12, html: `<div style="display:flex;width:100%"><progress value="0.5" style="width:4"></progress></div>`, want: "██░░        \n"},
+		{name: "a meter renders its bar", width: 12, html: `<div style="display:flex;width:100%"><meter value="0.5" style="width:4"></meter></div>`, want: "██░░        \n"},
+		{name: "an unordered list keeps its markers", width: 12, html: `<div style="display:flex;width:100%"><ul><li>a</li><li>b</li></ul></div>`, want: "    • a     \n    • b     \n"},
+		{name: "an ordered list keeps its numbering", width: 12, html: `<div style="display:flex;width:100%"><ol><li>a</li><li>b</li></ol></div>`, want: "    1. a    \n    2. b    \n"},
+		// The interior column widths here are the table renderer's own
+		// business (a collapsed table renders one column inside its budget —
+		// same in a plain `width: 9` block, nothing to do with flex); what this
+		// pins is that the grid is drawn at all rather than "ab".
+		{name: "a table goes through the table renderer", width: 14, css: `table{border-collapse:collapse}td{border-style:solid;padding-left:1;padding-right:1}`, html: `<div style="display:flex;width:100%"><table><tr><td>a</td><td>b</td></tr></table></div>`, want: "┌──┬───┐      \n│ a│ b │      \n└──┴───┘      \n"},
+	})
+}
+
+// TestBlockifiedFormControl pins the same dispatch on the other path that
+// blockifies a control: author CSS saying so outright. This is where the flex
+// fix lives (renderBlockContentBox), so `display: block` on an <input> is fixed
+// by the same change and must stay fixed.
+func TestBlockifiedFormControl(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "display:block on an input still renders its field", width: 12, html: `<input value="hi" style="display:block">`, want: "hi\n"},
+		{name: "a bordered block input keeps its field inside its own border", width: 12, html: `<input value="hi" style="display:block;width:8;border-style:solid">`, want: "┌──────┐\n│hi    │\n└──────┘\n"},
+		{name: "display:block on a select still renders its widget", width: 12, html: `<select style="display:block"><option>aa</option></select>`, want: "[ aa ▾]\n"},
+	})
+}
+
+// TestFlexColumnAutomaticMinimumHeight covers column direction's automatic
+// minimum size — `min-height: auto` on a flex item's main axis resolving to the
+// content-based minimum (Flexbox §4.5), the vertical counterpart of the row
+// direction rule the automatic-minimum-size tests below cover. An item is never
+// shrunk below the height its content needs, so the deficit goes to the items
+// that can actually absorb it.
+//
+// The floor used to be one row, absent an explicit min-height. Since nothing
+// truncates a box vertically without an explicit overflow, that made the shrink
+// distribution a fiction: an item was credited with rows it went on to paint
+// anyway, the items that could genuinely shrink were under-shrunk by exactly
+// that much, and the container overflowed its own declared height.
+func TestFlexColumnAutomaticMinimumHeight(t *testing.T) {
+	// .a is three hard rows of content and cannot shrink; .b starts at
+	// flex-basis: 6 and can. The container is 6 rows, so the deficit is 3 and
+	// all of it has to come out of .b.
+	const css = `.c{display:flex;flex-direction:column;height:6;width:10}.a{border-left:"A"}.b{flex-basis:6;border-left:"B"}`
+	const html = `<div class="c"><div class="a">one<br>two<br>three</div><div class="b">x</div></div>`
+	runCases(t, []renderCase{
+		{name: "an item is not shrunk below its content height", width: 10, css: css, html: html, want: "Aone      \nAtwo      \nAthree    \nBx        \nB         \nB         \n"},
+		// §4.5's own opt-out: the automatic minimum doesn't apply to an item
+		// whose overflow is not visible in the main axis — and a non-visible
+		// overflow-y is also the one case where this engine really does
+		// truncate a box to the height flex hands it, so the shrink is real.
+		// Deficit 3 splits by scaled shrink factor (3 : 6) into 1 and 2.
+		{name: "overflow-y:hidden opts out, and the item really is clipped", width: 10, css: css + `.a{overflow-y:hidden}`, html: html, want: "Aone      \nAtwo      \nBx        \nB         \nB         \nB         \n"},
+		// Nothing can absorb the deficit, so the container overflows rather than
+		// crushing its items — the same outcome a browser reaches by the same
+		// route, and what row direction already does with an all-floored line.
+		{name: "a container nobody can shrink for overflows instead", width: 10, css: `.c{display:flex;flex-direction:column;height:2;width:10}.a{border-left:"A"}.b{border-left:"B"}`, html: `<div class="c"><div class="a">one<br>two</div><div class="b">x<br>y</div></div>`, want: "Aone      \nAtwo      \nBx        \nBy        \n"},
+	})
+}
+
+// TestFlexAlignmentIsSafeOnOverflow pins that every alignment value packs
+// start-ward once the free space goes negative — CSS's own *safe* alignment
+// ("if the size of the alignment subject overflows the alignment container, the
+// alignment subject is aligned as if the alignment mode were start", Box
+// Alignment §4.2).
+//
+// Browsers default to *unsafe* alignment on the main axis, so `center` there
+// overflows equally off both edges and `flex-end` off the start edge. A
+// character grid has nowhere to put columns pushed off the container's start
+// edge — they'd land in its own border/padding, or in a sibling — and losing
+// them outright is exactly what safe alignment exists to prevent. Cross-axis
+// alignment of an over-tall item behaves the same way, for the same reason.
+func TestFlexAlignmentIsSafeOnOverflow(t *testing.T) {
+	// Three unshrinkable 5-column items in a 6-column container: 9 columns of
+	// overflow, so every value below has negative free space to work with.
+	const row = `.r{display:flex;width:6}.r>div{flex-shrink:0;width:5}`
+	const items = `<div class="r"><div>aa</div><div>bb</div><div>cc</div></div>`
+	const want = "aa   bb   cc   \n"
+	runCases(t, []renderCase{
+		{name: "justify-content:center packs start-ward when the line overflows", width: 16, css: row + `.r{justify-content:center}`, html: items, want: want},
+		{name: "justify-content:flex-end packs start-ward when the line overflows", width: 16, css: row + `.r{justify-content:flex-end}`, html: items, want: want},
+		{name: "justify-content:space-between packs start-ward when the line overflows", width: 16, css: row + `.r{justify-content:space-between}`, html: items, want: want},
+		{name: "justify-content:space-around packs start-ward when the line overflows", width: 16, css: row + `.r{justify-content:space-around}`, html: items, want: want},
+		{name: "justify-content:space-evenly packs start-ward when the line overflows", width: 16, css: row + `.r{justify-content:space-evenly}`, html: items, want: want},
+		// Cross axis: the container's height is shorter than its one item, so
+		// align-items has negative free space of its own.
+		{name: "align-items:center keeps an over-tall item at the line's top", width: 6, html: `<div style="display:flex;width:100%;height:1;align-items:center"><div>a<br>b<br>c</div></div>`, want: "a     \nb     \nc     \n"},
+		{name: "align-items:flex-end keeps an over-tall item at the line's top", width: 6, html: `<div style="display:flex;width:100%;height:1;align-items:flex-end"><div>a<br>b<br>c</div></div>`, want: "a     \nb     \nc     \n"},
 	})
 }

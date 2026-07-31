@@ -374,38 +374,12 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					childAcc := mergeInlineStyle(acc, childDecls)
 					savedDepth := r.quoteDepth
 					var inner string
-					switch {
-					case c.Data == "input":
-						// <input> has no children — its visual content is
-						// synthesized from attributes (type/value/placeholder/
-						// checked), not rendered from child nodes. See
-						// render.go's top-level dispatch case for why this is
-						// renderInput, not a plain inputDisplayText/
-						// childAcc.render pair.
-						inner = r.renderInput(c, childDecls, childAcc, availWidth, r.profile)
-					case c.Data == "select":
-						// <select>'s closed-state content is synthesized
-						// from its <option> children's labels, not
-						// rendered as ordinary inline content.
-						inner = childAcc.render(selectDisplayText(c), r.profile)
-					case c.Data == "progress" || c.Data == "meter":
-						// <progress>/<meter> synthesize a fixed-width bar
-						// from attributes, not from children — see the
-						// top-level dispatch case in render.go for why this
-						// is not wrapped in childAcc.render like input/select
-						// above (per-segment glyph styling would be
-						// flattened by a single outer style).
-						innerWidth, _ := resolveWidthConstraints(childDecls, availWidth, formControlBarDefaultWidth)
-						if innerWidth < 0 {
-							innerWidth = 0
-						}
-						if c.Data == "progress" {
-							bar, value := r.resolveProgressStyle(c, childDecls)
-							inner = progressDisplayText(c, innerWidth, bar, value, r.profile)
-						} else {
-							bar, optimum, suboptimum, evenLessGood := r.resolveMeterStyle(c, childDecls)
-							inner = meterDisplayText(c, innerWidth, bar, optimum, suboptimum, evenLessGood, r.profile)
-						}
+					switch text, synthesized := r.synthesizedControlText(c, childDecls, childAcc, availWidth); {
+					case synthesized:
+						// <input>/<select>/<progress>/<meter> build their
+						// content from attributes rather than from child nodes
+						// — see synthesizedControlText (formcontrol.go).
+						inner = text
 					case display == "inline-flex":
 						inner = r.renderInlineFlexContent(c, childDecls, availWidth)
 					default:

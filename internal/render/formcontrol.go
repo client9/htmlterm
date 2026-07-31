@@ -175,6 +175,50 @@ func (r *Engine) resolveSelectionStyle(n *html.Node, elemDecls map[string]string
 	return style
 }
 
+// synthesizedControlText renders the elements whose visual content is
+// synthesized from their attributes rather than laid out from child nodes —
+// <input> (which has no children at all), <select>'s closed state (built from
+// its <option> labels, not from rendering them), and <progress>/<meter>'s bar.
+// It reports false for every other element, leaving the caller to render n's
+// children the ordinary way.
+//
+// This is the one copy of that dispatch. It's reached from all four layout
+// paths a control can turn up in — root-level (render.go), nested inline
+// (inline.go), block-level, and as a flex item (both via block.go's content
+// step) — and the fourth is why it was extracted: a flex item is blockified,
+// so it went through renderBlockContentBox, which walked the element's
+// children and found none. Every <input> in a `display: flex` row rendered as
+// nothing at all.
+//
+// <progress>/<meter> are deliberately not wrapped in acc.render, unlike
+// input/select: each glyph run is already individually styled from its own
+// ::progress-*/::meter-* declarations, and one uniform outer style would
+// flatten that (e.g. <meter>'s region coloring).
+func (r *Engine) synthesizedControlText(n *html.Node, decls map[string]string, acc inlineStyle, availWidth int) (string, bool) {
+	switch n.Data {
+	case "input":
+		// renderInput applies the element's own resolved style (e.g. a :focus
+		// background-color) to the synthesized text itself, and splices in the
+		// ::selection highlight over any focused non-collapsed selection (see
+		// docs/proposals/CARET_SELECTION.md).
+		return r.renderInput(n, decls, acc, availWidth, r.profile), true
+	case "select":
+		return acc.render(selectDisplayText(n), r.profile), true
+	case "progress", "meter":
+		innerWidth, _ := resolveWidthConstraints(decls, availWidth, formControlBarDefaultWidth)
+		if innerWidth < 0 {
+			innerWidth = 0
+		}
+		if n.Data == "progress" {
+			bar, value := r.resolveProgressStyle(n, decls)
+			return progressDisplayText(n, innerWidth, bar, value, r.profile), true
+		}
+		bar, optimum, suboptimum, evenLessGood := r.resolveMeterStyle(n, decls)
+		return meterDisplayText(n, innerWidth, bar, optimum, suboptimum, evenLessGood, r.profile), true
+	}
+	return "", false
+}
+
 // renderInput renders an <input>'s synthesized content, applying acc
 // uniformly — except, for a text-like input with a non-collapsed, focused
 // selection (selectionRange), the [start, end) rune range within its value,
