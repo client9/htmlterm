@@ -20,11 +20,11 @@ type wrapToken struct {
 	node *html.Node // originating node, for position tracking (nil if not needed)
 
 	// subPositions carries box's own descendants' positions, relative to
-	// box's own (0,0) origin (top-left of box.lines, as returned by
-	// whichever function produced it — e.g. renderBlockContentBox). nil if
+	// box's own (0,0) origin: the top-left of box.lines, as returned by
+	// whichever function produced it, such as renderBlockContentBox. nil if
 	// box has no trackable descendants. wordWrapTokens shifts these by
 	// wherever it ultimately places this token and merges them into its own
-	// returned position map — this is the "propagated incrementally, one
+	// returned position map. This is the "propagated incrementally, one
 	// level at a time" mechanism docs/RENDERING.md's Position tracking section
 	// describes: nothing needs to know the absolute position of anything
 	// until the walk reaches the document root.
@@ -32,23 +32,23 @@ type wrapToken struct {
 }
 
 // Rect is a box's position and size relative to whatever coordinate space it
-// was recorded in — see docs/RENDERING.md's "Position tracking" section. It
+// was recorded in. See docs/RENDERING.md's "Position tracking" section. It
 // approximates the CSS border box (content+padding+border): horizontal
 // margin, when an element sets margin-left/right explicitly, is baked into
 // its box the same way padding is (see renderBlockContentBox) and is not
 // currently subtracted back out, so Rect may include a few extra columns of
-// margin overlap for such elements. Vertical margin is unaffected (it's
-// injected as separate blank lines around a box, never baked into it). This
-// is an accepted simplification: the primary motivating use (hit-testing
-// form controls — see docs/INTERACTIVE.md) essentially never sets margin on
-// input/button/textarea.
+// margin overlap for such elements. Vertical margin is unaffected, since it
+// is injected as separate blank lines around a box, never baked into it.
+// This is an accepted simplification: the primary motivating use is
+// hit-testing form controls (see docs/INTERACTIVE.md), and those essentially
+// never set margin on input/button/textarea.
 type Rect struct {
 	Row, Col      int
 	Width, Height int
 }
 
-// mergePositions copies src into dst, shifting every entry by (dRow, dCol) —
-// used when a box token gets placed at (dRow, dCol) within a larger
+// mergePositions copies src into dst, shifting every entry by (dRow, dCol).
+// It is used when a box token gets placed at (dRow, dCol) within a larger
 // composition, to carry its own descendants' positions along with it.
 func mergePositions(dst map[*html.Node]Rect, src map[*html.Node]Rect, dRow, dCol int) map[*html.Node]Rect {
 	if len(src) == 0 {
@@ -65,21 +65,21 @@ func mergePositions(dst map[*html.Node]Rect, src map[*html.Node]Rect, dRow, dCol
 	return dst
 }
 
-// hasContent reports whether any token has been collected yet — the direct
-// replacement for cappedWriter.Len() > 0's use inside renderInlineAcc/render.go
-// for "has anything been written so far" checks (e.g. suppressing margin-top
-// on the very first child).
+// hasContent reports whether any token has been collected yet. It is the
+// direct replacement for cappedWriter.Len() > 0's use inside
+// renderInlineAcc/render.go for "has anything been written so far" checks,
+// such as suppressing margin-top on the first child.
 func hasContent(tokens []wrapToken) bool {
 	return len(tokens) > 0
 }
 
 // lastRune returns the last visible rune the token stream would produce, and
-// whether there's any content at all — the direct replacement for
-// cappedWriter.LastByte()'s use for CSS whitespace-collapse decisions (is the
-// next text node arriving at a line start, or right after a space). A text
-// token's content may itself carry ANSI styling (appendTextSegment no longer
-// keeps trailing spaces unstyled), so this strips escape sequences first
-// rather than trusting the token's raw last byte/rune.
+// whether there's any content at all. It is the direct replacement for
+// cappedWriter.LastByte()'s use for CSS whitespace-collapse decisions: is the
+// next text node arriving at a line start, or right after a space. A text
+// token's content may itself carry ANSI styling, since appendTextSegment no
+// longer keeps trailing spaces unstyled, so this strips escape sequences
+// first rather than trusting the token's raw last byte or rune.
 func lastRune(tokens []wrapToken) (r rune, ok bool) {
 	if len(tokens) == 0 {
 		return 0, false
@@ -109,8 +109,8 @@ func trailingBreaks(tokens []wrapToken) int {
 	return n
 }
 
-// leadingBreaks counts consecutive brk tokens at the start of tokens — the
-// mirror image of trailingBreaks, used the same way on the other edge.
+// leadingBreaks counts consecutive brk tokens at the start of tokens. It is
+// the mirror image of trailingBreaks, used the same way on the other edge.
 func leadingBreaks(tokens []wrapToken) int {
 	n := 0
 	for n < len(tokens) && tokens[n].brk {
@@ -123,13 +123,14 @@ func leadingBreaks(tokens []wrapToken) int {
 // returning the trimmed slice along with how many were stripped from each
 // end. A block/flex child's margin-top/margin-bottom (pushBoxDirect,
 // renderInlineAccTokens's nested "block"/"flex" cases) always shows up as
-// leading/trailing brk tokens when that child is first/last, even though no
-// preceding/following content exists yet to separate from — every consumer
-// of renderInlineAccTokens's result needs to either discard that boundary
-// noise (renderInlineAcc, the string shim used by list.go/table_render.go,
-// which has no notion of margin collapse) or recover it as a collapsed
-// margin on its own container (renderBlockContentBox, block.go) — the
-// leading/trailing counts returned here are what let the latter do that.
+// leading/trailing brk tokens when that child is first or last, even though
+// no preceding or following content exists yet to separate from. Every
+// consumer of renderInlineAccTokens's result needs to either discard that
+// boundary noise (renderInlineAcc, the string shim used by
+// list.go/table_render.go, which has no notion of margin collapse) or recover
+// it as a collapsed margin on its own container (renderBlockContentBox,
+// block.go). The leading/trailing counts returned here are what let the
+// latter do that.
 func trimBoundaryBreaks(tokens []wrapToken) (trimmed []wrapToken, leading, trailing int) {
 	leading = leadingBreaks(tokens)
 	tokens = tokens[leading:]
@@ -139,11 +140,11 @@ func trimBoundaryBreaks(tokens []wrapToken) (trimmed []wrapToken, leading, trail
 }
 
 // ensureBreaks appends brk tokens so at least n consecutive breaks trail the
-// stream, raising (never lowering) whatever's already there — the direct
+// stream, raising (never lowering) whatever's already there. It is the direct
 // token-domain replacement for cappedWriter.WriteAtLeastNewlines(n), used by
-// renderInlineAcc's block-child margin-collapse handling (margin-top/bottom
-// arithmetic is real per-call arithmetic here rather than deferred buffering,
-// since renderInlineAcc no longer has a cappedWriter to defer it to).
+// renderInlineAcc's block-child margin-collapse handling. Margin-top/bottom
+// is real per-call arithmetic here rather than deferred buffering, since
+// renderInlineAcc no longer has a cappedWriter to defer it to.
 func ensureBreaks(tokens []wrapToken, n int) []wrapToken {
 	for trailingBreaks(tokens) < n {
 		tokens = append(tokens, wrapToken{brk: true})
@@ -152,9 +153,9 @@ func ensureBreaks(tokens []wrapToken, n int) []wrapToken {
 }
 
 // trimTrailingBreaksAndSpace drops trailing brk tokens and trims trailing
-// spaces from the last text token, repeating until neither applies — the
-// token-domain equivalent of strings.TrimRight(s, "\n "). A trailing box
-// token stops the trim (its content is never touched).
+// spaces from the last text token, repeating until neither applies. It is
+// the token-domain equivalent of strings.TrimRight(s, "\n "). A trailing box
+// token stops the trim; its content is never touched.
 func trimTrailingBreaksAndSpace(tokens []wrapToken) []wrapToken {
 	for len(tokens) > 0 {
 		last := len(tokens) - 1
@@ -180,9 +181,9 @@ func trimTrailingBreaksAndSpace(tokens []wrapToken) []wrapToken {
 
 // coalesceTextRuns merges consecutive text tokens into one combined text
 // token each, leaving brk/box tokens as their own atomic entries. Adjacent
-// text tokens must be merged before word-tokenization (not tokenized
-// independently), since two sibling inline elements with no whitespace
-// between them (e.g. "<b>foo</b>bar") must wrap as a single word "foobar".
+// text tokens must be merged before word-tokenization, not tokenized
+// independently, since two sibling inline elements with no whitespace
+// between them, such as "<b>foo</b>bar", must wrap as a single word "foobar".
 func coalesceTextRuns(tokens []wrapToken) []wrapToken {
 	out := make([]wrapToken, 0, len(tokens))
 	i := 0
@@ -203,12 +204,13 @@ func coalesceTextRuns(tokens []wrapToken) []wrapToken {
 }
 
 // tokensToString flattens tokens back to a raw, unwrapped string: text
-// tokens verbatim, brk as "\n", box tokens as their own lines joined by "\n"
-// — a faithful reconstruction of what the pre-token cappedWriter-based
-// renderInlineAcc used to produce (no width-based wrapping is applied here;
-// that only happens via wordWrapTokens, at whichever call site is ready to
-// consume tokens directly). Used by renderInlineAcc's string-signature shim
-// for callers not yet migrated to tokens (list.go, table_render.go).
+// tokens verbatim, brk as "\n", box tokens as their own lines joined by
+// "\n". This is a faithful reconstruction of what the pre-token
+// cappedWriter-based renderInlineAcc used to produce. No width-based wrapping
+// is applied here; that only happens via wordWrapTokens, at whichever call
+// site is ready to consume tokens directly. Used by renderInlineAcc's
+// string-signature shim for callers not yet migrated to tokens (list.go,
+// table_render.go).
 func tokensToString(tokens []wrapToken) string {
 	var sb strings.Builder
 	for _, t := range tokens {
@@ -225,32 +227,34 @@ func tokensToString(tokens []wrapToken) string {
 }
 
 // naturalWidthCap is a sentinel width used to measure a token stream's
-// natural (unwrapped) width: large enough that no text-driven wrapping ever
-// occurs, so the only line breaks that happen are the structural ones brk/
-// multi-line-box tokens force regardless of width — exactly what "natural
-// width" means (the widest of whatever lines already exist from explicit
-// structure, matching maxVisibleLineWidth's string-domain equivalent).
+// natural (unwrapped) width. It is large enough that no text-driven wrapping
+// ever occurs, so the only line breaks that happen are the structural ones
+// brk and multi-line-box tokens force regardless of width. That is exactly
+// what "natural width" means: the widest of whatever lines already exist from
+// explicit structure, matching maxVisibleLineWidth's string-domain
+// equivalent.
 const naturalWidthCap = 1 << 30
 
 // measureBlockWidthCap bounds the availWidth a block/flex container ever
 // resolves its own width against while measuringNaturalWidth is set (see
-// measureCellNaturalWidth). Unlike inline text - where handing wordWrapTokens
+// measureCellNaturalWidth). For inline text, handing wordWrapTokens
 // naturalWidthCap as a wrap budget is free, since it only ever suppresses
-// width-driven line breaks - a block's default (unconstrained) width is
-// literally its container's width (real CSS block behavior: width:auto
-// fills the containing block), so renderBlockContentBox/renderFlexContentBox
-// resolve their own hBorderWidth directly from availWidth. Handed
-// naturalWidthCap (1<<30) as that availWidth, they'd size themselves to
-// roughly a billion columns and then materialize that many characters of
-// padding the moment anything needs aligning (text-align, a closed border
-// box, etc.) - not an infinite loop, but a multi-second-to-multi-minute hang
-// from sheer string size. 1<<16 is still far larger than any real cell's
-// content could plausibly need (so it essentially never changes a genuine
-// measurement), while keeping every string operation derived from it cheap.
+// width-driven line breaks. A block is different: its default unconstrained
+// width is its container's width, real CSS block behavior where width:auto
+// fills the containing block, so renderBlockContentBox and
+// renderFlexContentBox resolve their own hBorderWidth directly from
+// availWidth. Handed naturalWidthCap (1<<30) as that availWidth, they'd size
+// themselves to roughly a billion columns and then materialize that many
+// characters of padding the moment anything needs aligning, for text-align or
+// a closed border box. That is not an infinite loop, but it is a
+// multi-second-to-multi-minute hang from sheer string size. 1<<16 is still
+// far larger than any real cell's content could plausibly need, so it
+// essentially never changes a genuine measurement, while keeping every string
+// operation derived from it cheap.
 const measureBlockWidthCap = 1 << 16
 
 // tokensNaturalWidth returns the width tokens would need if never
-// text-wrapped — the token-domain equivalent of maxVisibleLineWidth(text).
+// text-wrapped: the token-domain equivalent of maxVisibleLineWidth(text).
 func tokensNaturalWidth(tokens []wrapToken) int {
 	b, _ := wordWrapTokens(tokens, naturalWidthCap, "", 0)
 	return b.width
@@ -259,7 +263,7 @@ func tokensNaturalWidth(tokens []wrapToken) int {
 // blankVisibleContentTokens is blankVisibleContent's token-domain
 // equivalent: text tokens are blanked (ANSI stripped, every rune replaced
 // with a space), box tokens have blankVisibleContentBox applied, and brk
-// tokens are left untouched (they carry no visible content to blank).
+// tokens are left untouched, since they carry no visible content to blank.
 func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 	out := make([]wrapToken, len(tokens))
 	for i, t := range tokens {
@@ -277,40 +281,41 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 }
 
 // wordWrapTokens greedily fills lines of at most width visible columns from
-// a mixed stream of text/brk/box tokens. text tokens are word-wrapped via
-// textcell.SplitTokens plus the fill/break-word/break-all logic below (breakMode:
-// "" or "normal" = word boundaries only; "break-word" = also hard-break
-// tokens that overflow the width; "break-all" = break at any character
-// boundary); a brk token
-// always ends the current line; a box token is placed whole — single-line
-// boxes behave like an atomic word (can share a line with surrounding text),
-// multi-line boxes force a line break before and after themselves and
-// contribute their own lines verbatim (no reflow), per docs/RENDERING.md's stated
-// scope of not flowing text around a tall embedded object. A box wider than
-// width is clipped (overflow:hidden semantics), matching textcell.TruncateToWidth's
-// use elsewhere for explicit-width overflow.
+// a mixed stream of text/brk/box tokens. Each token kind is handled its own
+// way. text tokens are word-wrapped via textcell.SplitTokens plus the
+// fill/break-word/break-all logic below; breakMode "" or "normal" means word
+// boundaries only, "break-word" also hard-breaks tokens that overflow the
+// width, and "break-all" breaks at any character boundary. A brk token always
+// ends the current line. A box token is placed whole: single-line boxes
+// behave like an atomic word and can share a line with surrounding text,
+// while multi-line boxes force a line break before and after themselves and
+// contribute their own lines verbatim, with no reflow, per
+// docs/RENDERING.md's stated scope of not flowing text around a tall embedded
+// object. A box wider than width is clipped, overflow:hidden semantics,
+// matching textcell.TruncateToWidth's use elsewhere for explicit-width
+// overflow.
 //
 // firstLineWidth, when > 0, constrains fill width until the first
-// structural break (a brk token, or a multi-line box) is reached — not just
-// the first output line, since a width-driven wrap within that first
-// segment still needs the narrower width (e.g. a list item's prefix narrows
+// structural break (a brk token, or a multi-line box) is reached. That is
+// not just the first output line, since a width-driven wrap within that
+// first segment still needs the narrower width: a list item's prefix narrows
 // every wrapped line of the item's first paragraph, but a second paragraph
-// after a nested block/<br> is unconstrained by the prefix). 0 means "same
-// as width". It affects only the text/box fit-checks, not break-word/
+// after a nested block or <br> is unconstrained by the prefix. 0 means "same
+// as width". It affects only the text/box fit-checks, not break-word's or
 // break-all's internal hard-split width, which is never combined with a
 // first-line width by any current caller.
 //
 // Any SGR style or OSC8 hyperlink span that gets split across an inserted
 // line break is closed before the break and reopened at the start of the
-// next line (see textcell.Carry), so a line's own trailing padding/margin never
-// inherits a style left open by a wrapped span, and every wrapped line of a
-// styled/linked run remains independently styled.
+// next line (see textcell.Carry), so a line's own trailing padding or margin
+// never inherits a style left open by a wrapped span, and every wrapped line
+// of a styled or linked run remains independently styled.
 //
 // positions records each box token's placement (Row/Col/Width/Height)
-// relative to this call's own output — not yet absolute document
-// coordinates; callers up the composition chain shift these by their own
-// offset as they embed this result into a parent (see docs/RENDERING.md's
-// "Position tracking" section).
+// relative to this call's own output, not yet as absolute document
+// coordinates. Callers up the composition chain shift these by their own
+// offset as they embed this result into a parent. See docs/RENDERING.md's
+// "Position tracking" section.
 func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWidth int) (box, map[*html.Node]Rect) {
 	if width <= 0 {
 		width = 10
@@ -320,7 +325,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	coalesced := coalesceTextRuns(tokens)
 
 	// firstSegmentDone flips true the first time a structural break (brk, or
-	// a multi-line box) is processed — until then, curWidth reports
+	// a multi-line box) is processed. Until then, curWidth reports
 	// firstLineWidth for every line, not just the first.
 	firstSegmentDone := false
 	curWidth := func() int {
@@ -331,9 +336,10 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 
 	// Fast path: a single text-only run (no brk/box at all) that fits within
-	// its line's width needs no tokenizing at all — the same
-	// own fits-on-one-line early exit. Only valid with no brk/box tokens
-	// present, since those always force a break regardless of width.
+	// its line's width needs no tokenizing at all. This is the same
+	// fits-on-one-line early exit the per-run path below applies. It is only
+	// valid with no brk/box tokens present, since those always force a break
+	// regardless of width.
 	if len(coalesced) == 1 && coalesced[0].box == nil && !coalesced[0].brk {
 		if textcell.VisibleLen(coalesced[0].text) <= curWidth() {
 			return box{lines: []string{coalesced[0].text}, width: textcell.VisibleLen(coalesced[0].text)}, positions
@@ -349,7 +355,7 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	var carry textcell.Carry
 	freshLine := true
 
-	// pushLine appends both a line and its pre-flag in lockstep — every
+	// pushLine appends both a line and its pre-flag in lockstep. Every
 	// outLines append in this function goes through here so the two slices
 	// never drift out of alignment.
 	pushLine := func(line string, isPre bool) {
@@ -361,18 +367,18 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 
 	// boxJustClosed is true immediately after a multi-line box's lines were
-	// appended directly (bypassing cur entirely, unlike a single-line glued
-	// box which accumulates into cur). The mandatory brk that always follows
+	// appended directly, bypassing cur entirely, unlike a single-line glued
+	// box which accumulates into cur. The mandatory brk that always follows
 	// a box token (renderInlineAccTokens's pushBox, root-level table/list/
 	// block handling) exists to guarantee "something separates this from
-	// what follows" — for a single-line glued box that's cur's own pending
-	// content, finalized into a real line by the first closeAndPush; for a
-	// multi-line box, that separation is already structurally established
-	// (its own last line already ended it, and freshLine is already true),
-	// so that first closeAndPush must be a no-op, not push a spurious blank
-	// line. A *second* brk in the same run still pushes a real blank line —
-	// consecutive <br><br> after a box is exactly as intentional as after
-	// any other content.
+	// what follows". For a single-line glued box that separator is cur's own
+	// pending content, finalized into a real line by the first closeAndPush.
+	// For a multi-line box, the separation is already structurally
+	// established: its own last line already ended it, and freshLine is
+	// already true. So that first closeAndPush must be a no-op, not push a
+	// spurious blank line. A *second* brk in the same run still pushes a real
+	// blank line, since consecutive <br><br> after a box is as intentional as
+	// after any other content.
 	boxJustClosed := false
 	closeAndPush := func() {
 		if cur.Len() == 0 && boxJustClosed {
@@ -397,11 +403,11 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			freshLine = false
 		}
 	}
-	// placeWord places tok on the fill (no position is recorded for plain
-	// text words — only box tokens carry a node worth tracking a Rect for).
-	// glueLeft suppresses the automatic word-separator space: valid only
-	// between two words split from the same coalesced text run (where a real
-	// source space justified it) — the first word of a run immediately
+	// placeWord places tok on the fill. No position is recorded for plain
+	// text words; only box tokens carry a node worth tracking a Rect for.
+	// glueLeft suppresses the automatic word-separator space. It is valid
+	// only between two words split from the same coalesced text run, where a
+	// real source space justified it. The first word of a run immediately
 	// following a box token has no such justification and must glue to it.
 	placeWord := func(tok string, glueLeft bool) {
 		vl := textcell.VisibleLen(tok)
@@ -437,10 +443,10 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	}
 
 	// placeGlued places a single-line box token directly adjacent to
-	// whatever precedes/follows it — unlike placeWord, it never inserts an
-	// automatic space, since a box token boundary (an element boundary)
+	// whatever precedes or follows it. Unlike placeWord, it never inserts an
+	// automatic space, since a box token boundary is an element boundary and
 	// doesn't imply source whitespace the way a textcell.SplitTokens word
-	// boundary does; any real whitespace there is already its own preceding
+	// boundary does. Any real whitespace there is already its own preceding
 	// or following text token. Its content is already fully self-styled, so
 	// it neither reopens the surrounding carry nor scans into it. isPre
 	// marks the whole resulting line pre if this glued box itself was pre.
@@ -485,11 +491,11 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			lines := bx.lines
 			w := bx.width
 			// A box wider than width is embedded as-is, not clipped: it has
-			// already made its own overflow decision (e.g. renderBlockContentBox
-			// only clips when overflow:hidden and an explicit width are both
-			// set); a box that's simply wider because its content couldn't or
-			// didn't need to break (overflow-wrap:normal and an unbreakable
-			// word, for instance) must be allowed to overflow its container
+			// already made its own overflow decision. renderBlockContentBox,
+			// for instance, only clips when overflow:hidden and an explicit
+			// width are both set. A box that's wider because its content
+			// couldn't or didn't need to break, say overflow-wrap:normal and
+			// an unbreakable word, must be allowed to overflow its container
 			// the same way any other CSS content does by default.
 			if len(lines) > 1 {
 				if curLen > 0 {
@@ -529,15 +535,16 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				placeBreakAll(t.text)
 				continue
 			}
-			// A run starting fresh (nothing pending on the current line)
-			// that fits verbatim is placed as-is, whitespace untouched —
-			// the same fits-on-one-line early exit as above, applied
-			// per coalesced run rather than only when there's a single run
-			// overall. This matters for exact-whitespace content (pre-line/
-			// pre-wrap runs, or blanked visibility:hidden runs) whose
-			// interior/leading/trailing spaces textcell.SplitTokens would
-			// otherwise collapse or drop entirely, since it tokenizes on
-			// whitespace as pure word-separators.
+			// A run starting fresh, with nothing pending on the current
+			// line, that fits verbatim is placed as-is, whitespace
+			// untouched. This is the same fits-on-one-line early exit as
+			// above, applied per coalesced run rather than only when there's
+			// a single run overall. It matters for exact-whitespace content,
+			// such as pre-line/pre-wrap runs or blanked visibility:hidden
+			// runs, whose interior, leading, and trailing spaces
+			// textcell.SplitTokens would otherwise collapse or drop
+			// entirely, since it tokenizes on whitespace as pure
+			// word-separators.
 			if curLen == 0 {
 				if vl := textcell.VisibleLen(t.text); vl <= curWidth() {
 					ensureOpen()
@@ -549,9 +556,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			}
 			toks := textcell.SplitTokens(t.text)
 			if len(toks) == 0 {
-				// t.text is pure whitespace too wide to fit verbatim above
-				// (rare) — place it as one glued unit rather than silently
-				// dropping it, which textcell.SplitTokens would otherwise do.
+				// t.text is pure whitespace too wide to fit verbatim above,
+				// which is rare. Place it as one glued unit rather than
+				// silently dropping it, as textcell.SplitTokens would.
 				placeWord(t.text, true)
 				continue
 			}
@@ -566,9 +573,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		pushLine(cur.String(), curPre)
 	}
 	// Word-splitting an already-ANSI-styled, multi-span coalesced run (see
-	// coalesceTextRuns) can leave dead, pointless escape sequences behind at
-	// span/word boundaries — harmless to a compliant terminal but visible
-	// noise; strip them per line before returning. See
+	// coalesceTextRuns) can leave dead escape sequences behind at span and
+	// word boundaries. They are harmless to a compliant terminal but visible
+	// noise, so strip them per line before returning. See
 	// textcell.CollapseDeadSpans's own doc comment for why this happens.
 	for i, ln := range outLines {
 		outLines[i] = textcell.CollapseDeadSpans(ln)
