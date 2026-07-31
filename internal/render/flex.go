@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/client9/htmlterm/internal/cssengine"
 	"github.com/client9/htmlterm/internal/textcell"
@@ -671,6 +672,30 @@ func resolveFlexContainerHeight(decls map[string]string) (int, bool) {
 	return abs, true
 }
 
+// resolveFlexContainerHeightFloor is how many rows a flex container's own
+// content box has to fill at minimum: its explicit CSS height if it declares
+// one, else its min-height. Real CSS makes a container's main size definite
+// from either - the "column flex container with min-height that its flex-grow
+// children fill" pattern is exactly as common as the explicit-height one - and
+// on the cross axis both alike give align-items/align-content a box taller than
+// the content to align within.
+//
+// fromMin reports that the value came from min-height, which callers resolving
+// the *main* axis must respect: a minimum can only raise a container's main
+// size, never lower it, so content taller than a min-height must overflow
+// rather than being handed to flex-shrink as a deficit. An explicit height
+// legitimately does both.
+func resolveFlexContainerHeightFloor(decls map[string]string) (h int, ok, fromMin bool) {
+	if h, ok := resolveFlexContainerHeight(decls); ok {
+		return h, true, false
+	}
+	abs, _, ok := parseSizeVal(decls["min-height"])
+	if !ok || abs <= 0 {
+		return 0, false, false
+	}
+	return abs, true, true
+}
+
 // collectFlexItems gathers n's direct element children that participate in
 // flex layout: text nodes directly inside a flex container are not rendered
 // (wrap loose text in a <span> to include it — see CSS.md), and any child
@@ -1114,8 +1139,11 @@ func itemIgnoringSizeDecl(it flexItem, key string) flexItem {
 // resolveFlexAxisSize resolves one absolute-or-percentage CSS length against
 // axisSize, returning 0 when the value isn't a length at all (so callers can
 // fall through to their next source). A resolved length is floored at 1: this
-// engine can't render a zero-width/zero-height box, so flex-basis:0 - what the
-// common `flex: 1` shorthand expands to - starts at one cell rather than none.
+// engine can't render a zero-width/zero-height box, so a declared zero comes
+// back as one cell rather than none. Only the *cross* axis reads sizes through
+// here (resolveCrossWidth) - the main-axis basis path goes through
+// resolveFlexCSSSize, which deliberately does not floor, so flex-basis:0 stays
+// a true zero as an arithmetic input to flex-grow. See resolveMainBasis.
 func resolveFlexAxisSize(v string, axisSize int) int {
 	abs, pct, ok := parseFlexSizeVal(v)
 	if !ok {
@@ -1138,17 +1166,27 @@ func resolveFlexAxisSize(v string, axisSize int) int {
 // as `1 1 auto`: two items with different content got content-proportional
 // widths rather than equal ones.
 //
-// The zero is still floored to one cell by each caller's own max(1, ...) (see
-// resolveFlexAxisSize), so grow ratios stay slightly off for items with
-// differing flex-grow weights - the documented tradeoff, since no box here can
-// render in zero columns/lines. See CSS.md and COMPATIBILITY.md.
+// The unit is trimmed off before the zero check rather than matched against
+// this engine's own vocabulary ("ch", "%"), which is the one place unit syntax
+// this engine otherwise ignores has to be recognized: a zero length is
+// dimensionless in CSS - `0`, `0px`, `0em`, `0rem` and `0%` are all the same
+// computed value, and the spec lets the unit be omitted on a zero <length> for
+// exactly that reason. The policy that leaves `width: 10px` inert is about
+// there being no defensible px-to-column conversion, which says nothing about a
+// value that needs no converting. Reading `0px` as "not a length" sent the very
+// common `flex: 1 1 0px` down the auto path and laid it out as `flex: 1 1
+// auto`. Only the zero is exempt: a non-zero value with an unrecognized unit
+// still fails here, same as everywhere else. This also puts the parser back in
+// step with cssengine's isCSSFlexBasisToken, which already accepted `0px` as
+// the shorthand's <'flex-basis'> component and so expanded `flex: 1 1 0px`
+// into a longhand this function then dropped.
 func parseFlexSizeVal(s string) (abs int, pct float64, ok bool) {
 	if abs, pct, ok := parseSizeVal(s); ok {
 		return abs, pct, true
 	}
 	t := strings.TrimSpace(s)
 	t = strings.TrimSuffix(t, "%")
-	t = strings.TrimSuffix(t, "ch")
+	t = strings.TrimRightFunc(t, unicode.IsLetter)
 	if f, err := strconv.ParseFloat(t, 64); err == nil && f == 0 {
 		return 0, 0, true
 	}
@@ -1657,8 +1695,9 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	lineGroups := breakFlexLines(len(items), widths, innerW, gap, wrap)
 
 	// A single-line container (flex-wrap: nowrap) has exactly one line, and
-	// that line's cross size is the container's own inner cross size - so an
-	// explicit height on the container is what align-items/align-self resolve
+	// that line's cross size is the container's own inner cross size - so a
+	// declared height on the container (or, failing that, its min-height - see
+	// resolveFlexContainerHeightFloor) is what align-items/align-self resolve
 	// against, which is what makes align-items:center vertically center a
 	// fixed-height row. align-content is inoperative in that case (real CSS
 	// says so outright), and the multi-line case instead sizes each line to
@@ -1666,7 +1705,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// only reaches layoutFlexLine here.
 	lineMinHeight := 0
 	if !wrap {
-		if h, ok := resolveFlexContainerHeight(decls); ok {
+		if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok {
 			lineMinHeight = h
 		}
 	}
@@ -1692,7 +1731,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	leadRows := 0
 	wantHeight := 0
 	extraGapsBetweenLines := make([]int, len(results)-1)
-	if h, ok := resolveFlexContainerHeight(decls); ok && h > contentHeight {
+	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && h > contentHeight {
 		wantHeight = h
 		leadRows, extraGapsBetweenLines = distributeAlignContent(decls["align-content"], wantHeight-contentHeight, len(results))
 	}
@@ -1735,11 +1774,13 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 // justify-content) is vertical. flex-basis sets an item's starting main-axis
 // (line count) size the same way it sets width in row direction.
 // flex-grow/flex-shrink/justify-content only have free space to work with
-// once the container has a definite main-axis size — an explicit CSS
-// `height` (resolveFlexContainerHeight) — since unlike row direction's width
-// (always definite, it's however wide the caller says to render at), this
-// engine has no other notion of a column flex container's main-axis size;
-// with no explicit height and no item using flex-basis, items simply stack
+// once the container has a definite main-axis size — a declared CSS `height`,
+// or failing that a `min-height` (resolveFlexContainerHeightFloor), which
+// grows the container the same way but can never shrink it — since unlike row
+// direction's width (always definite, it's however wide the caller says to
+// render at), this engine has no other notion of a column flex container's
+// main-axis size;
+// with no such height and no item using flex-basis, items simply stack
 // with row-gap between them exactly as if none of this machinery existed
 // (flex-start main-axis behavior - the common case, and the only case
 // before this file supported the main axis in column direction at all).
@@ -1755,7 +1796,21 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	}
 	rowGap := parseGapLen(decls["row-gap"])
 	align := decls["align-items"]
-	containerHeight, hasContainerHeight := resolveFlexContainerHeight(decls)
+	// heightIsMinOnly marks a main size that came from min-height rather than
+	// from an explicit height: it can raise the container (flex-grow fills it)
+	// but must never put the items into flex-shrink, since a minimum that
+	// content already exceeds is simply satisfied. See
+	// resolveFlexContainerHeightFloor.
+	containerHeight, hasContainerHeight, heightIsMinOnly := resolveFlexContainerHeightFloor(decls)
+	// Percentages need a *definite* main size to resolve against, which a
+	// min-height isn't: the container's real main size is max(content,
+	// min-height), so it isn't known until the content is laid out, and real CSS
+	// treats a percentage against an indefinite basis as auto. Only an explicit
+	// height feeds percentage resolution below (parseColumnFlexBasis,
+	// clampFlexMainHeight, flexShrinkFloor, flexGrowCeiling); containerHeight
+	// itself is used for the row arithmetic, where a min-height is a perfectly
+	// good target to grow into and pad out to.
+	pctHeight, hasPctHeight := resolveFlexContainerHeight(decls)
 
 	// margin-left/margin-right on a flex item need no separate handling
 	// here - see layoutFlexRow's doc comment on the same point: the block
@@ -1802,7 +1857,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			crossSized[i] = true
 		}
 		widths[i] = max(1, w)
-		declBasis[i], hasBasis[i] = parseColumnFlexBasis(it.decls, containerHeight, hasContainerHeight)
+		declBasis[i], hasBasis[i] = parseColumnFlexBasis(it.decls, pctHeight, hasPctHeight)
 		if hasBasis[i] {
 			// The declared base is clamped by the item's own minimum and
 			// maximum before it is rendered at all - real CSS resolves an
@@ -1814,7 +1869,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			// simply overrode max-height (block.go ranks an explicit height
 			// above it, by design) and a `flex-basis: 6; max-height: 1` item
 			// rendered six rows tall.
-			renderH[i] = clampFlexMainHeight(it.decls, declBasis[i], containerHeight)
+			renderH[i] = clampFlexMainHeight(it.decls, declBasis[i], pctHeight)
 		}
 	}
 
@@ -1916,8 +1971,8 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			allIdx[i] = i
 			grows[i] = it.grow
 			shrinks[i] = it.shrink
-			floors[i] = flexShrinkFloor(it.decls, containerHeight)
-			ceilings[i] = flexGrowCeiling(it.decls, "max-height", containerHeight)
+			floors[i] = flexShrinkFloor(it.decls, pctHeight)
+			ceilings[i] = flexGrowCeiling(it.decls, "max-height", pctHeight)
 		}
 		switch {
 		case leftover > 0:
@@ -1929,8 +1984,11 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			// absorbed flows through to justify-content/the trailing pad
 			// below, instead of being silently dropped.
 			leftover = growFlexLine(finalHeights, baseH, heights, ceilings, grows, allIdx, availForItems)
-		case leftover < 0:
-			// Mirrors layoutFlexLine's flex-shrink branch.
+		case leftover < 0 && !heightIsMinOnly:
+			// Mirrors layoutFlexLine's flex-shrink branch. Skipped entirely for
+			// a min-height-derived main size: items taller than the minimum
+			// have already satisfied it, and shrinking them to fit would turn a
+			// floor into a ceiling.
 			leftover = -distributeFlexShrink(finalHeights, shrinks, baseH, floors, allIdx, -leftover)
 		}
 	}
@@ -2117,6 +2175,32 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// innerW under a non-stretch align-items) rather than leaving a
 	// ragged-width box.
 	content = padLinesToWidthBox(content, innerW)
+	// overflow-y: hidden/clip truncates the container to its own declared
+	// height, the vertical counterpart of the overflow-x block above and of
+	// what renderBlockContentBox does for an ordinary block box (block.go).
+	// Growing to a height (or a min-height) is layout's job - layoutFlexRow/
+	// layoutFlexColumn pad to it themselves, since the items have to be able to
+	// distribute those rows among themselves - but nothing in layout ever
+	// shortens the container, so a flex container whose content exceeded its
+	// height simply ignored both the height and the author's overflow. An
+	// explicit height wins over max-height, matching block.go's own priority.
+	//
+	// Deliberately not extended to scroll/auto, for the same reason the
+	// overflow-x block above isn't: a scrollable flex container needs the live
+	// offset/gutter plumbing block.go has for ordinary boxes (see
+	// docs/SCROLLING.md), which is a larger piece of work than this.
+	if ov := decls["overflow-y"]; ov == "hidden" || ov == "clip" {
+		limit := 0
+		if h, ok := resolveFlexContainerHeight(decls); ok {
+			limit = h
+		} else if m, _, ok := parseSizeVal(decls["max-height"]); ok && m > 0 {
+			limit = m
+		}
+		if limit > 0 && len(content.lines) > limit {
+			lines := content.lines[:limit]
+			content = box{lines: lines, width: linesWidth(lines)}
+		}
+	}
 
 	if pt > 0 || pb > 0 {
 		blank := strings.Repeat(" ", innerW)

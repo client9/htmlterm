@@ -413,10 +413,21 @@ For the design rationale behind the DOM/Events/rendering internals, see
   and text nodes directly
   inside a flex container, which real CSS wraps in anonymous flex items but
   this engine drops (wrap loose text in a `<span>`).
+  Also `overflow-y: scroll`/`auto` on a flex container, which would need the
+  live scroll-offset and gutter plumbing ordinary boxes have (`overflow-y:
+  hidden`/`clip` does clip a flex container to its `height`/`max-height`, and
+  `overflow-x` is likewise supported — see `docs/SCROLLING.md` for what the
+  scrolling variants entail).
   `flex-grow`/`flex-shrink`/`justify-content` do work in `column` direction,
-  but only once the container has an explicit CSS `height` — this engine has
-  no other notion of a column flex container's main-axis size (row
+  but only once the container has a declared `height` or `min-height` — this
+  engine has no other notion of a column flex container's main-axis size (row
   direction's width is always definite, so it never needed this condition).
+  A `min-height` serves only as a floor there: it can grow the container for
+  `flex-grow` to fill, but content taller than it overflows rather than being
+  handed to `flex-shrink`, and percentages inside the container still need an
+  explicit `height` to resolve against (the real main size is
+  `max(content, min-height)`, which isn't definite until the content is laid
+  out — real CSS calls a percentage against such a basis `auto` too).
   See CSS.md's Flexbox section for the full reasoning per gap.
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are

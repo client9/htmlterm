@@ -561,9 +561,19 @@ func expandBackgroundShorthand(val string) map[string]string {
 // pattern), a single non-numeric token (that token's flex-basis, with
 // flex-grow and flex-shrink both 1 — the shorthand's own omitted-value
 // defaults, not the longhands' initial values), a number followed by a second
-// number (grow shrink, basis 0), a number followed by a non-numeric token
-// (grow basis, shrink 1), or the full three-token grow/shrink/basis form —
-// see CSS.md's Flexbox section.
+// number (grow shrink, basis 0), a number followed by a basis (grow basis,
+// shrink 1), or the full three-token grow/shrink/basis form — see CSS.md's
+// Flexbox section.
+//
+// Every arity validates its components, and a value whose tokens don't fit the
+// grammar is left unexpanded as an inert `flex` declaration rather than
+// half-applying. The one-token form always did this; the two- and three-token
+// forms used to assign positionally without looking, so `flex: 30% 1` became
+// flex-grow: 30% (which parses to 0, collapsing the item) instead of the
+// grow: 1, basis: 30% a browser resolves it to, and `flex: 1 1 junk` handed out
+// the shorthand's grow/shrink defaults off a basis that would then be ignored.
+// An invalid declaration must leave every longhand it covers at its initial
+// value, not at part of what was written.
 func expandFlexShorthand(val string) map[string]string {
 	// inherit/unset only - "initial" is deliberately left to the switch
 	// below: flex's own grammar already treats the literal token "initial"
@@ -600,12 +610,36 @@ func expandFlexShorthand(val string) map[string]string {
 		}
 		return map[string]string{"flex-basis": tokens[0]}
 	case 2:
-		if isCSSNumberToken(tokens[1]) {
-			return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": "0"}
+		// The grammar is `[ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]`,
+		// and `||` means the two components may appear in either order - so
+		// `flex: 30% 1` is as valid as `flex: 1 30%`, and both mean grow 1,
+		// shrink 1, basis 30%. The grow-first reading is tried first, matching
+		// the grammar's own operand order, which is what keeps an all-numeric
+		// `flex: 1 2` a grow/shrink pair rather than a grow/basis one (a bare
+		// number is a valid basis in this engine, so the two readings really do
+		// overlap).
+		if isCSSNumberToken(tokens[0]) {
+			if isCSSNumberToken(tokens[1]) {
+				return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": "0"}
+			}
+			if isCSSFlexBasisToken(tokens[1]) {
+				return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": tokens[1]}
+			}
+		} else if isCSSFlexBasisToken(tokens[0]) && isCSSNumberToken(tokens[1]) {
+			return map[string]string{"flex-grow": tokens[1], "flex-shrink": "1", "flex-basis": tokens[0]}
 		}
-		return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": tokens[1]}
+		return map[string]string{"flex": val}
 	case 3:
-		return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": tokens[2]}
+		// Same `||` freedom as the two-token form: the basis may lead or
+		// trail the grow/shrink pair. Grow-first again wins the all-numeric
+		// overlap, so `flex: 1 2 3` stays grow 1, shrink 2, basis 3.
+		if isCSSNumberToken(tokens[0]) && isCSSNumberToken(tokens[1]) && isCSSFlexBasisToken(tokens[2]) {
+			return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": tokens[2]}
+		}
+		if isCSSFlexBasisToken(tokens[0]) && isCSSNumberToken(tokens[1]) && isCSSNumberToken(tokens[2]) {
+			return map[string]string{"flex-grow": tokens[1], "flex-shrink": tokens[2], "flex-basis": tokens[0]}
+		}
+		return map[string]string{"flex": val}
 	default:
 		return map[string]string{"flex": val}
 	}

@@ -333,3 +333,48 @@ func TestDistributeFlexShrink(t *testing.T) {
 		}
 	})
 }
+
+// TestParseFlexSizeValZeroIsUnitless pins the one place this engine reads unit
+// syntax it otherwise ignores: a zero length is dimensionless in CSS, so every
+// spelling of zero has to resolve to a definite base size of nothing rather
+// than falling through to flex-basis's auto path. The non-zero cases pin the
+// other half of that - unit support is not what was granted here.
+func TestParseFlexSizeValZeroIsUnitless(t *testing.T) {
+	tests := []struct {
+		in      string
+		wantAbs int
+		wantPct float64
+		wantOK  bool
+	}{
+		{in: "0", wantOK: true},
+		{in: "0%", wantOK: true},
+		{in: "0ch", wantOK: true},
+		{in: "0px", wantOK: true},
+		{in: "0em", wantOK: true},
+		{in: "0rem", wantOK: true},
+		{in: "0PX", wantOK: true},
+		{in: " 0px ", wantOK: true},
+		{in: "0.0px", wantOK: true},
+		// Non-zero keeps this engine's existing unit vocabulary exactly.
+		{in: "10", wantAbs: 10, wantOK: true},
+		{in: "10ch", wantAbs: 10, wantOK: true},
+		{in: "50%", wantPct: 0.5, wantOK: true},
+		{in: "10px", wantOK: false},
+		{in: "10em", wantOK: false},
+		// Keywords must still fail, not trim to an empty (zero) numeric part.
+		{in: "", wantOK: false},
+		{in: "auto", wantOK: false},
+		{in: "content", wantOK: false},
+		{in: "min-content", wantOK: false},
+		{in: "px", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			abs, pct, ok := parseFlexSizeVal(tt.in)
+			if ok != tt.wantOK || abs != tt.wantAbs || pct != tt.wantPct {
+				t.Errorf("parseFlexSizeVal(%q) = (%d, %v, %v), want (%d, %v, %v)",
+					tt.in, abs, pct, ok, tt.wantAbs, tt.wantPct, tt.wantOK)
+			}
+		})
+	}
+}

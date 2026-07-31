@@ -605,7 +605,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 #### `overflow`, `overflow-x`, `overflow-y`
 `visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping and scrolling; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
 
-- **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width — except on a `display: flex`/`inline-flex` container, where no width is required, since flex items floored at their [automatic minimum size](#automatic-minimum-size-min-width-auto) can overflow a container that has none); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
+- **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width — except on a `display: flex`/`inline-flex` container, where no width is required, since flex items floored at their [automatic minimum size](#automatic-minimum-size-min-width-auto) can overflow a container that has none); `overflow-y` truncates excess lines when an explicit `height` — or, failing that, a `max-height` — is also set; this works on a `display: flex`/`inline-flex` container too, truncating it from inside its own border box. `text-overflow` controls the truncation marker.
 - **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Element.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**) is the same idea transposed: a live horizontal scroll offset (`Element.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
 - **`scroll`** — same scrolling behavior as `auto` per axis, **plus** an always-reserved gutter — a column (default 1 wide) for `overflow-y`, a row (default 1 tall) for `overflow-x` — with a track and thumb tracking the scroll position, drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (content unaffected) if the box is too narrow/short to spare one, or — for `overflow-x`'s gutter row specifically — if the element also has an explicit `height` of its own (both axes' visible gutters can't coexist yet; the scroll offsets themselves still work in that combination — see `docs/SCROLLING.md`). **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*` and their `-x` horizontal counterparts, `scrollbar-style` presets, cap-button click behavior).
 
@@ -979,10 +979,11 @@ edges included. The Box Alignment synonyms `start`/`end` are accepted for
 Distributes leftover main-axis space among items. In `row`
 direction this leftover is always available (the row's width is always
 definite). In `column` direction it's only available once the flex container
-has an explicit CSS `height` taller than the items' own resolved main-axis
-(vertical) stack — this engine has no other notion of a column container's
-main-axis size (see `flex-grow`/`flex-basis` below); with no explicit
-`height`, there's no leftover to distribute and `justify-content` has no
+has a [declared main size](#container-height-min-height-and-max-height) —
+its `height`, or failing that its `min-height` — taller than the items' own
+resolved main-axis (vertical) stack; this engine has no other notion of a
+column container's main-axis size (see `flex-grow`/`flex-basis` below). With
+neither, there's no leftover to distribute and `justify-content` has no
 effect. "Leftover space" is whatever's left after `flex-grow`/`flex-shrink`
 have already resolved each item's main-axis size — if any item can grow,
 `justify-content` typically has nothing left to distribute. Under
@@ -1003,9 +1004,10 @@ cross size", and an item's own `max-height` caps how far it stretches, matching
 the spec's "while still respecting the constraints imposed by
 `min-height`/`max-height`". That row
 height is the tallest item's, unless the container is single-line
-(`flex-wrap: nowrap`, the default) and has an explicit `height` — then the
-line takes the container's height instead, so `align-items: center` on a
-fixed-height row vertically centers its items, matching real CSS. In `column`
+(`flex-wrap: nowrap`, the default) and has a
+[declared height or min-height](#container-height-min-height-and-max-height) —
+then the line takes the container's height instead, so `align-items: center` on
+a fixed-height row vertically centers its items, matching real CSS. In `column`
 direction (cross axis = horizontal), `stretch` fills the container's full
 width (the default for any block-level child); `flex-start`/`center`/
 `flex-end` instead size the item to its own `width` or natural content width
@@ -1054,9 +1056,9 @@ effect at all, matching real CSS, and it's the container's `height` feeding
 leftover cross-axis (vertical) space across lines the same way
 `justify-content` distributes leftover main-axis space across items on one
 line — but that leftover space only exists when the flex container has an
-**explicit `height`** taller than its wrapped lines' natural stack; without
-one, there's no free space to distribute and this property has nothing to
-do. A wrapping container is padded with trailing blank rows to reach exactly
+**declared [`height` or `min-height`](#container-height-min-height-and-max-height)**
+taller than its wrapped lines' natural stack; without one, there's no free
+space to distribute and this property has nothing to do. A wrapping container is padded with trailing blank rows to reach exactly
 its declared height regardless of which value is set. `stretch` is
 approximated as `flex-start` (no distribution): growing each line's own items
 taller than their content to fill leftover space isn't implemented. Not
@@ -1065,6 +1067,49 @@ inherited.
 ```css
 /* push wrapped lines to the bottom of a taller-than-content flex container */
 .row { display: flex; flex-wrap: wrap; width: 100%; height: 10; align-content: flex-end; }
+```
+
+#### Container `height`, `min-height`, and `max-height`
+
+A flex container's own vertical sizing works the same way it does for any other
+block box (see the [`height`](#height) entry), with one flexbox-specific
+consequence: whatever height the container ends up with is the **main size** its
+items distribute among themselves in `column` direction, and the **cross size**
+`align-items`/`align-content` align within in `row` direction.
+
+- **`height`** declares that size outright. In `column` direction it's what
+  `flex-grow` grows into and `flex-shrink` shrinks against; in `row` direction
+  it's the single (`nowrap`) line's cross size, or the space `align-content`
+  distributes the wrapped lines within.
+- **`min-height`** does the same job whenever it's the larger of the two, and is
+  the property to reach for when the container should be *at least* some height
+  but still free to grow with its content — the common "this column fills at
+  least the screen, its children share the rest" pattern. It is a floor and not
+  a target, so unlike `height` it can only ever grow the container: content
+  taller than the minimum has already satisfied it and is never handed to
+  `flex-shrink` as a deficit. An explicit `height` wins outright when both are
+  set.
+- **`max-height`** clips the container, and like `max-height` everywhere else in
+  this engine it does so only under an explicit `overflow-y: hidden`/`clip` —
+  without one, taller content is simply visible past it. `height` takes priority
+  when both are set, matching an ordinary block box.
+
+`overflow-y: hidden`/`clip` truncates the container to that height from inside
+its own border box, so a bordered container's bottom rule still closes below the
+last visible row. `overflow-y: scroll`/`auto` is **not** supported on a flex
+container — it needs the live scroll-offset and gutter plumbing ordinary boxes
+have (see `docs/SCROLLING.md`) — and neither are percentage heights, matching
+this engine's vertical sizing generally. Percentages *inside* the container
+(a `flex-basis: 50%` item in a `column` container, a percentage
+`min-height`/`max-height` on an item) resolve only against an explicit `height`,
+never against a `min-height`: the container's real main size is then
+`max(content, min-height)`, which isn't known until the content is laid out, and
+real CSS treats a percentage against such an indefinite basis as `auto`.
+
+```css
+/* at least the full screen, growing with its content; the body takes the slack */
+.page { display: flex; flex-direction: column; min-height: 24; }
+.body { flex: 1; }
 ```
 
 #### `order`
@@ -1098,11 +1143,12 @@ width is always definite). Each item grows from its own **flex base size**, not
 from the [automatic minimum size](#automatic-minimum-size-min-width-auto) that
 minimum may have raised it to; see there for why that distinction is what makes
 `flex: 1` split a container equally. In `column` direction, the same distribution applies to leftover
-*height*, but only once the container has an explicit CSS `height` taller
-than the items' own resolved main-axis (vertical) stack — this engine has no
-other notion of a column container's main-axis size, so with no explicit
-`height`, `flex-grow` has nothing to distribute into and items simply keep
-their own resolved height. "Growing" a column item's height pads it with
+*height*, but only once the container has a
+[declared `height` or `min-height`](#container-height-min-height-and-max-height)
+taller than the items' own resolved main-axis (vertical) stack — this engine
+has no other notion of a column container's main-axis size, so with neither,
+`flex-grow` has nothing to distribute into and items simply keep their own
+resolved height. "Growing" a column item's height pads it with
 blank lines at the bottom (this engine has no way to make text content
 itself taller), the same approximation `align-items: stretch` already uses
 for row direction's cross axis. Growth never exceeds an item's own
@@ -1178,7 +1224,19 @@ Percentages resolve against the container's content width in `row`
 direction; in `column` direction they resolve against the container's
 explicit `height` if one is set, else (matching real CSS's "percentage basis
 against an indefinite container size resolves as auto") fall back to the
-item's own natural height, same as `auto`. A `flex-basis` taller/wider than
+item's own natural height, same as `auto`.
+
+A **zero** `flex-basis` is accepted in any unit — `0`, `0%`, `0ch`, `0px`,
+`0em`, `0rem` all mean the same definite base size of nothing, so the common
+`flex: 1 1 0px` behaves exactly like `flex: 1 1 0`. This is the one place a
+unit this engine otherwise ignores is recognized, and it's a narrow exception:
+a zero length is dimensionless in CSS (the spec lets the unit be omitted on a
+zero `<length>` for that reason), so there's nothing to convert, while the
+usual reason for ignoring `px` — no defensible pixel-to-column conversion —
+still applies in full to any non-zero value. `flex-basis: 4px` is still
+ignored, falling back to `auto`.
+
+A `flex-basis` taller/wider than
 an item's own natural content pads it with blank lines/spaces; one shorter
 than the natural content doesn't force a fit — the item's content still
 renders in full and overflows past the resolved size, the same graceful
@@ -1333,12 +1391,27 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
 | `<basis>` | `flex-grow: 1; flex-shrink: 1; flex-basis: <basis>` — the shorthand's omitted-value defaults are `1`/`1`, not the longhands' own initial `0`/`1`, so `flex: 30%` grows |
 | `<number> <number>` | grow, shrink; `flex-basis: 0` |
 | `<number> <basis>` | grow, `flex-basis: <basis>`; `flex-shrink: 1` |
+| `<basis> <number>` | `flex-basis: <basis>`, grow; `flex-shrink: 1` |
 | `<number> <number> <basis>` | grow, shrink, basis |
+| `<basis> <number> <number>` | basis, grow, shrink |
 
 `<basis>` above is any `flex-basis` value: `auto`, `content`, one of the
-intrinsic sizing keywords, or a length/percentage. A token that isn't one of
-those lands as an inert `flex-basis` declaration and grants no `flex-grow`, so
-`flex: <junk>` can't change layout.
+intrinsic sizing keywords, or a length/percentage.
+
+The grammar is `[ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]`, and that
+`||` is why the basis may lead the grow/shrink pair as well as trail it —
+`flex: 30% 1` and `flex: 1 30%` are the same declaration. A bare number is both
+a valid `<number>` and (in this engine) a valid `<basis>`, so the two readings
+overlap; the grow-first one wins, matching the grammar's own operand order,
+which keeps `flex: 1 2` a grow/shrink pair and `flex: 1 2 3` a
+grow/shrink/basis triple.
+
+Every component is validated before any longhand is assigned. A value whose
+tokens don't fit the grammar is **dropped whole**, leaving `flex-grow`,
+`flex-shrink`, and `flex-basis` at their own initial values (`0`, `1`, `auto`) —
+so `flex: 1 junk` and `flex: junk 1` change nothing, rather than granting the
+shorthand's `1`/`1` defaults off a component that would then be ignored. The
+same applies to the one-token form: `flex: <junk>` can't change layout.
 
 ```css
 /* three equal-width columns that fill the row */
@@ -1388,17 +1461,17 @@ a browser. That's the same convention `width` has everywhere else in this
 engine (see the [`width`](#width) entry: a declared width is the box's total
 visual width, margins and border characters included).
 
-`flex-basis: 0` resolves to one cell rather than zero, since no box can render
-in zero columns/lines. The common `flex: 1` expands to `flex-basis: 0`, so
-each such item reserves one cell before any leftover space is distributed —
-enough to make grow ratios slightly off when items carry different
-`flex-grow` weights.
+A `flex-basis` that *resolves* to zero stays zero as an arithmetic input to
+`flex-grow`, so grow ratios are exact — `flex: 1` against `flex: 2` in a
+40-column row is 13/27, not a ratio skewed by a cell reserved up front. The
+floor of one cell (no box renders in zero columns/lines) is imposed on the
+rendered box, not on the base size.
 
-There is no min-content measurement to serve as the spec's *automatic* minimum
-size (`min-width: auto`), so an item whose content can't fit at its resolved
-size — an unbreakable word narrower than nothing can make fit, or any content
-in `column` direction, where text can't be forced into fewer lines — overflows
-past that size instead of forcing the line wider.
+In `column` direction there is no vertical equivalent of the
+[automatic minimum size](#automatic-minimum-size-min-width-auto): text can't be
+forced into fewer lines, so an item whose content is taller than its resolved
+main size overflows past it instead of forcing the container taller. `row`
+direction implements the real thing — see that section.
 
 An `inline-flex` container taller than one line breaks the line of text it
 sits in: it's spliced into the inline flow as one indivisible unit, and its
@@ -1421,6 +1494,10 @@ The same is true of a multi-line `inline-block`; see `COMPATIBILITY.md`.
 - **Text nodes directly inside a flex container** — real CSS wraps a run of
   loose text in an anonymous flex item; here it isn't rendered at all. Wrap it
   in a `<span>`.
+- **`overflow-y: scroll`/`auto` on a flex container** — the clipping values
+  (`hidden`/`clip`) are supported, but a scrollable flex container would need
+  the live scroll-offset/gutter plumbing ordinary boxes have; see
+  [Container `height`, `min-height`, and `max-height`](#container-height-min-height-and-max-height).
 - **`margin: auto` beyond `row` direction's main axis** — `margin-top`/
   `margin-bottom: auto` (row direction's cross axis, which would center/align
   a single item vertically within its line) and any `margin: auto` in
@@ -1441,7 +1518,10 @@ Wherever one of these sizing declarations is accepted (`width`, `min-width`,
 | `ch` unit | `14ch` | Fixed rune count (same as bare integer) |
 | Percentage | `50%` | Fraction of the available content width |
 
-Pixel (`px`), `em`, `rem`, and other CSS units are ignored.
+Pixel (`px`), `em`, `rem`, and other CSS units are ignored. The one exception
+is a **zero** [`flex-basis`](#flex-basis), which is accepted in any unit, since
+a zero length is dimensionless in CSS and there is nothing to convert — see
+that entry.
 
 For block elements, percentages are resolved against the available block width.
 For a `width: 100%` table, the available content width is the terminal width

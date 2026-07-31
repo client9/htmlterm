@@ -486,6 +486,16 @@ func TestFlexZeroBasis(t *testing.T) {
 		// growFlexLine.
 		{name: "flex-basis:0 splits the line equally, whatever the content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
 		{name: "flex-basis:0% is a zero length too, not an unset one", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0%;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0%;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		// A zero is dimensionless in CSS, so every spelling of it is the same
+		// definite base size - including units this engine otherwise ignores
+		// outright. `flex: 1 1 0px` is the single most common spelling of the
+		// idiom in real stylesheets, and used to lay out as `flex: 1 1 auto`
+		// (12/8 here) because the unit made the length unparseable. See
+		// parseFlexSizeVal.
+		{name: "flex-basis:0px is a zero length, not an ignored unit", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0px;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0px;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		{name: "flex:1 1 0px shorthand splits the line equally", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 1 0px;border-style:solid">aaaa aaaa</div><div style="flex:1 1 0px;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		{name: "flex:1 1 0rem shorthand splits the line equally", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 1 0rem;border-style:solid">aaaa aaaa</div><div style="flex:1 1 0rem;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		{name: "a non-zero px length is still ignored, falling back to auto", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:4px;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
 		// Unbreakable content doesn't tilt the split either, as long as every
 		// item's equal share clears its own automatic minimum size (8 columns
 		// for `bbbbbb` plus its borders, against the 10 it gets).
@@ -594,5 +604,69 @@ func TestFlexNestedContainerMainSize(t *testing.T) {
 		{name: "the allotted height reaches the nested container's own flex-grow child", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="display:flex;flex-direction:column;flex-grow:1;border-style:solid"><div>a</div><div style="flex-grow:1;border-style:solid">b</div></div></div>`, want: "┌──────────┐\n│a         │\n│┌────────┐│\n││b       ││\n││        ││\n││        ││\n│└────────┘│\n└──────────┘\n"},
 		{name: "flex-basis on a nested flex container sizes the container itself", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="display:flex;flex-basis:4;border-style:solid"><div>a</div></div><div>z</div></div>`, want: "┌──────────┐\n│a         │\n│          │\n└──────────┘\nz           \n"},
 		{name: "align-items:stretch grows a nested row container's own box", width: 12, html: `<div style="display:flex;width:100%"><div style="display:flex;border-style:solid"><div>a</div></div><div>w<br>x<br>y<br>z</div></div>`, want: "┌─┐w        \n│a│x        \n│ │y        \n└─┘z        \n"},
+	})
+}
+
+// TestFlexContainerMinHeight pins that a flex container's own min-height is
+// live, as it is for any other block box (block.go). It used to be dropped
+// entirely: only an explicit `height` reached flex layout, so a container that
+// declared a minimum simply came out at its content height, and in `column`
+// direction its flex-grow children had no definite main size to fill — the
+// "sidebar at least this tall, contents share the rest" pattern did nothing.
+//
+// A minimum is a floor and not a target, so unlike `height` it can only grow
+// the container: content taller than the minimum has already satisfied it and
+// must not be handed to flex-shrink as a deficit.
+func TestFlexContainerMinHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "min-height gives a column container a definite main size to grow into", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:4"><div style="flex:1;border-style:solid">a</div></div>`, want: "┌──────────┐\n│a         │\n│          │\n└──────────┘\n"},
+		{name: "min-height pads a column container short of it", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:4"><div>a</div><div>b</div></div>`, want: "a           \nb           \n            \n            \n"},
+		{name: "content taller than min-height is not shrunk to fit it", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:2"><div>a</div><div>b</div><div>c</div></div>`, want: "a           \nb           \nc           \n"},
+		{name: "min-height gives a row container's line its cross size", width: 12, html: `<div style="display:flex;width:100%;min-height:3;align-items:center"><div>a</div></div>`, want: "            \na           \n            \n"},
+		{name: "an explicit height still wins over min-height", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:2;min-height:6"><div>a</div></div>`, want: "a           \n            \n"},
+		{name: "min-height on a wrapping row feeds align-content", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;min-height:4;align-content:flex-end"><div style="width:8">a</div><div style="width:8">b</div></div>`, want: "            \n            \na           \nb           \n"},
+	})
+}
+
+// TestFlexContainerOverflowY is the vertical counterpart of
+// TestFlexContainerOverflowX: a flex container is no exception to CSS.md's
+// overflow entry, but nothing in flex layout ever shortened the container, so
+// `height`/`max-height` plus an explicit overflow used to be ignored outright
+// and the content ran past both. As for an ordinary block box, clipping
+// requires the explicit overflow — `max-height` alone never truncates.
+func TestFlexContainerOverflowY(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "overflow-y:hidden clips a column container to its height", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:2;overflow-y:hidden"><div>a</div><div>b</div><div>c</div><div>d</div></div>`, want: "a         \nb         \n"},
+		{name: "overflow-y:clip clips to max-height when no height is set", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;max-height:2;overflow-y:clip"><div>a</div><div>b</div><div>c</div></div>`, want: "a         \nb         \n"},
+		{name: "height wins over max-height, matching an ordinary block box", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:3;max-height:1;overflow-y:hidden"><div>a</div><div>b</div><div>c</div><div>d</div></div>`, want: "a         \nb         \nc         \n"},
+		{name: "max-height without an overflow declaration does not clip", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;max-height:2"><div>a</div><div>b</div><div>c</div></div>`, want: "a         \nb         \nc         \n"},
+		{name: "a clipped container's border still closes below its last visible row", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:2;overflow-y:hidden;border-style:solid"><div>a</div><div>b</div><div>c</div></div>`, want: "┌────────┐\n│a       │\n│b       │\n└────────┘\n"},
+		{name: "a row container clips to its height too", width: 10, html: `<div style="display:flex;width:100%;height:1;overflow-y:hidden"><div>a<br>b<br>c</div></div>`, want: "a         \n"},
+	})
+}
+
+// TestFlexShorthandInvalidComponents pins that the `flex` shorthand validates
+// every component before assigning any longhand. The two- and three-token forms
+// used to assign positionally without looking, so `flex: 30% 1` set flex-grow
+// to a basis token (parsing to 0, collapsing the item) rather than resolving to
+// the grow:1/basis:30% a browser gives it, and a junk component still handed
+// out the shorthand's 1/1 grow/shrink defaults.
+func TestFlexShorthandInvalidComponents(t *testing.T) {
+	runCases(t, []renderCase{
+		// `[ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]` — the basis may
+		// lead the grow/shrink pair as well as trail it, so these two are the
+		// same declaration written both ways and must lay out identically.
+		{name: "flex:1 30% is grow 1 with a 30% basis", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 30%;border-style:solid">a</div><div>rest</div></div>`, want: "┌──────────────┐rest\n│a             │    \n└──────────────┘    \n"},
+		{name: "flex:30% 1 is the same declaration with the basis first", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:30% 1;border-style:solid">a</div><div>rest</div></div>`, want: "┌──────────────┐rest\n│a             │    \n└──────────────┘    \n"},
+		{name: "flex:30% 1 2 puts the basis ahead of grow and shrink", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:30% 1 2;border-style:solid">a</div><div>rest</div></div>`, want: "┌──────────────┐rest\n│a             │    \n└──────────────┘    \n"},
+		// An invalid component leaves every longhand at its initial value
+		// (grow 0, shrink 1, basis auto), so the item sits at its natural width
+		// rather than growing on the strength of the shorthand's defaults.
+		{name: "flex:1 junk grants no grow", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 junk;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "flex:1 1 junk grants no grow", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 1 junk;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "flex:junk 1 grants no grow", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:junk 1;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		// A bare number is both a valid <number> and a valid basis here, so the
+		// grow-first reading has to win the overlap.
+		{name: "flex:1 2 stays grow 1 shrink 2 with a zero basis", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1 2;border-style:solid">a</div><div style="flex:1 2;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│a       ││b       │\n└────────┘└────────┘\n"},
 	})
 }

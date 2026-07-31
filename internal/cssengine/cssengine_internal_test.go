@@ -111,6 +111,25 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "flex number then basis defaults shrink to 1", prop: "flex", val: "1 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
 		{name: "flex three values are grow shrink basis", prop: "flex", val: "1 2 30%", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
 		{name: "flex invalid arity falls back", prop: "flex", val: "1 2 3 4", want: map[string]string{"flex": "1 2 3 4"}},
+		// The grammar's `||` lets the basis lead the grow/shrink pair as well
+		// as trail it, so these are the mirror images of the two cases above.
+		{name: "flex basis then number is basis then grow", prop: "flex", val: "30% 1", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "30%"}},
+		{name: "flex basis keyword then number is basis then grow", prop: "flex", val: "auto 1", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}},
+		{name: "flex basis then two numbers is basis grow shrink", prop: "flex", val: "30% 1 2", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "30%"}},
+		// A bare number is both a valid <number> and (in this engine) a valid
+		// basis, so grow-first has to win the overlap - matching the grammar's
+		// own operand order.
+		{name: "flex all-numeric two-token form stays grow then shrink", prop: "flex", val: "2 3", want: map[string]string{"flex-grow": "2", "flex-shrink": "3", "flex-basis": "0"}},
+		{name: "flex all-numeric three-token form stays grow shrink basis", prop: "flex", val: "1 2 3", want: map[string]string{"flex-grow": "1", "flex-shrink": "2", "flex-basis": "3"}},
+		// An invalid component leaves every longhand the shorthand covers at
+		// its initial value rather than half-applying: these used to hand out
+		// the shorthand's grow/shrink defaults (or assign a basis token to
+		// flex-grow) off a value a browser drops outright.
+		{name: "flex number then junk falls back", prop: "flex", val: "1 junk", want: map[string]string{"flex": "1 junk"}},
+		{name: "flex junk then number falls back", prop: "flex", val: "junk 1", want: map[string]string{"flex": "junk 1"}},
+		{name: "flex two numbers then junk falls back", prop: "flex", val: "1 1 junk", want: map[string]string{"flex": "1 1 junk"}},
+		{name: "flex three-token form with a junk middle falls back", prop: "flex", val: "1 junk 2", want: map[string]string{"flex": "1 junk 2"}},
+		{name: "flex three-token form of all basis tokens falls back", prop: "flex", val: "auto auto auto", want: map[string]string{"flex": "auto auto auto"}},
 		{name: "place-content one value sets both axes", prop: "place-content", val: "center", want: map[string]string{"align-content": "center", "justify-content": "center"}},
 		{name: "place-content two values are align then justify", prop: "place-content", val: "flex-start flex-end", want: map[string]string{"align-content": "flex-start", "justify-content": "flex-end"}},
 		{name: "place-items expands to the items pair", prop: "place-items", val: "center", want: map[string]string{"align-items": "center", "justify-items": "center"}},
