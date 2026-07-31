@@ -275,6 +275,13 @@ func (r *Engine) measureMinContentWidth(it flexItem) int {
 // `visible` - the initial value, so unset counts. Every other value (hidden,
 // clip, scroll, auto) makes the box its own clipping/scrolling context, which
 // is what disables the automatic minimum size above.
+//
+// Comparing lowercase spellings is safe: keyword values are folded once in the
+// cascade (cssengine's keywordcase.go), so an author's `overflow-X: HIDDEN`
+// arrives here already lowercased. Before that folding existed this predicate
+// read an uppercase value as non-visible while renderFlexContentBox's own
+// `== "hidden"` check did not, which put such an item in the one combination
+// this file works to avoid: no automatic minimum *and* no clip.
 func isVisibleOverflow(v string) bool {
 	v = strings.TrimSpace(v)
 	return v == "" || v == "visible"

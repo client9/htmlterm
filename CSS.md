@@ -12,6 +12,30 @@ implemented — see **[COMPATIBILITY.md](./COMPATIBILITY.md)**.
 
 ---
 
+## Case sensitivity
+
+Everything CSS defines as ASCII case-insensitive is treated that way here, so
+`DISPLAY: FLEX` and `display: flex` are the same declaration. That covers
+property names, keyword values (and the unit on a length — `10CH` is `10ch`),
+element names in selectors, pseudo-classes and pseudo-elements, and attribute
+*names* in attribute selectors.
+
+The things CSS defines as case-**sensitive** stay that way:
+
+- **strings**, which are emitted verbatim — `content: "MiXeD"`, `quotes`,
+  literal border glyphs (`border-left: "▌"`), custom bullets
+  (`list-style-type: "→ "`, `symbols('Ab')`), custom truncation markers
+  (`text-overflow: '…'`);
+- **custom identifiers** — counter names, so `counter-reset: Xy` and
+  `counter(xy)` refer to different counters;
+- **custom properties** (`--Foo` and `--foo` are distinct properties, and their
+  values are preserved exactly), including values substituted through `var()`;
+- **attribute values** in selectors — `[type=TEXT]` does not match
+  `type="text"`, matching CSS's default (this engine has no `i` flag);
+- **class and ID** names, which HTML itself treats as case-sensitive.
+
+---
+
 ## Selectors
 
 | Form | Example |

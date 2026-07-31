@@ -204,10 +204,20 @@ func (c Cascade) Resolve(n *html.Node) map[string]string {
 	// here, unlike inside Direct().
 	resolvedVars := resolveCustomProps(result)
 	for prop, val := range result {
-		result[prop] = substituteVarTokens(val, func(name string) (string, bool) {
+		sub := substituteVarTokens(val, func(name string) (string, bool) {
 			v, ok := resolvedVars[name]
 			return v, ok
 		})
+		// Only a value this pass actually rewrote can still need keyword
+		// folding: everything else in result came either from Direct(n) or from
+		// the parent's own Resolve, both of which folded already. Testing for
+		// that keeps this off the hot path — Resolve isn't memoized the way
+		// Direct is (see PseudoElement's doc comment), so it runs far more often
+		// than once per element, and var() is rare in any real stylesheet.
+		if sub != val {
+			sub = foldKeywordValue(prop, sub)
+		}
+		result[prop] = sub
 	}
 	return result
 }
@@ -326,6 +336,22 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 		}
 	}
 
+	// Keyword values are ASCII case-insensitive (see keywordcase.go). Folding
+	// here rather than at parse time is what lets the same-element var()
+	// substitution just above feed it: `display: var(--d)` with `--d: FLEX`
+	// arrives as literal "FLEX" and folds like any other keyword. A value still
+	// holding a var() reference — one pointing at an *ancestor's* custom
+	// property, which Direct has no context to resolve — is deliberately left
+	// alone by foldKeywordValue and folded by Resolve instead, once its final
+	// substitution pass has turned it into real text.
+	//
+	// Direct's own result is folded (not just Resolve's copy of it) because
+	// callers read it straight: render's directDecls serves counter.go and
+	// table_render.go's col/colgroup styling, neither of which goes through
+	// Resolve. Folding before the cache write also means this runs once per
+	// element per render, not once per lookup.
+	foldDeclValues(result)
+
 	if c.Cache != nil {
 		c.Cache[n] = result
 	}
@@ -381,6 +407,11 @@ func (c Cascade) PseudoElement(n *html.Node, which string, env map[string]string
 			return v, ok
 		})
 	}
+	// This is the pseudo-element's own final substitution pass — nothing
+	// downstream folds these the way Resolve does for an element's own
+	// declarations — so fold the whole map here rather than only the entries
+	// var() touched.
+	foldDeclValues(decls)
 	return decls
 }
 

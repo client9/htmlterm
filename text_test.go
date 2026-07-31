@@ -118,3 +118,47 @@ func TestPseudoElements(t *testing.T) {
 		{name: "ancestor selector does not fire outside context", css: `div p::before { content: "• "; }`, html: `<p>item</p>`, want: "item\n\n"},
 	})
 }
+
+// TestKeywordValuesAreCaseInsensitive covers CSS's rule that keyword values are
+// ASCII case-insensitive, the same as property names. Values used to be stored
+// verbatim while every comparison in the render engine spelled its keywords in
+// lowercase, so an uppercase value silently did nothing: `display: FLEX` laid
+// out as a plain block, `overflow: HIDDEN` clipped nothing, and
+// `border-collapse: COLLAPSE` rendered as `separate`.
+//
+// Paired with TestCaseSensitiveValuesSurviveFolding below, which pins the
+// values that must *not* be folded.
+func TestKeywordValuesAreCaseInsensitive(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "display", width: 12, html: `<div style="display:FLEX;width:100%"><div>a</div><div>b</div></div>`, want: "ab          \n"},
+		{name: "flex-direction", width: 12, html: `<div style="display:flex;flex-direction:COLUMN;width:100%"><div>a</div><div>b</div></div>`, want: "a           \nb           \n"},
+		{name: "justify-content", width: 12, html: `<div style="display:flex;justify-content:FLEX-END;width:100%"><div>ab</div></div>`, want: "          ab\n"},
+		{name: "text-align", width: 8, html: `<div style="text-align:RIGHT;width:100%">ab</div>`, want: "      ab\n"},
+		{name: "text-transform", width: 8, html: `<div style="text-transform:UPPERCASE">ab</div>`, want: "AB\n"},
+		{name: "white-space", width: 8, html: `<div style="white-space:PRE">a   b</div>`, want: "a   b\n"},
+		{name: "list-style-type", width: 8, html: `<ul style="list-style-type:SQUARE"><li>a</li></ul>`, want: "    \u25a0 a\n"},
+		{name: "border-style", width: 6, html: `<div style="border-style:SOLID;width:100%">a</div>`, want: "\u250c\u2500\u2500\u2500\u2500\u2510\n\u2502a   \u2502\n\u2514\u2500\u2500\u2500\u2500\u2518\n"},
+		{name: "border-collapse", width: 8, html: `<table style="border-collapse:COLLAPSE"><tr><td style="border-style:solid">a</td><td style="border-style:solid">b</td></tr></table>`, want: "\u250c\u2500\u252c\u2500\u2510\n\u2502a\u2502b\u2502\n\u2514\u2500\u2534\u2500\u2518\n"},
+		{name: "visibility", width: 6, html: `<div style="visibility:HIDDEN">ab</div>`, want: "  \n"},
+		{name: "overflow and text-overflow", width: 6, html: `<div style="overflow:HIDDEN;white-space:NOWRAP;text-overflow:ELLIPSIS;width:4">aabbcc</div>`, want: "aab\u2026\n"},
+		{name: "a unit is part of the value and folds with it", width: 8, html: `<div style="width:6CH;border-style:solid">a</div>`, want: "\u250c\u2500\u2500\u2500\u2500\u2510\n\u2502a   \u2502\n\u2514\u2500\u2500\u2500\u2500\u2518\n"},
+		{name: "a keyword reached through var() folds too", width: 12, html: `<div style="--d:FLEX;display:var(--d);width:100%"><div>a</div><div>b</div></div>`, want: "ab          \n"},
+	})
+}
+
+// TestCaseSensitiveValuesSurviveFolding is the other half of
+// TestKeywordValuesAreCaseInsensitive: the values CSS defines as
+// case-*sensitive* have to come through untouched. Author text (strings emitted
+// verbatim) and custom identifiers (counter names) are the two kinds.
+func TestCaseSensitiveValuesSurviveFolding(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a content string keeps its case", width: 14, html: `<style>.x::before{content:"MiXeD"}</style><div class="x">.</div>`, want: "MiXeD.\n"},
+		{name: "a content string reached through var() keeps its case", width: 14, html: `<style>:root{--t:"MiXeD"}.x::before{content:var(--t)}</style><div class="x">.</div>`, want: "MiXeD.\n"},
+		{name: "attr() keeps the attribute value's case", width: 24, html: `<abbr title="MiXeD Case">HTML</abbr>`, want: "HTML (MiXeD Case)"},
+		{name: "a literal border glyph keeps its case", width: 8, html: `<div style="border-left:'Ab';width:100%">x</div>`, want: "Abx     \n"},
+		{name: "a literal bullet string keeps its case", width: 10, html: `<ul style="list-style-type:'Xy '"><li>a</li></ul>`, want: "    Xy a\n"},
+		{name: "a custom truncation marker keeps its case", width: 6, html: `<div style="overflow:hidden;white-space:nowrap;text-overflow:'Zz';width:4">aabbcc</div>`, want: "aaZz\n"},
+		{name: "counter names are case-sensitive identifiers", width: 10, html: `<style>.i{counter-reset:Xy 7}.i::before{content:counter(Xy)}</style><div class="i">.</div>`, want: "7.\n"},
+		{name: "a counter name differing only in case is a different counter", width: 10, html: `<style>.i{counter-reset:Xy 7}.i::before{content:counter(xy)}</style><div class="i">.</div>`, want: "0.\n"},
+	})
+}
