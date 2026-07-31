@@ -1819,7 +1819,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// only each line's own placement flips. See reverseLineGroups.
 	items := r.collectFlexItems(n)
 	if len(items) == 0 {
-		return box{lines: []string{""}}, nil
+		return emptyFlexBox(decls), nil
 	}
 	gap := parseGapLen(decls["column-gap"])
 	rowGap := parseGapLen(decls["row-gap"])
@@ -1976,7 +1976,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		items = reverseFlexItems(items)
 	}
 	if len(items) == 0 {
-		return box{lines: []string{""}}, nil
+		return emptyFlexBox(decls), nil
 	}
 	rowGap := parseGapLen(decls["row-gap"])
 	align := decls["align-items"]
@@ -2287,6 +2287,23 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	return box{lines: lines, width: linesWidth(lines)}, positions
 }
 
+// emptyFlexBox is the content box of a flex container with no items at all.
+// There is nothing to lay out, but the container still has whatever main size
+// it declared - an explicit height, or failing that a min-height
+// (resolveFlexContainerHeightFloor) - so it reserves that many blank rows. The
+// per-item distribution passes that normally do this are the same ones the
+// caller skipped by returning early here.
+//
+// With no declared height it is one empty line, not none: that is every other
+// empty box's content in this engine, and renderFlexContentBox drops it there
+// if something is going to be drawn around it (see contentEmpty).
+func emptyFlexBox(decls map[string]string) box {
+	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && h > 0 {
+		return box{lines: make([]string, h)}
+	}
+	return box{lines: []string{""}}
+}
+
 // renderFlexContentBox renders a block-level (display:flex) flex container:
 // the same margin/border/padding box model as renderBlockContentBox, wrapped
 // around flex item layout instead of inline content flow. See CSS.md's
@@ -2323,6 +2340,11 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	}
 
 	content, positions := r.layoutFlex(n, decls, innerW)
+	// Captured before padLinesToWidthBox and the padding/border steps below turn
+	// an empty line into real characters - the same point, and for the same
+	// reason, renderBlockContentBox captures its own. See the contentEmpty block
+	// further down.
+	contentEmpty := len(content.lines) == 1 && content.lines[0] == ""
 	// Under a shrink-to-fit measurement render, report the laid-out content's
 	// own width rather than the available width — the flex-container mirror of
 	// renderBlockContentBox's identical narrowing, and what lets a nested
@@ -2394,6 +2416,24 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		}
 	}
 
+	// Resolved here rather than where they're applied, because whether they
+	// exist decides whether an empty container keeps its content row - see
+	// renderBlockContentBox, which does the same in the same order.
+	topRule := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile)
+	botRule := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile)
+
+	// A flex container with no items has zero content height, exactly like any
+	// other empty block box, so it gives up its one blank content line when
+	// something else will occupy a row: an empty bordered container's two rules
+	// meet, rather than sitting either side of a row nothing is in. The
+	// declared-height guard is emptyFlexBox's own reservation coming back
+	// through - those rows were asked for, and layout skipped only the
+	// distribution of them, not the request. See renderBlockContentBox for the
+	// full statement of the rule.
+	if _, hasDeclaredHeight, _ := resolveFlexContainerHeightFloor(decls); contentEmpty && !hasDeclaredHeight && (pt+pb > 0 || topRule != "" || botRule != "") {
+		content = box{}
+	}
+
 	if pt > 0 || pb > 0 {
 		blank := strings.Repeat(" ", innerW)
 		lines := content.lines
@@ -2426,23 +2466,17 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 			positions = mergePositions(nil, positions, 0, textcell.Width(bl.char))
 		}
 	}
-	isEmpty := len(content.lines) == 1 && content.lines[0] == ""
+	// No empty-container special case on either rule: an empty container has
+	// already surrendered its content line above, so each rule simply becomes
+	// one line here.
 	topRuleDrawn := false
-	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
-		if isEmpty {
-			content.lines = []string{top}
-		} else {
-			content.lines = append([]string{top}, content.lines...)
-		}
+	if topRule != "" {
+		content.lines = append([]string{topRule}, content.lines...)
 		content.width = linesWidth(content.lines)
 		topRuleDrawn = true
 	}
-	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
-		if isEmpty {
-			content.lines = []string{bot}
-		} else {
-			content.lines = append(content.lines, bot)
-		}
+	if botRule != "" {
+		content.lines = append(content.lines, botRule)
 		content.width = linesWidth(content.lines)
 	}
 	if topRuleDrawn && len(positions) > 0 {

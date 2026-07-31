@@ -586,6 +586,20 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// border must be pushed out to meet it rather than hugging content.
 	closedBox := (bt.char != "" || bb.char != "") && br.char != ""
 	needsAlign := textAlign != "" || closedBox || (hasExplicitWidth && ws != "nowrap")
+	// Captured before anything decorates the box: every step below (align
+	// padding to innerW, horizontal padding, the left/right border characters)
+	// turns an empty content line into a line of real characters, so this is the
+	// last point at which "did this element produce any content at all" can
+	// still be asked. See the contentEmpty block further down for what it's for.
+	//
+	// <textarea> is exempt. Its box is a field the user types into, sized in real
+	// HTML by its `rows` attribute (default 2) rather than by its content, so an
+	// empty one is an ordinary state of a widget that still occupies space, not
+	// an empty box. This engine doesn't implement `rows`, so the single line it
+	// already has is the whole of that reservation - giving it up would leave a
+	// focused, editable box with nowhere to show the caret.
+	contentEmpty := n.Data != "textarea" && len(b.lines) == 1 && b.lines[0] == ""
+
 	if needsAlign {
 		b = alignLinesBox(b, textAlign, innerW)
 	}
@@ -698,6 +712,34 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			b = box{lines: lines, width: linesWidth(lines)}
 		}
 	}
+	// The top/bottom rules are resolved here rather than at the point they're
+	// applied, because whether they exist decides whether an empty box keeps its
+	// content row (below). They only depend on hBorderWidth, which nothing
+	// changes after the shrink-to-fit narrowing above.
+	topRule := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile)
+	botRule := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile)
+
+	// An empty block box has zero content height in CSS: an empty bordered
+	// <div> draws its top and bottom rule adjacent with nothing between them,
+	// and a lone border-top (which is what <hr> is) is a single rule. Block
+	// content here is always at least one line - that line is how block flow
+	// separates one box from the next - so an empty box has to give that line up
+	// explicitly, or it reserves a blank row nothing asked for: a bordered empty
+	// div came out three rows rather than two, and `<hr style="width: 20">` two
+	// rather than one.
+	//
+	// Only when something else will actually occupy a row. A box with no padding
+	// and no rules keeps its blank line instead of collapsing to nothing: a
+	// zero-line box has no way to separate itself from its siblings in block
+	// flow, and `<div></div>` has always been one empty line. A declared height
+	// or min-height is exactly the request to reserve rows, so neither is
+	// dropped - both have already been applied as real lines by the height step
+	// above, and the guard is what keeps `min-height: 1` from reading as an empty
+	// box here.
+	if contentEmpty && heightLines == 0 && minH == 0 && (pt+pb > 0 || topRule != "" || botRule != "") {
+		b = box{}
+	}
+
 	if pt > 0 || pb > 0 {
 		blank := strings.Repeat(" ", innerW)
 		lines := b.lines
@@ -721,23 +763,17 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if bl.char != "" || br.char != "" {
 		b = applyBlockBordersBox(b, bl, br, r.profile)
 	}
-	isEmpty := func() bool { return len(b.lines) == 1 && b.lines[0] == "" }
+	// No empty-box special case needed on either rule: an empty box has already
+	// surrendered its content line above, so it arrives here with no lines at
+	// all and each rule simply becomes one.
 	topRuleDrawn := false
-	if top := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile); top != "" {
-		if isEmpty() {
-			b.lines = []string{top}
-		} else {
-			b.lines = append([]string{top}, b.lines...)
-		}
+	if topRule != "" {
+		b.lines = append([]string{topRule}, b.lines...)
 		b.width = linesWidth(b.lines)
 		topRuleDrawn = true
 	}
-	if bot := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile); bot != "" {
-		if isEmpty() {
-			b.lines = []string{bot}
-		} else {
-			b.lines = append(b.lines, bot)
-		}
+	if botRule != "" {
+		b.lines = append(b.lines, botRule)
 		b.width = linesWidth(b.lines)
 	}
 	if ml > 0 || mr > 0 {

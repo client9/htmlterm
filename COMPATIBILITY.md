@@ -128,6 +128,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `margin`/`padding`/border thickness are all integer counts (or `ch`/`%`).
   `px`, `em`, `rem`, `vw`, `vh` are parsed as unsupported and ignored
   entirely, not converted.
+- **An empty box keeps one line when nothing is drawn around it.** A box with
+  no content has zero content height, and that is honored where it shows: an
+  empty bordered box's two rules meet, `<hr>` is a single rule, and vertical
+  padding rows are all that's left of a padded empty box — all matching CSS.
+  But a box with no rules and no vertical padding still renders one blank line
+  rather than collapsing to nothing, because that line is how this renderer
+  separates one block from the next: a zero-line box would run its siblings
+  together. `<textarea>` is exempt for a different reason — it's a field to
+  type into, sized in HTML by `rows` (unimplemented here), so an empty one
+  keeps a row to put the caret in.
 - **`opacity`** can't alpha-composite against an unknown terminal
   background, so fractional values darken the foreground/background color
   channels toward black instead; `opacity: 0` blanks content to spaces

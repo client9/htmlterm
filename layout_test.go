@@ -140,3 +140,61 @@ func TestCustomListMarkerIndentsWrappedLinesByColumns(t *testing.T) {
 		},
 	})
 }
+
+// TestEmptyBoxHasNoContentRow covers a block box whose content came out empty.
+// In CSS such a box has zero content *height*: an empty bordered <div> draws
+// its top and bottom rule adjacent with nothing between them, and a lone
+// border-top — which is what <hr> is — is a single rule.
+//
+// Block content here is always at least one line, since that line is how block
+// flow separates one box from the next, so an empty box has to give it up
+// explicitly. It didn't: a bordered empty div rendered three rows instead of
+// two, and `<hr style="width: 20">` two instead of one. The old special case
+// tested the box's rendered text for emptiness at the point the rules are
+// applied, by which time an explicit width, a side border, or horizontal
+// padding had already filled that line with spaces.
+func TestEmptyBoxHasNoContentRow(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "an empty bordered box's rules meet", width: 12, css: `.x{border-style:solid;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n└───┘\n"},
+		{name: "the same without an explicit width", width: 12, css: `.x{border-style:solid}`, html: `<div class="x"></div>`, want: "┌──────────┐\n└──────────┘\n"},
+		{name: "a lone rule is the whole box", width: 12, css: `.x{border-top:"-";width:5}`, html: `<div class="x"></div>`, want: "-----\n"},
+		{name: "hr is a single rule at any width", width: 12, css: `hr{width:5}`, html: `<hr>`, want: "─────\n"},
+		{name: "whitespace-only content is empty too", width: 12, css: `.x{border-style:solid;width:5}`, html: `<div class="x">   </div>`, want: "┌───┐\n└───┘\n"},
+		// Padding rows are the box's own, and survive: CSS keeps them around a
+		// zero-height content box. Only the content row goes.
+		{name: "vertical padding rows survive", width: 12, css: `.x{border-style:solid;padding-top:1;padding-bottom:1;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n│   │\n└───┘\n"},
+		// A declared height or min-height is precisely the request to reserve
+		// rows, so neither is dropped - including a min-height of exactly one,
+		// which is what an empty box would otherwise look like.
+		{name: "an explicit height still reserves its rows", width: 12, css: `.x{border-style:solid;height:2;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n│   │\n└───┘\n"},
+		{name: "min-height:1 still reserves its row", width: 12, css: `.x{border-style:solid;min-height:1;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n└───┘\n"},
+		// With nothing drawn around it, an empty box keeps its blank line rather
+		// than collapsing to nothing - a zero-line box has no way to separate
+		// itself from its siblings in block flow.
+		{name: "an undecorated empty box keeps its line", width: 12, css: `.x{width:5}`, html: `<div class="x"></div>`, want: "     \n"},
+		{name: "empty boxes still separate their siblings", width: 12, css: `.x{border-style:solid;width:5}`, html: `<div class="x"></div><div class="x"></div>`, want: "┌───┐\n└───┘\n┌───┐\n└───┘\n"},
+		// A <textarea> is a field the user types into, sized in real HTML by its
+		// `rows` attribute rather than by its content, so an empty one is not an
+		// empty box - dropping its row would leave an editable box with nowhere
+		// to show the caret.
+		{name: "an empty textarea keeps its field row", width: 14, html: `<textarea></textarea>`, want: "┌────────────┐\n│            │\n└────────────┘\n"},
+	})
+}
+
+// TestEmptyFlexContainerBox is TestEmptyBoxHasNoContentRow for a flex container
+// with no items, which had the same phantom content row — plus a second bug the
+// first one hid: the early return for "no items" skipped the height-reservation
+// passes entirely, so an empty flex container ignored its own declared height.
+func TestEmptyFlexContainerBox(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "an empty flex container's rules meet", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n└────┘\n"},
+		{name: "column direction is the same", width: 12, css: `.f{display:flex;flex-direction:column;border-style:solid;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n└────┘\n"},
+		// Loose text isn't a flex item here (see CSS.md), so a container holding
+		// only text is an empty container.
+		{name: "a container of only loose text is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f">loose</div>`, want: "┌────┐\n└────┘\n"},
+		{name: "a container whose only item is display:none is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f"><span style="display:none">x</span></div>`, want: "┌────┐\n└────┘\n"},
+		{name: "an empty container still reserves its declared height", width: 12, css: `.f{display:flex;border-style:solid;height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},
+		{name: "and its min-height", width: 12, css: `.f{display:flex;border-style:solid;min-height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},
+		{name: "an empty flex item is a two-row box on its line", width: 14, css: `.f{display:flex;border-style:solid;width:12}.i{display:flex;border-style:solid}`, html: `<div class="f"><div class="i"></div><span>x</span></div>`, want: "┌──────────┐\n│┌─┐x      │\n│└─┘       │\n└──────────┘\n"},
+	})
+}
