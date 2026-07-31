@@ -310,6 +310,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
 
 - **CSS units:** `px`, `em`, `rem`, `vw`, `vh`, and friends (ignored; use
   bare integers, `ch`, or `%`).
+- **Percentage `height`/`min-height`/`max-height`** (`%` on the *vertical*
+  axis). Widths resolve percentages fine; heights don't, on any box — there is
+  no established containing-block height to resolve them against, since a
+  terminal's own height is a viewport this renderer writes past rather than a
+  bound it lays out within. `height: 50%` is simply ignored, leaving the box at
+  its content height. One visible consequence in flex layout: a percentage
+  `height` doesn't count as a definite cross size, so it does *not* opt an item
+  out of `align-items: stretch` the way an absolute one does — the item is
+  stretched to the line instead, which is the better of the two available
+  answers given the percentage can't be resolved either way.
 - **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties —
   `--foo`/`var()` — *are* supported; see CSS.md's "Custom Properties
   (Variables)" section.)

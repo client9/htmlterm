@@ -167,6 +167,57 @@ func TestDispatchClickHitTestsPastAnOverflowingFlexItem(t *testing.T) {
 	}
 }
 
+// TestDispatchClickHitTestsStretchedColumnFlexItem pins that a column-direction
+// flex item stretched by align-items (the default) claims the container's full
+// content width for hit-testing, even though its painted box is left at its own
+// narrower content width — padding the box out would stop an inline-flex
+// container shrinking to fit, so only the Rect carries the stretched size. The
+// Rect used to report the painted width, so a click in the blank columns to the
+// item's right hit-tested to the container instead of to the item.
+func TestDispatchClickHitTestsStretchedColumnFlexItem(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="box" style="display:flex;flex-direction:column;width:20;border-style:solid"><div id="a">short</div></div>`)
+	a := doc.GetElementByID("a")
+
+	rect, ok := a.Rect()
+	if !ok {
+		t.Fatalf("Rect(a) not found")
+	}
+	if rect.Width != 18 {
+		t.Errorf("Rect(a).Width = %d, want 18 (the container's full content width)", rect.Width)
+	}
+
+	var target string
+	doc.AddEventListener(doc.DocumentElement(), "click", false, func(e *document.Event) { target = e.Target.ID() })
+	// Well past "short", but still inside the stretched item's own box.
+	doc.DispatchClick(rect.Row, rect.Col+12, document.Modifiers{})
+	if target != "a" {
+		t.Errorf("click in the stretched item's blank columns hit %q, want %q", target, "a")
+	}
+}
+
+// TestDispatchClickHitTestsUnstretchedColumnFlexItem is the control: an item the
+// container does *not* stretch really is only as wide as it paints, so the same
+// click belongs to the container.
+func TestDispatchClickHitTestsUnstretchedColumnFlexItem(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="box" style="display:flex;flex-direction:column;align-items:flex-start;width:20;border-style:solid"><div id="a">short</div></div>`)
+	a := doc.GetElementByID("a")
+
+	rect, ok := a.Rect()
+	if !ok {
+		t.Fatalf("Rect(a) not found")
+	}
+	if rect.Width != 5 {
+		t.Errorf("Rect(a).Width = %d, want 5 (its own content width)", rect.Width)
+	}
+
+	var target string
+	doc.AddEventListener(doc.DocumentElement(), "click", false, func(e *document.Event) { target = e.Target.ID() })
+	doc.DispatchClick(rect.Row, rect.Col+12, document.Modifiers{})
+	if target != "box" {
+		t.Errorf("click past an unstretched item hit %q, want %q", target, "box")
+	}
+}
+
 func TestDispatchClickFocusesTextEntryAndPositionsCaret(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="text" id="a" value="hello">`)
 	a := doc.GetElementByID("a")

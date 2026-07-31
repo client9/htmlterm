@@ -214,6 +214,27 @@ func TestFlexAlignItemsStretchGrowsTheBox(t *testing.T) {
 		{name: "align-items flex-start leaves a short item at its own height", width: 8, html: `<div style="display:flex;width:100%;align-items:flex-start"><div style="border-style:solid">a</div><div style="border-style:solid">b<br>c</div></div>`, want: "┌─┐┌─┐  \n│a││b│  \n└─┘│c│  \n   └─┘  \n"},
 		{name: "align-self stretch overrides a centering container", width: 8, html: `<div style="display:flex;width:100%;align-items:center"><div style="border-style:solid;align-self:stretch">a</div><div>b<br>c<br>d</div></div>`, want: "┌─┐b    \n│a│c    \n└─┘d    \n"},
 		{name: "plain text items are unaffected", width: 10, html: `<div style="display:flex;width:100%"><div>a<br>b</div><div>x</div></div>`, want: "ax        \nb         \n"},
+		// Stretching sizes the item "as close to the line's cross size as
+		// possible, while still respecting the constraints imposed by
+		// min-height/max-height" (§8.3). The synthetic height flex injects used
+		// to override max-height outright (block.go's height wins over
+		// max-height, by design), so a capped item grew the whole line's height.
+		{name: "max-height caps how far an item stretches", width: 20, html: `<div style="display:flex;width:100%"><div style="max-height:2;border-style:solid">a</div><div>x<br>y<br>z<br>w<br>v</div></div>`, want: "┌─┐x                \n│a│y                \n│ │z                \n└─┘w                \n   v                \n"},
+		{name: "a max-height above the line's own height doesn't bite", width: 20, html: `<div style="display:flex;width:100%"><div style="max-height:9;border-style:solid">a</div><div>x<br>y<br>z<br>w<br>v</div></div>`, want: "┌─┐x                \n│a│y                \n│ │z                \n│ │w                \n└─┘v                \n"},
+	})
+}
+
+// TestFlexBasisContent covers the `content` keyword, which sizes an item from
+// its content while ignoring its own main-size property — the one thing that
+// distinguishes it from `auto`, which consults width/height first. It used to
+// fall through as an unrecognized value, landing on `auto`'s behavior by
+// accident.
+func TestFlexBasisContent(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "row direction sizes from content, ignoring the item's width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:content;width:2;border-style:solid">abcdefgh</div><div>r</div></div>`, want: "┌────────┐r         \n│abcdefgh│          \n└────────┘          \n"},
+		{name: "flex-basis:auto still defers to that width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:auto;width:4;border-style:solid">abcdefgh</div><div>r</div></div>`, want: "┌──┐r               \n│ab│                \n└──┘                \n"},
+		{name: "column direction sizes from content, ignoring the item's height", width: 16, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:content;height:4;border-style:solid">a</div><div>z</div></div>`, want: "┌──────────────┐\n│a             │\n└──────────────┘\nz               \n"},
+		{name: "without flex-basis that height still applies", width: 16, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="height:4;border-style:solid">a</div><div>z</div></div>`, want: "┌──────────────┐\n│a             │\n│              │\n│              │\n│              │\n└──────────────┘\nz               \n"},
 	})
 }
 

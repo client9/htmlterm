@@ -966,7 +966,9 @@ item's box really does reach the full height rather than sitting short with
 blank rows underneath. The interior of the grown box is blank — this engine
 has no way to stretch text content itself. An item that declares its own
 `height` is not stretched, matching CSS's "stretch applies only to an auto
-cross size". That row
+cross size", and an item's own `max-height` caps how far it stretches, matching
+the spec's "while still respecting the constraints imposed by
+`min-height`/`max-height`". That row
 height is the tallest item's, unless the container is single-line
 (`flex-wrap: nowrap`, the default) and has an explicit `height` — then the
 line takes the container's height instead, so `align-items: center` on a
@@ -1102,10 +1104,13 @@ rejected. Not inherited.
 ```
 
 #### `flex-basis`
-`auto` (default) | `<integer>` | `<N%>`. An item's starting main-axis size
+`auto` (default) | `content` | `<integer>` | `<N%>`. An item's starting main-axis size
 before `flex-grow`/`flex-shrink` distribute any leftover space: width in
 `row` direction, height in `column` direction. `auto` falls back to the
 item's own `width`/`height` if set, else its measured/rendered natural size.
+`content` uses that natural size directly, ignoring the item's own
+`width`/`height` — which is the only thing distinguishing it from `auto`, so
+the two differ exactly when the item declares a main size of its own.
 That natural size is a genuine **shrink-to-fit** measurement of the item's own
 content: an item that paints a rectangle — a border, `text-align`, a closed
 box — is measured at the width its content needs, not at the width it would

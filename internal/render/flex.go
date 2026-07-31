@@ -864,10 +864,11 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 // flex-basis/width paths.
 func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
 	basis := 0
-	if v := it.decls["flex-basis"]; v != "" && v != "auto" {
+	content := flexBasisIsContent(it.decls)
+	if v := it.decls["flex-basis"]; v != "" && v != "auto" && !content {
 		basis = resolveFlexAxisSize(v, innerW)
 	}
-	if basis == 0 {
+	if basis == 0 && !content {
 		if v := it.decls["width"]; v != "" {
 			basis = resolveFlexAxisSize(v, innerW)
 		}
@@ -885,9 +886,35 @@ func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
 		basis = max(basis, r.flexMainAxisFloor(it, innerW))
 	}
 	if basis == 0 {
-		basis = r.measureNaturalWidth(it, innerW)
+		// `content` measures the item's content with its own width property out
+		// of the way - that's the entire difference between it and `auto`,
+		// which consults width first (above) and would otherwise have the
+		// measurement render honor it as well.
+		probe := it
+		if content {
+			probe = itemIgnoringSizeDecl(it, "width")
+		}
+		basis = r.measureNaturalWidth(probe, innerW)
 	}
 	return clampFlexBasis(it.decls, "min-width", "max-width", basis, innerW)
+}
+
+// flexBasisIsContent reports whether an item declares `flex-basis: content`,
+// the keyword that sizes an item from its content while ignoring its own
+// width/height property. `auto` defers to that property first and only falls
+// back to content, so the two differ exactly when the item declares a main size.
+func flexBasisIsContent(decls map[string]string) bool {
+	return strings.TrimSpace(decls["flex-basis"]) == "content"
+}
+
+// itemIgnoringSizeDecl returns it with one size declaration removed, over a
+// cloned decls map so the item's own (shared) resolved declarations are left
+// alone. Used to render or measure an item as if it had not declared that size.
+func itemIgnoringSizeDecl(it flexItem, key string) flexItem {
+	out := it
+	out.decls = maps.Clone(it.decls)
+	delete(out.decls, key)
+	return out
 }
 
 // resolveFlexAxisSize resolves one absolute-or-percentage CSS length against
@@ -1269,6 +1296,19 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 			continue
 		}
 		want := height - mt[i] - mb[i]
+		// Stretching makes the item's cross size "as close to the line's as
+		// possible, while still respecting the constraints imposed by
+		// min-height/max-height" (§8.3) - so an item's own max-height caps how
+		// far it stretches. Without this the synthetic height injected by
+		// renderFlexItemBoxSized simply overrode max-height (block.go's height
+		// takes priority over max-height, by design), and a max-height:1 item on
+		// a five-row line grew to all five. The cap is an outer size like want
+		// itself, while max-height is content-box in this engine, so the item's
+		// own border/padding rows are added back on. Percentage max-heights
+		// aren't resolved, matching this engine's height handling generally.
+		if m, _, ok := parseSizeVal(it.decls["max-height"]); ok && m > 0 {
+			want = min(want, m+blockVerticalChrome(it.decls))
+		}
 		if want <= len(itemBoxes[i].lines) {
 			continue
 		}
@@ -1575,9 +1615,27 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	boxes := make([]box, len(items))
 	poses := make([]map[*html.Node]Rect, len(items))
 	quoteBefore := make([]int, len(items))
+	// `flex-basis: content` sizes an item from its content while ignoring its
+	// own main-size property - height, in column direction. parseColumnFlexBasis
+	// already returns 0 for it (no synthetic height override), but that alone
+	// would leave the item's own declared height to size it through the ordinary
+	// block box model, which is the one thing the keyword is asking not to
+	// happen. Stripping it here is what makes `content` differ from `auto`.
+	// Rendered from renderItems throughout, so the flex-grow/flex-shrink
+	// re-render below stays consistent with the basis pass.
+	renderItems, cloned := items, false
 	for i, it := range items {
+		if !flexBasisIsContent(it.decls) || it.decls["height"] == "" {
+			continue
+		}
+		if !cloned {
+			renderItems, cloned = append([]flexItem(nil), items...), true
+		}
+		renderItems[i] = itemIgnoringSizeDecl(it, "height")
+	}
+	for i := range items {
 		quoteBefore[i] = r.quoteDepth
-		b, pos := r.renderFlexItemBoxHeight(it, widths[i], basisH[i])
+		b, pos := r.renderFlexItemBoxHeight(renderItems[i], widths[i], basisH[i])
 		boxes[i], poses[i], heights[i] = b, pos, len(b.lines)
 	}
 
@@ -1631,10 +1689,10 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// (quoteBefore[i]) rather than leaving it at whatever the full basis
 	// pass over every item left it at - see quoteBefore's own doc comment
 	// above.
-	for i, it := range items {
+	for i := range items {
 		if finalHeights[i] != heights[i] {
 			r.quoteDepth = quoteBefore[i]
-			boxes[i], poses[i] = r.renderFlexItemBoxHeight(it, widths[i], finalHeights[i])
+			boxes[i], poses[i] = r.renderFlexItemBoxHeight(renderItems[i], widths[i], finalHeights[i])
 		}
 	}
 
@@ -1691,7 +1749,16 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		for _, ln := range b.lines {
 			lines = append(lines, prefix+ln)
 		}
-		positions[it.node] = Rect{Row: row, Col: colOffset, Width: b.width, Height: len(b.lines)}
+		// A stretched item's cross size is the container's content width, even
+		// though its painted box is left at whatever it rendered to (see
+		// crossSized above - padding it out would stop an inline-flex container
+		// shrinking to fit). The blank columns to its right are the item's, not
+		// the container's, so its Rect has to claim them: reporting the painted
+		// width instead made a click in that region hit-test to the container.
+		// widths[i] is innerW for a stretched item and the already-enforced
+		// cross width for every other, so max() covers both - and leaves an item
+		// that overflowed its allotment reporting what it actually painted.
+		positions[it.node] = Rect{Row: row, Col: colOffset, Width: max(b.width, widths[i]), Height: len(b.lines)}
 		if len(poses[i]) > 0 {
 			positions = mergePositions(positions, poses[i], row, colOffset)
 		}
