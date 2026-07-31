@@ -556,7 +556,7 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 		for len(cellTokens) > 0 && cellTokens[len(cellTokens)-1].brk {
 			cellTokens = cellTokens[:len(cellTokens)-1]
 		}
-		if tdDecls["visibility"] == "hidden" {
+		if isHiddenVisibility(tdDecls["visibility"]) {
 			// Blank the content but keep its line/box structure (e.g. a
 			// <br> or nested block inside the cell) so the cell still
 			// occupies the same space.

@@ -278,7 +278,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						tablePositions = pos
 						bx = newBox(strings.TrimSuffix(tableContent, "\n"))
 					}
-					if childDecls["visibility"] == "hidden" {
+					if isHiddenVisibility(childDecls["visibility"]) {
 						bx = blankVisibleContentBox(bx)
 					}
 					pushBoxDirect(bx, tablePositions, parseMargin(childDecls["margin-top"]), c)
@@ -286,7 +286,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 				} else {
 					savedDepth := r.quoteDepth
 					bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
-					if childDecls["visibility"] == "hidden" {
+					if isHiddenVisibility(childDecls["visibility"]) {
 						r.quoteDepth = savedDepth
 						bx = blankVisibleContentBox(bx)
 					}
@@ -306,7 +306,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 			case "block":
 				savedDepth := r.quoteDepth
 				bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
-				if childDecls["visibility"] == "hidden" {
+				if isHiddenVisibility(childDecls["visibility"]) {
 					r.quoteDepth = savedDepth
 					bx = blankVisibleContentBox(bx)
 				}
@@ -315,7 +315,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 			case "flex":
 				savedDepth := r.quoteDepth
 				bx, subPositions := r.renderFlexContentBox(c, childDecls, availWidth)
-				if childDecls["visibility"] == "hidden" {
+				if isHiddenVisibility(childDecls["visibility"]) {
 					r.quoteDepth = savedDepth
 					bx = blankVisibleContentBox(bx)
 				}
@@ -350,7 +350,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 				if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 					childTokens = childTokens[:len(childTokens)-1]
 				}
-				if childDecls["visibility"] == "hidden" {
+				if isHiddenVisibility(childDecls["visibility"]) {
 					r.quoteDepth = savedDepth
 					childTokens = blankVisibleContentTokens(childTokens)
 				}
@@ -428,7 +428,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 							inner = padLinesToWidth(inner, colWidth)
 						}
 					}
-					if childDecls["visibility"] == "hidden" {
+					if isHiddenVisibility(childDecls["visibility"]) {
 						r.quoteDepth = savedDepth
 						inner = blankVisibleContent(inner)
 					}
@@ -471,7 +471,7 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						childTokens = childTokens[:len(childTokens)-1]
 					}
 					childTokens = restyleTrailingWhitespaceOnlyToken(childTokens, acc, r.profile)
-					if childDecls["visibility"] == "hidden" {
+					if isHiddenVisibility(childDecls["visibility"]) {
 						r.quoteDepth = savedDepth
 						childTokens = blankVisibleContentTokens(childTokens)
 					}

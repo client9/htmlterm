@@ -684,8 +684,9 @@ func isCSSNumberToken(s string) bool {
 }
 
 // isCSSFlexBasisToken reports whether s is usable as flex's <'flex-basis'>
-// component: the auto/content keywords, or a <length-percentage> - a CSS
-// number with an optional "%" or unit suffix. Deliberately not a full unit
+// component: the auto/content keywords, the intrinsic sizing keywords, or a
+// <length-percentage> - a CSS number with an optional "%" or unit suffix.
+// Deliberately not a full unit
 // vocabulary check (this engine's own sizing accepts bare counts and "ch", and
 // ignores any other unit): it only has to separate a real basis from a junk
 // token, so that `flex: <junk>` stays inert instead of picking up the
@@ -695,7 +696,7 @@ func isCSSNumberToken(s string) bool {
 func isCSSFlexBasisToken(s string) bool {
 	s = strings.TrimSpace(s)
 	switch strings.ToLower(s) {
-	case "auto", "content":
+	case "auto", "content", "min-content", "max-content", "fit-content":
 		return true
 	}
 	num := strings.TrimRight(s, "%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")

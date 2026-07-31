@@ -173,17 +173,16 @@ func parseFlexShrink(decls map[string]string) float64 {
 
 // flexShrinkFloor resolves how far a flex item may shrink below its resolved
 // main-axis basis in *column* direction: an explicit min-height - including
-// percentage, resolved against containerHeight - if set, else 1. Row direction uses
+// percentage, resolved against containerHeight, and plus the item's own
+// vertical chrome, since flex sizes are outer and min-height is content-box
+// (see clampFlexMainHeight) - if set, else 1. Row direction uses
 // flexMainAxisFloor instead, which implements the spec's automatic minimum
 // size; there is no vertical equivalent to implement here, since text can't be
 // forced into fewer lines, so column-direction content taller than its floor
 // simply overflows past it - the same graceful degradation already used for the
 // flex-shrink:0 case.
 func flexShrinkFloor(decls map[string]string, axisSize int) int {
-	if v, ok := resolveCSSSize(decls["min-height"], axisSize); ok && v > 1 {
-		return v
-	}
-	return 1
+	return clampFlexMainHeight(decls, 1, axisSize)
 }
 
 // flexMainAxisFloor resolves how far flex-shrink may take a row-direction item
@@ -227,11 +226,16 @@ func (r *Engine) flexMainAxisFloor(it flexItem, innerW int) int {
 	if !isVisibleOverflow(it.decls["overflow-x"]) {
 		return 1
 	}
+	// Both clamps read a declared zero as a real length (resolveFlexCSSSize),
+	// for the same reason min-width's own opt-out above does: `width: 0` is a
+	// specified size suggestion of nothing and `max-width: 0` a definite
+	// maximum of nothing, and treating either as absent would leave the item
+	// floored at its content after the author asked for the opposite.
 	floor := r.measureMinContentWidth(it)
-	if w, ok := resolveCSSSize(it.decls["width"], innerW); ok && w < floor {
+	if w, ok := resolveFlexCSSSize(it.decls["width"], innerW); ok && w < floor {
 		floor = w
 	}
-	if m, ok := resolveCSSSize(it.decls["max-width"], innerW); ok && m < floor {
+	if m, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok && m < floor {
 		floor = m
 	}
 	return max(1, floor)
@@ -307,9 +311,17 @@ func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
 // size: an explicit max-width (row direction) or max-height (column
 // direction) - including percentage, resolved against axisSize - if set, else
 // 0 meaning uncapped.
+//
+// Resolved through resolveFlexCSSSize, so a declared zero is a real maximum
+// rather than an absent one - the same distinction min-width already needs (see
+// parseFlexSizeVal), read from the other end. `max-width: 0` asks for an item
+// that doesn't grow at all; reading it as "no ceiling" let such an item absorb
+// the whole line. The ceiling is still floored at one cell, since no box here
+// renders in zero columns, which is also what keeps 0 usable as this function's
+// "uncapped" sentinel.
 func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
-	if v, ok := resolveCSSSize(decls[key], axisSize); ok && v > 0 {
-		return v
+	if v, ok := resolveFlexCSSSize(decls[key], axisSize); ok {
+		return max(1, v)
 	}
 	return 0
 }
@@ -326,11 +338,15 @@ func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
 // the column flex layout had allotted it: every following item on the line
 // drifted, and the recorded Rects - what click hit-testing reads - pointed at
 // the wrong columns.
+// A declared zero is a real bound on both ends (resolveFlexCSSSize, not
+// resolveCSSSize): `max-width: 0` asks for an item that can't grow, and reading
+// it as an absent maximum would let that item take the whole line. The result
+// is still floored at one cell, since no box here renders in zero columns.
 func clampFlexBasis(decls map[string]string, minKey, maxKey string, size, axisSize int) int {
-	if v, ok := resolveCSSSize(decls[maxKey], axisSize); ok && v > 0 && size > v {
+	if v, ok := resolveFlexCSSSize(decls[maxKey], axisSize); ok && size > v {
 		size = v
 	}
-	if v, ok := resolveCSSSize(decls[minKey], axisSize); ok && size < v {
+	if v, ok := resolveFlexCSSSize(decls[minKey], axisSize); ok && size < v {
 		size = v
 	}
 	return max(1, size)
@@ -506,26 +522,96 @@ func distributeFlexGrow(sizes []int, grows []float64, group []int, leftover int,
 	})
 }
 
+// growFlexLine implements the grow half of CSS Flexbox §9.7's flexible-length
+// resolution over one line (or, in column direction, over the container's
+// single stack of items): every unfrozen item's target main size is recomputed
+// each round from its *flex base size* - not from its hypothetical main size -
+// and the hypothetical is then applied as the round's minimum, freezing any
+// item that violated it and re-running the distribution over what's left.
+//
+// The distinction is the whole point of this function. The hypothetical main
+// size is the flex base size already clamped by the item's used minimum, which
+// in the main axis is `min-width: auto`, the automatic minimum size
+// (flexMainAxisFloor) - so seeding growth from it hands every item its own
+// min-content width for free, before any weighting, and only splits what's
+// left. Two `flex: 1` items in a 40-column container then come out 13/27
+// rather than 20/20, sized by their content rather than by their equal flex
+// factors. The spec instead has that minimum bite only as a step-4c violation:
+// items that land above it keep their weighted share, and only the ones that
+// land below it are frozen at the minimum, with the space they took redivided
+// among the rest (§9.7 steps 3-4, "fix min/max violations, freeze, repeat").
+//
+// sizes is written for every member of group. bases/hypos/ceilings are indexed
+// the same way (see distributeFlexGrow on the convention); ceilings may be nil.
+// Returns however much of the free space could not be placed, for
+// justify-content to distribute.
+func growFlexLine(sizes, bases, hypos, ceilings []int, grows []float64, group []int, avail int) int {
+	frozen := make([]bool, len(sizes))
+	for _, i := range group {
+		sizes[i] = hypos[i]
+		// §9.7 step 3, "size inflexible items": an item that can't grow at all,
+		// or whose flex base size its own maximum already clamped *down* to the
+		// hypothetical, is frozen there and takes no part in the distribution.
+		frozen[i] = grows[i] <= 0 || bases[i] > hypos[i]
+	}
+	for {
+		active := make([]int, 0, len(group))
+		used := 0
+		for _, i := range group {
+			if frozen[i] {
+				used += sizes[i]
+				continue
+			}
+			sizes[i] = bases[i]
+			used += bases[i]
+			active = append(active, i)
+		}
+		free := avail - used
+		if len(active) == 0 || free <= 0 {
+			return max(0, free)
+		}
+		leftover := distributeFlexGrow(sizes, grows, active, free, ceilings)
+		violated := false
+		for _, i := range active {
+			if sizes[i] < hypos[i] {
+				sizes[i] = hypos[i]
+				frozen[i] = true
+				violated = true
+			}
+		}
+		if !violated {
+			return leftover
+		}
+	}
+}
+
 // distributeFlexShrink subtracts each group member's proportional share of
-// deficit from sizes[i], weighted by shrinks[i]*sizes[i] (the real spec's
-// "scaled flex shrink factor"), floored at floors[i] - shared by row
-// direction's width distribution and column direction's height distribution.
+// deficit from sizes[i], weighted by shrinks[i]*bases[i] (the real spec's
+// "scaled flex shrink factor", scaled by the inner flex base size), floored at
+// floors[i] - shared by row direction's width distribution and column
+// direction's height distribution.
 // Returns however much of deficit wasn't actually absorbed (0 unless every
 // shrinkable member hit its floor before deficit was exhausted, or no member
 // can shrink at all). Floored members' unabsorbed share is redistributed to
 // the members that can still shrink, and shares come from proportionalShares,
 // for the same reasons distributeFlexGrow's do - see distributeFlexSpace.
 //
-// The scaled shrink factors are computed once, from each member's incoming
-// (flex base) size rather than its current one, matching the spec's own use of
-// the inner flex base size across every round of the loop.
-func distributeFlexShrink(sizes []int, shrinks []float64, floors []int, group []int, deficit int) int {
+// The scaled shrink factors are computed once, from each member's flex base
+// size rather than from its current (or hypothetical) one, matching the spec's
+// own use of the inner flex base size across every round of the loop.
+//
+// There is no separate freeze pass for the spec's step-3 "size inflexible
+// items" rule here, the way growFlexLine needs one: an item whose used minimum
+// already raised it above its flex base size arrives with floors[i] equal to
+// its incoming size, so take() can move it by nothing and distributeFlexSpace
+// freezes it on the first round anyway.
+func distributeFlexShrink(sizes []int, shrinks []float64, bases, floors []int, group []int, deficit int) int {
 	scaled := make([]float64, len(sizes))
 	for _, i := range group {
 		if shrinks[i] <= 0 {
 			continue
 		}
-		scaled[i] = shrinks[i] * float64(sizes[i])
+		scaled[i] = shrinks[i] * float64(bases[i])
 	}
 	return distributeFlexSpace(scaled, shrinks, group, deficit, func(i, units int) int {
 		if maxReduce := sizes[i] - floors[i]; units > maxReduce {
@@ -614,7 +700,15 @@ func (r *Engine) appendFlexItems(items []flexItem, n *html.Node) []flexItem {
 			continue
 		}
 		decls := r.resolveDecls(c)
-		if decls["display"] == "none" || r.outOfFlow[c] {
+		// visibility: collapse on a flex item is a *collapsed flex item*
+		// (Flexbox §4.4), which the spec has behave as display: none - not as
+		// visibility: hidden, which is what the same declaration means on any
+		// other element (see isHiddenVisibility). A browser keeps the
+		// collapsed item's cross-size strut alive so the line doesn't get
+		// shorter; this engine doesn't, since the row's cross size is just its
+		// tallest remaining item and reserving a strut for an item nobody can
+		// see would leave an unexplained blank band. See COMPATIBILITY.md.
+		if decls["display"] == "none" || decls["visibility"] == "collapse" || r.outOfFlow[c] {
 			continue
 		}
 		if decls["display"] == "contents" {
@@ -791,29 +885,54 @@ func blockVerticalChrome(decls map[string]string) int {
 }
 
 // parseColumnFlexBasis resolves a column-direction flex item's flex-basis to
-// an absolute line count: 0 means unset/auto (or a percentage basis with no
-// definite container height to resolve against - real CSS treats a
-// percentage flex-basis as auto when the container's own main size is
-// indefinite, which this engine only ever considers "definite" when an
-// explicit CSS height is set on the container - see resolveFlexContainerHeight).
-// A declared flex-basis of 0 is a definite base size, not an absent one, and
-// resolves to one line - see parseFlexSizeVal.
-func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasContainerHeight bool) int {
+// an absolute line count, reporting false when there is no declared base size
+// to use: flex-basis unset, `auto`, `content`, or a percentage with no definite
+// container height to resolve against (real CSS treats a percentage flex-basis
+// as auto when the container's own main size is indefinite, which this engine
+// only ever considers "definite" when an explicit CSS height is set on the
+// container - see resolveFlexContainerHeight).
+//
+// A declared flex-basis of 0 is a definite base size of nothing, not an absent
+// one, and is returned as 0 with ok true - see parseFlexSizeVal. The row that
+// no box can render in zero lines is imposed by the caller's own clamp against
+// the item's minimum, not here: the base size is an arithmetic input to
+// flex-grow, and flooring it at one line is what leaves `flex: 1` items a row
+// off their true shares.
+func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasContainerHeight bool) (int, bool) {
 	v := decls["flex-basis"]
 	if v == "" || v == "auto" {
-		return 0
+		return 0, false
 	}
 	abs, pct, ok := parseFlexSizeVal(v)
 	if !ok {
-		return 0
+		return 0, false
 	}
 	if pct > 0 {
 		if !hasContainerHeight {
-			return 0
+			return 0, false
 		}
-		return max(1, int(pct*float64(containerHeight)))
+		return int(pct * float64(containerHeight)), true
 	}
-	return max(1, abs)
+	return abs, true
+}
+
+// clampFlexMainHeight clamps a column-direction main-axis size to the item's
+// own min-height/max-height, producing the spec's hypothetical main size on the
+// vertical axis - clampFlexBasis's counterpart for the one axis where the two
+// sizes aren't measured in the same box. Flex layout resolves *outer* sizes
+// (border rules and padding rows included), while min-height/max-height are
+// content-box in this engine, so each bound gets the item's own vertical chrome
+// added back before it's compared. Maximum first and minimum second, so a
+// minimum larger than a maximum wins - CSS's own min/max resolution order.
+func clampFlexMainHeight(decls map[string]string, size, containerHeight int) int {
+	chrome := blockVerticalChrome(decls)
+	if v, ok := resolveFlexCSSSize(decls["max-height"], containerHeight); ok && size > v+chrome {
+		size = v + chrome
+	}
+	if v, ok := resolveFlexCSSSize(decls["min-height"], containerHeight); ok && size < v+chrome {
+		size = v + chrome
+	}
+	return max(1, size)
 }
 
 // measureNaturalWidth renders it at a generous width cap purely to measure
@@ -862,56 +981,124 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 	return b.width
 }
 
-// resolveMainBasis resolves a row-direction flex item's starting main-axis
-// (horizontal) size: flex-basis (if set and not auto) takes priority, then
-// width, then the item's own measured natural content width - the result
-// clamped by the item's own min-width/max-width (clampFlexBasis). The natural
-// -width path is measured through renderBlockContentBox, which resolves those
-// two itself, so clamping is a no-op there and only really bites on the
-// flex-basis/width paths.
-func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
-	basis := 0
+// resolveMainBasis resolves a row-direction flex item's two main-axis
+// (horizontal) starting sizes, which the spec keeps deliberately apart:
+//
+//   - the **flex base size**: flex-basis (if set and not auto) takes priority,
+//     then width, then the item's own measured natural content width. Nothing
+//     clamps it - it is the size flex-grow/flex-shrink distribute *from*.
+//   - the **hypothetical main size**: that base clamped by the item's used
+//     minimum and maximum main size (§9.2), where min-width's used value on a
+//     flex item is `auto` - the automatic minimum size (flexMainAxisFloor), not
+//     zero. This is what flex-wrap breaks lines on and what decides whether the
+//     line grows or shrinks.
+//
+// Collapsing the two - growing from the hypothetical - is what makes `flex: 1`
+// items come out sized by their content instead of by their flex factors; see
+// growFlexLine, which applies the hypothetical as a violation floor instead.
+//
+// A measured base needs no automatic-minimum probe: measureNaturalWidth is a
+// shrink-to-fit (fit-content) measurement, so it is already at or above
+// min-content and the floor could never bite. That matters for more than
+// tidiness - flexMainAxisFloor's probe is a second trial render per item.
+func (r *Engine) resolveMainBasis(it flexItem, innerW int) (base, hypo int) {
 	content := flexBasisIsContent(it.decls)
+	declared := false
 	if v := it.decls["flex-basis"]; v != "" && v != "auto" && !content {
-		basis = resolveFlexAxisSize(v, innerW)
+		base, declared = resolveFlexCSSSize(v, innerW)
 	}
-	if basis == 0 && !content {
+	if !declared && !content {
 		if v := it.decls["width"]; v != "" {
-			basis = resolveFlexAxisSize(v, innerW)
+			base, declared = resolveFlexCSSSize(v, innerW)
 		}
 	}
-	// A basis that came from a declared length, rather than from measuring the
-	// item, is floored at the automatic minimum size: the spec clamps the flex
-	// base size by the used min/max main size to get the *hypothetical* main
-	// size (§9.2), and min-width's used value is `auto`, not 0 - so a declared
-	// flex-basis smaller than the item's content is raised to fit it before
-	// line-breaking and grow/shrink ever see it, not merely prevented from
-	// shrinking further later. Skipped for a measured basis, which is
-	// fit-content and so already at or above min-content: the floor could never
-	// bite, and flexMainAxisFloor's probe is a second trial render per item.
-	if basis > 0 {
-		basis = max(basis, r.flexMainAxisFloor(it, innerW))
-	}
-	if basis == 0 {
-		// `content` measures the item's content with its own width property out
-		// of the way - that's the entire difference between it and `auto`,
-		// which consults width first (above) and would otherwise have the
-		// measurement render honor it as well.
+	if !declared {
+		// `content` and the intrinsic keywords measure the item's content with
+		// its own width property out of the way - that's the entire difference
+		// between them and `auto`, which consults width first (above) and would
+		// otherwise have the measurement render honor it as well.
 		probe := it
 		if content {
 			probe = itemIgnoringSizeDecl(it, "width")
 		}
-		basis = r.measureNaturalWidth(probe, innerW)
+		if kind, ok := flexBasisIntrinsic(it.decls); ok {
+			base = r.measureFlexIntrinsicWidth(probe, kind, innerW)
+		} else {
+			base = r.measureNaturalWidth(probe, innerW)
+		}
+		return base, clampFlexBasis(it.decls, "min-width", "max-width", base, innerW)
 	}
-	return clampFlexBasis(it.decls, "min-width", "max-width", basis, innerW)
+	// Maximum first and minimum second, so a minimum larger than a maximum
+	// wins - CSS's own min/max resolution order, and the same order
+	// clampFlexBasis uses for the measured path above. flexMainAxisFloor is
+	// already the *used* minimum: an explicitly declared min-width if there is
+	// one, else the automatic minimum size (itself already clamped by any
+	// definite maximum, per CSS Sizing 3 §5.1).
+	hypo = base
+	if v, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok && hypo > v {
+		hypo = v
+	}
+	if floor := r.flexMainAxisFloor(it, innerW); hypo < floor {
+		hypo = floor
+	}
+	return base, max(1, hypo)
 }
 
-// flexBasisIsContent reports whether an item declares `flex-basis: content`,
-// the keyword that sizes an item from its content while ignoring its own
-// width/height property. `auto` defers to that property first and only falls
-// back to content, so the two differ exactly when the item declares a main size.
+// flexBasisIsContent reports whether an item declares a flex-basis that sizes
+// it from its content while ignoring its own width/height property: `content`
+// itself, or one of the intrinsic sizing keywords, which are content-based in
+// exactly the same sense (CSS Sizing 3 §5.1 - an intrinsic size is computed
+// from content, ignoring the box's specified size). `auto` defers to the
+// width/height property first and only falls back to content, so it is the one
+// content-ish value that isn't here - the two differ exactly when the item
+// declares a main size.
 func flexBasisIsContent(decls map[string]string) bool {
-	return strings.TrimSpace(decls["flex-basis"]) == "content"
+	switch strings.TrimSpace(decls["flex-basis"]) {
+	case "content", "min-content", "max-content", "fit-content":
+		return true
+	}
+	return false
+}
+
+// flexBasisIntrinsic reports which intrinsic sizing keyword an item's
+// flex-basis names, if any. They differ only in which measurement of the item's
+// content they ask for; see measureFlexIntrinsicWidth.
+func flexBasisIntrinsic(decls map[string]string) (string, bool) {
+	switch v := strings.TrimSpace(decls["flex-basis"]); v {
+	case "min-content", "max-content", "fit-content":
+		return v, true
+	}
+	return "", false
+}
+
+// measureFlexIntrinsicWidth measures a row-direction item's content under one
+// of the intrinsic sizing keywords, all three of which ignore the item's own
+// width (the caller has already stripped it - see flexBasisIsContent):
+//
+//   - `min-content` is the widest unbreakable run plus the item's own chrome,
+//     which is exactly what flexMainAxisFloor's own floor measurement computes.
+//   - `max-content` is the width the item would take if never forced to wrap,
+//     measured at an effectively unbounded budget. measuringNaturalWidth is set
+//     for the duration so a nested width:100% box measures its own shrink-to-fit
+//     width instead of stretching to fill that budget, the same guard
+//     measureCellNaturalWidth uses for the identical reason.
+//   - `fit-content` is min(max-content, max(min-content, available)), which for
+//     this engine is just the ordinary natural-width measurement at the
+//     container's own content width: measureNaturalWidth wraps to the budget it
+//     is given and reports what the content actually came to.
+func (r *Engine) measureFlexIntrinsicWidth(it flexItem, kind string, innerW int) int {
+	switch kind {
+	case "min-content":
+		return r.measureMinContentWidth(it)
+	case "max-content":
+		saved := r.measuringNaturalWidth
+		r.measuringNaturalWidth = true
+		w := r.measureNaturalWidth(it, measureBlockWidthCap)
+		r.measuringNaturalWidth = saved
+		return w
+	default:
+		return r.measureNaturalWidth(it, innerW)
+	}
 }
 
 // itemIgnoringSizeDecl returns it with one size declaration removed, over a
@@ -1168,10 +1355,14 @@ func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
 // against the container's declared height rather than against the content.
 // 0 means "whatever the items come to", the multi-line case, where each line
 // sizes to its own content and align-content places the lines instead.
-func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap, minHeight int, justify string, decls map[string]string) (box, int, map[*html.Node]Rect) {
+func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap, minHeight int, justify string, decls map[string]string) (box, int, map[*html.Node]Rect) {
 	totalGap := gap * (len(group) - 1)
 	availForItems := max(0, innerW-totalGap)
 
+	// The grow-or-shrink decision is made on the sum of the line's
+	// *hypothetical* main sizes (§9.7 step 1), which is what widths holds on
+	// the way in; the distribution itself then works from each item's flex base
+	// size (bases) - see growFlexLine and resolveMainBasis.
 	sumW := 0
 	for _, i := range group {
 		sumW += widths[i]
@@ -1187,23 +1378,26 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	leftover := availForItems - sumW
 	switch {
 	case leftover > 0:
-		// Capped per item at its own max-width, the mirror of column
-		// direction's max-height ceiling. Any leftover the ceilings prevented
-		// from being absorbed flows through to justify-content below rather
-		// than being silently dropped.
-		leftover = distributeFlexGrow(widths, grows, group, leftover, ceilings)
+		// Grown from each item's flex base size and floored at its hypothetical
+		// main size (the automatic minimum size, applied as a §9.7 step-4c
+		// violation rather than as a head start), capped per item at its own
+		// max-width - the mirror of column direction's max-height ceiling. Any
+		// leftover the ceilings prevented from being absorbed flows through to
+		// justify-content below rather than being silently dropped.
+		hypos := append([]int(nil), widths...)
+		leftover = growFlexLine(widths, bases, hypos, ceilings, grows, group, availForItems)
 	case leftover < 0:
-		// Overflow: shrink items proportionally to flex-shrink * basis width
-		// (the real spec's "scaled flex shrink factor"), floored at each item's
-		// automatic minimum size. The floors are resolved here rather than
-		// alongside grows/ceilings above because flexMainAxisFloor measures
+		// Overflow: shrink items proportionally to flex-shrink * flex base
+		// width (the real spec's "scaled flex shrink factor"), floored at each
+		// item's automatic minimum size. The floors are resolved here rather
+		// than alongside grows/ceilings above because flexMainAxisFloor measures
 		// min-content with a trial render, and a line that isn't overflowing
 		// has no use for the answer.
 		floors := make([]int, len(items))
 		for _, i := range group {
 			floors[i] = r.flexMainAxisFloor(items[i], innerW)
 		}
-		leftover = -distributeFlexShrink(widths, shrinks, floors, group, -leftover)
+		leftover = -distributeFlexShrink(widths, shrinks, bases, floors, group, -leftover)
 	}
 
 	// margin-left/margin-right:auto absorbs whatever main-axis leftover
@@ -1446,13 +1640,18 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	mb := make([]int, len(items))
 	mlAuto := make([]bool, len(items))
 	mrAuto := make([]bool, len(items))
+	// bases[i] is the item's flex base size, widths[i] its hypothetical main
+	// size - the two sizes §9.7 keeps apart. Line breaking below uses the
+	// hypothetical, as the spec has it; layoutFlexLine distributes from the
+	// base. See resolveMainBasis.
+	bases := make([]int, len(items))
 	widths := make([]int, len(items))
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
 		mb[i] = parseMargin(it.decls["margin-bottom"])
 		mlAuto[i] = strings.TrimSpace(it.decls["margin-left"]) == "auto"
 		mrAuto[i] = strings.TrimSpace(it.decls["margin-right"]) == "auto"
-		widths[i] = r.resolveMainBasis(it, innerW)
+		bases[i], widths[i] = r.resolveMainBasis(it, innerW)
 	}
 
 	lineGroups := breakFlexLines(len(items), widths, innerW, gap, wrap)
@@ -1479,7 +1678,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	}
 	results := make([]lineResult, len(lineGroups))
 	for li, group := range lineGroups {
-		b, h, pos := r.layoutFlexLine(items, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, lineMinHeight, justify, decls)
+		b, h, pos := r.layoutFlexLine(items, bases, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, lineMinHeight, justify, decls)
 		results[li] = lineResult{b, h, pos}
 	}
 
@@ -1581,7 +1780,18 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// rendered to, so an inline-flex container still shrinks to fit its
 	// content instead of padding out to its caller's wrap bound.
 	crossSized := make([]bool, len(items))
-	basisH := make([]int, len(items))
+	// declBasis[i] is the item's declared flex base size in rows (0 when
+	// flex-basis is auto/content, or a percentage with no definite container
+	// height to resolve it against); renderH[i] is the height override the
+	// basis render below is given, which is that base clamped by the item's own
+	// min-height/max-height - the hypothetical main size. They are the same two
+	// sizes resolveMainBasis returns for row direction, and are kept apart for
+	// the same reason: growth is measured from the base, the hypothetical is
+	// only a floor. 0 in renderH means "no override", i.e. let the item size
+	// itself from its content.
+	declBasis := make([]int, len(items))
+	hasBasis := make([]bool, len(items))
+	renderH := make([]int, len(items))
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
 		mb[i] = parseMargin(it.decls["margin-bottom"])
@@ -1592,18 +1802,19 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			crossSized[i] = true
 		}
 		widths[i] = max(1, w)
-		basisH[i] = parseColumnFlexBasis(it.decls, containerHeight, hasContainerHeight)
-		if basisH[i] > 0 {
-			// flex-basis's own height override must never end up shorter
-			// than the item's own declared min-height - real CSS resolves
-			// an item's used size to at least min-height regardless of
-			// flex-basis. Without this, setting flex-basis on an item would
-			// paradoxically defeat a min-height it would otherwise get for
-			// free from block.go's ordinary (non-flex-basis) min-height
-			// padding.
-			if minH := flexShrinkFloor(it.decls, containerHeight); minH > basisH[i] {
-				basisH[i] = minH
-			}
+		declBasis[i], hasBasis[i] = parseColumnFlexBasis(it.decls, containerHeight, hasContainerHeight)
+		if hasBasis[i] {
+			// The declared base is clamped by the item's own minimum and
+			// maximum before it is rendered at all - real CSS resolves an
+			// item's used main size to at least min-height and at most
+			// max-height regardless of flex-basis. Without the minimum, setting
+			// flex-basis would paradoxically defeat a min-height the item would
+			// otherwise get for free from block.go's ordinary padding; without
+			// the maximum, the synthetic height renderFlexItemBoxHeight injects
+			// simply overrode max-height (block.go ranks an explicit height
+			// above it, by design) and a `flex-basis: 6; max-height: 1` item
+			// rendered six rows tall.
+			renderH[i] = clampFlexMainHeight(it.decls, declBasis[i], containerHeight)
 		}
 	}
 
@@ -1642,7 +1853,17 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	}
 	for i := range items {
 		quoteBefore[i] = r.quoteDepth
-		b, pos := r.renderFlexItemBoxHeight(renderItems[i], widths[i], basisH[i])
+		b, pos := r.renderFlexItemBoxHeight(renderItems[i], widths[i], renderH[i])
+		// The hypothetical main size is read back off the rendered box rather
+		// than computed, so what flex layout reserves is always exactly what
+		// the item paints. For a declared basis that's the already-clamped
+		// renderH it was just handed; for a content-sized item it's whatever
+		// its content came to, min-height padding included (block.go does
+		// that). A content-sized item's max-height is deliberately *not*
+		// applied on top: block.go only clips to max-height under an explicit
+		// overflow-y: hidden/clip, and this engine never truncates content
+		// vertically without one - so honoring it here would reserve fewer rows
+		// than the item goes on to paint.
 		boxes[i], poses[i], heights[i] = b, pos, len(b.lines)
 	}
 
@@ -1658,10 +1879,34 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	}
 	totalContentHeight += prevMb
 
+	// heights[i] is the item's *hypothetical* main size: its flex base size
+	// already raised by everything that can't be compressed away - its own
+	// content (text can't be forced into fewer lines, column direction's
+	// stand-in for row direction's automatic minimum size) and its min-height.
+	// baseH[i] is the flex base size itself, which is what flex-grow
+	// distributes from; the two differ exactly when a declared flex-basis was
+	// raised. See resolveMainBasis and growFlexLine for the row-direction
+	// statement of the same rule.
+	baseH := make([]int, len(items))
+	for i := range items {
+		baseH[i] = heights[i]
+		if hasBasis[i] && declBasis[i] < heights[i] {
+			baseH[i] = declBasis[i]
+		}
+	}
+
 	finalHeights := append([]int(nil), heights...)
 	leftover := 0
 	if hasContainerHeight {
 		leftover = containerHeight - totalContentHeight
+		// Whatever of the container's height isn't the items themselves -
+		// row-gap and the items' own margins - isn't available to distribute,
+		// so growFlexLine works against the height the items actually share.
+		sumHeights := 0
+		for _, h := range heights {
+			sumHeights += h
+		}
+		availForItems := containerHeight - (totalContentHeight - sumHeights)
 		allIdx := make([]int, len(items))
 		grows := make([]float64, len(items))
 		shrinks := make([]float64, len(items))
@@ -1677,15 +1922,16 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		switch {
 		case leftover > 0:
 			// Mirrors layoutFlexLine's flex-grow branch, distributing into
-			// height instead of width - capped per item at its own
-			// max-height (ceilings), the mirror of row direction's max-width
+			// height instead of width - grown from each item's flex base size,
+			// floored at its hypothetical main size, and capped per item at its
+			// own max-height (ceilings), the mirror of row direction's max-width
 			// ceiling. Any leftover the ceilings prevented from being
 			// absorbed flows through to justify-content/the trailing pad
 			// below, instead of being silently dropped.
-			leftover = distributeFlexGrow(finalHeights, grows, allIdx, leftover, ceilings)
+			leftover = growFlexLine(finalHeights, baseH, heights, ceilings, grows, allIdx, availForItems)
 		case leftover < 0:
 			// Mirrors layoutFlexLine's flex-shrink branch.
-			leftover = -distributeFlexShrink(finalHeights, shrinks, floors, allIdx, -leftover)
+			leftover = -distributeFlexShrink(finalHeights, shrinks, baseH, floors, allIdx, -leftover)
 		}
 	}
 
@@ -1932,7 +2178,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 			positions = mergePositions(nil, positions, 0, ml)
 		}
 	}
-	if decls["visibility"] == "hidden" {
+	if isHiddenVisibility(decls["visibility"]) {
 		content = blankVisibleContentBox(content)
 	}
 	if r.liveContentOffsets == nil {
@@ -2003,7 +2249,12 @@ func (r *Engine) inlineFlexNaturalWidth(n *html.Node, decls map[string]string, a
 	}
 	total := parseGapLen(decls["column-gap"]) * (len(items) - 1)
 	for _, it := range items {
-		total += r.resolveMainBasis(it, availWidth)
+		// The hypothetical main size, not the flex base size: shrink-to-fit is
+		// a content-based measurement, and an item's used minimum (its
+		// automatic minimum size) is part of the room it genuinely needs -
+		// a `flex: 1` item's flex base size of 0 is not.
+		_, hypo := r.resolveMainBasis(it, availWidth)
+		total += hypo
 	}
 	return total
 }

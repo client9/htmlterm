@@ -224,11 +224,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
   and after it ends up on separate rows. Keep such boxes to a single line if
   they share a line with text. Easiest to hit via `inline-flex`, where any
   item that wraps makes the container two lines tall.
-- **`flex-basis: 0` resolves to one cell, not zero.** No box can render in
-  zero columns/lines, so the floor is one — which means the common `flex: 1`
-  (whose shorthand expansion is `flex-basis: 0`) reserves one cell per item
-  before any leftover space is distributed, making grow ratios slightly off
-  for items with differing `flex-grow` weights.
+- **A flex item is never narrower or shorter than one cell.** No box can render
+  in zero columns/lines, so every resolved main size floors at one — which is
+  visible where CSS would produce a genuinely empty box: `max-width: 0` caps an
+  item at one column rather than none, and an item whose whole allotment is
+  border characters paints them anyway. The floor is applied to *resolved* sizes
+  only, not to the arithmetic: a `flex-basis` of `0` (what the common `flex: 1`
+  expands to) really is zero when `flex-grow` divides the container up, on both
+  axes, so equal factors give exactly equal shares and unequal ones split in
+  exactly their ratio.
 - **An over-shrunk flex item is clipped, where CSS would let it overflow.**
   This one is unusual, so it's worth stating why. CSS keeps it from arising in
   the first place: `min-width`'s initial value on a flex item's main axis is
@@ -262,7 +266,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   already wrapped) rather than the single-line length a browser would use.
   Items narrower than the container measure exactly as they would in a
   browser; the difference only shows up in how `flex-shrink` splits a deficit
-  among items that are individually wider than their container.
+  among items that are individually wider than their container. `flex-basis:
+  max-content` asks for the real thing and gets it — the measurement there is
+  taken at an effectively unbounded budget.
 
 ### Terminal-Native Additions
 
@@ -395,7 +401,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   set them are effectively just `align-items`/`align-self`),
   `baseline` alignment, the physical `left`/`right` alignment
   keywords, `margin: auto` beyond row direction's main axis (row direction's
-  `margin-left`/`margin-right: auto` is supported), and text nodes directly
+  `margin-left`/`margin-right: auto` is supported),
+  `flex-basis`'s intrinsic sizing keywords in `column` direction
+  (`min-content`/`max-content`/`fit-content` all behave as `content` there —
+  they are fully distinct in `row` direction),
+  a collapsed flex item's cross-size **strut** (`visibility: collapse` does drop
+  the item from layout as `display: none`, per §4.4, but a browser keeps the
+  collapsed item's cross size contributing to its line's height and this engine
+  sizes the line from its remaining items instead — reserving a blank band for
+  an item nobody can see reads as a rendering bug on a character grid),
+  and text nodes directly
   inside a flex container, which real CSS wraps in anonymous flex items but
   this engine drops (wrap loose text in a `<span>`).
   `flex-grow`/`flex-shrink`/`justify-content` do work in `column` direction,

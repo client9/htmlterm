@@ -633,7 +633,16 @@ See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` ne
 `<integer>`. Tab-stop interval for expanding `\t` characters inside `white-space: pre` or `pre-wrap` content. Tab characters advance to the next multiple of `tab-size` columns. Default: `8`. Has no effect when `white-space` is `normal`, `nowrap`, or `pre-line` (tabs are collapsed to a single space like any other whitespace). Inherited.
 
 #### `visibility`
-`visible` | `hidden`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead, measured in terminal columns, so a double-width character (CJK, emoji) is replaced by the two spaces it occupied rather than one. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
+`visible` | `hidden` | `collapse`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead, measured in terminal columns, so a double-width character (CJK, emoji) is replaced by the two spaces it occupied rather than one. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
+
+`collapse` behaves as `hidden` everywhere except **on a flex item**, where it is
+CSS's *collapsed flex item* (Flexbox §4.4) and behaves as `display: none`
+instead: the item is dropped from layout entirely, and the main-axis space it
+would have taken goes to its siblings rather than sitting blank. (A browser
+keeps the collapsed item's cross-size strut alive so the flex line doesn't get
+shorter; this engine doesn't — see [COMPATIBILITY.md](COMPATIBILITY.md).)
+`collapse` on a table row or column is not implemented as a row/column collapse
+either; it is just `hidden` there.
 
 #### `content`
 
@@ -1084,9 +1093,11 @@ supported. Not inherited.
 
 #### `flex-grow`
 `<number>` (default `0`). In `row` direction, distributes leftover main-axis
-space (after every item's `flex-basis` is resolved) proportionally by
-weight — this leftover is always available (the row's width is always
-definite). In `column` direction, the same distribution applies to leftover
+space proportionally by weight — this leftover is always available (the row's
+width is always definite). Each item grows from its own **flex base size**, not
+from the [automatic minimum size](#automatic-minimum-size-min-width-auto) that
+minimum may have raised it to; see there for why that distinction is what makes
+`flex: 1` split a container equally. In `column` direction, the same distribution applies to leftover
 *height*, but only once the container has an explicit CSS `height` taller
 than the items' own resolved main-axis (vertical) stack — this engine has no
 other notion of a column container's main-axis size, so with no explicit
@@ -1128,13 +1139,34 @@ rejected. Not inherited.
 ```
 
 #### `flex-basis`
-`auto` (default) | `content` | `<integer>` | `<N%>`. An item's starting main-axis size
+`auto` (default) | `content` | `min-content` | `max-content` | `fit-content` |
+`<integer>` | `<N%>`. An item's starting main-axis size
 before `flex-grow`/`flex-shrink` distribute any leftover space: width in
 `row` direction, height in `column` direction. `auto` falls back to the
 item's own `width`/`height` if set, else its measured/rendered natural size.
 `content` uses that natural size directly, ignoring the item's own
 `width`/`height` — which is the only thing distinguishing it from `auto`, so
 the two differ exactly when the item declares a main size of its own.
+
+The three **intrinsic sizing keywords** ignore the item's own `width`/`height`
+the same way `content` does, and differ only in which measurement of the content
+they ask for. In `row` direction:
+
+- **`min-content`** — the item's widest unbreakable run (its longest word, or
+  its widest `white-space: nowrap` span) plus its own border/padding. The same
+  measurement the [automatic minimum size](#automatic-minimum-size-min-width-auto)
+  uses.
+- **`max-content`** — the width the item would take if never forced to wrap.
+  Wider than the container is a normal outcome; the line then overflows or
+  `flex-shrink` pulls it back.
+- **`fit-content`** — what the content actually comes to within the space
+  available, i.e. `min(max-content, max(min-content, available))`. This is the
+  same measurement `auto`/`content` already use.
+
+In `column` direction all three behave as `content` (the item's natural
+rendered height): there is no vertical min-content/max-content distinction to
+draw here, since text can't be made taller or shorter than the lines it
+occupies.
 That natural size is a genuine **shrink-to-fit** measurement of the item's own
 content: an item that paints a rectangle — a border, `text-align`, a closed
 box — is measured at the width its content needs, not at the width it would
@@ -1163,16 +1195,30 @@ property" rule. An item declaring `width: 5` on a line that grows it to `8`
 paints 8 columns wide (border included), not 5 columns plus 3 blank ones; one
 that shrinks to `5` paints 5, rather than overflowing at its declared width.
 
-However it was arrived at, the resolved size is then clamped by the item's own
-minimum and maximum in the same axis — `min-width`/`max-width` in `row`
-direction, `min-height`/`max-height` in `column` — producing the spec's
-"hypothetical main size", which is what `flex-wrap` breaks lines on and what
-`flex-grow`/`flex-shrink` start from. The maximum applies first and the
-minimum second, so a minimum larger than the maximum wins, matching CSS. This
-matters because an item's own render honors those properties regardless: if
-flex layout allotted a column that ignored them, the item would paint at a
-different width than it was given and every later item on the line would
-drift.
+However it was arrived at, the basis is then clamped by the item's own minimum
+and maximum in the same axis — `min-width`/`max-width` in `row` direction,
+`min-height`/`max-height` in `column` — producing the spec's **hypothetical main
+size**, which is what `flex-wrap` breaks lines on and what decides whether the
+line grows or shrinks. The maximum applies first and the minimum second, so a
+minimum larger than the maximum wins, matching CSS. This matters because an
+item's own render honors those properties regardless: if flex layout allotted a
+column that ignored them, the item would paint at a different width than it was
+given and every later item on the line would drift.
+
+The hypothetical is *not* where `flex-grow`/`flex-shrink` start from, though —
+they start from the unclamped flex base size and apply the hypothetical as a
+floor afterward, freezing any item that violates it and redividing the rest.
+See [Automatic minimum size](#automatic-minimum-size-min-width-auto).
+
+In `column` direction the clamp is applied to the *declared* base: because flex
+sizes are outer and `min-height`/`max-height` are content-box here, each bound
+is compared with the item's own border/padding rows added back on, so
+`flex-basis: 6; max-height: 1` on a bordered item resolves to three rows (one of
+content between two rules), not one and not six. An item sized by its own
+content instead is left alone by `max-height`, matching `max-height`'s ordinary
+behavior in this engine: it clips only under an explicit `overflow-y:
+hidden`/`clip`, and reserving fewer rows for an item than it goes on to paint
+would push the rest of the column out of step with it.
 
 The same clamp applies to `column` direction's cross axis, where
 `align-items`/`align-self` other than `stretch` size the item to its own
@@ -1213,8 +1259,26 @@ the common case of two long labels in a narrow row leaves them at their natural
 widths and lets the *line* overflow, rather than crushing each item until its
 text spills through its own border. It applies to the flex base size too, not
 just to shrinking — a `flex-basis` smaller than the item's content is raised to
-fit before line-breaking and `flex-grow`/`flex-shrink` ever see it, matching the
-spec's "hypothetical main size" (§9.2).
+fit before line-breaking sees it, matching the spec's "hypothetical main size"
+(§9.2).
+
+That raise is a **clamp, not a head start**. `flex-grow` and `flex-shrink`
+distribute from each item's *flex base size* — the size `flex-basis`/`width`
+actually asked for — and only then freeze any item whose share landed below its
+automatic minimum, redividing what's left among the rest (§9.7 steps 3–4). The
+difference is the whole behavior of `flex: 1`, whose basis is `0`: with the
+minimum applied as a clamp, two `flex: 1` items split their container equally
+whatever their content, and content only tilts the split for an item whose equal
+share genuinely doesn't fit its own min-content — which then takes exactly its
+minimum and no more. Adding the minimum to the basis instead would hand every
+item its min-content width for free and share out only the remainder, so
+`flex: 1` would silently size items by their text.
+
+```css
+/* both items are exactly half the container, however long their text */
+.row { display: flex; width: 100%; }
+.row > * { flex: 1; }
+```
 
 The content-based minimum is the item's min-content width (its widest
 unbreakable run, plus its own border/padding), clamped by a definite `width` and
@@ -1230,6 +1294,11 @@ shrink:
   columns);
 - **a non-`visible` `overflow-x`** (`hidden`, `clip`, `scroll`, `auto`) disables
   it, per §4.5's "on a flex item whose overflow is visible in the main axis".
+
+A definite `width` or `max-width` also clamps the automatic minimum, including a
+declared `0`: a zero maximum is a real bound everywhere in flex layout, not an
+absent one, so `max-width: 0` genuinely stops an item growing and hands the
+space to its siblings. Like `min-width: 0`, it floors at one cell.
 
 ```css
 /* the standard escape hatch: let items shrink past their content */
@@ -1265,6 +1334,11 @@ Shorthand for `flex-grow`, `flex-shrink`, and `flex-basis`:
 | `<number> <number>` | grow, shrink; `flex-basis: 0` |
 | `<number> <basis>` | grow, `flex-basis: <basis>`; `flex-shrink: 1` |
 | `<number> <number> <basis>` | grow, shrink, basis |
+
+`<basis>` above is any `flex-basis` value: `auto`, `content`, one of the
+intrinsic sizing keywords, or a length/percentage. A token that isn't one of
+those lands as an inert `flex-basis` declaration and grants no `flex-grow`, so
+`flex: <junk>` can't change layout.
 
 ```css
 /* three equal-width columns that fill the row */

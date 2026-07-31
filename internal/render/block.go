@@ -705,7 +705,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if ml > 0 || mr > 0 {
 		b = applyLineEdgesBox(b, strings.Repeat(" ", ml), strings.Repeat(" ", mr))
 	}
-	if decls["visibility"] == "hidden" {
+	if isHiddenVisibility(decls["visibility"]) {
 		b = blankVisibleContentBox(b)
 	}
 	// Reset b.pre based on this element's own resolved white-space,

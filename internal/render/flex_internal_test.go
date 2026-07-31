@@ -197,10 +197,88 @@ func TestDistributeFlexGrow(t *testing.T) {
 	})
 }
 
+// TestGrowFlexLine covers the distinction CSS Flexbox §9.7 draws between an
+// item's flex base size (what growth is measured from) and its hypothetical
+// main size (the base already clamped by the item's used minimum, applied here
+// only as a step-4c violation). Collapsing the two — growing straight from the
+// hypothetical — is what used to make `flex: 1` items come out sized by their
+// content instead of by their flex factors.
+func TestGrowFlexLine(t *testing.T) {
+	t.Run("equal factors split the container, not the leftover above min-content", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{0, 0}, []int{3, 8}, nil, []float64{1, 1}, allIndices(2), 40)
+		if want := []int{20, 20}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (growing from the hypotheticals instead gives 17/23)", sizes, want)
+		}
+		if left != 0 {
+			t.Errorf("unabsorbed = %d, want 0", left)
+		}
+	})
+
+	t.Run("an item below its hypothetical freezes there and the rest is redivided", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{0, 0}, []int{3, 18}, nil, []float64{1, 1}, allIndices(2), 30)
+		if want := []int{12, 18}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (item 1 violates its minimum at the equal 15, freezes at 18, and item 0 takes all 12 that remain — not the 15 the violated round offered it)", sizes, want)
+		}
+		if left != 0 {
+			t.Errorf("unabsorbed = %d, want 0", left)
+		}
+	})
+
+	// §9.7 step 3, "size inflexible items": an item that can't grow takes no
+	// part in the distribution and sits at its hypothetical main size.
+	t.Run("a zero flex-grow item is frozen at its hypothetical", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{0, 0}, []int{6, 4}, nil, []float64{0, 1}, allIndices(2), 20)
+		if want := []int{6, 14}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v", sizes, want)
+		}
+		if left != 0 {
+			t.Errorf("unabsorbed = %d, want 0", left)
+		}
+	})
+
+	// Step 3's other freeze case: the item's own maximum already clamped its
+	// base size *down* to the hypothetical, so there is nothing to grow into.
+	t.Run("a base above its hypothetical is frozen there", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{12, 0}, []int{5, 4}, []int{5, 0}, []float64{1, 1}, allIndices(2), 20)
+		if want := []int{5, 15}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (item 0 clamped by max-width, item 1 takes the rest)", sizes, want)
+		}
+		if left != 0 {
+			t.Errorf("unabsorbed = %d, want 0", left)
+		}
+	})
+
+	t.Run("space no member can absorb is reported, not silently dropped", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{2, 2}, []int{2, 2}, []int{6, 6}, []float64{1, 1}, allIndices(2), 20)
+		if want := []int{6, 6}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v (both at their ceilings)", sizes, want)
+		}
+		if left != 8 {
+			t.Errorf("unabsorbed = %d, want 8", left)
+		}
+	})
+
+	t.Run("every item frozen leaves the whole free space for justify-content", func(t *testing.T) {
+		sizes := make([]int, 2)
+		left := growFlexLine(sizes, []int{4, 4}, []int{4, 4}, nil, []float64{0, 0}, allIndices(2), 20)
+		if want := []int{4, 4}; !reflect.DeepEqual(sizes, want) {
+			t.Errorf("sizes = %v, want %v", sizes, want)
+		}
+		if left != 12 {
+			t.Errorf("unabsorbed = %d, want 12", left)
+		}
+	})
+}
+
 func TestDistributeFlexShrink(t *testing.T) {
 	t.Run("shrinks proportionally to the scaled shrink factor", func(t *testing.T) {
 		sizes := []int{4, 4, 4}
-		left := distributeFlexShrink(sizes, []float64{1, 1, 1}, []int{1, 1, 1}, allIndices(3), 2)
+		left := distributeFlexShrink(sizes, []float64{1, 1, 1}, append([]int(nil), sizes...), []int{1, 1, 1}, allIndices(3), 2)
 		if want := []int{3, 3, 4}; !reflect.DeepEqual(sizes, want) {
 			t.Errorf("sizes = %v, want %v", sizes, want)
 		}
@@ -211,7 +289,7 @@ func TestDistributeFlexShrink(t *testing.T) {
 
 	t.Run("a floored item's unusable share is redistributed to the rest", func(t *testing.T) {
 		sizes := []int{8, 8}
-		left := distributeFlexShrink(sizes, []float64{1, 1}, []int{7, 1}, allIndices(2), 4)
+		left := distributeFlexShrink(sizes, []float64{1, 1}, append([]int(nil), sizes...), []int{7, 1}, allIndices(2), 4)
 		if want := []int{7, 5}; !reflect.DeepEqual(sizes, want) {
 			t.Errorf("sizes = %v, want %v (item 0 frozen at its floor, its leftover unit re-split onto item 1)", sizes, want)
 		}
@@ -225,7 +303,7 @@ func TestDistributeFlexShrink(t *testing.T) {
 	// went unabsorbed even though the first two items still had room.
 	t.Run("a floored last item does not strand deficit the others could absorb", func(t *testing.T) {
 		sizes := []int{10, 10, 10}
-		left := distributeFlexShrink(sizes, []float64{1, 1, 1}, []int{1, 1, 9}, allIndices(3), 6)
+		left := distributeFlexShrink(sizes, []float64{1, 1, 1}, append([]int(nil), sizes...), []int{1, 1, 9}, allIndices(3), 6)
 		if got, want := sizes[0]+sizes[1]+sizes[2], 24; got != want {
 			t.Errorf("shrunk total = %d, want %d (sizes=%v)", got, want, sizes)
 		}
@@ -239,7 +317,7 @@ func TestDistributeFlexShrink(t *testing.T) {
 
 	t.Run("deficit no member can absorb is reported, not silently dropped", func(t *testing.T) {
 		sizes := []int{10, 10}
-		left := distributeFlexShrink(sizes, []float64{1, 1}, []int{9, 9}, allIndices(2), 6)
+		left := distributeFlexShrink(sizes, []float64{1, 1}, append([]int(nil), sizes...), []int{9, 9}, allIndices(2), 6)
 		if want := []int{9, 9}; !reflect.DeepEqual(sizes, want) {
 			t.Errorf("sizes = %v, want %v (both at their floors)", sizes, want)
 		}
@@ -250,7 +328,7 @@ func TestDistributeFlexShrink(t *testing.T) {
 
 	t.Run("no shrinkable member absorbs nothing", func(t *testing.T) {
 		sizes := []int{4, 4}
-		if left := distributeFlexShrink(sizes, []float64{0, 0}, []int{1, 1}, allIndices(2), 3); left != 3 {
+		if left := distributeFlexShrink(sizes, []float64{0, 0}, append([]int(nil), sizes...), []int{1, 1}, allIndices(2), 3); left != 3 {
 			t.Errorf("unabsorbed = %d, want 3", left)
 		}
 	})

@@ -146,7 +146,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 		// renderInlineAcc's trim (wraptoken.go's trimBoundaryBreaks doc).
 		tokens = tokens[leadingBreaks(tokens):]
 		tokens = trimTrailingBreaksAndSpace(tokens)
-		if liDecls["visibility"] == "hidden" {
+		if isHiddenVisibility(liDecls["visibility"]) {
 			r.quoteDepth = savedDepth
 			tokens = blankVisibleContentTokens(tokens)
 			prefix = blankVisibleContent(prefix)

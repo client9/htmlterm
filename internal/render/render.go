@@ -19,6 +19,16 @@ func isTableLayoutDisplay(display string) bool {
 	return display == "" || display == "table"
 }
 
+// isHiddenVisibility reports whether a computed visibility value hides the
+// element's content while keeping its layout space. `collapse` is included
+// because on anything that isn't a flex item (or a table row/column, which
+// this engine doesn't collapse either) the spec says it simply computes to
+// `hidden` - a *flex* item declaring it is dropped from layout entirely, and
+// never reaches any of these call sites (see appendFlexItems).
+func isHiddenVisibility(v string) bool {
+	return v == "hidden" || v == "collapse"
+}
+
 // renderRootTokens builds the token stream for a whole document: doc's
 // children (typically one <html> element) via renderRootNodeTokens, the
 // token-based equivalent of the old cappedWriter-based renderNode walk.
@@ -174,7 +184,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		// leading-trim) - the pre-box separator below must see that
 		// collapsed value, not the one resolveDecls produced.
 		bx, subPositions := r.renderBlockContentBox(n, decls, r.width)
-		if decls["visibility"] == "hidden" {
+		if isHiddenVisibility(decls["visibility"]) {
 			r.quoteDepth = savedDepth
 			bx = blankVisibleContentBox(bx)
 		}
@@ -192,7 +202,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 	case "flex":
 		savedDepth := r.quoteDepth
 		bx, subPositions := r.renderFlexContentBox(n, decls, r.width)
-		if decls["visibility"] == "hidden" {
+		if isHiddenVisibility(decls["visibility"]) {
 			r.quoteDepth = savedDepth
 			bx = blankVisibleContentBox(bx)
 		}
@@ -251,7 +261,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		if colWidth, constrained := resolveWidthConstraints(decls, r.width, maxVisibleLineWidth(inner)); constrained && colWidth > 0 {
 			inner = padLinesToWidth(inner, colWidth)
 		}
-		if decls["visibility"] == "hidden" {
+		if isHiddenVisibility(decls["visibility"]) {
 			r.quoteDepth = savedDepth
 			inner = blankVisibleContent(inner)
 		}
@@ -281,7 +291,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 			childTokens = childTokens[:len(childTokens)-1]
 		}
-		if decls["visibility"] == "hidden" {
+		if isHiddenVisibility(decls["visibility"]) {
 			r.quoteDepth = savedDepth
 			childTokens = blankVisibleContentTokens(childTokens)
 		}
@@ -300,7 +310,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			acc := extractInlineStyle(decls)
 			savedDepth := r.quoteDepth
 			inner := r.renderInlineAcc(n, acc, r.width)
-			if decls["visibility"] == "hidden" {
+			if isHiddenVisibility(decls["visibility"]) {
 				r.quoteDepth = savedDepth
 				inner = blankVisibleContent(inner)
 			}
@@ -326,7 +336,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
 				childTokens = childTokens[:len(childTokens)-1]
 			}
-			if decls["visibility"] == "hidden" {
+			if isHiddenVisibility(decls["visibility"]) {
 				r.quoteDepth = savedDepth
 				childTokens = blankVisibleContentTokens(childTokens)
 			}

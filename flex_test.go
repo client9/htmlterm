@@ -238,6 +238,56 @@ func TestFlexBasisContent(t *testing.T) {
 	})
 }
 
+// TestFlexCollapsedItem pins Flexbox §4.4's collapsed flex item: on a flex
+// item, visibility: collapse behaves as display: none, not as the
+// visibility: hidden it means on any other element. The value used to do
+// nothing at all anywhere — a collapsed item rendered in full.
+func TestFlexCollapsedItem(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a collapsed flex item is dropped from layout", width: 20, html: `<div style="display:flex;width:100%"><div style="visibility:collapse">aaa</div><div>b</div></div>`, want: "b                   \n"},
+		{name: "visibility:hidden still reserves the item's space", width: 20, html: `<div style="display:flex;width:100%"><div style="visibility:hidden">aaa</div><div>b</div></div>`, want: "   b                \n"},
+		// A collapsed item is gone before flex-grow runs, so what it would have
+		// taken goes to its siblings rather than sitting blank.
+		{name: "a collapsed item's share goes to the items that remain", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;visibility:collapse">a</div><div style="flex:1;border-style:solid">b</div></div>`, want: "┌──────────────────┐\n│b                 │\n└──────────────────┘\n"},
+		// Off a flex item the same declaration is plain `hidden`, per the
+		// spec's "on other elements it computes to hidden".
+		{name: "outside a flex container collapse behaves as hidden", width: 20, html: `<div>plain <span style="visibility:collapse">xxx</span> tail</div>`, want: "plain    tail\n"},
+	})
+}
+
+// TestFlexZeroMaxSize pins that a declared maximum of zero is a real bound, not
+// an absent one — the other end of the same distinction `min-width: 0` needs
+// (see TestFlexZeroBasis). It used to read as "uncapped", so an item told not
+// to grow at all absorbed the whole line instead. Everything still floors at
+// one cell, since no box here renders in zero columns or rows.
+func TestFlexZeroMaxSize(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "max-width:0 stops an item growing and hands the space to its sibling", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;max-width:0">aaa</div><div style="flex:1">b</div></div>`, want: "ab                  \n"},
+		{name: "max-width:0 clamps a declared flex-basis too", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:8;max-width:0">aaa</div><div>b</div></div>`, want: "ab                  \n"},
+		{name: "max-height:0 stops a column item growing", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:4"><div style="flex-grow:1;max-height:0">a</div><div style="flex-grow:1">b</div></div>`, want: "a         \nb         \n          \n          \n"},
+	})
+}
+
+// TestFlexBasisIntrinsicKeywords covers flex-basis's intrinsic sizing
+// keywords. All three size the item from its content while ignoring its own
+// width, the way `content` does, and differ only in which measurement they
+// ask for: the widest unbreakable run, the never-wrapped width, or the width
+// the content actually takes within what's available. The container is
+// flex-shrink: 0 throughout so the resolved basis is what gets painted.
+func TestFlexBasisIntrinsicKeywords(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "min-content is the widest unbreakable run", width: 12, html: `<div style="display:flex;width:100%"><div style="flex-basis:min-content;flex-shrink:0;border-left:'[';border-right:']'">hello big world</div></div>`, want: "[hello]     \n[big  ]     \n[world]     \n"},
+		// Wider than the container, which is exactly what max-content means:
+		// the width it would take if never forced to wrap.
+		{name: "max-content never wraps", width: 12, html: `<div style="display:flex;width:100%"><div style="flex-basis:max-content;flex-shrink:0;border-left:'[';border-right:']'">hello big world</div></div>`, want: "[hello big world]\n"},
+		{name: "fit-content wraps to what is available", width: 12, html: `<div style="display:flex;width:100%"><div style="flex-basis:fit-content;flex-shrink:0;border-left:'[';border-right:']'">hello big world</div></div>`, want: "[hello big] \n[world    ] \n"},
+		// The item's own width is ignored, the whole point of an intrinsic
+		// keyword (and what separates all three from `auto`).
+		{name: "an intrinsic basis ignores the item's own width", width: 12, html: `<div style="display:flex;width:100%"><div style="flex-basis:min-content;width:11;flex-shrink:0;border-left:'[';border-right:']'">hello big</div></div>`, want: "[hello]     \n[big  ]     \n"},
+		{name: "the flex shorthand accepts them as a basis", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:min-content;border-left:'[';border-right:']'">hello big</div></div>`, want: "[hello big         ]\n"},
+	})
+}
+
 // TestFlexColumnOuterHeight pins that a column-direction item's resolved main
 // size is its whole outer box — border rows included — matching the outer-box
 // convention flex-basis/width already follow on the main axis. A bordered item
@@ -248,6 +298,33 @@ func TestFlexColumnOuterHeight(t *testing.T) {
 		{name: "flex-basis counts a column item's border rows", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:4;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n└────────┘\nz         \n"},
 		{name: "flex-grow fills a column container's height exactly", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:6"><div style="flex-grow:1;border-style:solid">a</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n│        │\n└────────┘\n"},
 		{name: "two grown bordered items split the height without overflow", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;border-style:solid">a</div><div style="flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐\n│a       │\n│        │\n└────────┘\n┌────────┐\n│b       │\n│        │\n└────────┘\n"},
+	})
+}
+
+// TestFlexColumnBasisClampedByMinMaxHeight pins that a column-direction flex
+// base size is clamped by the item's own min-height/max-height before it is
+// rendered — the vertical mirror of resolveMainBasis's min-width/max-width
+// clamp, and what CSS.md's flex-basis entry promises for both axes. The
+// maximum used to be dropped on the floor: flex layout injects its resolved
+// main size as a synthetic `height`, which block.go deliberately ranks above
+// max-height, so `flex-basis: 6; max-height: 1` rendered six rows tall.
+//
+// Both bounds are content-box here while flex sizes are outer, so each is
+// compared with the item's own border/padding rows added back on — a
+// max-height:1 bordered item is three rows, not one.
+func TestFlexColumnBasisClampedByMinMaxHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "max-height clamps a taller flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:6;max-height:1;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
+		{name: "min-height raises a shorter flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nz         \n"},
+		// The minimum applies after the maximum, so a minimum larger than a
+		// maximum wins — CSS's own min/max resolution order.
+		{name: "a min-height larger than max-height wins", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;max-height:2;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nz         \n"},
+		// A content-sized item is deliberately left alone by the maximum:
+		// block.go only clips to max-height under an explicit overflow-y, and
+		// reserving fewer rows than the item paints would desynchronize the
+		// stack from the boxes in it.
+		{name: "max-height does not shorten a content-sized column item", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="max-height:1;border-style:solid">a<br>b</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│b       │\n└────────┘\nz         \n"},
+		{name: "an explicit overflow-y is what makes it clip", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="max-height:1;overflow-y:hidden;border-style:solid">a<br>b</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
 	})
 }
 
@@ -386,19 +463,41 @@ func TestFlexNesting(t *testing.T) {
 // item's natural content width — making `flex: 1`, whose shorthand expansion is
 // `1 1 0`, lay out as `1 1 auto`: items with different content got
 // content-proportional widths instead of equal ones. See parseFlexSizeVal.
+//
+// The zero has to survive all the way into the distribution, too: because an
+// item's *hypothetical* main size raises that zero to the item's automatic
+// minimum size, growing from the hypothetical rather than from the flex base
+// size leaks content widths back into the split by a smaller amount. See
+// growFlexLine, and TestFlexAutomaticMinimumSize for where the minimum does
+// legitimately bite.
 func TestFlexZeroBasis(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "flex:1 splits the line equally when content permits", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">bb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bb      │\n└────────┘└────────┘\n"},
-		// The zero basis is floored at min-content, not at fit-content: with the
-		// basis read as auto instead, the first item starts at its full 9-column
-		// content and the two end up 14/6 rather than 12/8.
-		{name: "flex-basis:0 starts each item from min-content, not fit-content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0;flex-grow:1;border-style:solid">b</div></div>`, want: "┌──────────┐┌──────┐\n│aaaa aaaa ││b     │\n└──────────┘└──────┘\n"},
-		{name: "flex-basis:0% is a zero length too, not an unset one", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0%;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0%;flex-grow:1;border-style:solid">b</div></div>`, want: "┌──────────┐┌──────┐\n│aaaa aaaa ││b     │\n└──────────┘└──────┘\n"},
-		// min-width:0 opts out of the automatic minimum, so unbreakable content
-		// no longer floors the basis and `flex: 1` is exactly equal again.
-		{name: "min-width:0 restores exact equality against unbreakable content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;min-width:0;border-style:solid">a</div><div style="flex:1;min-width:0;border-style:solid">bbbbbb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bbbbbb  │\n└────────┘└────────┘\n"},
+		// A true zero base means unequal factors split in exactly their ratio,
+		// not in a ratio skewed by the one cell each item would otherwise
+		// reserve first: 40 columns at 1:2 is 13/27, not 14/26.
+		{name: "unequal flex factors split in exactly their ratio", width: 40, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">aaaa</div><div style="flex:2;border-style:solid">bbbb</div></div>`, want: "┌───────────┐┌─────────────────────────┐\n│aaaa       ││bbbb                     │\n└───────────┘└─────────────────────────┘\n"},
+		{name: "a column container splits its height in the same ratio", width: 8, html: `<div style="display:flex;flex-direction:column;width:100%;height:9"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">b</div></div>`, want: "┌──────┐\n│a     │\n│      │\n│      │\n└──────┘\n┌──────┐\n│b     │\n│      │\n└──────┘\n"},
+		// A zero basis really is zero: both items start from nothing and split
+		// the whole line, so the first one's 9 columns of content wrap inside
+		// its half rather than buying it a wider share. Reading the basis as
+		// auto instead gives 14/6; growing from the *hypothetical* main size
+		// (the basis already raised to min-content) gives 12/8. See
+		// growFlexLine.
+		{name: "flex-basis:0 splits the line equally, whatever the content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		{name: "flex-basis:0% is a zero length too, not an unset one", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0%;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0%;flex-grow:1;border-style:solid">b</div></div>`, want: "┌────────┐┌────────┐\n│aaaa    ││b       │\n│aaaa    ││        │\n└────────┘└────────┘\n"},
+		// Unbreakable content doesn't tilt the split either, as long as every
+		// item's equal share clears its own automatic minimum size (8 columns
+		// for `bbbbbb` plus its borders, against the 10 it gets).
+		{name: "flex:1 stays equal against unbreakable content that fits its share", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">bbbbbb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bbbbbb  │\n└────────┘└────────┘\n"},
+		{name: "min-width:0 changes nothing when no automatic minimum is violated", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;min-width:0;border-style:solid">a</div><div style="flex:1;min-width:0;border-style:solid">bbbbbb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bbbbbb  │\n└────────┘└────────┘\n"},
 		{name: "flex-basis:auto still falls back to natural content width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:auto;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
 		{name: "a column item's flex-basis:0 grows from one line, not from its content height", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:6"><div style="flex-basis:0;flex-grow:1;border-style:solid">a<br>b</div></div>`, want: "┌──────────┐\n│a         │\n│b         │\n│          │\n│          │\n└──────────┘\n"},
+		// The same equal split as the row cases above, on the cross axis: the
+		// taller item's own content is its column-direction stand-in for the
+		// automatic minimum size, and growing from it rather than from the zero
+		// base gives 4/6 instead of 5/5.
+		{name: "column flex:1 splits the height equally, whatever the content", width: 14, html: `<div style="display:flex;flex-direction:column;width:100%;height:10"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">b<br>b<br>b</div></div>`, want: "┌────────────┐\n│a           │\n│            │\n│            │\n└────────────┘\n┌────────────┐\n│b           │\n│b           │\n│b           │\n└────────────┘\n"},
 	})
 }
 
@@ -434,6 +533,20 @@ func TestFlexAutomaticMinimumSize(t *testing.T) {
 		// a declared flex-basis below min-content is raised before line-breaking
 		// and grow/shrink ever see it.
 		{name: "a flex-basis below min-content is raised to it", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:4;border-style:solid">aaaaaaaa</div><div>rest</div></div>`, want: "┌────────┐rest      \n│aaaaaaaa│          \n└────────┘          \n"},
+		// ...but it is raised as a §9.7 step-4c *violation*, not as a head start
+		// on the distribution: the second item's equal 15-column share is below
+		// its 18-column automatic minimum, so it freezes at 18 and the whole
+		// distribution reruns over what's left, handing the first item the
+		// remaining 12 — it does not get to keep the 15 the violated round
+		// offered it. Growing from each item's hypothetical main size instead
+		// gives 8/22, sized by content rather than by the equal flex factors.
+		{name: "an item that violates its automatic minimum freezes and the rest is redivided", width: 30, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">bbbbbbbbbbbbbbbb</div></div>`, want: "┌──────────┐┌────────────────┐\n│a         ││bbbbbbbbbbbbbbbb│\n└──────────┘└────────────────┘\n"},
+		// Narrow enough that the hypothetical main sizes already overflow, so
+		// §9.7 step 1 picks the shrink factor — and every item is frozen at its
+		// own automatic minimum, since a zero flex base size makes every scaled
+		// shrink factor zero. The line overflows the container by a column,
+		// which is what a browser does here too.
+		{name: "automatic minimums that cannot be shrunk overflow the line", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">bbbbbbbbbbbbbbbb</div></div>`, want: "┌─┐┌────────────────┐\n│a││bbbbbbbbbbbbbbbb│\n└─┘└────────────────┘\n"},
 	})
 }
 
