@@ -31,7 +31,7 @@ func applyLineEdgesBox(b box, prefix, suffix string) box {
 
 // applyLineEdges is a string-signature shim over applyLineEdgesBox, preserving
 // the historical quirk that a trailing "\n" on content is stripped before the
-// per-line transform and restored after — content has no trailing-newline
+// per-line transform and restored after. Content has no trailing-newline
 // concept in box form, so that behavior lives here rather than in the core.
 func applyLineEdges(content, prefix, suffix string) string {
 	if prefix == "" && suffix == "" {
@@ -48,8 +48,8 @@ func applyLineEdges(content, prefix, suffix string) string {
 	return result
 }
 
-// alignLinesBox pads every line of b to width (lines already >= width are
-// left unchanged), aligning left/right/center per dir.
+// alignLinesBox pads every line of b to width, aligning left, right, or
+// center per dir. Lines already at or past width are left unchanged.
 func alignLinesBox(b box, dir string, width int) box {
 	lines := make([]string, len(b.lines))
 	for i, line := range b.lines {
@@ -72,7 +72,7 @@ func alignLinesBox(b box, dir string, width int) box {
 	return box{lines: lines, width: linesWidth(lines)}
 }
 
-// alignLines is a string-signature shim over alignLinesBox; see applyLineEdges
+// alignLines is a string-signature shim over alignLinesBox. See applyLineEdges
 // for why the trailing-newline handling lives in the shim, not the core.
 func alignLines(content, dir string, width int) string {
 	trailing := strings.HasSuffix(content, "\n")
@@ -87,7 +87,7 @@ func alignLines(content, dir string, width int) string {
 }
 
 // padLinesToWidthBox pads every line of b shorter than width with trailing
-// spaces; lines already >= width are left unchanged.
+// spaces. Lines already at or past width are left unchanged.
 func padLinesToWidthBox(b box, width int) box {
 	lines := make([]string, len(b.lines))
 	for i, line := range b.lines {
@@ -100,7 +100,7 @@ func padLinesToWidthBox(b box, width int) box {
 	return box{lines: lines, width: linesWidth(lines)}
 }
 
-// padLinesToWidth is a string-signature shim over padLinesToWidthBox; see
+// padLinesToWidth is a string-signature shim over padLinesToWidthBox. See
 // applyLineEdges for why the trailing-newline handling lives in the shim.
 func padLinesToWidth(content string, width int) string {
 	trailing := strings.HasSuffix(content, "\n")
@@ -159,17 +159,17 @@ func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth i
 
 // controlContentDecls narrows a synthesized form control's own width
 // declaration to the content box its block layout already resolved, for the
-// block-level path in renderBlockContentBox. The control's synthesized text
-// (renderInput's padInputText, <progress>/<meter>'s bar) sizes itself from
-// resolveWidthConstraints, and the width property is an *outer* size
-// everywhere in this engine — so a bordered `width: 20` input would otherwise
-// paint 20 columns of field inside a 20-column box and overflow by its own
-// border and padding. innerW is what's actually left for content.
+// block-level path in renderBlockContentBox. The control's synthesized text,
+// meaning renderInput's padInputText and <progress>/<meter>'s bar, sizes
+// itself from resolveWidthConstraints, and the width property is an *outer*
+// size everywhere in this engine. Without this, a bordered `width: 20` input
+// would paint 20 columns of field inside a 20-column box and overflow by its
+// own border and padding. innerW is what's actually left for content.
 //
-// Only applied when the box's width really was constrained: an unconstrained
-// control must keep falling back to its own intrinsic size (an <input>'s
-// "size" attribute, the bar's default width), which is what a natural-width
-// measurement — a flex item's basis, among others — has to see. Handing it
+// Only applied when the box's width really was constrained. An unconstrained
+// control must keep falling back to its own intrinsic size, an <input>'s
+// "size" attribute or the bar's default width, which is what a natural-width
+// measurement has to see, a flex item's basis among others. Handing it
 // innerW there would report whatever width it happened to be offered.
 func controlContentDecls(decls map[string]string, innerW, availWidth int) map[string]string {
 	if _, constrained := resolveWidthConstraints(decls, availWidth, 0); !constrained {
@@ -177,8 +177,8 @@ func controlContentDecls(decls map[string]string, innerW, availWidth int) map[st
 	}
 	out := maps.Clone(decls)
 	out["width"] = strconv.Itoa(max(0, innerW))
-	// The min/max pair has already had its say (it's part of what resolved
-	// innerW); leaving it in place would re-clamp the content box against
+	// The min/max pair has already had its say, being part of what resolved
+	// innerW. Leaving it in place would re-clamp the content box against
 	// bounds meant for the outer one.
 	delete(out, "min-width")
 	delete(out, "max-width")
@@ -216,10 +216,10 @@ func parseMargin(s string) int {
 	return n
 }
 
-// resolveBoxBorders resolves the four border edges (glyph, color) and corner
-// overrides for a block-level box from decls — shared by renderBlockContentBox
-// and renderFlexContentBox (flex.go) so both box models pick up
-// border-style/border-*-color/border-*-corner consistently.
+// resolveBoxBorders resolves the four border edges, as glyph and color, and
+// the corner overrides for a block-level box from decls. It is shared by
+// renderBlockContentBox and renderFlexContentBox (flex.go) so both box models
+// pick up border-style, border-*-color, and border-*-corner consistently.
 func resolveBoxBorders(decls map[string]string) (bl, br, bt, bb blockBorder, tlCorner, trCorner, blCorner, brCorner string) {
 	blChar, blPresent := resolveBorderEdgeChar(decls["border-left"], edgeGlyphLeft)
 	brChar, brPresent := resolveBorderEdgeChar(decls["border-right"], edgeGlyphRight)
@@ -284,11 +284,11 @@ func resolveBoxBorders(decls map[string]string) (bl, br, bt, bb blockBorder, tlC
 
 // renderBlockContentBox renders the styled, bordered, and margined content of
 // a block element. It preserves the exact operation order of the original
-// string implementation (border
-// resolution → margin/padding resolution → clampCellPadding → inline content
-// → wrap → overflow/text-overflow → align → padLinesToWidth fallback →
-// height padding → text-indent → vertical padding → horizontal padding →
-// borders → top/bottom rules → margins → visibility:hidden blanking, last).
+// string implementation: border resolution → margin/padding resolution →
+// clampCellPadding → inline content → wrap → overflow/text-overflow → align →
+// padLinesToWidth fallback → height padding → text-indent → vertical padding
+// → horizontal padding → borders → top/bottom rules → margins →
+// visibility:hidden blanking, last.
 func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, availWidth int) (box, map[*html.Node]Rect) {
 	if r.measuringNaturalWidth && availWidth > measureBlockWidthCap {
 		availWidth = measureBlockWidthCap
@@ -303,13 +303,14 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	hBorderWidth := availWidth - ml - mr
 	acc := extractInlineStyle(decls)
 	textAlign := decls["text-align"]
-	// ovX/ovY are overflow-x/overflow-y — see docs/SCROLLING.md's "Scrollbar
-	// gutter and indicator": expandShorthand (css.go) already expands a
-	// plain overflow:<val> shorthand into both, so these are correct even
-	// when only the shorthand was ever set; a more specific overflow-x/-y
-	// declaration overrides just that axis via the normal per-property
-	// cascade (cascade.go's directDecls). ovX gates the width-truncation
-	// check below; ovY gates the height/scroll gate and gutter reservation.
+	// ovX and ovY are overflow-x and overflow-y. See docs/SCROLLING.md's
+	// "Scrollbar gutter and indicator". expandShorthand (css.go) already
+	// expands a plain overflow:<val> shorthand into both, so these are correct
+	// even when only the shorthand was ever set, and a more specific
+	// overflow-x or overflow-y declaration overrides just that axis via the
+	// normal per-property cascade (cascade.go's directDecls). ovX gates the
+	// width-truncation check below; ovY gates the height and scroll gate and
+	// the gutter reservation.
 	ovX := decls["overflow-x"]
 	ovY := decls["overflow-y"]
 	heightLines := 0
@@ -322,11 +323,11 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
 		inner := totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
-		// A width too small to fit this element's own border+padding is
-		// clamped to a 1-column minimum rather than discarded — CSS itself
-		// never lets border+padding shrink content below 0, so "too small
-		// to fit" isn't a reason to fall back to full auto/shrink-wrap
-		// sizing (which silently ignored the width declaration entirely).
+		// A width too small to fit this element's own border and padding is
+		// clamped to a 1-column minimum rather than discarded. CSS itself
+		// never lets border and padding shrink content below 0, so "too small
+		// to fit" isn't a reason to fall back to full auto or shrink-wrap
+		// sizing, which silently ignored the width declaration entirely.
 		if inner < 1 {
 			inner = 1
 		}
@@ -340,10 +341,10 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 
 	avail := hBorderWidth - textcell.Width(bl.char) - textcell.Width(br.char)
 	// gutterWidth reserves a column for the scrollbar indicator up front,
-	// before wrapping — see docs/SCROLLING.md's "Scrollbar gutter and indicator"
-	// for why this must happen before wordWrapTokens runs (below), not as a
-	// post-hoc overlay. Silently dropped (gutterWidth stays 0) if there
-	// isn't room for it, rather than collapsing content to 0 width.
+	// before wrapping. See docs/SCROLLING.md's "Scrollbar gutter and indicator"
+	// for why this must happen before wordWrapTokens runs below, not as a
+	// post-hoc overlay. It is silently dropped, leaving gutterWidth at 0, if
+	// there isn't room for it, rather than collapsing content to 0 width.
 	gutterWidth := 0
 	if heightLines > 0 && ovY == "scroll" {
 		if w := r.scrollbarGutterWidth(n, decls); avail-w >= 1 {
@@ -351,10 +352,10 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		}
 	}
 	hasScrollbarGutter := gutterWidth > 0
-	// capStartDrawn/capEndDrawn are set (if hasScrollbarGutter) inside the
-	// "scroll"/"auto" case below and read afterward at the
-	// r.liveScrollViewport[n] = ... assignment — declared here, not with :=
-	// in the case block, so they survive past that switch statement's scope.
+	// capStartDrawn and capEndDrawn are set, when hasScrollbarGutter, inside
+	// the "scroll"/"auto" case below and read afterward at the
+	// r.liveScrollViewport[n] = ... assignment. They are declared here, not
+	// with := in the case block, so they survive that switch statement's scope.
 	var capStartDrawn, capEndDrawn bool
 	var innerW int
 	pl, pr, innerW = clampCellPadding(avail-gutterWidth, pl, pr)
@@ -364,16 +365,16 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	var tokens []wrapToken
 	if n.Data == "textarea" {
 		// <textarea>'s current value is its "value" attribute in this
-		// package's simplified form-control model (matching
-		// Element.Value/SetValue, which always reads/writes that attribute
-		// for every control) — but real HTML's default value for a
+		// package's simplified form-control model, matching
+		// Element.Value and SetValue, which always read and write that
+		// attribute for every control. But real HTML's default value for a
 		// never-touched textarea is its child text, with one leading
 		// newline right after the opening tag ignored per spec, so fall
 		// back to that when no value attribute has been set yet.
-		// appendText already knows how to split embedded "\n"s (a
-		// multi-line value) into brk tokens, so the rest of this function's
-		// wrap/border/padding handling applies exactly as it would to any
-		// other block's content.
+		// appendText already knows how to split the embedded "\n"s of a
+		// multi-line value into brk tokens, so the rest of this function's
+		// wrap, border, and padding handling applies exactly as it would to
+		// any other block's content.
 		val := nodeAttr(n, "value")
 		if val == "" {
 			val = strings.TrimPrefix(rawContent(n), "\n")
@@ -381,10 +382,11 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if start, end, has := r.selectionRange(n); has {
 			// Splice in the ::selection highlight (see
 			// docs/proposals/CARET_SELECTION.md) by tokenizing the
-			// before/selected/after spans separately, at the [start, end)
-			// rune offsets into the whole (possibly multi-line) value —
-			// appendText already knows how to split embedded "\n"s within
-			// each span into brk tokens, same as the single-call form below.
+			// before, selected, and after spans separately, at the
+			// [start, end) rune offsets into the whole, possibly multi-line
+			// value. appendText already knows how to split embedded "\n"s
+			// within each span into brk tokens, same as the single-call
+			// form below.
 			runes := []rune(val)
 			start = min(max(start, 0), len(runes))
 			end = min(max(end, 0), len(runes))
@@ -396,44 +398,44 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			tokens = appendText(nil, newInlineStyle(), val, r.profile)
 		}
 	} else if text, synthesized := r.synthesizedControlText(n, controlContentDecls(decls, innerW, availWidth), acc, innerW); synthesized {
-		// <input>/<select>/<progress>/<meter> as a block-level box: their
-		// content comes from their attributes, not from child nodes (they have
-		// none worth walking), so renderInlineAccTokens would produce an empty
-		// box. Reached whenever such a control is blockified — a flex item
+		// <input>, <select>, <progress>, and <meter> as a block-level box.
+		// Their content comes from their attributes, not from child nodes,
+		// having none worth walking, so renderInlineAccTokens would produce an
+		// empty box. Reached whenever such a control is blockified: a flex item
 		// always is, per Flexbox §4, and author CSS can do it directly with
-		// `display: block`. The text arrives already styled (acc is applied
-		// inside), so it's appended under the neutral style, same as
+		// `display: block`. The text arrives already styled, acc being applied
+		// inside, so it's appended under the neutral style, same as
 		// <textarea>'s value above.
 		tokens = appendText(nil, newInlineStyle(), text, r.profile)
 	} else {
 		tokens = r.renderInlineAccTokens(n, acc, innerW)
 	}
-	// A leading child's margin-top (e.g. the first <h2> in a plain <div>) and
-	// a trailing child's margin-bottom (e.g. the last one) show up here as
-	// leading/trailing brk tokens. When this box's own top/bottom edge is
-	// open (no border/padding on that side, no explicit height forcing its
-	// own box size), real CSS collapses that margin through to this
-	// element's own margin-top/margin-bottom - do the same here, stripping
-	// those tokens (so they don't ALSO leave a blank line inside this box)
-	// and widening (never narrowing) whatever margin this element already
-	// has. When an edge is blocked (border/padding/height present), the
-	// margin does NOT collapse through, but it must still take effect right
-	// where it already is - as real blank lines inside the box, exactly like
-	// any other block child's margin.
+	// A leading child's margin-top, such as the first <h2> in a plain <div>,
+	// and a trailing child's margin-bottom, such as the last one, show up here
+	// as leading and trailing brk tokens. When this box's own top or bottom
+	// edge is open, meaning no border or padding on that side and no explicit
+	// height forcing its own box size, real CSS collapses that margin through
+	// to this element's own margin-top or margin-bottom. Do the same here,
+	// stripping those tokens so they don't ALSO leave a blank line inside this
+	// box, and widening, never narrowing, whatever margin this element already
+	// has. When an edge is blocked by a border, padding, or height, the margin
+	// does NOT collapse through, but it must still take effect right where it
+	// already is, as real blank lines inside the box, exactly like any other
+	// block child's margin.
 	//
-	// Leading and trailing aren't symmetric here: a trailing brk run always
+	// Leading and trailing aren't symmetric here. A trailing brk run always
 	// has this box's own real content immediately before it, so the first
-	// one just closes that content's own line (no blank line of its own) and
-	// every one after represents one real blank line - the existing mb+1
-	// convention (wraptoken.go's ensureBreaks) already prices that in, so
+	// one closes that content's own line, contributing no blank line of its
+	// own, and every one after represents one real blank line. The existing
+	// mb+1 convention (wraptoken.go's ensureBreaks) already prices that in, so
 	// leaving a blocked trailing run untouched already renders the right
 	// number of blank lines with no further adjustment. A leading brk run
-	// has nothing before it (it's the first thing in this box's own
-	// content), so *every* leading brk - including the first - renders as
-	// its own blank line; the first one is pushBoxDirect's mandatory
-	// "start a fresh line" placeholder (meaningless when there's nothing to
-	// separate from) and must always be dropped, blocked or not, or a
-	// blocked margin-top would render one blank line too many.
+	// has nothing before it, being the first thing in this box's own content,
+	// so *every* leading brk, including the first, renders as its own blank
+	// line. The first one is pushBoxDirect's mandatory "start a fresh line"
+	// placeholder, meaningless when there's nothing to separate from, and must
+	// always be dropped, blocked or not, or a blocked margin-top would render
+	// one blank line too many.
 	if leadingBrk := leadingBreaks(tokens); leadingBrk > 0 {
 		tokens = tokens[1:]
 		if marginLines := leadingBrk - 1; marginLines > 0 {
@@ -443,7 +445,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 					decls["margin-top"] = strconv.Itoa(marginLines)
 				}
 			}
-			// else: blocked - the remaining marginLines leading brk tokens
+			// else: blocked. The remaining marginLines leading brk tokens
 			// stay in tokens, already rendering exactly marginLines blank
 			// lines.
 		}
@@ -471,9 +473,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		}
 	}
 	// hasStructure mirrors the historical strings.Contains(rawContent, "\n")
-	// guard: content already shaped by a block/br/table/list child (as
-	// opposed to plain flowable text) never counts as "wrapped" below, even
-	// when wordWrapTokens' result has multiple lines — those lines come from
+	// guard: content already shaped by a block, br, table, or list child,
+	// as opposed to plain flowable text, never counts as "wrapped" below, even
+	// when wordWrapTokens' result has multiple lines. Those lines come from
 	// forced structure, not width-driven reflow.
 	hasStructure := false
 	for _, tk := range tokens {
@@ -485,8 +487,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	var b box
 	var positions map[*html.Node]Rect
 	if ws == "pre" || ws == "nowrap" {
-		// tokensToString doesn't place anything, so no positions to track
-		// here — an accepted gap for pre/nowrap content specifically.
+		// tokensToString doesn't place anything, so there are no positions
+		// to track here. An accepted gap for pre and nowrap content
+		// specifically.
 		b = newBox(tokensToString(tokens))
 	} else {
 		breakMode := decls["overflow-wrap"]
@@ -497,11 +500,10 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
 
-	// gutterHeightX/gutterRowX/capStartXDrawn/capEndXDrawn are declared here
-	// (not with := in the case below) so they survive past this switch's
-	// scope, for the ViewportX recording near the end of this function —
-	// mirroring hasScrollbarGutter/capStartDrawn/capEndDrawn's own reasoning
-	// above.
+	// gutterHeightX, gutterRowX, capStartXDrawn, and capEndXDrawn are declared
+	// here, not with := in the case below, so they survive this switch's
+	// scope, for the ViewportX recording near the end of this function. Same
+	// reasoning as hasScrollbarGutter, capStartDrawn, and capEndDrawn above.
 	var gutterHeightX, gutterRowX int
 	var capStartXDrawn, capEndXDrawn bool
 	if hasExplicitWidth {
@@ -515,13 +517,14 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			b = box{lines: newLines, width: linesWidth(newLines)}
 		case "scroll", "auto":
 			// Unlike overflow-y's height gate, there's no separate
-			// "heightLines" concept to slice against here: innerW already
+			// "heightLines" concept to slice against here. innerW already
 			// bounds normally-wrapped content to begin with, so this only
 			// ever does something for content wordWrapTokens couldn't
-			// shrink to fit (white-space:pre/nowrap, or an unbreakable
-			// overlong token) — no white-space:nowrap gate is needed; a
-			// wrapped box's own maxLineWidth already comes out <= innerW,
-			// which naturally clamps offsetX to 0 (see docs/SCROLLING.md).
+			// shrink to fit, meaning white-space:pre or nowrap, or an
+			// unbreakable overlong token. No white-space:nowrap gate is
+			// needed: a wrapped box's own maxLineWidth already comes out
+			// <= innerW, which naturally clamps offsetX to 0 (see
+			// docs/SCROLLING.md).
 			offsetX := r.scrollOffsetsX[n]
 			maxLineWidth := 0
 			for _, ln := range b.lines {
@@ -545,16 +548,16 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			}
 			positions = mergePositions(nil, positions, 0, -offsetX)
 			// A visible horizontal gutter row is only drawn when ovX is
-			// exactly "scroll" (mirroring overflow-y's own "auto" gets no
-			// indicator" convention) and this box has no fixed height of
-			// its own: an active vertical gutter/scroll region already
+			// exactly "scroll", mirroring overflow-y's own "auto gets no
+			// indicator" convention, and this box has no fixed height of
+			// its own. An active vertical gutter or scroll region already
 			// claims the box's bottom row for its own purposes, and this
 			// renderer has no corner-cell concept to let both visible
-			// gutters coexist there (the same problem a real GUI
-			// scrollbar solves with a dedicated corner square — see
-			// docs/SCROLLING.md). The offset/scrolling itself (above)
-			// still works in that combination; only the drawn indicator
-			// is skipped.
+			// gutters coexist there, the same problem a real GUI
+			// scrollbar solves with a dedicated corner square (see
+			// docs/SCROLLING.md). The offset and scrolling above still
+			// work in that combination; only the drawn indicator is
+			// skipped.
 			if heightLines == 0 && ovX == "scroll" {
 				gutterHeightX = r.scrollbarGutterHeight(n, decls)
 				trackX := r.resolveScrollbarStyle(n, decls, "scrollbar-track-x")
@@ -571,33 +574,35 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// Under a shrink-to-fit measurement render (see Engine.shrinkToFit),
 	// this box reports its own content width instead of filling the width it
 	// was handed. Applied here, after wrapping and overflow handling, and
-	// only when no explicit width was declared (an explicit width is the
-	// answer, not something to measure): every step below - align padding,
-	// height/padding blank lines, the top/bottom rules - then sizes itself
-	// from the narrowed innerW/hBorderWidth, so the whole box shrinks
-	// together instead of content hugging inside a full-width border.
+	// only when no explicit width was declared, since an explicit width is the
+	// answer rather than something to measure. Every step below — align
+	// padding, height and padding blank lines, the top and bottom rules —
+	// then sizes itself from the narrowed innerW and hBorderWidth, so the
+	// whole box shrinks together instead of content hugging inside a
+	// full-width border.
 	if r.shrinkToFit && !hasExplicitWidth && b.width < innerW {
 		innerW = max(1, b.width)
 		hBorderWidth = textcell.Width(bl.char) + pl + innerW + gutterWidth + pr + textcell.Width(br.char)
 	}
 
-	// closedBox is true when a top/bottom rule is combined with a right
-	// border: the rule always spans the full box width, so the right
+	// closedBox is true when a top or bottom rule is combined with a right
+	// border. The rule always spans the full box width, so the right
 	// border must be pushed out to meet it rather than hugging content.
 	closedBox := (bt.char != "" || bb.char != "") && br.char != ""
 	needsAlign := textAlign != "" || closedBox || (hasExplicitWidth && ws != "nowrap")
-	// Captured before anything decorates the box: every step below (align
-	// padding to innerW, horizontal padding, the left/right border characters)
-	// turns an empty content line into a line of real characters, so this is the
-	// last point at which "did this element produce any content at all" can
-	// still be asked. See the contentEmpty block further down for what it's for.
+	// Captured before anything decorates the box. Every step below — aligning
+	// padding to innerW, horizontal padding, the left and right border
+	// characters — turns an empty content line into a line of real characters,
+	// so this is the last point at which "did this element produce any content
+	// at all" can still be asked. See the contentEmpty block further down for
+	// what it's for.
 	//
 	// <textarea> is exempt. Its box is a field the user types into, sized in real
-	// HTML by its `rows` attribute (default 2) rather than by its content, so an
+	// HTML by its `rows` attribute, default 2, rather than by its content, so an
 	// empty one is an ordinary state of a widget that still occupies space, not
 	// an empty box. This engine doesn't implement `rows`, so the single line it
-	// already has is the whole of that reservation - giving it up would leave a
-	// focused, editable box with nowhere to show the caret.
+	// already has is the whole of that reservation, and giving it up would leave
+	// a focused, editable box with nowhere to show the caret.
 	contentEmpty := n.Data != "textarea" && len(b.lines) == 1 && b.lines[0] == ""
 
 	if needsAlign {
@@ -636,16 +641,16 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				}
 			case "scroll", "auto":
 				// A scrollable container's clip must also shift its
-				// descendants' recorded positions by -offset (mirroring
-				// mergePositions' existing shift-on-placement primitive), so
+				// descendants' recorded positions by -offset, mirroring
+				// mergePositions' existing shift-on-placement primitive, so
 				// a scrolled-off descendant's Rect lands outside the visible
-				// range instead of the pre-scroll range — kept, not deleted,
-				// matching a scrolled-off real DOM element's
+				// range instead of the pre-scroll range. It is kept rather
+				// than deleted, matching a scrolled-off real DOM element's
 				// getBoundingClientRect(). r.liveScrollOffsets is this
 				// frame's freshly rebuilt scroll-offset map (see
-				// docs/SCROLLING.md); r.scrollOffsets is nil for a plain
-				// Renderer.Render call (no persistent Document to read a
-				// prior offset from), so offset is simply 0 there.
+				// docs/SCROLLING.md). r.scrollOffsets is nil for a plain
+				// Renderer.Render call, which has no persistent Document to
+				// read a prior offset from, so offset is 0 there.
 				offset := r.scrollOffsets[n]
 				totalLines := len(lines)
 				maxOffset := max(0, totalLines-heightLines)
@@ -661,13 +666,13 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				for len(lines) < heightLines {
 					lines = append(lines, blank)
 				}
-				// hasScrollbarGutter (not just ovY == "scroll") draws an
-				// always-on gutter indicator, regardless of whether this
-				// frame actually needed to slice — see docs/SCROLLING.md's
+				// hasScrollbarGutter, rather than just ovY == "scroll",
+				// draws an always-on gutter indicator, regardless of whether
+				// this frame needed to slice. See docs/SCROLLING.md's
 				// "Scrollbar gutter and indicator" for why "auto"
-				// deliberately gets none, and why a too-narrow box (the
-				// gutter wasn't actually reserved in innerW) must not draw
-				// one either, or content would get an unreserved column
+				// deliberately gets none, and why a too-narrow box, one where
+				// the gutter wasn't actually reserved in innerW, must not
+				// draw one either: content would get an unreserved column
 				// appended on top of it instead of a properly narrowed box.
 				if hasScrollbarGutter {
 					track := r.resolveScrollbarStyle(n, decls, "scrollbar-track")
@@ -682,7 +687,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 				}
 			}
 		} else {
-			// max-height clips (requires overflow: hidden/clip).
+			// max-height clips, which requires overflow: hidden or clip.
 			if maxH > 0 && len(lines) > maxH && (ovY == "hidden" || ovY == "clip") {
 				lines = lines[:maxH]
 			}
@@ -695,8 +700,8 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		}
 		b = box{lines: lines, width: linesWidth(lines)}
 	}
-	// text-indent: apply only when this element's first rendered content is
-	// direct inline text (not a child block that will apply its own indent).
+	// text-indent applies only when this element's first rendered content is
+	// direct inline text, not a child block that will apply its own indent.
 	if v := decls["text-indent"]; v != "" && r.firstContentIsInline(n) {
 		indent := 0
 		if abs, pct, ok := parseSizeVal(v); ok {
@@ -712,30 +717,30 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			b = box{lines: lines, width: linesWidth(lines)}
 		}
 	}
-	// The top/bottom rules are resolved here rather than at the point they're
-	// applied, because whether they exist decides whether an empty box keeps its
-	// content row (below). They only depend on hBorderWidth, which nothing
-	// changes after the shrink-to-fit narrowing above.
+	// The top and bottom rules are resolved here rather than at the point
+	// they're applied, because whether they exist decides whether an empty box
+	// keeps its content row below. They only depend on hBorderWidth, which
+	// nothing changes after the shrink-to-fit narrowing above.
 	topRule := drawBlockHBorder(bt.char, bt.color, tlCorner, trCorner, hBorderWidth, r.profile)
 	botRule := drawBlockHBorder(bb.char, bb.color, blCorner, brCorner, hBorderWidth, r.profile)
 
-	// An empty block box has zero content height in CSS: an empty bordered
+	// An empty block box has zero content height in CSS. An empty bordered
 	// <div> draws its top and bottom rule adjacent with nothing between them,
-	// and a lone border-top (which is what <hr> is) is a single rule. Block
-	// content here is always at least one line - that line is how block flow
-	// separates one box from the next - so an empty box has to give that line up
-	// explicitly, or it reserves a blank row nothing asked for: a bordered empty
+	// and a lone border-top, which is what <hr> is, is a single rule. Block
+	// content here is always at least one line, that line being how block flow
+	// separates one box from the next, so an empty box has to give that line up
+	// explicitly or it reserves a blank row nothing asked for: a bordered empty
 	// div came out three rows rather than two, and `<hr style="width: 20">` two
 	// rather than one.
 	//
-	// Only when something else will actually occupy a row. A box with no padding
-	// and no rules keeps its blank line instead of collapsing to nothing: a
-	// zero-line box has no way to separate itself from its siblings in block
-	// flow, and `<div></div>` has always been one empty line. A declared height
-	// or min-height is exactly the request to reserve rows, so neither is
-	// dropped - both have already been applied as real lines by the height step
-	// above, and the guard is what keeps `min-height: 1` from reading as an empty
-	// box here.
+	// This applies only when something else will actually occupy a row. A box
+	// with no padding and no rules keeps its blank line instead of collapsing to
+	// nothing: a zero-line box has no way to separate itself from its siblings
+	// in block flow, and `<div></div>` has always been one empty line. A
+	// declared height or min-height is exactly the request to reserve rows, so
+	// neither is dropped. Both have already been applied as real lines by the
+	// height step above, and the guard is what keeps `min-height: 1` from
+	// reading as an empty box here.
 	if contentEmpty && heightLines == 0 && minH == 0 && (pt+pb > 0 || topRule != "" || botRule != "") {
 		b = box{}
 	}
@@ -763,9 +768,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if bl.char != "" || br.char != "" {
 		b = applyBlockBordersBox(b, bl, br, r.profile)
 	}
-	// No empty-box special case needed on either rule: an empty box has already
-	// surrendered its content line above, so it arrives here with no lines at
-	// all and each rule simply becomes one.
+	// No empty-box special case is needed on either rule: an empty box has
+	// already surrendered its content line above, so it arrives here with no
+	// lines at all and each rule becomes one.
 	topRuleDrawn := false
 	if topRule != "" {
 		b.lines = append([]string{topRule}, b.lines...)
@@ -783,15 +788,15 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		b = blankVisibleContentBox(b)
 	}
 	// Reset b.pre based on this element's own resolved white-space,
-	// regardless of what children's boxes may have carried in: the old
+	// regardless of what children's boxes may have carried in. The old
 	// cappedWriter model's EnterPre/ExitPre was scoped to exactly one
-	// child's own content (inline.go's nested "block" case entered/exited
-	// pre mode around writing just that child's block content into the
-	// parent's writer) and never persisted past it — a <pre> nested inside
-	// a non-pre ancestor loses its exemption the moment that ancestor's own
-	// (non-pre) content reaches a writer instance that isn't in pre mode.
-	// Crossing this function's own boundary is the box-model equivalent of
-	// that per-element EnterPre/ExitPre scoping.
+	// child's own content — inline.go's nested "block" case entered and
+	// exited pre mode around writing just that child's block content into
+	// the parent's writer — and never persisted past it: a <pre> nested
+	// inside a non-pre ancestor loses its exemption the moment that
+	// ancestor's own non-pre content reaches a writer instance that isn't in
+	// pre mode. Crossing this function's own boundary is the box-model
+	// equivalent of that per-element EnterPre/ExitPre scoping.
 	if ws == "pre" || ws == "pre-wrap" {
 		b.pre = make([]bool, len(b.lines))
 		for i := range b.pre {
@@ -800,15 +805,16 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	} else {
 		b.pre = nil
 	}
-	// Shift descendant positions (captured right after the initial wrap,
-	// before any of the transformations above) by everything since applied
-	// that moves rows/columns uniformly: pt prepends pt blank lines; a
-	// drawn top rule prepends one more; pl and the left border character
-	// each shift every line right; ml (baked in as literal padding, unlike
-	// vertical margin) shifts right again. text-indent (row 0 only) and
-	// text-align:right/center (variable per line) are NOT accounted for —
-	// an accepted approximation, since the primary use (hit-testing form
-	// controls) essentially never combines those with tracked descendants.
+	// Shift descendant positions, captured right after the initial wrap and
+	// before any of the transformations above, by everything since applied
+	// that moves rows or columns uniformly: pt prepends pt blank lines, a
+	// drawn top rule prepends one more, pl and the left border character
+	// each shift every line right, and ml, baked in as literal padding unlike
+	// vertical margin, shifts right again. text-indent, which affects row 0
+	// only, and text-align:right/center, which varies per line, are NOT
+	// accounted for. That is an accepted approximation, since the primary use,
+	// hit-testing form controls, essentially never combines those with tracked
+	// descendants.
 	rowShift := pt
 	if topRuleDrawn {
 		rowShift++
@@ -824,22 +830,22 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	}
 	r.liveContentOffsetsX[n] = colShift
 	if heightLines > 0 && (ovY == "scroll" || ovY == "auto") {
-		// Rect (assigned by whichever caller embeds this box as a token) is
-		// the full CSS border box, which — unlike heightLines — includes any
-		// border/padding rows added above; DispatchKey's PageUp/PageDown and
-		// Focus's scrollIntoView both need the actual content-box viewport
+		// Rect, assigned by whichever caller embeds this box as a token, is
+		// the full CSS border box, which unlike heightLines includes any
+		// border and padding rows added above. DispatchKey's PageUp/PageDown
+		// and Focus's scrollIntoView both need the actual content-box viewport
 		// height and the row offset from this box's own top to its first
-		// visible content row, which only rowShift/heightLines here capture.
+		// visible content row, which only rowShift and heightLines capture.
 		if r.liveScrollViewport == nil {
 			r.liveScrollViewport = map[*html.Node]Viewport{}
 		}
-		// GutterCol mirrors colShift's own reasoning just above (the offset
-		// from this box's own Rect.Col — which anchors to the very start of
-		// its composed lines, margin-left included, per Rect's own doc
-		// comment — to where child content starts): the gutter sits
+		// GutterCol mirrors colShift's own reasoning just above: the offset
+		// from this box's own Rect.Col, which anchors to the start of its
+		// composed lines with margin-left included, per Rect's own doc
+		// comment, to where child content starts. The gutter sits
 		// immediately after content, so it's colShift plus innerW. Only
-		// meaningful (and only used by document.go's tryScrollCapClick)
-		// when GutterWidth > 0.
+		// meaningful when GutterWidth > 0, and only used then by
+		// document.go's tryScrollCapClick.
 		r.liveScrollViewport[n] = Viewport{
 			Height:      heightLines,
 			TopOffset:   rowShift,
@@ -853,12 +859,12 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if r.liveScrollViewportX == nil {
 			r.liveScrollViewportX = map[*html.Node]ViewportX{}
 		}
-		// GutterRow mirrors GutterCol's own reasoning above, transposed:
-		// rowShift is where this box's own content starts (row-wise);
-		// gutterRowX is how many content rows came before the gutter row(s)
-		// were appended (0 if none were — GutterHeight being 0 already
-		// signals "not drawn" to document.go's tryScrollCapClickX either
-		// way). Only meaningful when GutterHeight > 0.
+		// GutterRow mirrors GutterCol's own reasoning above, transposed.
+		// rowShift is where this box's own content starts, row-wise, and
+		// gutterRowX is how many content rows came before the gutter rows
+		// were appended, or 0 if none were, since GutterHeight being 0
+		// already signals "not drawn" to document.go's tryScrollCapClickX
+		// either way. Only meaningful when GutterHeight > 0.
 		r.liveScrollViewportX[n] = ViewportX{
 			Width:        innerW,
 			LeftOffset:   colShift,
@@ -872,11 +878,11 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 }
 
 // scrollbarStyle is one resolved ::scrollbar-track or ::scrollbar-thumb: the
-// glyph repeated across the gutter's width, plus its text style (color,
-// background-color, font-weight — see resolveScrollbarStyle). Always build
-// style via extractInlineStyle/newInlineStyle, never the zero inlineStyle{}
-// — per inlineStyle's own doc comment, the zero value reads as opacity:0
-// and silently blanks the glyph.
+// glyph repeated across the gutter's width, plus its text style, meaning
+// color, background-color, and font-weight (see resolveScrollbarStyle). Always
+// build style via extractInlineStyle or newInlineStyle, never the zero
+// inlineStyle{}: per inlineStyle's own doc comment, the zero value reads as
+// opacity:0 and silently blanks the glyph.
 type scrollbarStyle struct {
 	char  string
 	style inlineStyle
@@ -884,54 +890,57 @@ type scrollbarStyle struct {
 
 // ScrollbarGutterWidth is the default column width reserved for the
 // scrollbar gutter when overflow-y:scroll is set and no ::scrollbar width
-// declaration overrides it — see docs/SCROLLING.md's "Scrollbar gutter and
-// indicator" and docs/SCROLLBARS.md. Exported (via
-// htmlterm.ScrollbarGutterWidth) so callers who pre-render content outside a
-// scrollable Document/Renderer pass (e.g. to cache an expensive layout, then
-// splice it into a live scrollable pane via Document.SetPreRendered) can
-// reserve the same column up front — otherwise the pre-rendered content is
+// declaration overrides it. See docs/SCROLLING.md's "Scrollbar gutter and
+// indicator" and docs/SCROLLBARS.md. It is exported, via
+// htmlterm.ScrollbarGutterWidth, so callers who pre-render content outside a
+// scrollable Document or Renderer pass — to cache an expensive layout, say,
+// then splice it into a live scrollable pane via Document.SetPreRendered —
+// can reserve the same column up front. Otherwise the pre-rendered content is
 // wrapped 1 column wider than the live pane's actual content width once the
 // gutter is reserved there, desyncing the two and producing exactly the
-// scrollbar-off-by-one symptom this constant's existence is meant to
-// prevent. A caller that also sets a custom ::scrollbar { width } on the
-// live pane must account for that override itself — this constant only
-// reflects the built-in default.
+// scrollbar-off-by-one symptom this constant exists to prevent. A caller that
+// also sets a custom ::scrollbar { width } on the live pane must account for
+// that override itself; this constant only reflects the built-in default.
 const ScrollbarGutterWidth = 1
 
 // ScrollbarGutterHeight is ScrollbarGutterWidth's horizontal-scrollbar
 // counterpart: the default row count reserved for a horizontal scrollbar
-// gutter when overflow-x:scroll is set (and no ::scrollbar-x height
-// declaration overrides it) on an element with an explicit width and no
-// height of its own — see the "scroll"/"auto" case in
+// gutter when overflow-x:scroll is set, and no ::scrollbar-x height
+// declaration overrides it, on an element with an explicit width and no
+// height of its own. See the "scroll"/"auto" case in
 // renderBlockContentBox's overflow-x handling, and docs/SCROLLING.md.
 const ScrollbarGutterHeight = 1
 
-// scrollbarPreset is one named scrollbar-style's baseline ::scrollbar-track/
-// ::scrollbar-thumb declarations — the same shape pseudoElemDecls returns
-// from a real stylesheet rule, so it can be merged with one identically.
+// scrollbarPreset is one named scrollbar-style's baseline ::scrollbar-track
+// and ::scrollbar-thumb declarations. It is the same shape pseudoElemDecls
+// returns from a real stylesheet rule, so it can be merged with one
+// identically.
 type scrollbarPreset struct {
 	track, thumb, capStart, capEnd map[string]string
 }
 
 // defaultScrollbarStyle is used when scrollbar-style is unset or names a
-// preset that doesn't exist; it reproduces this feature's original,
-// pre-scrollbar-style/pre-::scrollbar-track/thumb-defaults behavior exactly.
+// preset that doesn't exist. It reproduces this feature's original behavior,
+// from before scrollbar-style and the ::scrollbar-track/thumb defaults
+// existed, exactly.
 const defaultScrollbarStyle = "block"
 
-// scrollbarPresets backs the scrollbar-style property: block|shaded|classic|ascii|line.
-// Each preset supplies content (and, for classic, background-color) as a
-// baseline that an element's own ::scrollbar-track/::scrollbar-thumb/
-// ::scrollbar-cap-start/::scrollbar-cap-end rules still override
-// property-by-property — see resolveScrollbarStyle/resolveScrollbarCap.
-// capStart/capEnd make the cap buttons opt-out, not opt-in: every preset
+// scrollbarPresets backs the scrollbar-style property:
+// block|shaded|classic|ascii|line. Each preset supplies content, and for
+// classic a background-color, as a baseline that an element's own
+// ::scrollbar-track, ::scrollbar-thumb, ::scrollbar-cap-start, and
+// ::scrollbar-cap-end rules still override property-by-property. See
+// resolveScrollbarStyle and resolveScrollbarCap.
+//
+// capStart and capEnd make the cap buttons opt-out, not opt-in. Every preset
 // supplies an arrow glyph, and an element only goes without caps by
-// explicitly setting content: none on the relevant pseudo-element (the same
-// "none suppresses injection" convention ::before/::after already have) or
-// by the gutter being too short to spare a row for one (see
+// explicitly setting content: none on the relevant pseudo-element, the same
+// "none suppresses injection" convention ::before and ::after already have,
+// or by the gutter being too short to spare a row for one (see
 // appendScrollbarColumn). classic's colors are a deliberately neutral gray
-// pair (not CSS-configurable via the scrollbar-style keyword itself);
-// override them with an explicit ::scrollbar-track/::scrollbar-thumb/
-// ::scrollbar-cap-* rule instead of a new preset if a different palette is
+// pair, not CSS-configurable via the scrollbar-style keyword itself. Override
+// them with an explicit ::scrollbar-track, ::scrollbar-thumb, or
+// ::scrollbar-cap-* rule, rather than a new preset, if a different palette is
 // wanted.
 var scrollbarPresets = map[string]scrollbarPreset{
 	"block": {
@@ -968,14 +977,15 @@ var scrollbarPresets = map[string]scrollbarPreset{
 	},
 }
 
-// scrollbarGutterWidth resolves n's ::scrollbar { width } declaration (in
-// ch/columns — see parseSizeVal), falling back to ScrollbarGutterWidth when
+// scrollbarGutterWidth resolves n's ::scrollbar { width } declaration, in ch
+// or columns (see parseSizeVal), falling back to ScrollbarGutterWidth when
 // unset, unparseable, or non-positive. Percentage widths are not meaningful
-// for a gutter and are also treated as unset. Independent of scrollbar-style
-// — none of the named presets set a width, only track/thumb glyph and color.
-// elemDecls is n's own resolved declarations (renderBlockContentBox already
-// has this as decls — not re-resolved here), read only for its custom
-// properties, to resolve var() inside the ::scrollbar rule.
+// for a gutter and are also treated as unset. This is independent of
+// scrollbar-style: none of the named presets set a width, only the track and
+// thumb glyph and color. elemDecls is n's own resolved declarations, which
+// renderBlockContentBox already has as decls and which are not re-resolved
+// here, read only for its custom properties, to resolve var() inside the
+// ::scrollbar rule.
 func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string) int {
 	decls := r.pseudoElemDecls(n, "scrollbar", customPropSubset(elemDecls))
 	if abs, pct, ok := parseSizeVal(decls["width"]); ok && pct == 0 && abs > 0 {
@@ -984,13 +994,13 @@ func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string)
 	return ScrollbarGutterWidth
 }
 
-// scrollbarGutterHeight is scrollbarGutterWidth's horizontal counterpart:
-// resolves n's ::scrollbar-x { height } declaration (a bare row count — see
-// parseSizeVal — matching how the "height" property itself is parsed
-// elsewhere in this package, not the ch/column unit ::scrollbar's own width
-// uses), falling back to ScrollbarGutterHeight when unset, unparseable, or
-// non-positive. Percentage heights are treated as unset, mirroring
-// scrollbarGutterWidth's own percentage handling.
+// scrollbarGutterHeight is scrollbarGutterWidth's horizontal counterpart. It
+// resolves n's ::scrollbar-x { height } declaration, a bare row count (see
+// parseSizeVal) matching how the "height" property itself is parsed
+// elsewhere in this package rather than the ch or column unit ::scrollbar's
+// own width uses, falling back to ScrollbarGutterHeight when unset,
+// unparseable, or non-positive. Percentage heights are treated as unset,
+// mirroring scrollbarGutterWidth's own percentage handling.
 func (r *Engine) scrollbarGutterHeight(n *html.Node, elemDecls map[string]string) int {
 	decls := r.pseudoElemDecls(n, "scrollbar-x", customPropSubset(elemDecls))
 	if abs, pct, ok := parseSizeVal(decls["height"]); ok && pct == 0 && abs > 0 {
@@ -1000,17 +1010,18 @@ func (r *Engine) scrollbarGutterHeight(n *html.Node, elemDecls map[string]string
 }
 
 // resolveScrollbarStyle resolves n's effective ::scrollbar-track or
-// ::scrollbar-thumb style (which is "scrollbar-track"/"scrollbar-thumb", or
-// their horizontal-scrollbar counterparts "scrollbar-track-x"/
-// "scrollbar-thumb-x") into a glyph plus text style. elemDecls is n's own
-// resolved declarations
-// (renderBlockContentBox already has this as decls — not re-resolved here),
-// read only for scrollbar-style; it selects which scrollbarPresets entry
-// supplies the baseline (falling back to defaultScrollbarStyle when unset or
-// unrecognized). n's actual ::scrollbar-track/::scrollbar-thumb rule, if
-// any, is then layered on top of that baseline property-by-property (a
-// content/color/etc. the rule sets wins; anything the rule doesn't mention
-// falls through to the preset) — this is what lets `scrollbar-style: classic`
+// ::scrollbar-thumb style into a glyph plus text style. which is
+// "scrollbar-track" or "scrollbar-thumb", or their horizontal-scrollbar
+// counterparts "scrollbar-track-x" and "scrollbar-thumb-x".
+//
+// elemDecls is n's own resolved declarations, which renderBlockContentBox
+// already has as decls and which are not re-resolved here, read only for
+// scrollbar-style. That selects which scrollbarPresets entry supplies the
+// baseline, falling back to defaultScrollbarStyle when unset or unrecognized.
+// n's actual ::scrollbar-track or ::scrollbar-thumb rule, if any, is then
+// layered on top of that baseline property-by-property: a content, color, or
+// other property the rule sets wins, and anything the rule doesn't mention
+// falls through to the preset. That is what lets `scrollbar-style: classic`
 // plus a lone `::scrollbar-thumb { color: red }` combine instead of one
 // replacing the other outright.
 func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string, which string) scrollbarStyle {
@@ -1030,19 +1041,19 @@ func (r *Engine) resolveScrollbarStyle(n *html.Node, elemDecls map[string]string
 }
 
 // resolveScrollbarCap resolves n's effective ::scrollbar-cap-start or
-// ::scrollbar-cap-end style (which is "scrollbar-cap-start"/
+// ::scrollbar-cap-end style into a glyph plus text style, through the same
+// preset-baseline-plus-override merge resolveScrollbarStyle already does for
+// ::scrollbar-track and ::scrollbar-thumb. which is "scrollbar-cap-start" or
 // "scrollbar-cap-end", or their horizontal-scrollbar counterparts
-// "scrollbar-cap-start-x"/"scrollbar-cap-end-x") into a glyph plus text
-// style, the same
-// preset-baseline-plus-override merge resolveScrollbarStyle already does
-// for ::scrollbar-track/::scrollbar-thumb (elemDecls is n's own resolved
-// declarations, read only for scrollbar-style). Caps are opt-out, not
-// opt-in: every scrollbarPresets entry supplies an arrow glyph for both
-// ends, so ok is true unless an element's own ::scrollbar-cap-start/
-// ::scrollbar-cap-end rule explicitly sets content: none/normal — the same
-// "none suppresses injection" convention ::before/::after already have —
-// or (handled by appendScrollbarColumn, not here) there's no room for the
-// cap this frame.
+// "scrollbar-cap-start-x" and "scrollbar-cap-end-x", and elemDecls is n's own
+// resolved declarations, read only for scrollbar-style.
+//
+// Caps are opt-out, not opt-in. Every scrollbarPresets entry supplies an arrow
+// glyph for both ends, so ok is true unless an element's own
+// ::scrollbar-cap-start or ::scrollbar-cap-end rule explicitly sets content:
+// none or normal, the same "none suppresses injection" convention ::before and
+// ::after already have, or there's no room for the cap this frame, which
+// appendScrollbarColumn handles rather than this function.
 func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, which string) (scrollbarStyle, bool) {
 	preset, ok := scrollbarPresets[elemDecls["scrollbar-style"]]
 	if !ok {
@@ -1055,11 +1066,11 @@ func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, 
 	merged := make(map[string]string, len(base))
 	maps.Copy(merged, base)
 	maps.Copy(merged, r.pseudoElemDecls(n, which, customPropSubset(elemDecls)))
-	// parseCSSContentString itself already treats "none"/"normal" as empty
-	// (see its own doc comment), so an explicit ::scrollbar-cap-start/
-	// ::scrollbar-cap-end { content: none; } rule overriding the preset's
-	// own content here is what turns ch (and so ok) back to empty/false —
-	// no separate check needed.
+	// parseCSSContentString itself already treats "none" and "normal" as
+	// empty (see its own doc comment), so an explicit ::scrollbar-cap-start
+	// or ::scrollbar-cap-end { content: none; } rule overriding the preset's
+	// own content here is what turns ch empty, and so ok false. No separate
+	// check is needed.
 	ch := r.parseCSSContentString(merged["content"], n)
 	if ch == "" {
 		return scrollbarStyle{}, false
@@ -1067,27 +1078,27 @@ func (r *Engine) resolveScrollbarCap(n *html.Node, elemDecls map[string]string, 
 	return scrollbarStyle{char: ch, style: extractInlineStyle(merged)}, true
 }
 
-// defaultBarPreset is progressPresets/meterPresets' fallback name when
-// progress-style/meter-style is unset or names a preset that doesn't
-// exist — same value and reasoning as defaultScrollbarStyle, kept as its
-// own constant since progress-style/meter-style are properties in their own
-// right, not scrollbar-style itself.
+// defaultBarPreset is progressPresets and meterPresets' fallback name when
+// progress-style or meter-style is unset or names a preset that doesn't
+// exist. Same value and reasoning as defaultScrollbarStyle, kept as its
+// own constant since progress-style and meter-style are properties in their
+// own right, not scrollbar-style itself.
 const defaultBarPreset = "block"
 
-// progressPreset is one named progress-style's baseline ::progress-bar/
-// ::progress-value declarations — mirrors scrollbarPreset's track/thumb
+// progressPreset is one named progress-style's baseline ::progress-bar and
+// ::progress-value declarations. It mirrors scrollbarPreset's track and thumb
 // shape for <progress>'s two-glyph bar. See docs/proposals/PROGRESS_METER.md.
 type progressPreset struct {
 	bar, value map[string]string
 }
 
-// progressPresets backs the progress-style property: block|shaded|classic|
-// ascii|line — the exact same five names scrollbar-style already uses, for
-// the same "one small, memorable vocabulary across this codebase's
-// terminal-native styling surfaces" reason docs/TABLES.md's border presets
-// and docs/SCROLLBARS.md's scrollbar presets already share. An element's own
-// ::progress-bar/::progress-value rule still overrides property-by-property
-// on top of these — see mergePresetStyle.
+// progressPresets backs the progress-style property:
+// block|shaded|classic|ascii|line. Those are the same five names
+// scrollbar-style already uses, for the same "one small, memorable vocabulary
+// across this codebase's terminal-native styling surfaces" reason
+// docs/TABLES.md's border presets and docs/SCROLLBARS.md's scrollbar presets
+// already share. An element's own ::progress-bar or ::progress-value rule
+// still overrides property-by-property on top of these; see mergePresetStyle.
 var progressPresets = map[string]progressPreset{
 	"block":   {bar: map[string]string{"content": `"░"`}, value: map[string]string{"content": `"█"`}},
 	"shaded":  {bar: map[string]string{"content": `"░"`}, value: map[string]string{"content": `"▓"`}},
@@ -1099,18 +1110,18 @@ var progressPresets = map[string]progressPreset{
 // meterPreset is one named meter-style's baseline ::meter-bar/
 // ::meter-optimum-value/::meter-suboptimum-value/::meter-even-less-good-value
 // declarations. <meter> gets three value pseudo-elements instead of
-// ::progress-value's one because real UAs already color-code by region;
+// ::progress-value's one because real UAs already color-code by region, and
 // collapsing them to a single glyph would lose that distinction.
 type meterPreset struct {
 	bar, optimum, suboptimum, evenLessGood map[string]string
 }
 
 // meterPresets backs the meter-style property, sharing progressPresets'
-// exact five names. classic's region colors (green/yellow/red) are the same
-// ones WebKit's own UA stylesheet uses by default for <meter> — picked for
-// recognizability, not an invented palette — and are reused, unchanged,
-// across all five presets here (only the glyph/background varies per
-// preset), matching the proposal's preset table.
+// exact five names. classic's region colors, green, yellow, and red, are the
+// same ones WebKit's own UA stylesheet uses by default for <meter>, picked
+// for recognizability rather than as an invented palette. They are reused
+// unchanged across all five presets here, with only the glyph and background
+// varying per preset, matching the proposal's preset table.
 var meterPresets = map[string]meterPreset{
 	"block": {
 		bar:          map[string]string{"content": `"░"`},
@@ -1144,15 +1155,15 @@ var meterPresets = map[string]meterPreset{
 	},
 }
 
-// mergePresetStyle merges base (a progressPresets/meterPresets entry's
-// baseline declarations for one pseudo-element) with n's own ::which rule —
-// which always wins property-by-property, anything it doesn't set falls
-// through to base — then resolves the merged content/color/etc. into a
-// glyph plus text style. Generalizes the exact merge contract
-// resolveScrollbarStyle/resolveScrollbarCap already use, since progress/
-// meter need it across six pseudo-elements (::progress-bar/-value,
-// ::meter-bar/-optimum-value/-suboptimum-value/-even-less-good-value)
-// instead of scrollbar's four.
+// mergePresetStyle merges base, a progressPresets or meterPresets entry's
+// baseline declarations for one pseudo-element, with n's own ::which rule,
+// which always wins property-by-property, anything it doesn't set falling
+// through to base. It then resolves the merged content, color, and other
+// properties into a glyph plus text style. This generalizes the merge
+// contract resolveScrollbarStyle and resolveScrollbarCap already use, since
+// progress and meter need it across six pseudo-elements — ::progress-bar and
+// -value, ::meter-bar, -optimum-value, -suboptimum-value, and
+// -even-less-good-value — instead of scrollbar's four.
 func (r *Engine) mergePresetStyle(n *html.Node, elemDecls, base map[string]string, which string) scrollbarStyle {
 	merged := make(map[string]string, len(base))
 	maps.Copy(merged, base)
@@ -1162,9 +1173,10 @@ func (r *Engine) mergePresetStyle(n *html.Node, elemDecls, base map[string]strin
 }
 
 // resolveProgressStyle resolves a <progress>'s effective ::progress-bar and
-// ::progress-value styles: progressPresets[elemDecls["progress-style"]] (or
-// defaultBarPreset when unset/unrecognized) as the baseline, with n's own
-// ::progress-bar/::progress-value rule layered on top property-by-property.
+// ::progress-value styles. The baseline is
+// progressPresets[elemDecls["progress-style"]], or defaultBarPreset when that
+// is unset or unrecognized, with n's own ::progress-bar and ::progress-value
+// rule layered on top property-by-property.
 func (r *Engine) resolveProgressStyle(n *html.Node, elemDecls map[string]string) (bar, value scrollbarStyle) {
 	preset, ok := progressPresets[elemDecls["progress-style"]]
 	if !ok {
@@ -1176,8 +1188,8 @@ func (r *Engine) resolveProgressStyle(n *html.Node, elemDecls map[string]string)
 }
 
 // resolveMeterStyle is resolveProgressStyle's <meter> counterpart, resolving
-// all four of ::meter-bar/::meter-optimum-value/::meter-suboptimum-value/
-// ::meter-even-less-good-value the same way.
+// all four of ::meter-bar, ::meter-optimum-value, ::meter-suboptimum-value,
+// and ::meter-even-less-good-value the same way.
 func (r *Engine) resolveMeterStyle(n *html.Node, elemDecls map[string]string) (bar, optimum, suboptimum, evenLessGood scrollbarStyle) {
 	preset, ok := meterPresets[elemDecls["meter-style"]]
 	if !ok {
@@ -1190,50 +1202,50 @@ func (r *Engine) resolveMeterStyle(n *html.Node, elemDecls map[string]string) (b
 	return bar, optimum, suboptimum, evenLessGood
 }
 
-// formControlBarDefaultWidth is the fallback inner width for a <progress>/
-// <meter> bar when, unexpectedly, no width resolves at all (the UA
-// stylesheet always sets width:20, so resolveWidthConstraints should
-// normally already return this exact value as decls["width"]'s resolved
-// size) — see docs/proposals/PROGRESS_METER.md's Sizing section for why 20
-// was chosen.
+// formControlBarDefaultWidth is the fallback inner width for a <progress> or
+// <meter> bar when, unexpectedly, no width resolves at all. The UA stylesheet
+// always sets width:20, so resolveWidthConstraints should normally already
+// return this exact value as decls["width"]'s resolved size. See
+// docs/proposals/PROGRESS_METER.md's Sizing section for why 20 was chosen.
 const formControlBarDefaultWidth = 20
 
-// appendScrollbarColumn appends one scrollbar-gutter — gutterWidth columns
-// wide, each column holding either track.char or thumb.char (styled per
-// track.style/thumb.style) — to each of lines, using the standard
-// proportional thumb-size/thumb-position formula. totalLines is the
-// content's line count before it was sliced/padded to heightLines, so the
+// appendScrollbarColumn appends one scrollbar gutter to each of lines, using
+// the standard proportional thumb-size and thumb-position formula. The gutter
+// is gutterWidth columns wide, each column holding either track.char or
+// thumb.char, styled per track.style or thumb.style. totalLines is the
+// content's line count before it was sliced or padded to heightLines, so the
 // thumb reflects the real scrollable range even though lines itself no
-// longer does. Appends rather than overwrites, so real content is never
-// clobbered — see docs/SCROLLING.md's rejected splice-overlay alternative
-// for why that matters. When totalLines <= heightLines (nothing to actually
-// scroll), thumbSize naturally comes out to heightLines, i.e. the thumb
-// fills the whole track, matching a real scrollbar's own convention for
-// "you can already see everything."
+// longer does. It appends rather than overwrites, so real content is never
+// clobbered; see docs/SCROLLING.md's rejected splice-overlay alternative
+// for why that matters. When totalLines <= heightLines, meaning there is
+// nothing to scroll, thumbSize comes out to heightLines, so the thumb fills
+// the whole track, matching a real scrollbar's own convention for "you can
+// already see everything".
 //
-// innerW is the box's content width (excluding the gutter itself). Each line
+// innerW is the box's content width, excluding the gutter itself. Each line
 // is padded or truncated to exactly innerW visible columns before the glyphs
-// are appended — upstream width-normalization (alignLinesBox/padLinesToWidthBox)
-// only runs conditionally, and even then never truncates a line that's
-// already >= width (e.g. one holding an unbreakable overlong token), so
-// without this the gutter column would land on a ragged, content-dependent
-// column instead of a straight line at the pane's right edge.
+// are appended. Upstream width-normalization, in alignLinesBox and
+// padLinesToWidthBox, only runs conditionally, and even then never truncates
+// a line already at or past width, such as one holding an unbreakable
+// overlong token, so without this the gutter column would land on a ragged,
+// content-dependent column instead of a straight line at the pane's right
+// edge.
 //
-// capStart/capEnd are the resolved ::scrollbar-cap-start/::scrollbar-cap-end
-// glyphs (see resolveScrollbarCap), each gated by its own hasCapStart/
-// hasCapEnd — caps are opt-out (on by default via scrollbarPresets), so
-// either can still be individually false when a rule explicitly disabled it
-// (content: none). When active,
-// a cap claims row 0 (start) and/or the last row (end) verbatim, and the
-// thumb-size/thumb-position formula runs over the interior track
-// (heightLines minus however many caps are active) so the thumb never
-// overlaps a cap. If there isn't at least 1 interior row left once active
-// caps are subtracted, both caps are silently dropped for this render (not
-// just the one that doesn't fit) — the same "drop the added chrome, keep
-// content correct" precedent already used when the gutter itself doesn't
-// fit. The returned bools report which caps were actually drawn, for the
-// caller to record in Viewport (document.go's click hit-testing must not
-// treat a dropped cap as clickable).
+// capStart and capEnd are the resolved ::scrollbar-cap-start and
+// ::scrollbar-cap-end glyphs (see resolveScrollbarCap), each gated by its own
+// hasCapStart or hasCapEnd. Caps are opt-out, on by default via
+// scrollbarPresets, so either can still be individually false when a rule
+// explicitly disabled it with content: none. When active, a cap claims row 0
+// for the start and the last row for the end verbatim, and the thumb-size and
+// thumb-position formula runs over the interior track, heightLines minus
+// however many caps are active, so the thumb never overlaps a cap. If there
+// isn't at least 1 interior row left once active caps are subtracted, both
+// caps are silently dropped for this render, not just the one that doesn't
+// fit, following the same "drop the added chrome, keep content correct"
+// precedent already used when the gutter itself doesn't fit. The returned
+// bools report which caps were drawn, for the caller to record in Viewport,
+// since document.go's click hit-testing must not treat a dropped cap as
+// clickable.
 func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, innerW, gutterWidth int, track, thumb, capStart, capEnd scrollbarStyle, hasCapStart, hasCapEnd bool, profile colorprofile.Profile) ([]string, bool, bool) {
 	activeCaps := 0
 	if hasCapStart {
@@ -1285,17 +1297,17 @@ func appendScrollbarColumn(lines []string, offset, totalLines, heightLines, inne
 }
 
 // appendScrollbarRow is appendScrollbarColumn's horizontal-scrollbar
-// counterpart: appends gutterHeight identical rows — each innerW columns
-// wide, one glyph per column (track.char or thumb.char, per the standard
-// proportional thumb formula, transposed onto the width axis) — below
-// lines. offsetX/maxLineWidth/innerW play the role offset/totalLines/
-// heightLines play for the vertical version; capStart/capEnd occupy the
-// leftmost/rightmost column of every gutter row instead of the topmost/
-// bottommost gutter row, with the same "not enough room ⇒ drop both caps"
-// rule appendScrollbarColumn already has (transposed: innerW-activeCaps < 1
-// instead of heightLines-activeCaps < 1). Every gutter row is identical
-// (unlike a >1-wide vertical gutter column, whose glyph is simply repeated
-// across its columns) since gutterHeight rows have no independent
+// counterpart. It appends gutterHeight identical rows below lines, each
+// innerW columns wide with one glyph per column, track.char or thumb.char per
+// the standard proportional thumb formula transposed onto the width axis.
+// offsetX, maxLineWidth, and innerW play the roles offset, totalLines, and
+// heightLines play for the vertical version. capStart and capEnd occupy the
+// leftmost and rightmost column of every gutter row instead of the topmost
+// and bottommost gutter row, with the same "not enough room ⇒ drop both caps"
+// rule appendScrollbarColumn already has, transposed to innerW-activeCaps < 1
+// instead of heightLines-activeCaps < 1. Every gutter row is identical,
+// unlike a vertical gutter column wider than 1, whose glyph is repeated
+// across its columns, since gutterHeight rows have no independent
 // column-axis content of their own to differ by.
 func appendScrollbarRow(lines []string, offsetX, maxLineWidth, innerW, gutterHeight int, track, thumb, capStart, capEnd scrollbarStyle, hasCapStart, hasCapEnd bool, profile colorprofile.Profile) ([]string, bool, bool) {
 	activeCaps := 0
@@ -1350,9 +1362,10 @@ func appendScrollbarRow(lines []string, offsetX, maxLineWidth, innerW, gutterHei
 }
 
 // firstContentIsInline reports whether n's first non-whitespace content is
-// inline (a text node or inline element). Returns false when the first child
-// is a block-level element, meaning text-indent should not be applied here —
-// the block child will apply its own inherited value on its own first line.
+// inline, meaning a text node or inline element. It returns false when the
+// first child is a block-level element, so text-indent should not be applied
+// here: the block child will apply its own inherited value on its own first
+// line.
 func (r *Engine) firstContentIsInline(n *html.Node) bool {
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.TextNode {
@@ -1377,11 +1390,11 @@ func blankVisibleContent(s string) string {
 }
 
 // blankLineVisible replaces line's visible content with spaces, preserving
-// its **column** count — not its rune count, which is what this used to do.
-// The distinction is the whole point of visibility:hidden over display:none:
-// a hidden element must go on occupying exactly the room it occupied, so the
-// content after it doesn't move. Blanking "日本語" (3 runes, 6 columns) to 3
-// spaces slid the rest of the line 3 columns left.
+// its **column** count rather than its rune count, which is what this used to
+// do. The distinction is the point of visibility:hidden over display:none: a
+// hidden element must go on occupying exactly the room it occupied, so the
+// content after it doesn't move. Blanking "日本語", 3 runes and 6 columns, to
+// 3 spaces slid the rest of the line 3 columns left.
 func blankLineVisible(line string) string {
 	return strings.Repeat(" ", textcell.VisibleLen(line))
 }
@@ -1395,10 +1408,10 @@ func blankVisibleContentBox(b box) box {
 	return box{lines: lines, width: linesWidth(lines)}
 }
 
-// isQuotedCSSValue reports whether v (after trimming) is a CSS quoted
-// string token - the disambiguator resolveBorderEdgeChar uses between a
-// literal border glyph (border-top: "═") and the standard border-edge
-// shorthand grammar (border-top: solid red).
+// isQuotedCSSValue reports whether v, after trimming, is a CSS quoted
+// string token. It is the disambiguator resolveBorderEdgeChar uses between a
+// literal border glyph, as in border-top: "═", and the standard border-edge
+// shorthand grammar, as in border-top: solid red.
 func isQuotedCSSValue(v string) bool {
 	v = strings.TrimSpace(v)
 	if len(v) < 2 {
@@ -1407,18 +1420,19 @@ func isQuotedCSSValue(v string) bool {
 	return (v[0] == '"' && v[len(v)-1] == '"') || (v[0] == '\'' && v[len(v)-1] == '\'')
 }
 
-// resolveBorderEdgeChar parses one of border-top/border-right/border-bottom/
-// border-left's raw declared value. A quoted string is this engine's
-// literal-glyph form and is unquoted via parseCSSString unchanged. Anything
-// else has already passed through expandShorthand (css.go) as the standard
-// CSS border-edge shorthand grammar, which leaves just a bare style keyword
-// here - its width and color tokens, if any, were already split into
-// border-*-color there - so glyph picks that preset's character for this
-// specific edge (e.g. top.fill for border-top, left for border-left).
+// resolveBorderEdgeChar parses the raw declared value of one of border-top,
+// border-right, border-bottom, or border-left. A quoted string is this
+// engine's literal-glyph form and is unquoted via parseCSSString unchanged.
+// Anything else has already passed through expandShorthand (css.go) as the
+// standard CSS border-edge shorthand grammar, which leaves just a bare style
+// keyword here, its width and color tokens if any having already been split
+// into border-*-color there. So glyph picks that preset's character for this
+// specific edge: top.fill for border-top, left for border-left, and so on.
+//
 // present reports whether the declaration existed at all, even when it
-// resolves to an empty character (an explicit "none"/"hidden" style) -
-// callers must not let the border-style backfill override an edge that was
-// deliberately cleared.
+// resolves to an empty character, as an explicit "none" or "hidden" style
+// does. Callers must not let the border-style backfill override an edge that
+// was deliberately cleared.
 func resolveBorderEdgeChar(raw string, glyph func(tableStyle) string) (char string, present bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1433,7 +1447,7 @@ func resolveBorderEdgeChar(raw string, glyph func(tableStyle) string) (char stri
 	return "", false
 }
 
-// parseCSSString unquotes a CSS quoted string token (e.g. `"│"` → `│`).
+// parseCSSString unquotes a CSS quoted string token, turning `"│"` into `│`.
 // Returns "" for unquoted values, keywords, or empty input.
 func parseCSSString(v string) string {
 	v = strings.TrimSpace(v)
@@ -1457,11 +1471,11 @@ func parseCSSString(v string) string {
 		}
 		i++
 		next := runes[i]
-		// \<newline> — line continuation, consume and skip the newline
+		// \<newline>: line continuation, consume and skip the newline
 		if next == '\n' {
 			continue
 		}
-		// \<hex>{1,6}<optional-space> — Unicode code point
+		// \<hex>{1,6}<optional-space>: Unicode code point
 		if isHexRune(next) {
 			hexStart := i
 			for i+1 < len(runes) && isHexRune(runes[i+1]) && i-hexStart < 5 {
@@ -1475,7 +1489,7 @@ func parseCSSString(v string) string {
 			}
 			continue
 		}
-		// \<other> — the character itself
+		// \<other>: the character itself
 		b.WriteRune(next)
 	}
 	return sanitizeTerminalText(b.String(), true)
@@ -1523,8 +1537,9 @@ func isSpaceRune(r rune) bool {
 }
 
 // parseCSSContentString extracts the text from a CSS content property value.
-// Supports: quoted strings, attr(), counter(), counters(), open-quote,
-// close-quote, no-open-quote, no-close-quote. Returns "" for none/normal.
+// It supports quoted strings, attr(), counter(), counters(), open-quote,
+// close-quote, no-open-quote, and no-close-quote. Returns "" for none and
+// normal.
 func (r *Engine) parseCSSContentString(v string, n *html.Node) string {
 	v = strings.TrimSpace(v)
 	if v == "none" || v == "normal" || v == "" {
@@ -1605,7 +1620,7 @@ func (r *Engine) parseCSSContentString(v string, n *html.Node) string {
 			b.WriteString(pairs[depth][1])
 
 		case v[0] == '"' || v[0] == '\'':
-			// quoted string — find the closing quote
+			// quoted string: find the closing quote
 			q := v[0]
 			i := 1
 			for i < len(v) {
@@ -1626,7 +1641,7 @@ func (r *Engine) parseCSSContentString(v string, n *html.Node) string {
 			v = v[i:]
 
 		default:
-			// unrecognised token — skip one word
+			// unrecognised token: skip one word
 			i := strings.IndexAny(v, " \t\n\r")
 			if i < 0 {
 				return b.String()
@@ -1646,19 +1661,19 @@ func (r *Engine) wrapHyperlink(href, text string) string {
 	return ansi.SetHyperlink(href) + text + ansi.ResetHyperlink()
 }
 
-// wrapHyperlinkBox is wrapHyperlink's box-based equivalent, preserving b.pre
-// (the string-signature version, joining and re-splitting, would silently
-// drop it — box.join() has no pre-tagging concept). The OSC 8 sequences are
-// zero-width and never contain "\n", so this never changes b's line count.
+// wrapHyperlinkBox is wrapHyperlink's box-based equivalent, preserving b.pre.
+// The string-signature version, which joins and re-splits, would silently
+// drop it, since box.join() has no pre-tagging concept. The OSC 8 sequences
+// are zero-width and never contain "\n", so this never changes b's line count.
 //
-// Every line gets its own open+close pair, not just line 0/the last line:
-// the terminal-facing consumer of this output (../tui/cellbridge.go's
-// writeANSILine) decodes each screen row independently from a fresh state,
+// Every line gets its own open and close pair, not just line 0 or the last
+// line. The terminal-facing consumer of this output, ../tui/cellbridge.go's
+// writeANSILine, decodes each screen row independently from a fresh state,
 // the same way it re-derives SGR style per row rather than carrying it
-// across rows — an open only on line 0 left every wrapped continuation
-// line of a multi-line block/flex <a> (common for HTML-email "read
-// more"/CTA buttons) with no URL attached to its cells at all: still
-// underlined (SGR is correctly self-contained per line), but not
+// across rows. An open only on line 0 left every wrapped continuation
+// line of a multi-line block or flex <a>, common for HTML-email "read more"
+// and CTA buttons, with no URL attached to its cells at all: still
+// underlined, since SGR is correctly self-contained per line, but not
 // clickable, and if line 0 itself scrolled out of view, no visible row of
 // the link was clickable.
 func (r *Engine) wrapHyperlinkBox(href string, b box) box {
