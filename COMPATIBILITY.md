@@ -229,6 +229,32 @@ For the design rationale behind the DOM/Events/rendering internals, see
   (whose shorthand expansion is `flex-basis: 0`) reserves one cell per item
   before any leftover space is distributed, making grow ratios slightly off
   for items with differing `flex-grow` weights.
+- **An over-shrunk flex item is clipped, where CSS would let it overflow.**
+  This one is unusual, so it's worth stating why. CSS keeps it from arising in
+  the first place: `min-width`'s initial value on a flex item's main axis is
+  `auto`, the *automatic minimum size*, which stops `flex-shrink` at the item's
+  min-content width — and that is implemented here (see CSS.md's Flexbox
+  section, including both of the spec's opt-outs). But the automatic minimum is
+  clamped by a definite `width`, and either opt-out (`min-width: 0`, a
+  non-`visible` `overflow-x`) removes it, so an item can still end up narrower
+  than its content. A browser then paints the overflow *over* its neighbors,
+  leaving their positions untouched. This engine assembles a flex line by
+  concatenating each item's rendered strings, so an item painting wider than
+  its allotment doesn't overlay its siblings — it **displaces** them into
+  columns that belong to somebody else, and only on the rows that actually
+  overflow, so the item's own border no longer lines up with its own content
+  and the container's border lands mid-text. That's not visible overflow, it's
+  a desynchronized frame, and a character grid has no way to express the
+  former. The item is therefore clipped to the main size flex resolved for it,
+  honoring `text-overflow` as the marker if one is set (CSS paints no marker
+  for `overflow: visible`, so that part is a pure opt-in).
+
+  The clip is deliberately narrow, and it is *not* a general "flex clips" rule:
+  a flex **line** that overflows its container is left alone, exactly like
+  every other overflowing box in this engine — a plain bordered block whose
+  unbreakable content exceeds its `width` also paints past its own border. Only
+  the item-vs-allotment case is clipped, because only that case corrupts the
+  positions of *other* elements.
 - **`flex-basis: auto` measures `fit-content`, not `max-content`.** An item
   with no `flex-basis`/`width` gets a shrink-to-fit measurement of its own
   content — but the measurement is taken at the container's content width, so
@@ -366,10 +392,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   but only once the container has an explicit CSS `height` — this engine has
   no other notion of a column flex container's main-axis size (row
   direction's width is always definite, so it never needed this condition).
-  There is also no min-content measurement to serve as the spec's *automatic*
-  minimum size, so an item whose content can't fit at its resolved size
-  overflows past it rather than forcing the line wider. See CSS.md's Flexbox
-  section for the full reasoning per gap.
+  See CSS.md's Flexbox section for the full reasoning per gap.
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
   consulted, via real conflict resolution against their column's cells). The

@@ -581,7 +581,7 @@ Integer line count (e.g. `10`). Maximum content-box height in lines. Content bey
 #### `overflow`, `overflow-x`, `overflow-y`
 `visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping and scrolling; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
 
-- **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
+- **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width — except on a `display: flex`/`inline-flex` container, where no width is required, since flex items floored at their [automatic minimum size](#automatic-minimum-size-min-width-auto) can overflow a container that has none); `overflow-y` truncates excess lines when an explicit `height` is also set. `text-overflow` controls the truncation marker.
 - **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Element.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**) is the same idea transposed: a live horizontal scroll offset (`Element.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
 - **`scroll`** — same scrolling behavior as `auto` per axis, **plus** an always-reserved gutter — a column (default 1 wide) for `overflow-y`, a row (default 1 tall) for `overflow-x` — with a track and thumb tracking the scroll position, drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (content unaffected) if the box is too narrow/short to spare one, or — for `overflow-x`'s gutter row specifically — if the element also has an explicit `height` of its own (both axes' visible gutters can't coexist yet; the scroll offsets themselves still work in that combination — see `docs/SCROLLING.md`). **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*` and their `-x` horizontal counterparts, `scrollbar-style` presets, cap-button click behavior).
 
@@ -1087,7 +1087,11 @@ rather than moving to the items that could still grow.
 
 A nested `display: flex`/`inline-flex` item's own height still responds to its
 parent's `flex-grow`/`flex-shrink`/`flex-basis`, the same as an ordinary
-block child. Negative values are treated as `0`, as is any value that isn't a
+block child — and the height it's allotted becomes that nested container's own
+definite main size, exactly as an explicit `height` on it would: its border
+encloses the grown rows, and its own items can distribute them further with
+their own `flex-grow`/`justify-content`/`align-items`. Negative values are
+treated as `0`, as is any value that isn't a
 CSS `<number>` — `NaN`/`Inf` are Go float literals, not CSS numbers, and are
 rejected. Not inherited.
 
@@ -1155,12 +1159,11 @@ the overflow is distributed across items proportionally to each item's
 `flex-shrink` weight times its own `flex-basis` (the real spec's "scaled
 flex shrink factor") and subtracted from that item's main-axis size —
 `flex-shrink: 0` opts an item out entirely. An item never shrinks below its
-`min-width` (row direction) / `min-height` (column direction) — 1 column/line
-if that isn't set — this engine has no min-content measurement to use as the
-real spec's automatic minimum, so content that can't actually fit at the
-shrunk size (an unbreakable word wider than its floor in row direction; any
-content taller than its floor in column direction, since text can't be
-forced into fewer lines) simply overflows past it. An item that reaches its
+`min-width` (row direction) / `min-height` (column direction). In `column`
+direction, an item with no `min-height` floors at one line — text can't be
+forced into fewer lines, so content taller than its floor simply overflows
+past it. In `row` direction the floor is CSS's own **automatic minimum size**
+— see below. An item that reaches its
 floor is frozen there and the overflow it couldn't absorb is re-split across
 the items that can still shrink, the same freeze-and-repeat loop `flex-grow`
 uses against `max-width`/`max-height`. `flex-shrink` factors summing to less
@@ -1171,6 +1174,48 @@ with no explicit container `height`, there's nothing to overflow against, so
 `flex-shrink` never applies. Negative values are treated as `1` (the
 default), as is any value that isn't a CSS `<number>` — see `flex-grow`. Not
 inherited.
+
+#### Automatic minimum size (`min-width: auto`)
+In `row` direction an item's `min-width` starts at CSS's own initial value of
+`auto`, not `0`, which on a flex item's main axis resolves to the
+**content-based minimum size** (Flexbox §4.5, defined in CSS Sizing 3 §5.1).
+In practice: **an item is never shrunk below the width its content needs**, so
+the common case of two long labels in a narrow row leaves them at their natural
+widths and lets the *line* overflow, rather than crushing each item until its
+text spills through its own border. It applies to the flex base size too, not
+just to shrinking — a `flex-basis` smaller than the item's content is raised to
+fit before line-breaking and `flex-grow`/`flex-shrink` ever see it, matching the
+spec's "hypothetical main size" (§9.2).
+
+The content-based minimum is the item's min-content width (its widest
+unbreakable run, plus its own border/padding), clamped by a definite `width` and
+by `max-width`. So `width: 6` on an item holding a 12-column word still wins,
+and the content is what gives way.
+
+There are two opt-outs, both the spec's own — this is why `min-width: 0` and
+`overflow: hidden` are each a standard fix for a flex item that refuses to
+shrink:
+
+- **an explicit `min-width`** replaces the automatic one outright, including
+  `min-width: 0` (which floors at one column here, since no box renders in zero
+  columns);
+- **a non-`visible` `overflow-x`** (`hidden`, `clip`, `scroll`, `auto`) disables
+  it, per §4.5's "on a flex item whose overflow is visible in the main axis".
+
+```css
+/* the standard escape hatch: let items shrink past their content */
+.row { display: flex; width: 100%; }
+.row > * { min-width: 0; }
+```
+
+Whatever the automatic minimum can't prevent — a `width` narrower than the
+content, a `min-width: 0`, `flex-shrink: 0` against a small declared width — an
+item that would paint wider than the main size flex resolved for it is **clipped
+to that size**, honoring its `text-overflow` as the marker if one is set. Real
+CSS paints such overflow over the item's neighbors instead; a character grid
+can't, so see [COMPATIBILITY.md](COMPATIBILITY.md) for why clipping is the
+lesser evil. A flex *line* overflowing its container is not clipped — that
+behaves like any other overflowing box in this engine.
 
 ```css
 /* both columns shrink together, proportionally to their basis, once the row overflows */

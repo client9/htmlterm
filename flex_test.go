@@ -292,7 +292,17 @@ func TestFlexNaturalBasisIsContentWidth(t *testing.T) {
 		{name: "text-align doesn't inflate an item's basis", width: 20, html: `<div style="display:flex;width:100%"><div style="text-align:center">a</div><div>rest</div></div>`, want: "arest               \n"},
 		{name: "a bordered child shrinks with the item being measured", width: 20, html: `<div style="display:flex;width:100%"><div><div style="border-style:solid">a</div></div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
 		{name: "a nested flex item measures its own items", width: 20, html: `<div style="display:flex;width:100%"><div style="display:flex;border-style:solid"><div>a</div></div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
-		{name: "flex-shrink splits the deficit by content width, not evenly", width: 10, html: `<div style="display:flex;width:100%"><div style="border-style:solid">aaaaaa</div><div style="border-style:solid">b</div></div>`, want: "┌─────┐┌─┐\n│aaaaaa││b│\n└─────┘└─┘\n"},
+		// A nested container's basis must include its *own* border and padding,
+		// not just the items inside it. Measuring the bare layout pass instead
+		// under-allotted such an item by its chrome at every level of nesting,
+		// which compounds: the innermost items here had 4 columns taken off them
+		// by the two wrappers, enough to wrap "aa aa" onto two lines.
+		{name: "a nested flex container's basis includes its own border and padding", width: 20, html: `<div style="display:flex;width:100%"><div style="display:flex;border-style:solid;padding-left:1"><div style="display:flex;border-style:solid"><div>aa aa</div></div></div><div>r</div></div>`, want: "┌────────┐r         \n│ ┌─────┐│          \n│ │aa aa││          \n│ └─────┘│          \n└────────┘          \n"},
+		// Bases of 10 and 7 against a 5-column deficit: the scaled shrink factor
+		// takes 3 from the first and 2 from the second, not 2.5 apiece. Breakable
+		// content, so both stay above their own min-content floors and the split
+		// is what's actually on display.
+		{name: "flex-shrink splits the deficit by content width, not evenly", width: 12, html: `<div style="display:flex;width:100%"><div style="border-style:solid">aa aa aa</div><div style="border-style:solid">bb bb</div></div>`, want: "┌─────┐┌───┐\n│aa aa││bb │\n│aa   ││bb │\n└─────┘└───┘\n"},
 		{name: "flex-wrap breaks lines on content widths", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%"><div style="border-style:solid">aa</div><div style="border-style:solid">bb</div><div style="border-style:solid">cc</div><div style="border-style:solid">dd</div></div>`, want: "┌──┐┌──┐┌──┐\n│aa││bb││cc│\n└──┘└──┘└──┘\n┌──┐        \n│dd│        \n└──┘        \n"},
 		// The shrink-to-fit narrowing is scoped to the discarded measurement
 		// render; an ordinary block still fills its containing block.
@@ -345,5 +355,110 @@ func TestFlexNesting(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "a nested flex row inside a flex column stretches to the column's full width by default", width: 20, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="display:flex;gap:1"><div>a</div><div>b</div></div><div>c</div></div>`, want: "a b                 \nc                   \n"},
 		{name: "flex-grow on a nested flex container measures its own natural width, not the outer container's", width: 20, html: `<div style="display:flex;width:100%"><div style="display:flex;flex-direction:column;flex-grow:1"><div>x</div><div>y</div></div><div>z</div></div>`, want: "x                  z\ny                   \n"},
+	})
+}
+
+// TestFlexZeroBasis pins that a declared flex-basis of 0 is a *definite* base
+// size of nothing, not an absent one. parseSizeVal reports only n > 0 as a
+// length (everywhere else in this engine a zero size and an absent one mean the
+// same thing), so a declared 0 used to fall through to width and then to the
+// item's natural content width — making `flex: 1`, whose shorthand expansion is
+// `1 1 0`, lay out as `1 1 auto`: items with different content got
+// content-proportional widths instead of equal ones. See parseFlexSizeVal.
+func TestFlexZeroBasis(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "flex:1 splits the line equally when content permits", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;border-style:solid">a</div><div style="flex:1;border-style:solid">bb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bb      │\n└────────┘└────────┘\n"},
+		// The zero basis is floored at min-content, not at fit-content: with the
+		// basis read as auto instead, the first item starts at its full 9-column
+		// content and the two end up 14/6 rather than 12/8.
+		{name: "flex-basis:0 starts each item from min-content, not fit-content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0;flex-grow:1;border-style:solid">b</div></div>`, want: "┌──────────┐┌──────┐\n│aaaa aaaa ││b     │\n└──────────┘└──────┘\n"},
+		{name: "flex-basis:0% is a zero length too, not an unset one", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:0%;flex-grow:1;border-style:solid">aaaa aaaa</div><div style="flex-basis:0%;flex-grow:1;border-style:solid">b</div></div>`, want: "┌──────────┐┌──────┐\n│aaaa aaaa ││b     │\n└──────────┘└──────┘\n"},
+		// min-width:0 opts out of the automatic minimum, so unbreakable content
+		// no longer floors the basis and `flex: 1` is exactly equal again.
+		{name: "min-width:0 restores exact equality against unbreakable content", width: 20, html: `<div style="display:flex;width:100%"><div style="flex:1;min-width:0;border-style:solid">a</div><div style="flex:1;min-width:0;border-style:solid">bbbbbb</div></div>`, want: "┌────────┐┌────────┐\n│a       ││bbbbbb  │\n└────────┘└────────┘\n"},
+		{name: "flex-basis:auto still falls back to natural content width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:auto;border-style:solid">a</div><div>rest</div></div>`, want: "┌─┐rest             \n│a│                 \n└─┘                 \n"},
+		{name: "a column item's flex-basis:0 grows from one line, not from its content height", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:6"><div style="flex-basis:0;flex-grow:1;border-style:solid">a<br>b</div></div>`, want: "┌──────────┐\n│a         │\n│b         │\n│          │\n│          │\n└──────────┘\n"},
+	})
+}
+
+// TestFlexAutomaticMinimumSize covers CSS's automatic minimum size for flex
+// items (Flexbox §4.5 / Sizing 3 §5.1): min-width's initial value is `auto`,
+// which on a flex item's main axis resolves to the content-based minimum, so
+// flex-shrink can't take an item below the width its content needs. This engine
+// used to floor every item at one column instead — the effect of an
+// unconditional `min-width: 0` — and an over-shrunk item's content then painted
+// straight through its own border and displaced the rest of the line.
+func TestFlexAutomaticMinimumSize(t *testing.T) {
+	runCases(t, []renderCase{
+		// Both items are at their min-content width, so neither shrinks and the
+		// line overflows the container — exactly what a browser does here.
+		{name: "an item does not shrink below its min-content width", width: 24, html: `<div style="display:flex;width:100%"><div style="border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bbbbbbbbbbbb</div></div>`, want: "┌────────────┐┌────────────┐\n│aaaaaaaaaaaa││bbbbbbbbbbbb│\n└────────────┘└────────────┘\n"},
+		{name: "breakable content shrinks freely down to its longest word", width: 16, html: `<div style="display:flex;width:100%"><div style="border-style:solid">aa aa aa aa</div><div style="border-style:solid">bb</div></div>`, want: "┌──────────┐┌──┐\n│aa aa aa  ││bb│\n│aa        ││  │\n└──────────┘└──┘\n"},
+		// The second item is frozen at its own min-content, so the whole
+		// 8-column deficit falls on the first, which stops at the explicit
+		// min-width the automatic minimum would otherwise have raised to 14.
+		{name: "an explicit min-width still wins over the automatic one", width: 20, html: `<div style="display:flex;width:100%"><div style="min-width:6;border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bbbbbbbbbbbb</div></div>`, want: "┌────┐┌────────────┐\n│aaaa││bbbbbbbbbbbb│\n└────┘└────────────┘\n"},
+		// The two spec-sanctioned opt-outs, which are why `min-width: 0` and
+		// `overflow: hidden` are both standard fixes for an item that won't
+		// shrink: the automatic minimum applies only to an item whose main-axis
+		// overflow is visible, and an explicit min-width replaces it outright.
+		{name: "min-width:0 opts out and lets the item shrink to its allotment", width: 24, html: `<div style="display:flex;width:100%"><div style="min-width:0;border-style:solid">aaaaaaaaaaaa</div><div style="min-width:0;border-style:solid">bbbbbbbbbbbb</div></div>`, want: "┌──────────┐┌──────────┐\n│aaaaaaaaaa││bbbbbbbbbb│\n└──────────┘└──────────┘\n"},
+		{name: "a non-visible overflow-x opts out the same way", width: 24, html: `<div style="display:flex;width:100%"><div style="overflow:hidden;border-style:solid">aaaaaaaaaaaa</div><div style="overflow:hidden;border-style:solid">bbbbbbbbbbbb</div></div>`, want: "┌──────────┐┌──────────┐\n│aaaaaaaaaa││bbbbbbbbbb│\n└──────────┘└──────────┘\n"},
+		// A definite width is the spec's "specified size suggestion", which
+		// clamps the content-based minimum — so a width narrower than the
+		// content still wins, and the content is what gives way.
+		{name: "a declared width narrower than min-content clamps the floor", width: 24, html: `<div style="display:flex;width:100%"><div style="width:6;flex-shrink:0;border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────┐┌──┐              \n│aaaa││bb│              \n└────┘└──┘              \n"},
+		// Flex base sizes, not just shrinking, are floored: the hypothetical main
+		// size is the base size clamped by the used min/max main size (§9.2), so
+		// a declared flex-basis below min-content is raised before line-breaking
+		// and grow/shrink ever see it.
+		{name: "a flex-basis below min-content is raised to it", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:4;border-style:solid">aaaaaaaa</div><div>rest</div></div>`, want: "┌────────┐rest      \n│aaaaaaaa│          \n└────────┘          \n"},
+	})
+}
+
+// TestFlexItemClippedToAllotment covers the backstop for the cases the
+// automatic minimum above can't prevent — a definite width narrower than
+// min-content, a min-width:0 opt-out — where CSS itself overflows. A browser
+// paints the overflow over the item's siblings; this engine assembles a line by
+// concatenation, so an item wider than its allotment would instead *displace*
+// every later item on the line into columns that belong to somebody else. The
+// item is clipped to its allotment instead, which is a documented deviation
+// (see COMPATIBILITY.md).
+func TestFlexItemClippedToAllotment(t *testing.T) {
+	runCases(t, []renderCase{
+		// The clip goes through the item's own box model, so its border survives
+		// and the following item still starts exactly where flex put it.
+		{name: "an over-allotment item is clipped without losing its border", width: 20, html: `<div style="display:flex;width:100%"><div style="width:6;flex-shrink:0;border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────┐┌──┐          \n│aaaa││bb│          \n└────┘└──┘          \n"},
+		// CSS paints no truncation marker for overflow:visible, so text-overflow
+		// is honored here purely as an opt-in for a visible cut.
+		{name: "text-overflow supplies a marker for the clip when set", width: 20, html: `<div style="display:flex;width:100%"><div style="width:6;flex-shrink:0;text-overflow:ellipsis;border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────┐┌──┐          \n│aaa…││bb│          \n└────┘└──┘          \n"},
+		{name: "an item's own overflow:hidden is left to do its own clipping", width: 20, html: `<div style="display:flex;width:100%"><div style="width:6;flex-shrink:0;overflow:hidden;border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────┐┌──┐          \n│aaaa││bb│          \n└────┘└──┘          \n"},
+	})
+}
+
+// TestFlexContainerOverflowX pins that a flex container honors overflow-x
+// hidden/clip on its own content, the way every other box model in this engine
+// does (CSS.md's overflow-x entry carves out no flex exception).
+// renderFlexContentBox used to ignore the property entirely.
+func TestFlexContainerOverflowX(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "overflow:hidden truncates a line that overflows the container", width: 20, html: `<div style="display:flex;width:14;overflow:hidden;border-style:solid"><div style="border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────────────┐\n│┌───────────│\n││aaaaaaaaaaa│\n│└───────────│\n└────────────┘\n"},
+		{name: "without overflow the same line spills past the container's border", width: 20, html: `<div style="display:flex;width:14;border-style:solid"><div style="border-style:solid">aaaaaaaaaaaa</div><div style="border-style:solid">bb</div></div>`, want: "┌────────────┐\n│┌────────────┐┌──┐│\n││aaaaaaaaaaaa││bb││\n│└────────────┘└──┘│\n└────────────┘\n"},
+	})
+}
+
+// TestFlexNestedContainerMainSize pins that the main size flex layout resolves
+// for an item that is *itself* a flex container reaches that container's own
+// layout, rather than being padded on from outside. The height override used to
+// be withheld from flex-display items and applied as trailing blank lines after
+// renderFlexContentBox had already drawn the bottom border — so the grown rows
+// landed below the box instead of inside it, and the nested container's own
+// children never saw the height their parent had allotted them.
+func TestFlexNestedContainerMainSize(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a grown nested column container's border encloses its allotted height", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:6"><div style="display:flex;flex-direction:column;flex-grow:1;border-style:solid"><div>a</div></div></div>`, want: "┌──────────┐\n│a         │\n│          │\n│          │\n│          │\n└──────────┘\n"},
+		{name: "the allotted height reaches the nested container's own flex-grow child", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="display:flex;flex-direction:column;flex-grow:1;border-style:solid"><div>a</div><div style="flex-grow:1;border-style:solid">b</div></div></div>`, want: "┌──────────┐\n│a         │\n│┌────────┐│\n││b       ││\n││        ││\n││        ││\n│└────────┘│\n└──────────┘\n"},
+		{name: "flex-basis on a nested flex container sizes the container itself", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="display:flex;flex-basis:4;border-style:solid"><div>a</div></div><div>z</div></div>`, want: "┌──────────┐\n│a         │\n│          │\n└──────────┘\nz           \n"},
+		{name: "align-items:stretch grows a nested row container's own box", width: 12, html: `<div style="display:flex;width:100%"><div style="display:flex;border-style:solid"><div>a</div></div><div>w<br>x<br>y<br>z</div></div>`, want: "┌─┐w        \n│a│x        \n│ │y        \n└─┘z        \n"},
 	})
 }

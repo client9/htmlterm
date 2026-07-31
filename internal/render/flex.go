@@ -172,19 +172,128 @@ func parseFlexShrink(decls map[string]string) float64 {
 }
 
 // flexShrinkFloor resolves how far a flex item may shrink below its resolved
-// main-axis basis: an explicit min-width (row direction) or min-height
-// (column direction) - including percentage, resolved against axisSize - if
-// set, else 1. This engine has no min-content measurement to use as the real
-// spec's automatic minimum, so content that can't actually fit at the shrunk
-// size (an unbreakable word wider than its floor in row direction; any
-// content taller than its floor in column direction, since text can't be
-// forced into fewer lines) simply overflows past it, the same graceful
-// degradation already used for the flex-shrink:0 case.
-func flexShrinkFloor(decls map[string]string, key string, axisSize int) int {
-	if v, ok := resolveCSSSize(decls[key], axisSize); ok && v > 1 {
+// main-axis basis in *column* direction: an explicit min-height - including
+// percentage, resolved against containerHeight - if set, else 1. Row direction uses
+// flexMainAxisFloor instead, which implements the spec's automatic minimum
+// size; there is no vertical equivalent to implement here, since text can't be
+// forced into fewer lines, so column-direction content taller than its floor
+// simply overflows past it - the same graceful degradation already used for the
+// flex-shrink:0 case.
+func flexShrinkFloor(decls map[string]string, axisSize int) int {
+	if v, ok := resolveCSSSize(decls["min-height"], axisSize); ok && v > 1 {
 		return v
 	}
 	return 1
+}
+
+// flexMainAxisFloor resolves how far flex-shrink may take a row-direction item
+// below its flex base size: CSS's *automatic minimum size* for flex items
+// (Flexbox §4.5, defined in CSS Sizing 3 §5.1), which is the real reason a
+// browser almost never shows an over-shrunk flex item overflowing its own box.
+// min-width's initial value is `auto`, not 0, and on a flex item in the main
+// axis that resolves to the content-based minimum - so flex-shrink simply
+// cannot take an item below the width its content needs.
+//
+// The two opt-outs are the spec's own, and are why `min-width: 0` and
+// `overflow: hidden` are the two standard fixes for a flex item that refuses to
+// shrink - they are the same lever pulled two ways:
+//
+//   - An explicitly declared min-width wins outright, including a declared 0
+//     (which parseFlexSizeVal, via resolveFlexCSSSize, can now tell apart from
+//     unset - the floor is still one cell, since no box here renders in zero
+//     columns).
+//   - The automatic minimum applies only "on a flex item whose overflow is
+//     visible in the main axis"; for any other overflow-x it computes to 0.
+//     Such an item already clips or scrolls itself in renderBlockContentBox
+//     (the resolved main size reaches it as a synthetic width - see
+//     renderFlexItemBoxSized), so letting it shrink freely is exactly what the
+//     author asked for.
+//
+// The content-based minimum is the item's min-content width, measured by
+// rendering it at a cap of one column: every breakable point breaks, so what's
+// left is the widest unbreakable run plus the item's own chrome, which is
+// min-content. It is then clamped by the specified size suggestion (a definite
+// width) and by the definite maximum main size, per Sizing 3 §5.1's "in all
+// cases, the size is clamped by the maximum main size if it's definite" - which
+// is what still lets `width: 3` on a long word shrink to 3 and overflow, as it
+// does in a browser.
+//
+// Only called for a line that actually overflows (see layoutFlexLine), since
+// the min-content measurement is a second trial render per item.
+func (r *Engine) flexMainAxisFloor(it flexItem, innerW int) int {
+	if v, ok := resolveFlexCSSSize(it.decls["min-width"], innerW); ok {
+		return max(1, v)
+	}
+	if !isVisibleOverflow(it.decls["overflow-x"]) {
+		return 1
+	}
+	floor := r.measureMinContentWidth(it)
+	if w, ok := resolveCSSSize(it.decls["width"], innerW); ok && w < floor {
+		floor = w
+	}
+	if m, ok := resolveCSSSize(it.decls["max-width"], innerW); ok && m < floor {
+		floor = m
+	}
+	return max(1, floor)
+}
+
+// measureMinContentWidth measures an item's min-content width - the *content
+// size suggestion* half of the automatic minimum size above - by rendering it
+// at a cap of one column, so every breakable point breaks and what's left is
+// the widest unbreakable run plus the item's own chrome.
+//
+// The item's own width/min-width/max-width are stripped for the measurement.
+// Intrinsic sizes are computed from content, ignoring the box's specified size:
+// leaving `width: 10` in place would just hand that 10 back as the "min-content"
+// answer, floor the item at its own declared width, and make flex-shrink inert
+// for exactly the items most likely to need it. The specified width is then
+// applied by the caller as a separate clamp, which is how the spec composes the
+// two (Sizing 3 §5.1: the smaller of the specified size suggestion and the
+// content size suggestion).
+// Memoized per node (Engine.minContentCache): the answer doesn't depend on the
+// width the item was offered, and the measurement is a full trial render that
+// recurses into nested flex containers, so re-deriving it per caller is what
+// turns a nested `flex: 1` layout exponential. See the cache's comment in
+// engine.go.
+func (r *Engine) measureMinContentWidth(it flexItem) int {
+	if w, ok := r.minContentCache[it.node]; ok {
+		return w
+	}
+	probe := it
+	probe.decls = maps.Clone(it.decls)
+	delete(probe.decls, "width")
+	delete(probe.decls, "min-width")
+	delete(probe.decls, "max-width")
+	w := r.measureNaturalWidth(probe, 1)
+	if r.minContentCache != nil {
+		r.minContentCache[it.node] = w
+	}
+	return w
+}
+
+// isVisibleOverflow reports whether a computed overflow-x/overflow-y value is
+// `visible` - the initial value, so unset counts. Every other value (hidden,
+// clip, scroll, auto) makes the box its own clipping/scrolling context, which
+// is what disables the automatic minimum size above.
+func isVisibleOverflow(v string) bool {
+	v = strings.TrimSpace(v)
+	return v == "" || v == "visible"
+}
+
+// resolveFlexCSSSize is resolveCSSSize (block.go) over parseFlexSizeVal, so a
+// declared zero reads as a real length rather than as an absent one - see
+// parseFlexSizeVal. Used where the difference between "0" and unset carries
+// meaning, which in flex layout is min-width's opt-out from the automatic
+// minimum size.
+func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
+	abs, pct, ok := parseFlexSizeVal(s)
+	if !ok {
+		return 0, false
+	}
+	if pct > 0 {
+		return int(pct * float64(axisSize)), true
+	}
+	return abs, true
 }
 
 // flexGrowCeiling resolves how far flex-grow may increase an item's main-axis
@@ -548,7 +657,9 @@ func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int)
 // already declares - matching flex-basis's real-CSS precedence over the
 // width/height properties) before rendering, so the existing block box model's
 // own sizing (block.go's width resolution and fixed-height pad/clip logic)
-// does the actual work for a non-flex item. 0 means "no override".
+// does the actual work for a non-flex item, and resolveFlexContainerHeight/
+// resolveWidthConstraints do it for an item that is itself a flex container.
+// 0 means "no override".
 //
 // Both overrides are *outer* box sizes - the item's whole painted extent,
 // border characters and padding included - since that's the size flex layout
@@ -574,8 +685,44 @@ func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, 
 	decls := maps.Clone(it.decls)
 	if widthOverride > 0 {
 		decls["width"] = strconv.Itoa(widthOverride)
+		if isVisibleOverflow(decls["overflow-x"]) {
+			// Clip the item's content to the main size flex resolved for it, by
+			// synthesizing the overflow-x declaration the situation implies
+			// rather than trimming the painted box afterward. Trimming from
+			// outside cuts whatever happens to sit in the last columns, which
+			// for a bordered item is its own right border glyph; block.go's
+			// clipping path knows the box model and truncates the *content* to
+			// its inner width, leaving border and padding intact - and honors
+			// text-overflow while it's there.
+			//
+			// Only reached when the author left overflow-x at visible: hidden/
+			// clip means this is already what they asked for, and scroll/auto
+			// makes the item its own horizontal viewport, whose windowing must
+			// not be downgraded to a truncation.
+			//
+			// Clipping at all is a deliberate deviation from CSS, and a narrow
+			// one - flexMainAxisFloor's automatic minimum size is the primary
+			// defense, so this only fires where CSS itself would overflow (a
+			// definite width narrower than min-content, a `min-width: 0`
+			// opt-out, `flex-shrink: 0` against a small declared width). This
+			// engine's convention elsewhere is *not* to clip without an
+			// explicit overflow: a plain bordered block whose unbreakable
+			// content exceeds its width paints straight past its own border,
+			// and a flex line whose items are all at their floors is likewise
+			// left to overflow its container. What makes an item exceeding its
+			// *allotment* different is that flex already positioned every later
+			// item on the line from that number - lines are assembled by
+			// concatenation (see layoutFlexLine), so an item painting wider
+			// than its allotment doesn't overlay its siblings the way a
+			// browser's visible overflow would, it displaces them into columns
+			// that belong to somebody else, and only on the rows that overflow.
+			// That's not visible overflow, it's a desynchronized frame, and a
+			// character grid has no way to express the former. See
+			// COMPATIBILITY.md.
+			decls["overflow-x"] = "hidden"
+		}
 	}
-	if heightOverride > 0 && !isFlexDisplay(decls["display"]) {
+	if heightOverride > 0 {
 		decls["height"] = strconv.Itoa(max(1, heightOverride-blockVerticalChrome(decls)))
 		if ov := decls["overflow-y"]; ov == "scroll" || ov == "auto" {
 			// This height is synthetic - it exists purely to drive
@@ -592,15 +739,20 @@ func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, 
 	if isFlexDisplay(decls["display"]) {
 		b, pos := r.renderFlexContentBox(it.node, decls, width)
 		if heightOverride > 0 && len(b.lines) < heightOverride {
-			// Unlike renderBlockContentBox (block.go), renderFlexContentBox
-			// has no notion of an explicit CSS height of its own - a nested
-			// flex/inline-flex item's flex-basis/flex-grow/flex-shrink
-			// height would otherwise have no effect at all. Pad here,
-			// mirroring block.go's own "fixed height taller than content
-			// pads with blank lines" behavior; a taller-than-heightOverride
-			// result (the nested container already reached or exceeded it,
-			// e.g. it's itself flex-direction:column with the same explicit
-			// height) is left untouched, matching the graceful-overflow
+			// Safety net only. The injected height above reaches a nested flex
+			// container's own layout through resolveFlexContainerHeight, so
+			// layoutFlexColumn/layoutFlexRow normally fill to exactly this many
+			// rows themselves - which is the point of injecting it rather than
+			// padding from outside: padding here happens *after*
+			// renderFlexContentBox has drawn the box's bottom rule, so the extra
+			// rows land below the border instead of inside it, and the nested
+			// container's own children never see the height their parent was
+			// allotted (a flex-grow child of a grown nested column container
+			// stayed at its content height). This branch is left in place for
+			// the cases layout can't fill - a nested container with no items at
+			// all, say - where blank rows below the box still beat coming up
+			// short of the row the parent reserved. A taller-than-heightOverride
+			// result is left untouched, matching the graceful-overflow
 			// convention used throughout this file.
 			blank := strings.Repeat(" ", b.width)
 			lines := append([]string(nil), b.lines...)
@@ -637,12 +789,14 @@ func blockVerticalChrome(decls map[string]string) int {
 // percentage flex-basis as auto when the container's own main size is
 // indefinite, which this engine only ever considers "definite" when an
 // explicit CSS height is set on the container - see resolveFlexContainerHeight).
+// A declared flex-basis of 0 is a definite base size, not an absent one, and
+// resolves to one line - see parseFlexSizeVal.
 func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasContainerHeight bool) int {
 	v := decls["flex-basis"]
 	if v == "" || v == "auto" {
 		return 0
 	}
-	abs, pct, ok := parseSizeVal(v)
+	abs, pct, ok := parseFlexSizeVal(v)
 	if !ok {
 		return 0
 	}
@@ -676,14 +830,23 @@ func (r *Engine) measureNaturalWidth(it flexItem, cap int) int {
 	r.shrinkToFit = true
 	var b box
 	if isFlexDisplay(it.decls["display"]) {
-		// Unlike renderFlexItemBox's real (final) render, measurement must
-		// not go through renderFlexContentBox: that function always fills
-		// its result to the full width it's given (matching a block-level
-		// flex container's normal CSS behavior), which would make every
-		// width:auto nested flex container measure as "however wide cap
-		// is" instead of its own natural content width. layoutFlex is the
-		// unpadded layout pass underneath it.
-		b, _ = r.layoutFlex(it.node, it.decls, cap)
+		// Measurement goes through renderFlexContentBox, the same entry point
+		// the real render uses, so a nested flex container measures as its own
+		// whole box - border characters and padding included - and not just as
+		// the items inside it. Those columns are part of what the container
+		// will paint, so leaving them out under-measures such an item by its
+		// own chrome at every level of nesting, and flex then allots it fewer
+		// columns than it needs.
+		//
+		// This used to call layoutFlex, the unpadded layout pass underneath,
+		// because renderFlexContentBox fills its result to the full width it's
+		// given (a block-level flex container's normal CSS behavior) and so
+		// measured every width:auto container as "however wide cap is". That
+		// reason is gone: renderFlexContentBox now narrows to its content's own
+		// width under a shrink-to-fit measurement render, which is exactly the
+		// state measureNaturalWidth puts the engine in above. See
+		// Engine.shrinkToFit.
+		b, _ = r.renderFlexContentBox(it.node, it.decls, cap)
 	} else {
 		b, _ = r.renderBlockContentBox(it.node, it.decls, cap)
 	}
@@ -709,6 +872,18 @@ func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
 			basis = resolveFlexAxisSize(v, innerW)
 		}
 	}
+	// A basis that came from a declared length, rather than from measuring the
+	// item, is floored at the automatic minimum size: the spec clamps the flex
+	// base size by the used min/max main size to get the *hypothetical* main
+	// size (§9.2), and min-width's used value is `auto`, not 0 - so a declared
+	// flex-basis smaller than the item's content is raised to fit it before
+	// line-breaking and grow/shrink ever see it, not merely prevented from
+	// shrinking further later. Skipped for a measured basis, which is
+	// fit-content and so already at or above min-content: the floor could never
+	// bite, and flexMainAxisFloor's probe is a second trial render per item.
+	if basis > 0 {
+		basis = max(basis, r.flexMainAxisFloor(it, innerW))
+	}
 	if basis == 0 {
 		basis = r.measureNaturalWidth(it, innerW)
 	}
@@ -721,7 +896,7 @@ func (r *Engine) resolveMainBasis(it flexItem, innerW int) int {
 // engine can't render a zero-width/zero-height box, so flex-basis:0 - what the
 // common `flex: 1` shorthand expands to - starts at one cell rather than none.
 func resolveFlexAxisSize(v string, axisSize int) int {
-	abs, pct, ok := parseSizeVal(v)
+	abs, pct, ok := parseFlexSizeVal(v)
 	if !ok {
 		return 0
 	}
@@ -729,6 +904,34 @@ func resolveFlexAxisSize(v string, axisSize int) int {
 		return max(1, int(pct*float64(axisSize)))
 	}
 	return max(1, abs)
+}
+
+// parseFlexSizeVal is parseSizeVal (table.go) extended to accept a *zero*
+// length. parseSizeVal reports only n > 0 as a length, since everywhere else in
+// this engine a zero size and an absent one mean the same thing - but not here:
+// flex-basis distinguishes "0" (a definite base size of nothing, which is what
+// makes flex-grow split the container's whole main size by weight) from unset/
+// auto (fall back to width, then to the item's natural content size). Reading a
+// declared 0 as "not a length" sent resolveMainBasis/parseColumnFlexBasis down
+// the auto path, so `flex: 1` - whose shorthand expansion is `1 1 0` - laid out
+// as `1 1 auto`: two items with different content got content-proportional
+// widths rather than equal ones.
+//
+// The zero is still floored to one cell by each caller's own max(1, ...) (see
+// resolveFlexAxisSize), so grow ratios stay slightly off for items with
+// differing flex-grow weights - the documented tradeoff, since no box here can
+// render in zero columns/lines. See CSS.md and COMPATIBILITY.md.
+func parseFlexSizeVal(s string) (abs int, pct float64, ok bool) {
+	if abs, pct, ok := parseSizeVal(s); ok {
+		return abs, pct, true
+	}
+	t := strings.TrimSpace(s)
+	t = strings.TrimSuffix(t, "%")
+	t = strings.TrimSuffix(t, "ch")
+	if f, err := strconv.ParseFloat(t, 64); err == nil && f == 0 {
+		return 0, 0, true
+	}
+	return 0, 0, false
 }
 
 // resolveCrossWidth resolves a column-direction flex item's cross-axis
@@ -941,12 +1144,10 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 	}
 	grows := make([]float64, len(items))
 	shrinks := make([]float64, len(items))
-	floors := make([]int, len(items))
 	ceilings := make([]int, len(items))
 	for _, i := range group {
 		grows[i] = items[i].grow
 		shrinks[i] = items[i].shrink
-		floors[i] = flexShrinkFloor(items[i].decls, "min-width", innerW)
 		ceilings[i] = flexGrowCeiling(items[i].decls, "max-width", innerW)
 	}
 	leftover := availForItems - sumW
@@ -959,8 +1160,15 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 		leftover = distributeFlexGrow(widths, grows, group, leftover, ceilings)
 	case leftover < 0:
 		// Overflow: shrink items proportionally to flex-shrink * basis width
-		// (the real spec's "scaled flex shrink factor"), floored at
-		// flexShrinkFloor.
+		// (the real spec's "scaled flex shrink factor"), floored at each item's
+		// automatic minimum size. The floors are resolved here rather than
+		// alongside grows/ceilings above because flexMainAxisFloor measures
+		// min-content with a trial render, and a line that isn't overflowing
+		// has no use for the answer.
+		floors := make([]int, len(items))
+		for _, i := range group {
+			floors[i] = r.flexMainAxisFloor(items[i], innerW)
+		}
 		leftover = -distributeFlexShrink(widths, shrinks, floors, group, -leftover)
 	}
 
@@ -1102,13 +1310,15 @@ func (r *Engine) layoutFlexLine(items []flexItem, widths, mt, mb []int, mlAuto, 
 		for li := range rowLines {
 			rowLines[li] += padded.lines[li]
 		}
-		// Column bookkeeping tracks the box's *painted* width, not the width
-		// the main-axis pass allotted it. alignLinesBox above pads a box up to
-		// its allotment but never truncates one that exceeds it - content that
-		// can't fit (an unbreakable word wider than the item's shrink floor)
-		// overflows by design. Advancing by the allotment instead would leave
-		// every later item on the line with a Rect that's short by the
-		// overflow, pointing hit-testing at columns another item is painting.
+		// Column bookkeeping tracks the box's *painted* width, not the width the
+		// main-axis pass allotted it. The synthetic overflow-x in
+		// renderFlexItemBoxSized keeps the two equal for ordinary content, but
+		// they can still legitimately diverge - a flex-container item's basis is
+		// measured by layoutFlex, which excludes the container's own border and
+		// padding, so such an item can paint wider than its allotment. Reading
+		// the width off the box is what keeps this honest either way: whatever
+		// ends up on the line is what the next item's column is measured from,
+		// so a Rect can't come to point at columns another item is painting.
 		painted := itemBoxes[i].width
 		positions[it.node] = Rect{Row: offset, Col: colStart, Width: painted, Height: len(itemBoxes[i].lines)}
 		if len(itemPositions[i]) > 0 {
@@ -1344,7 +1554,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			// paradoxically defeat a min-height it would otherwise get for
 			// free from block.go's ordinary (non-flex-basis) min-height
 			// padding.
-			if minH := flexShrinkFloor(it.decls, "min-height", containerHeight); minH > basisH[i] {
+			if minH := flexShrinkFloor(it.decls, containerHeight); minH > basisH[i] {
 				basisH[i] = minH
 			}
 		}
@@ -1396,7 +1606,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			allIdx[i] = i
 			grows[i] = it.grow
 			shrinks[i] = it.shrink
-			floors[i] = flexShrinkFloor(it.decls, "min-height", containerHeight)
+			floors[i] = flexShrinkFloor(it.decls, containerHeight)
 			ceilings[i] = flexGrowCeiling(it.decls, "max-height", containerHeight)
 		}
 		switch {
@@ -1551,6 +1761,35 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	if r.shrinkToFit && !hasExplicitWidth && content.width < innerW {
 		innerW = max(1, content.width)
 		hBorderWidth = textcell.Width(bl.char) + pl + innerW + pr + textcell.Width(br.char)
+	}
+	// overflow-x: hidden/clip truncates each line to the container's content
+	// width, the same as renderBlockContentBox does for an ordinary block box
+	// (block.go) - a flex container is no exception to CSS.md's overflow-x
+	// entry, but this used to be the one box model that never consulted it, so
+	// an author's own `overflow: hidden` on a flex container did nothing and a
+	// nested flex item that exceeded its allotment could only be trimmed from
+	// outside, which cut its right border glyph off.
+	//
+	// Unlike block.go's, this is not gated on the container having an explicit
+	// width. That gate exists because a plain block with no declared width
+	// already fills its available width and so has nothing to clip - an
+	// assumption a flex container breaks, since items floored at their
+	// automatic minimum size (flexMainAxisFloor) can overflow a container that
+	// declared no width at all. Gating here would make `overflow: hidden` do
+	// nothing in exactly the case it's reached for. See CSS.md's overflow entry,
+	// which carries the same carve-out.
+	//
+	// Deliberately not extended
+	// to scroll/auto: a horizontally scrollable flex container would need the
+	// live offset/gutter plumbing block.go has for ordinary boxes (see
+	// docs/SCROLLING.md), which is a larger piece of work than this.
+	if ov := decls["overflow-x"]; ov == "hidden" || ov == "clip" {
+		suffix := textOverflowSuffix(decls["text-overflow"])
+		lines := make([]string, len(content.lines))
+		for i, ln := range content.lines {
+			lines[i] = textcell.TruncateToWidth(ln, innerW, suffix)
+		}
+		content = box{lines: lines, width: linesWidth(lines)}
 	}
 	// A block-level flex container fills its available width by default,
 	// same as any other block box — pad any leftover columns after the last

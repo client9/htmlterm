@@ -31,22 +31,31 @@ type Options struct {
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
 type Engine struct {
-	baseRules             []cssengine.Rule
-	rules                 []cssengine.Rule
-	width                 int
-	height                int
-	profile               colorprofile.Profile
-	ignoreDocumentCSS     bool
-	noOSC8Links           bool
-	maxBlankLines         int
-	stripHiddenInline     bool
-	focusAttr             string
-	selectOpenAttr        string
-	selectHighlightAttr   string
-	selectionStartAttr    string
-	selectionEndAttr      string
-	counterMap            map[*html.Node]counterSnapshot
-	directCache           map[*html.Node]map[string]string
+	baseRules           []cssengine.Rule
+	rules               []cssengine.Rule
+	width               int
+	height              int
+	profile             colorprofile.Profile
+	ignoreDocumentCSS   bool
+	noOSC8Links         bool
+	maxBlankLines       int
+	stripHiddenInline   bool
+	focusAttr           string
+	selectOpenAttr      string
+	selectHighlightAttr string
+	selectionStartAttr  string
+	selectionEndAttr    string
+	counterMap          map[*html.Node]counterSnapshot
+	directCache         map[*html.Node]map[string]string
+	// minContentCache memoizes measureMinContentWidth (flex.go) per node. A
+	// node's min-content width doesn't depend on the width it's offered, so it
+	// is a pure function of the node within one render - and it must be cached,
+	// because the measurement is itself a full trial render that recurses
+	// through nested flex containers. Without this, a flex container's own
+	// min-content probe re-measures every descendant that already probed its
+	// own children, costing ~2^depth for nested `flex: 1` layouts (measured at
+	// 8x on nine levels). Per-render lifetime, same as directCache.
+	minContentCache       map[*html.Node]int
 	quoteDepth            int
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
@@ -296,6 +305,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	}
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.directCache = make(map[*html.Node]map[string]string)
+	rr.minContentCache = make(map[*html.Node]int)
 	rr.quoteDepth = 0
 	rr.outOfFlow, rr.outOfFlowOrder = rr.collectOutOfFlow(doc)
 	tokens := rr.renderRootTokens(doc)
