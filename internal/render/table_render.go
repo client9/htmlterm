@@ -385,11 +385,24 @@ func (r *Engine) gridColumnConstraints(g tableGrid, colDecls []map[string]string
 // width is measured instead of it stretching to fill the huge trial budget.
 func (r *Engine) measureCellNaturalWidth(td *html.Node) int {
 	savedMeasuring := r.measuringNaturalWidth
+	savedShrink := r.shrinkToFit
 	savedHint, savedHintSet := r.nestedTableWidth, r.nestedTableWidthSet
 	r.measuringNaturalWidth = true
+	// Shrink-to-fit for the duration, the same state flex.go's
+	// measureNaturalWidth renders under and for the same reason. A block-level
+	// child materializes its width:auto fill as real padding whenever anything
+	// needs a rectangle, whether a border, text-align, or a closed box, so
+	// rendering one at naturalWidthCap and reading its width back measured the
+	// cap rather than the content. A single bordered <div> in a <td> therefore
+	// claimed the whole table width, as did text-align:center, and a
+	// display:flex child did the same through renderFlexContentBox's own copy
+	// of the fill. This is the flag that tells all three box models to report
+	// their content's width instead.
+	r.shrinkToFit = true
 	r.nestedTableWidth, r.nestedTableWidthSet = naturalWidthCap, true
 	tokens := r.renderInlineAccTokens(td, newInlineStyle(), naturalWidthCap)
 	r.measuringNaturalWidth = savedMeasuring
+	r.shrinkToFit = savedShrink
 	r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 	return tokensNaturalWidth(tokens)
 }

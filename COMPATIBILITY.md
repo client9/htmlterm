@@ -312,6 +312,22 @@ For the design rationale behind the DOM/Events/rendering internals, see
   among items that are individually wider than their container. `flex-basis:
   max-content` asks for the real thing and gets it: the measurement there is
   taken at an effectively unbounded budget.
+- **A `flex: 1` container measures narrower than a browser's when something
+  asks how wide it is.** Sizing a flex container from its own content, rather
+  than laying it out at a width it was handed, happens when it is a flex item
+  of another container, an `inline-flex` box, or the content of an auto-width
+  table cell. This engine answers with the sum of its items' hypothetical main
+  sizes. That is exact for items whose flex base size comes from their content,
+  meaning `flex-basis: auto` and width-sized items. It is too narrow for
+  `flex-basis: 0` items, the expansion of the common `flex: 1`, whose
+  hypothetical main size is the automatic minimum size, meaning min-content.
+  Flexbox §9.9 instead runs each item's max-content contribution through a
+  *chosen flex fraction*, applying the largest item's fraction to every item,
+  which makes such a container **wider** than the same items carry with no flex
+  factors at all. Nothing here implements that step, so `flex: 1` children of
+  an intrinsically sized container wrap text a browser would keep on one line.
+  This and the `flex-basis: auto` entry above are the same missing machinery;
+  see `docs/proposals/FLEX_INTRINSIC_SIZING.md`.
 
 ### Terminal-Native Additions
 

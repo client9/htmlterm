@@ -1642,6 +1642,34 @@ func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
 	return lines
 }
 
+// measuringIntrinsicWidth reports whether the current render is a discardable
+// measurement whose only product is a width: measureNaturalWidth's own
+// shrink-to-fit probe, or one of the wider measuring passes
+// (measureCellNaturalWidth, measureFlexIntrinsicWidth's max-content branch,
+// the nested-<table> hint) that render at a deliberately huge budget.
+//
+// Row-direction flex layout consults it to suppress free-space distribution.
+// A measurement render asks what the container's content comes to, and
+// flex-grow, justify-content, and auto margins all exist to spend space the
+// container was *given*, so under a measurement they answer the wrong
+// question: they expand the line to fill whatever budget the probe offered,
+// and renderFlexContentBox's shrink-to-fit narrowing then finds nothing to
+// narrow. See layoutFlexLine.
+//
+// This is CSS's own distinction between a flex container's intrinsic main size
+// and its used one, though not yet the whole of it. Flexbox §9.9 sums each
+// item's *max-content contribution* through a chosen-flex-fraction step, while
+// suppressing distribution here sums their hypothetical main sizes. The two
+// agree for every item whose flex base size is content-derived, which is
+// flex-basis:auto and width-sized items. They differ for flex-basis:0 items
+// (`flex: 1`), where a hypothetical main size is the automatic minimum size,
+// meaning min-content, and §9.9 would use the item's max-content contribution.
+// Such a container measures narrower here than in a browser. See
+// docs/proposals/FLEX_INTRINSIC_SIZING.md, which scopes that as stage 2.
+func (r *Engine) measuringIntrinsicWidth() bool {
+	return r.shrinkToFit || r.measuringNaturalWidth
+}
+
 // layoutFlexLine lays out one flex line's worth of items, a subset of
 // items/widths/mt/mb/mlAuto/mrAuto named by group's indices into those slices.
 // It resolves flex-grow and flex-shrink within just this line, then any
@@ -1679,6 +1707,20 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 	}
 	leftover := availForItems - sumW
 	switch {
+	case leftover > 0 && r.measuringIntrinsicWidth():
+		// A discardable measurement render (see measuringIntrinsicWidth). The
+		// probe budget isn't space the container has to spend, it's the bound
+		// the measurement is taken under, so there is no free space here to
+		// grow into, justify, or hand to an auto margin. Dropping it to zero
+		// leaves every item at its hypothetical main size and the line at the
+		// sum of those, which is the width being measured, and lets
+		// renderFlexContentBox's shrink-to-fit narrowing do its job.
+		//
+		// Without this the line filled the probe budget exactly, so that
+		// narrowing never fired and a nested flex container measured as wide
+		// as whatever cap it was probed at: as a flex item it then took its
+		// parent's whole line, and in a table cell its whole column.
+		leftover = 0
 	case leftover > 0:
 		// Grown from each item's flex base size and floored at its hypothetical
 		// main size, the automatic minimum size applied as a §9.7 step-4c

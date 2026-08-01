@@ -480,3 +480,28 @@ func TestCollapsedGridLineWidthBudget(t *testing.T) {
 		},
 	})
 }
+
+// TestTableCellNaturalWidthShrinksToFit covers auto column sizing over a cell
+// whose content is a block-level box that materializes its width:auto fill:
+// a border, text-align, or a display:flex container all do. Such a box paints
+// a full-width rectangle, so measuring the column by rendering the cell at a
+// generous budget and reading the result's width back measured the budget, and
+// one bordered <div> claimed the entire table width.
+//
+// measureCellNaturalWidth now measures under shrinkToFit, the same state
+// flex.go's own measureNaturalWidth uses, which is the flag that tells every
+// box model to report its content's width instead of its fill's. See
+// docs/proposals/FLEX_INTRINSIC_SIZING.md, which found this through the flex
+// case before establishing it was general.
+func TestTableCellNaturalWidthShrinksToFit(t *testing.T) {
+	const tbl = `table{border-collapse:collapse}td{border-style:solid}`
+	runCases(t, []renderCase{
+		{name: "a bordered block in a cell sizes the column to its content", width: 30, css: tbl, html: `<table><tr><td><div style="border-style:solid">hi</div></td><td>Z</td></tr></table>`, want: "┌────┬─┐\n│┌──┐│Z│\n││hi││ │\n│└──┘│ │\n└────┴─┘\n"},
+		{name: "text-align in a cell does not claim the whole table width", width: 30, css: tbl, html: `<table><tr><td><div style="text-align:center">hi</div></td><td>Z</td></tr></table>`, want: "┌──┬─┐\n│hi│Z│\n└──┴─┘\n"},
+		{name: "a flex container in a cell sizes the column to its items", width: 30, css: tbl, html: `<table><tr><td><div style="display:flex"><div>hi</div><div>yo</div></div></td><td>Z</td></tr></table>`, want: "┌────┬─┐\n│hiyo│Z│\n└────┴─┘\n"},
+		// The measurement is only a floor: a cell still takes the width its
+		// content genuinely needs, and an explicit width still wins outright.
+		{name: "long cell text still wraps at the width the table gives it", width: 30, css: tbl, html: `<table><tr><td>the quick brown fox jumps over the lazy dog</td><td>Z</td></tr></table>`, want: "┌──────────────────────────┬─┐\n│the quick brown fox jumps │Z│\n│over the lazy dog         │ │\n└──────────────────────────┴─┘\n"},
+		{name: "an explicit cell width is still honored", width: 30, css: tbl, html: `<table><tr><td style="width:20">hi</td><td>Z</td></tr></table>`, want: "┌────────────────────┬─┐\n│hi                  │Z│\n└────────────────────┴─┘\n"},
+	})
+}
