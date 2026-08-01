@@ -299,6 +299,44 @@ func TestFlexMarginAuto(t *testing.T) {
 	})
 }
 
+// TestFlexMarginAutoColumn is TestFlexMarginAuto with the axes swapped.
+// margin-top/margin-bottom are the main axis in column direction and
+// margin-left/margin-right the cross one, so each case here is the mirror of
+// the one above it there, and the two sets should stay in step.
+//
+// Every main-axis case needs an explicit height on the container. That is not
+// specific to auto margins: a column container's main size is definite only
+// from a declared height or min-height, so with neither there is no leftover
+// for anything to absorb. See CSS.md's "Container height, min-height, and
+// max-height".
+func TestFlexMarginAutoColumn(t *testing.T) {
+	const col = `display:flex;flex-direction:column;width:100%`
+	runCases(t, []renderCase{
+		{name: "margin-top:auto drops a single item to the bottom of the column", width: 6, html: `<div style="` + col + `;height:4"><div style="margin-top:auto">a</div></div>`, want: "      \n      \n      \na     \n"},
+		{name: "margin-bottom:auto on the first of two pushes the second to the bottom", width: 6, html: `<div style="` + col + `;height:4"><div style="margin-bottom:auto">a</div><div>b</div></div>`, want: "a     \n      \n      \nb     \n"},
+		{name: "margin:auto on both ends centers a single item vertically", width: 6, html: `<div style="` + col + `;height:5"><div style="margin-top:auto;margin-bottom:auto">a</div></div>`, want: "      \n      \na     \n      \n      \n"},
+		{name: "margin:auto overrides justify-content entirely for the column", width: 6, html: `<div style="` + col + `;height:4;justify-content:center"><div style="margin-bottom:auto">a</div><div>b</div></div>`, want: "a     \n      \n      \nb     \n"},
+		{name: "flex-grow already consuming all leftover space leaves nothing for margin:auto", width: 6, html: `<div style="` + col + `;height:4"><div style="flex-grow:1">a</div><div style="margin-top:auto">b</div></div>`, want: "a     \n      \n      \nb     \n"},
+		// An odd remainder favors the earliest auto margin in document order,
+		// top before bottom within one item: 5 free rows over two auto margins
+		// is 3 above and 2 below, not the reverse.
+		{name: "an odd remainder favors the earlier auto margin", width: 6, html: `<div style="` + col + `;height:6"><div style="margin-top:auto;margin-bottom:auto">a</div></div>`, want: "      \n      \n      \na     \n      \n      \n"},
+		// The cross axis. An auto margin-left/margin-right absorbs the free
+		// space between the item and the container's content width, and takes
+		// precedence over align-items/align-self (§8.1).
+		{name: "margin-left and margin-right auto center an item horizontally", width: 9, html: `<div style="` + col + `"><div style="margin-left:auto;margin-right:auto;border-style:solid">b</div></div>`, want: "   ┌─┐   \n   │b│   \n   └─┘   \n"},
+		{name: "margin-left:auto alone pushes an item to the container's right edge", width: 9, html: `<div style="` + col + `"><div style="margin-left:auto;border-style:solid">b</div></div>`, want: "      ┌─┐\n      │b│\n      └─┘\n"},
+		{name: "margin-right:auto alone holds an item at the left edge", width: 9, html: `<div style="` + col + `"><div style="margin-right:auto;border-style:solid">b</div></div>`, want: "┌─┐      \n│b│      \n└─┘      \n"},
+		{name: "a cross-axis auto margin overrides align-items", width: 9, html: `<div style="` + col + `;align-items:flex-start"><div style="margin-left:auto;border-style:solid">b</div></div>`, want: "      ┌─┐\n      │b│\n      └─┘\n"},
+		// An auto cross margin also opts the item out of stretching, the free
+		// space being claimed by the margin instead. Without that, the bordered
+		// item would fill the container's whole width and there would be
+		// nothing to center it within.
+		{name: "an auto cross margin opts the item out of align-items:stretch", width: 9, html: `<div style="` + col + `"><div style="margin-left:auto;margin-right:auto;border-style:solid">b</div><div>x</div></div>`, want: "   ┌─┐   \n   │b│   \n   └─┘   \nx        \n"},
+		{name: "an auto cross margin with no free space to absorb resolves to zero", width: 3, html: `<div style="` + col + `"><div style="margin-left:auto;margin-right:auto;border-style:solid">b</div></div>`, want: "┌─┐\n│b│\n└─┘\n"},
+	})
+}
+
 // TestFlexPercentageGap covers percentage row-gap/column-gap. CSS Box Alignment
 // §8.3 resolves each against the container's own content size in that gap's own
 // axis, and against zero when that size is indefinite.
@@ -1092,5 +1130,38 @@ func TestFlexIntrinsicMainSize(t *testing.T) {
 		// is the counter-intuitive part and the reason stage 2 wants a real use
 		// case first. See docs/proposals/FLEX_INTRINSIC_SIZING.md.
 		{name: "flex:1 items measure at min-content, stage 1's known shortfall", width: 20, css: `.o{display:flex;width:100%}.i{display:flex}.i>div{flex:1}`, html: `<div class="o"><div class="i"><div>aa bb</div><div>c</div></div><div>Z</div></div>`, want: "aacZ                \nbb                  \n"},
+	})
+}
+
+// TestPercentageHeight covers the containing-block chain a percentage height
+// resolves against. CSS resolves such a height against the containing block's
+// height only when that height is itself definite, and to `auto` otherwise
+// (CSS 2.1 §10.5), and the initial containing block is the viewport, which
+// here is Options.Height.
+//
+// Only an explicit `height` makes a basis definite. A `min-height` does not:
+// the used height is then max(content, min-height), which isn't known until
+// the content is laid out. That is the same rule flex layout's own pctBasis
+// follows for a column container's main axis.
+func TestPercentageHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a percentage height resolves against the viewport", width: 4, height: 8, html: `<div style="height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n│  │\n│  │\n└──┘\n\n\n"},
+		{name: "a percentage height resolves against a definite parent, not the viewport", width: 4, height: 12, html: `<div style="height:6"><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n│  │\n│  │\n└──┘\n    \n\n\n\n\n\n\n"},
+		// The spec's indefinite-basis rule. The parent is auto-height, so the
+		// child's 50% is not a length at all and it falls back to auto, rather
+		// than resolving against the viewport further up or against zero.
+		{name: "a percentage height against an auto-height parent falls back to auto", width: 4, height: 8, html: `<div><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n└──┘\n\n\n\n\n\n"},
+		{name: "a min-height parent is not a definite basis", width: 4, height: 8, html: `<div style="min-height:6"><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n└──┘\n    \n    \n    \n\n\n"},
+		{name: "with no viewport height a root percentage is inert", width: 4, html: `<div style="height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n└──┘\n"},
+		{name: "a percentage min-height resolves as a floor", width: 4, height: 8, html: `<div style="min-height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n│  │\n│  │\n└──┘\n\n\n"},
+		// The pattern this whole chain exists for: a column flex container
+		// sized from the viewport, its middle item taking the slack. Without a
+		// definite main size flex-grow has nothing to distribute, so this is
+		// the end-to-end check that the viewport reaches flex layout.
+		{name: "a column flex container fills the viewport and flex:1 takes the slack", width: 4, height: 7, html: `<div style="display:flex;flex-direction:column;height:100%"><div>h</div><div style="flex:1">m</div><div>f</div></div>`, want: "h   \nm   \n    \n    \n    \n    \nf   \n"},
+		{name: "the same container is inert with no viewport height", width: 4, html: `<div style="display:flex;flex-direction:column;height:100%"><div>h</div><div style="flex:1">m</div><div>f</div></div>`, want: "h   \nm   \nf   \n"},
+		// A percentage on a flex item's main axis resolves against the
+		// container's own height, which the viewport made definite.
+		{name: "a flex item's percentage flex-basis resolves against a viewport-sized container", width: 4, height: 8, html: `<div style="display:flex;flex-direction:column;height:100%"><div style="flex-basis:25%">a</div><div>b</div></div>`, want: "a   \n    \nb   \n    \n    \n    \n    \n    \n"},
 	})
 }

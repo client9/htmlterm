@@ -140,6 +140,31 @@ func resolveCSSSize(s string, availWidth int) (int, bool) {
 	return abs, true
 }
 
+// resolveCSSHeight is resolveCSSSize for a vertical size, whose basis can be
+// indefinite in a way a width's never is. cbHeight is the containing block's
+// definite content height in rows, or indefiniteMainSize when there is none.
+//
+// A percentage against an indefinite basis is not a length. CSS resolves it to
+// auto for a preferred size and none for a maximum, so reporting false and
+// leaving the caller on its own unset path is exactly that rule. Without the
+// guard a percentage would multiply against indefiniteMainSize's -1 and come
+// back negative, and against a plain 0 it would come back as a definite zero
+// rows, which is a real height and the wrong answer. This is the same
+// distinction resolveFlexCSSSize draws on the flex main axis.
+func resolveCSSHeight(s string, cbHeight int) (int, bool) {
+	abs, pct, ok := parseSizeVal(s)
+	if !ok {
+		return 0, false
+	}
+	if pct > 0 {
+		if cbHeight <= 0 {
+			return 0, false
+		}
+		return int(pct * float64(cbHeight)), true
+	}
+	return abs, true
+}
+
 func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth int) (width int, constrained bool) {
 	width = naturalWidth
 	if w, ok := resolveCSSSize(decls["width"], availWidth); ok {
@@ -315,10 +340,23 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	ovY := decls["overflow-y"]
 	heightLines := 0
 	if v := decls["height"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			heightLines = abs
+		if h, ok := resolveCSSHeight(v, r.cbHeight); ok && h > 0 {
+			heightLines = h
 		}
 	}
+	// This box's own content box is the containing block its descendants
+	// resolve their percentage heights against, and it is definite only when
+	// this box declared a height. Everything below renders content, directly
+	// or through the inline walker, so the swap has to happen before any of it
+	// and be restored afterward: a sibling rendered next is back under the
+	// original containing block, not this one's. See Engine.cbHeight.
+	outerCBHeight := r.cbHeight
+	if heightLines > 0 {
+		r.cbHeight = heightLines
+	} else {
+		r.cbHeight = indefiniteMainSize
+	}
+	defer func() { r.cbHeight = outerCBHeight }()
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
@@ -613,16 +651,20 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		b = padLinesToWidthBox(b, b.width)
 	}
 
+	// Resolved against the *outer* containing block, not against r.cbHeight,
+	// which the block above has already swapped to this box's own content
+	// height. A percentage min-height/max-height on this box is a fraction of
+	// its parent's height, the same basis its percentage height used.
 	minH := 0
 	if v := decls["min-height"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			minH = abs
+		if h, ok := resolveCSSHeight(v, outerCBHeight); ok && h > 0 {
+			minH = h
 		}
 	}
 	maxH := 0
 	if v := decls["max-height"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok && abs > 0 {
-			maxH = abs
+		if h, ok := resolveCSSHeight(v, outerCBHeight); ok && h > 0 {
+			maxH = h
 		}
 	}
 	if heightLines > 0 || minH > 0 || maxH > 0 {

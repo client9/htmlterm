@@ -62,7 +62,31 @@ type Engine struct {
 	// re-collected on every pass over a container, including every trial
 	// measurement, and these nodes key the two caches above, so they have to
 	// be the same pointer each time. Per-render lifetime, same as directCache.
-	anonFlexNodes         map[*html.Node]*html.Node
+	anonFlexNodes map[*html.Node]*html.Node
+	// cbHeight is the containing block's definite content height in rows, the
+	// basis a percentage height/min-height/max-height resolves against, or
+	// indefiniteMainSize (flex.go) when there is nothing to resolve against.
+	//
+	// It is threaded as engine state rather than as a parameter, the same way
+	// quoteDepth and measuringNaturalWidth are, because a containing block
+	// height has to reach every box-producing call the way availWidth does and
+	// there are thirteen renderInlineAccTokens call sites alone. Callers that
+	// establish a new containing block save it, set it, and restore it, which
+	// is the quoteDepth idiom. Rendering is single-goroutine (see
+	// ARCHITECTURE.md's "No locking in the interactive layer"), so this is
+	// safe.
+	//
+	// Only an explicit height establishes a definite basis. A min-height does
+	// not: the real used height is then max(content, min-height), which isn't
+	// known until the content is laid out, and CSS resolves a percentage
+	// against such an indefinite basis to auto. That is the same rule
+	// layoutFlexColumn's pctBasis already follows, for the same reason.
+	//
+	// The initial containing block is the viewport, so RenderNode seeds this
+	// from the requested document height. With no requested height there is no
+	// viewport to speak of and the root's basis is indefinite, which is why
+	// `height: 100%` resolves under Options.Height and is inert without it.
+	cbHeight              int
 	quoteDepth            int
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
@@ -319,6 +343,16 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	rr.minContentCache = make(map[*html.Node]int)
 	rr.anonFlexNodes = make(map[*html.Node]*html.Node)
 	rr.quoteDepth = 0
+	// The initial containing block's height is the viewport's. rr.height is
+	// that viewport in rows, a content-box count, which is exactly what a
+	// percentage height resolves against. SizeNatural (-1) and SizeAutomatic
+	// (0) both leave it indefinite, and indefiniteMainSize is itself -1, so
+	// SizeNatural already carries the right meaning; the explicit branch keeps
+	// that from being a coincidence two constants have to preserve.
+	rr.cbHeight = indefiniteMainSize
+	if rr.height > 0 {
+		rr.cbHeight = rr.height
+	}
 	rr.outOfFlow, rr.outOfFlowOrder = rr.collectOutOfFlow(doc)
 	tokens := rr.renderRootTokens(doc)
 	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk

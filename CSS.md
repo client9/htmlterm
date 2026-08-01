@@ -445,7 +445,8 @@ fully overwrites the cells it covers), not per-cell blending.
 ```
 
 #### `top`, `right`, `bottom`, `left`
-Integer, `ch`, `%`, or `auto` (the default — no offset on that side). Only
+Any [Size Value](#size-values) — integer, `ch`, `%`, `vw`, `vh` — or `auto`
+(the default, no offset on that side). Only
 meaningful on a `relative`/`absolute`/`fixed` element. If both `top` and
 `bottom` are set (non-`auto`), `top` wins; if both `left` and `right` are
 set, `left` wins. For `relative`, percentages resolve against the
@@ -591,7 +592,40 @@ Values use the same formats as the corresponding physical longhand properties.
 Not inherited.
 
 #### `height`
-Integer line count (e.g. `5`). Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.
+Integer line count (e.g. `5`) or `<N%>`. Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.
+
+A **percentage** height resolves against the containing block's height, and
+only when that height is itself **definite**. Against an indefinite one it is
+not a length at all and falls back to `auto`, matching CSS (2.1 §10.5). What
+makes a basis definite is narrow and worth stating outright:
+
+- An explicit `height` on the containing block **is** definite, percentage or
+  absolute. So percentages chain: `height: 100%` inside `height: 50%` inside
+  the viewport is half the screen.
+- A `min-height` **is not**. The used height is then `max(content, min-height)`,
+  which isn't known until the content is laid out. A child's percentage height
+  falls back to `auto` inside such a box.
+- An auto-height box **is not**, which is the common case and why a percentage
+  height in ordinary flow usually does nothing.
+- A flex item's main size, once flex layout has resolved it, **is** definite,
+  so percentages inside a grown or shrunk item resolve against what it got.
+
+The **initial** containing block is the viewport, which for this renderer is
+[`Options.Height`](README.md). With it set, `height: 100%` on a root-level box
+is the terminal's height; without it there is no viewport and a root percentage
+resolves to `auto`.
+
+Often you want [`vh`](#size-values) instead, which skips the chain entirely:
+`height: 100vh` is the viewport's height wherever the element sits, with no
+requirement that its ancestors have definite heights. It needs `Options.Height`
+just the same, and is ignored without one.
+
+```css
+/* the full-screen app shell, given Options.Height */
+.page   { display: flex; flex-direction: column; height: 100%; }
+.body   { flex: 1; }              /* takes whatever the header and footer leave */
+.footer { margin-top: auto; }     /* or pin it, without growing anything */
+```
 
 An element with **no content at all** has a content height of zero, so it
 reserves no line: an empty bordered box draws its top and bottom rule adjacent
@@ -607,10 +641,10 @@ this sense: its box is a field to type into, so it keeps a row even with no
 value.
 
 #### `min-height`
-Integer line count (e.g. `3`). Minimum content-box height in lines. The element is always padded to at least this many lines regardless of `overflow`. Has no effect when `height` is also set. Not inherited.
+Integer line count (e.g. `3`) or `<N%>`. Minimum content-box height in lines. The element is always padded to at least this many lines regardless of `overflow`. Has no effect when `height` is also set. Not inherited. A percentage resolves against the containing block on exactly the terms described under [`height`](#height). Note the asymmetry: a percentage `min-height` *resolves* against its parent's definite height, but a `min-height` never *provides* a definite height to its own children.
 
 #### `max-height`
-Integer line count (e.g. `10`). Maximum content-box height in lines. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited.
+Integer line count (e.g. `10`) or `<N%>`. Maximum content-box height in lines. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited. A percentage resolves as under [`height`](#height); against an indefinite basis it is `none` rather than a maximum of zero.
 
 #### `white-space`
 `normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements, including `td` and `th`. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping; set it on a cell or ancestor to get single-line truncation (see `text-overflow`) instead of multi-line wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
@@ -1185,14 +1219,21 @@ items distribute among themselves in `column` direction, and the **cross size**
 `overflow-y: hidden`/`clip` truncates the container to that height from inside
 its own border box, so a bordered container's bottom rule still closes below the
 last visible row. `overflow-y: scroll`/`auto` is **not** supported on a flex
-container — it needs the live scroll-offset and gutter plumbing ordinary boxes
-have (see `docs/SCROLLING.md`) — and neither are percentage heights, matching
-this engine's vertical sizing generally. Percentages *inside* the container
-(a `flex-basis: 50%` item in a `column` container, a percentage
-`min-height`/`max-height` on an item) resolve only against an explicit `height`,
-never against a `min-height`: the container's real main size is then
-`max(content, min-height)`, which isn't known until the content is laid out, and
-real CSS treats a percentage against such an indefinite basis as `auto`.
+container: it needs the live scroll-offset and gutter plumbing ordinary boxes
+have (see `docs/SCROLLING.md`).
+
+The container's own `height`/`min-height` may be a **percentage**, resolved
+against *its* containing block under the rules in the [`height`](#height) entry.
+A `height: 100%` container inside the viewport is the pattern this exists for.
+
+Percentages *inside* the container (a `flex-basis: 50%` item in a `column`
+container, a percentage `min-height`/`max-height` on an item) resolve against
+the container's `height`, never against its `min-height`: the container's real
+main size is then `max(content, min-height)`, which isn't known until the
+content is laid out, and real CSS treats a percentage against such an
+indefinite basis as `auto`. A percentage `height` on the container is fine as
+that basis, since it has already resolved to a definite row count by the time
+any item is laid out.
 
 ```css
 /* at least the full screen, growing with its content; the body takes the slack */
@@ -1223,7 +1264,8 @@ at once. `column-gap` has no effect in `column` direction, and `row-gap` none
 in a single-line (`nowrap`) row: there's only one row/column of items to space
 apart.
 
-A gap is an absolute rune count (`gap: 2`) or a percentage. A percentage
+A gap is an absolute rune count (`gap: 2`), a percentage, or a viewport unit
+(see [Size Values](#size-values)). A percentage
 resolves against the container's own content size **in that gap's own axis**
 (CSS Box Alignment §8.3): `column-gap: 25%` is a quarter of the container's
 content width, `row-gap: 25%` a quarter of its declared `height`. A
@@ -1296,6 +1338,13 @@ item's own `width`/`height` if set, else its measured/rendered natural size.
 `width`/`height` — which is the only thing distinguishing it from `auto`, so
 the two differ exactly when the item declares a main size of its own.
 
+The **length** forms are the ones in [Size Values](#size-values): a bare
+integer or its `ch` spelling, a percentage, and the `vw`/`vh` viewport units.
+`flex-basis: 200px` is ignored and falls back to `auto`, because a terminal
+cell is not a pixel and no conversion between them is defensible; write
+`flex-basis: 20ch`. Zero is the single value accepted in any unit at all, for
+the reason given below.
+
 The three **intrinsic sizing keywords** ignore the item's own `width`/`height`
 the same way `content` does, and differ only in which measurement of the content
 they ask for. In `row` direction:
@@ -1328,15 +1377,16 @@ explicit `height` if one is set, else (matching real CSS's "percentage basis
 against an indefinite container size resolves as auto") fall back to the
 item's own natural height, same as `auto`.
 
-A **zero** `flex-basis` is accepted in any unit — `0`, `0%`, `0ch`, `0px`,
-`0em`, `0rem` all mean the same definite base size of nothing, so the common
-`flex: 1 1 0px` behaves exactly like `flex: 1 1 0`. This is the one place a
-unit this engine otherwise ignores is recognized, and it's a narrow exception:
-a zero length is dimensionless in CSS (the spec lets the unit be omitted on a
-zero `<length>` for that reason), so there's nothing to convert, while the
-usual reason for ignoring `px` — no defensible pixel-to-column conversion —
-still applies in full to any non-zero value. `flex-basis: 4px` is still
-ignored, falling back to `auto`.
+A **zero** `flex-basis` is accepted in any unit — `0`, `0%`, `0ch`, `0vh`,
+`0px`, `0em`, `0rem` all mean the same definite base size of nothing, so the
+common `flex: 1 1 0px` behaves exactly like `flex: 1 1 0`. See
+[Zero is dimensionless](#zero-is-dimensionless): a zero length has no unit to
+convert, while the usual reason for ignoring `px` still applies in full to any
+non-zero value, so `flex-basis: 4px` is still ignored and falls back to `auto`.
+
+`flex-basis` is where the difference between a declared zero and an absent
+value carries the most weight, since a zero base size is what makes `flex: 1`
+split a container into equal shares rather than into content-sized ones.
 
 A `flex-basis` taller/wider than
 an item's own natural content pads it with blank lines/spaces; one shorter
@@ -1557,28 +1607,37 @@ the vertical space between items (and before the first / after the last),
 and `margin-left`/`margin-right` bound the space `align-items`/`align-self`
 positions the item within.
 
-`margin-left`/`margin-right: auto`, in `row` direction only, absorbs
-whatever main-axis leftover space remains once `flex-grow`/`flex-shrink`
-have already been resolved (an auto side contributes `0` to the item's own
-`flex-basis`) — split evenly across every auto margin present anywhere in
-the line if more than one exists, an odd remainder favoring the first auto
-margin encountered in document order. Present on any item, it **overrides
-`justify-content` for the whole line** (matching real CSS: the two
-mechanisms both claim the same leftover space, and auto margins take
-precedence), though it has nothing left to absorb once `flex-grow` has
-already consumed all the leftover space itself.
+An `auto` margin is supported on both axes of both directions. It always does
+one of two jobs, decided by which axis it sits on, so the four longhands pair up
+by direction: `margin-left`/`margin-right` are the main axis in `row` direction
+and the cross axis in `column`, and `margin-top`/`margin-bottom` the reverse.
 
-`margin-top`/`margin-bottom: auto`, also in `row` direction only, is the same
-mechanism on the cross axis: it absorbs the free space between the item and
-its own line's height. Both sides `auto` centers the item vertically on its
-line; one side alone takes all of that space and pushes the item to the other
-end, so `margin-top: auto` sits an item on the line's bottom row. Present on
-an item, it **overrides that item's `align-items`/`align-self`** (§8.1, the
-cross-axis twin of the `justify-content` override above) and opts the item
-out of stretching, since the space it would have stretched into is the space
-the margin is claiming. With no free space to absorb, it resolves to `0`
-rather than to a negative offset, like every other alignment here. `margin:
-auto` in `column` direction is not supported — see below.
+On the **main axis**, an `auto` margin absorbs whatever leftover space remains
+once `flex-grow`/`flex-shrink` have already been resolved (an auto side
+contributes `0` to the item's own `flex-basis`), split evenly across every auto
+margin present anywhere in the line if more than one exists, an odd remainder
+favoring the first auto margin encountered in document order. Present on any
+item, it **overrides `justify-content` for the whole line** (matching real CSS:
+the two mechanisms both claim the same leftover space, and auto margins take
+precedence), though it has nothing left to absorb once `flex-grow` has already
+consumed all the leftover space itself. In `column` direction that leftover
+exists only once the container has a
+[declared `height` or `min-height`](#container-height-min-height-and-max-height),
+the same condition `flex-grow` and `justify-content` are under there.
+
+On the **cross axis**, it absorbs the free space between the item and the size
+it is aligned within: its own line's height in `row` direction, the container's
+content width in `column`. Both sides `auto` centers the item; one side alone
+takes all of that space and pushes the item to the other end, so `margin-top:
+auto` sits an item on its line's bottom row and `margin-left: auto` puts a
+column item against the container's right edge. Present on an item, it
+**overrides that item's `align-items`/`align-self`** (§8.1, the cross-axis twin
+of the `justify-content` override above) and opts the item out of stretching,
+since the space it would have stretched into is the space the margin is
+claiming.
+
+With no free space to absorb, an `auto` margin on either axis resolves to `0`
+rather than to a negative offset, like every other alignment here.
 
 ```css
 /* the classic "push this one item to the far end" pattern */
@@ -1587,6 +1646,10 @@ auto` in `column` direction is not supported — see below.
 
 /* and its cross-axis twin: this item alone centers vertically on its line */
 .badge { margin-top: auto; margin-bottom: auto; }
+
+/* the same pattern in column direction: a footer pinned to the bottom */
+.col { display: flex; flex-direction: column; height: 24; }
+.footer { margin-top: auto; }
 ```
 
 #### Sizing deviations
@@ -1635,31 +1698,77 @@ The same is true of a multi-line `inline-block`; see `COMPATIBILITY.md`.
   (`hidden`/`clip`) are supported, but a scrollable flex container would need
   the live scroll-offset/gutter plumbing ordinary boxes have; see
   [Container `height`, `min-height`, and `max-height`](#container-height-min-height-and-max-height).
-- **`margin: auto` in `column` direction** — on either axis, treated as `0`
-  rather than absorbing leftover space. Both of `row` direction's axes are
-  supported; see above.
 
 ---
 
 ## Size Values
 
 Wherever one of these sizing declarations is accepted (`width`, `min-width`,
-`max-width`, and percentage-capable margins), the following forms are recognized:
+`max-width`, `height`, `min-height`, `max-height`, `flex-basis`, and
+percentage-capable margins), these five forms are the **only** ones
+recognized:
 
 | Form | Example | Meaning |
 |------|---------|---------|
-| Bare integer | `14` | Fixed rune count |
-| `ch` unit | `14ch` | Fixed rune count (same as bare integer) |
-| Percentage | `50%` | Fraction of the available content width |
+| Bare integer | `14` | Fixed rune count, or line count on a vertical property |
+| `ch` unit | `14ch` | Same as a bare integer |
+| Percentage | `50%` | Fraction of the containing block, in that property's own axis |
+| `vw` unit | `50vw` | Fraction of the **viewport** width (`Options.Width`) |
+| `vh` unit | `50vh` | Fraction of the **viewport** height (`Options.Height`) |
 
-Pixel (`px`), `em`, `rem`, and other CSS units are ignored. The one exception
-is a **zero** [`flex-basis`](#flex-basis), which is accepted in any unit, since
-a zero length is dimensionless in CSS and there is nothing to convert — see
-that entry.
+A bare integer and its `ch` spelling are the same value; `ch` is a terminal
+cell, which is the only absolute length this renderer has.
 
-For block elements, percentages are resolved against the available block width.
-For a `width: 100%` table, the available content width is the terminal width
-minus the sum of all separator characters.
+Every other CSS unit is **ignored**, and the declaration falls back to its
+initial value: `px`, `em`, `rem`, `pt`, `cm`, `vmin`, `vmax`, and the rest.
+For the absolute ones this is not a gap waiting to be filled. A cell is not a
+pixel, there is no font size to resolve an `em` against, and any fixed
+pixels-per-cell ratio would be wrong at some terminal font size, so there is no
+honest conversion to make. Write terminal CSS in cells.
+
+`vw` and `vh` are the exception that proves the rule: a terminal *does* have an
+unambiguous viewport, so a fraction of it is a real number of cells and the
+conversion is exact. They are useful for the same reason they are in a browser.
+A percentage needs a containing block, which may be indefinite on the vertical
+axis, while `vh` names its basis directly and so resolves anywhere in the tree.
+`height: 100vh` is the idiomatic full-screen box, and does not need the
+`height: 100%` chain of definite ancestors described under [`height`](#height).
+
+Two things to know about them here:
+
+- **They quantize hard.** A browser viewport has ~900 rows of resolution; a
+  terminal has ~24. Every value from `1vh` to `4vh` is the same single row at
+  that size. Coarse fractions (`100vh`, `50vh`, `33vh`) behave as you would
+  expect; fine ones are noise. Fractions of a cell truncate, as every
+  percentage here does, so `33vh` of 24 rows is 7 rather than 8.
+- **`vh` needs `Options.Height`.** Left at `SizeAutomatic`/`SizeNatural` there
+  is no viewport height, and a `vh` length is ignored like any unsupported
+  unit. `vw` has no such condition, since the terminal's width is always known.
+  A browser always has a viewport and so never shows this.
+
+### Zero is dimensionless
+
+A **zero** length is accepted in any unit at all — `0`, `0%`, `0ch`, `0vh`,
+`0px`, `0em`, `0rem` all mean the same nothing, including units this engine
+otherwise ignores entirely. CSS itself lets the unit be omitted on a zero
+`<length>` for exactly this reason: there is no conversion to get wrong.
+
+This is what makes the common `flex: 1 1 0px` behave exactly like
+`flex: 1 1 0`. It does not extend to any non-zero value: `flex-basis: 4px` is
+still ignored, because 4 of a unit this renderer can't convert is still
+unconvertible. See [`flex-basis`](#flex-basis), where the distinction between a
+declared zero and an absent value carries meaning.
+
+For block elements, a horizontal percentage is resolved against the available
+block width. For a `width: 100%` table, the available content width is the
+terminal width minus the sum of all separator characters.
+
+A **vertical** percentage is the asymmetric case. A width always has a basis,
+since the terminal has a definite width and every box is laid out within one. A
+height often doesn't: a box whose own height is `auto` gives its children no
+definite basis, so their percentage heights fall back to `auto` rather than
+resolving. See [`height`](#height) for the full rule and for how
+`Options.Height` supplies the viewport at the top of the chain.
 
 ---
 
@@ -1779,15 +1888,14 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 
 ## What Is Not Implemented
 
-- `px`, `em`, `rem`, `vw`, `vh`, and other CSS units (ignored; use bare integers or `ch`)
+- `px`, `em`, `rem`, `pt`, `vmin`, `vmax`, and other CSS units (ignored; use bare integers, `ch`, `%`, `vw`, or `vh`). A **zero** length is accepted in any unit — see [Zero is dimensionless](#zero-is-dimensionless)
 - CSS math functions: `calc()`, `min()`, `max()`, `clamp()`
-- CSS variables (`--my-var`)
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, `@import`, `@charset`, `@supports`, `@page`, or any other at-rule — the parser recognizes any `@`-rule and skips it as a unit (its prelude, and its `{ ... }` body if it has one, including any rules nested inside that body), so an at-rule the renderer doesn't understand is simply ignored rather than corrupting whatever rule follows it in the same stylesheet
-- Pseudo-classes and pseudo-elements
+- `:active`, and pseudo-classes beyond those listed under [Selectors](#selectors) — a large set *is* supported there, including `:not()`, `:is()`, `:where()`, `:has()`, the structural `:nth-*` family, and the attribute-driven `:checked`/`:disabled`/`:required`. `:focus` needs a live `Document` rather than one-shot `Render`, and `:hover` matches only `option:hover` in an open `<select>`
 - The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
-- `flex-wrap`, `align-content`, and applied `flex-shrink` — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
+- `flex-wrap`/`align-content` in `column` direction, `baseline` alignment, and the physical `left`/`right` alignment keywords — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, and `position: sticky` (`relative`/`absolute`/`fixed` are supported — see [`position`](#position)); shrink-to-fit auto-sizing and the "static position" algorithm for `absolute`/`fixed` (see that section's deviations)
 - Multi-line cell content when `white-space: nowrap` is set on a `td`/`th`
 - `border-collapse: collapse`'s conflict resolution doesn't consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are consulted, via real conflict resolution against their column's cells) — see `docs/TABLES.md`

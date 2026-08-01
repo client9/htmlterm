@@ -127,9 +127,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
 ### Deviations from Spec
 
 - **All sizing is in character cells/lines, not pixels.** `width`/`height`/
-  `margin`/`padding`/border thickness are all integer counts (or `ch`/`%`).
-  `px`, `em`, `rem`, `vw`, `vh` are parsed as unsupported and ignored
-  entirely, not converted.
+  `margin`/`padding`/border thickness are all integer counts, or `ch`, `%`,
+  `vw`, or `vh`. `px`, `em`, `rem`, and the other absolute units are parsed as
+  unsupported and ignored entirely, not converted: a cell is not a pixel and
+  there is no font size for an `em` to be relative to. `vw`/`vh` *are*
+  supported, because a terminal has an unambiguous viewport and a fraction of
+  it is an exact number of cells. They quantize coarsely at terminal sizes
+  (every value from `1vh` to `4vh` is one row on a 24-row screen), and `vh`
+  needs `Options.Height` set, being ignored without one.
 - **An empty box keeps one line when nothing is drawn around it.** A box with
   no content has zero content height, and that is honored where it shows: an
   empty bordered box's two rules meet, `<hr>` is a single rule, and vertical
@@ -218,6 +223,20 @@ For the design rationale behind the DOM/Events/rendering internals, see
   two properties can't be reasoned about interchangeably. Flex layout resolves
   main-axis sizes as outer sizes on *both* axes and converts at the boundary,
   so a flex item is exempt; see the next entry.
+- **A percentage height needs `Options.Height` to resolve at the root.** CSS
+  resolves a percentage `height`/`min-height`/`max-height` against the
+  containing block's height only when that height is definite, and to `auto`
+  otherwise (CSS 2.1 §10.5). That rule is implemented, and the chain is the
+  real one: an explicit `height` on an ancestor is a definite basis, an
+  auto height or a bare `min-height` is not, and the initial containing block
+  is the viewport. The viewport here is `Options.Height`. Set it, and
+  `height: 100%` on a root-level box resolves to the terminal's height, which
+  is what makes the "column flex container fills the screen, one child takes
+  the slack" pattern work. Leave it at `SizeAutomatic`/`SizeNatural` and there
+  is no viewport, so a root percentage height resolves to `auto` and is inert.
+  A browser always has a viewport and so never shows that second behavior.
+  `height: 100vh` is the same thing without the chain of definite ancestors,
+  and is under the same `Options.Height` condition.
 - **`flex-basis`/`width` on a flex item size the item's whole outer box**, not
   its content box, so an item's margins come out of that size rather than
   adding to it: `flex-basis: 6; margin-right: 4` occupies 6 columns of the
@@ -373,18 +392,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
 
 ### Not Supported
 
-- **CSS units:** `px`, `em`, `rem`, `vw`, `vh`, and friends (ignored; use
-  bare integers, `ch`, or `%`).
-- **Percentage `height`/`min-height`/`max-height`** (`%` on the *vertical*
-  axis). Widths resolve percentages fine; heights don't, on any box, since there is
-  no established containing-block height to resolve them against, since a
-  terminal's own height is a viewport this renderer writes past rather than a
-  bound it lays out within. `height: 50%` is simply ignored, leaving the box at
-  its content height. One visible consequence in flex layout: a percentage
-  `height` doesn't count as a definite cross size, so it does *not* opt an item
-  out of `align-items: stretch` the way an absolute one does: the item is
-  stretched to the line instead, which is the better of the two available
-  answers given the percentage can't be resolved either way.
+- **CSS units:** `px`, `em`, `rem`, `pt`, `cm`, `vmin`, `vmax`, and friends
+  (ignored; use bare integers, `ch`, `%`, `vw`, or `vh`). A **zero** length is
+  accepted in any unit, since a zero length is dimensionless in CSS and there
+  is nothing to convert, so `flex: 1 1 0px` works.
 - **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
   `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
   (Variables)" section.)
@@ -459,9 +470,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   flex container anyway, so the `place-items`/`place-self` shorthands that
   set them are effectively just `align-items`/`align-self`),
   `baseline` alignment, the physical `left`/`right` alignment
-  keywords, `margin: auto` in column direction (both of row direction's axes
-  are supported: `margin-left`/`margin-right` on the main one,
-  `margin-top`/`margin-bottom` on the cross one),
+  keywords,
   `flex-basis`'s intrinsic sizing keywords in `column` direction
   (`min-content`/`max-content`/`fit-content` all behave as `content` there;
   they are fully distinct in `row` direction),

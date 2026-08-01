@@ -28,8 +28,7 @@ import (
 // leftover space, overriding justify-content.
 //
 // See CSS.md's "Flexbox" section for the exact supported subset and its
-// documented non-goals: column-direction wrap, baseline alignment, and
-// column-direction margin:auto.
+// documented non-goals: column-direction wrap and baseline alignment.
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -160,6 +159,14 @@ func parseFlexDirection(decls map[string]string) (isColumn, reverse bool) {
 	return false, false
 }
 
+// pctHeightDecl reports whether decls carries a percentage height or
+// min-height, the only case layoutFlex has to clone decls to normalize. Every
+// other container, which is nearly all of them, keeps the caller's map.
+func pctHeightDecl(decls map[string]string) bool {
+	return strings.HasSuffix(strings.TrimSpace(decls["height"]), "%") ||
+		strings.HasSuffix(strings.TrimSpace(decls["min-height"]), "%")
+}
+
 // layoutFlex dispatches to layoutFlexRow or layoutFlexColumn per decls'
 // flex-direction. It is the single call site every renderFlexContentBox,
 // renderInlineFlexContent, and measureNaturalWidth entry point shares, so
@@ -171,6 +178,44 @@ func (r *Engine) layoutFlex(n *html.Node, decls map[string]string, innerW int) (
 		// this is the single shared entry point (see doc comment).
 		innerW = measureBlockWidthCap
 	}
+	// A flex container is the containing block its items resolve percentage
+	// heights against, and it is definite on the same terms as any other box:
+	// only a declared height, never a min-height.
+	//
+	// The container's own percentage height and min-height are resolved to
+	// absolutes here, once, and written back into a cloned decls. Everything
+	// downstream then reads a definite row count and never re-resolves. That
+	// is not just an optimization. r.cbHeight is about to become this
+	// container's own height, and layoutFlexColumn re-reads decls["height"]
+	// several times during layout, so leaving a percentage in place would have
+	// it resolve against itself: `height: 50%` in a 20-row containing block
+	// would come out 10 on the first read and 5 on the next.
+	//
+	// renderFlexItemBoxSized separately injects each item's resolved main size
+	// as a synthetic absolute height, which renderBlockContentBox then makes
+	// that item's own containing block. This handles the other direction: an
+	// item with no flex-resolved height of its own still sees its container's.
+	if pctHeightDecl(decls) {
+		resolved := maps.Clone(decls)
+		if h, ok := resolveCSSHeight(decls["height"], r.cbHeight); ok && h > 0 {
+			resolved["height"] = strconv.Itoa(h)
+		} else if decls["height"] != "" {
+			delete(resolved, "height")
+		}
+		if h, ok := resolveCSSHeight(decls["min-height"], r.cbHeight); ok && h > 0 {
+			resolved["min-height"] = strconv.Itoa(h)
+		} else if decls["min-height"] != "" {
+			delete(resolved, "min-height")
+		}
+		decls = resolved
+	}
+	outerCBHeight := r.cbHeight
+	if h, ok := r.resolveFlexContainerHeight(decls); ok {
+		r.cbHeight = h
+	} else {
+		r.cbHeight = indefiniteMainSize
+	}
+	defer func() { r.cbHeight = outerCBHeight }()
 	isColumn, reverse := parseFlexDirection(decls)
 	if isColumn {
 		return r.layoutFlexColumn(n, decls, innerW, reverse)
@@ -883,16 +928,16 @@ func reverseCrossAxisDecls(decls map[string]string, items []flexItem) (map[strin
 
 // resolveFlexContainerHeight resolves an explicit CSS height on a flex
 // container to an absolute line count, for align-content's cross-axis
-// distribution. Percentage heights are not resolved, since this engine has no
-// notion of a flex container's percentage-basis height. That matches
-// renderBlockContentBox's own height handling, which likewise only acts on
-// parseSizeVal's absolute return.
-func resolveFlexContainerHeight(decls map[string]string) (int, bool) {
-	abs, _, ok := parseSizeVal(decls["height"])
-	if !ok || abs <= 0 {
+// distribution and for column direction's main-axis size. A percentage
+// resolves against the container's own containing block (Engine.cbHeight), and
+// only when that basis is itself definite, which is the same rule
+// renderBlockContentBox's height handling follows.
+func (r *Engine) resolveFlexContainerHeight(decls map[string]string) (int, bool) {
+	h, ok := resolveCSSHeight(decls["height"], r.cbHeight)
+	if !ok || h <= 0 {
 		return 0, false
 	}
-	return abs, true
+	return h, true
 }
 
 // resolveFlexContainerHeightFloor is how many rows a flex container's own
@@ -908,15 +953,19 @@ func resolveFlexContainerHeight(decls map[string]string) (int, bool) {
 // size, never lower it, so content taller than a min-height must overflow
 // rather than being handed to flex-shrink as a deficit. An explicit height
 // legitimately does both.
-func resolveFlexContainerHeightFloor(decls map[string]string) (h int, ok, fromMin bool) {
-	if h, ok := resolveFlexContainerHeight(decls); ok {
+func (r *Engine) resolveFlexContainerHeightFloor(decls map[string]string) (h int, ok, fromMin bool) {
+	if h, ok := r.resolveFlexContainerHeight(decls); ok {
 		return h, true, false
 	}
-	abs, _, ok := parseSizeVal(decls["min-height"])
-	if !ok || abs <= 0 {
+	// A percentage min-height resolves against the same containing block a
+	// percentage height would. It still doesn't make *this* container's main
+	// size definite for anything inside it (see fromMin), but resolving it is
+	// what lets "at least half the screen" work at all.
+	mh, ok := resolveCSSHeight(decls["min-height"], r.cbHeight)
+	if !ok || mh <= 0 {
 		return 0, false, false
 	}
-	return abs, true, true
+	return mh, true, true
 }
 
 // collectFlexItems gathers n's children that participate in flex layout: its
@@ -2108,7 +2157,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths []int, margins [
 		if a := itemAlign(it, align); a != "" && a != "stretch" {
 			continue
 		}
-		if abs, _, ok := parseSizeVal(it.decls["height"]); ok && abs > 0 {
+		if h, ok := resolveCSSHeight(it.decls["height"], r.cbHeight); ok && h > 0 {
 			continue
 		}
 		want := height - margins[i].top - margins[i].bottom
@@ -2120,9 +2169,10 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths []int, margins [
 		// takes priority over max-height by design, and a max-height:1 item on
 		// a five-row line grew to all five. The cap is an outer size like want
 		// itself, while max-height is content-box in this engine, so the item's
-		// own border and padding rows are added back on. Percentage max-heights
-		// aren't resolved, matching this engine's height handling generally.
-		if m, _, ok := parseSizeVal(it.decls["max-height"]); ok && m > 0 {
+		// own border and padding rows are added back on. A percentage resolves
+		// against the container's own height, r.cbHeight here, and is dropped
+		// when that basis is indefinite.
+		if m, ok := resolveCSSHeight(it.decls["max-height"], r.cbHeight); ok && m > 0 {
 			want = min(want, m+blockVerticalChrome(it.decls))
 		}
 		if want <= len(itemBoxes[i].lines) {
@@ -2219,14 +2269,14 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// only each line's own placement flips. See reverseLineGroups.
 	items := r.collectFlexItems(n)
 	if len(items) == 0 {
-		return emptyFlexBox(decls), nil
+		return r.emptyFlexBox(decls), nil
 	}
 	gap := parseGapLen(decls["column-gap"], innerW)
 	// A percentage row-gap needs a definite container height, which only an
 	// explicit height is: a min-height leaves the real height dependent on the
 	// content, which is what these lines are still being laid out to
 	// determine. Same rule percentage flex-basis follows in column direction.
-	rowGapBasis, _ := resolveFlexContainerHeight(decls)
+	rowGapBasis, _ := r.resolveFlexContainerHeight(decls)
 	rowGap := parseGapLen(decls["row-gap"], rowGapBasis)
 	wrap, crossReverse := parseFlexWrap(decls)
 	justify := decls["justify-content"]
@@ -2305,7 +2355,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// reaches layoutFlexLine here.
 	lineMinHeight := 0
 	if !wrap {
-		if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok {
+		if h, ok, _ := r.resolveFlexContainerHeightFloor(decls); ok {
 			lineMinHeight = h
 		}
 	}
@@ -2351,7 +2401,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// And content: open-quote advances r.quoteDepth as it renders, so a replay
 	// from where the first pass left off would continue the nesting instead of
 	// repeating it. Both are restored, not merely saved.
-	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && wrap && h > contentHeight && alignContentStretches(decls["align-content"]) {
+	if h, ok, _ := r.resolveFlexContainerHeightFloor(decls); ok && wrap && h > contentHeight && alignContentStretches(decls["align-content"]) {
 		shares := splitEvenly(h-contentHeight, len(results))
 		lineMinHeights := make([]int, len(results))
 		for li, res := range results {
@@ -2380,7 +2430,7 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// come up short when a line refuses to grow, which a line whose items all
 	// declare their own height does, and the trailing-blank flush at the end
 	// covers that the same way it covers flex-start's.
-	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && h > contentHeight {
+	if h, ok, _ := r.resolveFlexContainerHeightFloor(decls); ok && h > contentHeight {
 		wantHeight = h
 		leadRows, extraGapsBetweenLines = distributeAlignContent(decls["align-content"], wantHeight-contentHeight, len(results))
 	}
@@ -2442,13 +2492,13 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		items = reverseFlexItems(items)
 	}
 	if len(items) == 0 {
-		return emptyFlexBox(decls), nil
+		return r.emptyFlexBox(decls), nil
 	}
 	// row-gap is the main axis here, and a percentage of it resolves against
 	// the container's own explicit height for the same reason a percentage
 	// flex-basis does: that height is the only definite main size a column
 	// container has (see pctBasis below).
-	rowGapBasis, _ := resolveFlexContainerHeight(decls)
+	rowGapBasis, _ := r.resolveFlexContainerHeight(decls)
 	rowGap := parseGapLen(decls["row-gap"], rowGapBasis)
 	align := decls["align-items"]
 	// heightIsMinOnly marks a main size that came from min-height rather than
@@ -2456,7 +2506,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// fills, but must never put the items into flex-shrink, since a minimum
 	// that content already exceeds is already satisfied. See
 	// resolveFlexContainerHeightFloor.
-	containerHeight, hasContainerHeight, heightIsMinOnly := resolveFlexContainerHeightFloor(decls)
+	containerHeight, hasContainerHeight, heightIsMinOnly := r.resolveFlexContainerHeightFloor(decls)
 	// Percentages need a *definite* main size to resolve against, which a
 	// min-height isn't. The container's real main size is max(content,
 	// min-height), so it isn't known until the content is laid out, and real CSS
@@ -2473,7 +2523,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// max-height: 75%` rendered one row instead of four. Both should have
 	// ignored the percentage outright, which is what a browser does.
 	pctBasis := indefiniteMainSize
-	if h, ok := resolveFlexContainerHeight(decls); ok {
+	if h, ok := r.resolveFlexContainerHeight(decls); ok {
 		pctBasis = h
 	}
 
@@ -2488,10 +2538,20 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// the container at all, since a flex formatting context doesn't collapse
 	// in real CSS either. Each item's margin-bottom and the next item's
 	// margin-top both apply in full, summed with row-gap, not collapsed via
-	// max the way ordinary block flow would. margin: auto is not supported in
-	// column direction. See CSS.md's Flexbox "Not supported" list.
+	// max the way ordinary block flow would.
+	//
+	// An auto margin on either axis is resolved here rather than by the block
+	// box model, the mirror of what layoutFlexLine does for row direction.
+	// parseMargin returns 0 for "auto", so an auto vertical margin contributes
+	// nothing to totalContentHeight below and is free to absorb leftover once
+	// flex-grow and flex-shrink have run. The horizontal pair is read into
+	// mlAuto/mrAuto and consumed at the cross-axis alignment switch.
 	mt := make([]int, len(items))
 	mb := make([]int, len(items))
+	mtAuto := make([]bool, len(items))
+	mbAuto := make([]bool, len(items))
+	mlAuto := make([]bool, len(items))
+	mrAuto := make([]bool, len(items))
 	widths := make([]int, len(items))
 	// crossSized[i] marks an item whose cross-axis width this pass resolved
 	// itself, under an align-items or align-self other than stretch, rather
@@ -2515,9 +2575,22 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	for i, it := range items {
 		mt[i] = parseMargin(it.decls["margin-top"])
 		mb[i] = parseMargin(it.decls["margin-bottom"])
+		mtAuto[i] = strings.TrimSpace(it.decls["margin-top"]) == "auto"
+		mbAuto[i] = strings.TrimSpace(it.decls["margin-bottom"]) == "auto"
+		mlAuto[i] = strings.TrimSpace(it.decls["margin-left"]) == "auto"
+		mrAuto[i] = strings.TrimSpace(it.decls["margin-right"]) == "auto"
 		itAlign := itemAlign(it, align)
 		w := innerW
-		if itAlign != "" && itAlign != "stretch" {
+		if mlAuto[i] || mrAuto[i] {
+			// An auto cross-axis margin opts the item out of stretching
+			// (§9.6), exactly as it does on row direction's cross axis: the
+			// free space it would have stretched into is the free space the
+			// margin is claiming, and the two can't both have it. The item is
+			// therefore sized to its own content and positioned by the
+			// auto-margin split at the alignment switch below.
+			w = r.resolveCrossWidth(it, innerW)
+			crossSized[i] = true
+		} else if itAlign != "" && itAlign != "stretch" {
 			w = r.resolveCrossWidth(it, innerW)
 			crossSized[i] = true
 		} else if sw, sized := stretchCrossWidth(it, innerW); sized {
@@ -2667,6 +2740,51 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 		}
 	}
 
+	// margin-top/margin-bottom: auto absorbs whatever main-axis leftover
+	// remains once flex-grow and flex-shrink have had their turn, matching
+	// real CSS's ordering of flexible-length resolution first and auto-margin
+	// alignment second. This is layoutFlexLine's margin-left/margin-right:auto
+	// pass with the axis swapped, and it follows the same two rules: the space
+	// is split evenly across every auto margin in the container, and any auto
+	// margin at all overrides justify-content outright, since both mechanisms
+	// claim the same leftover and CSS gives it to the margins.
+	//
+	// An odd remainder favors the earliest auto margin in document order, top
+	// before bottom within one item, which is what slot counts here.
+	autoMarginsOverrideJustify := false
+	if leftover > 0 {
+		autoCount := 0
+		for i := range items {
+			if mtAuto[i] {
+				autoCount++
+			}
+			if mbAuto[i] {
+				autoCount++
+			}
+		}
+		if autoCount > 0 {
+			share, rem, slot := leftover/autoCount, leftover%autoCount, 0
+			for i := range items {
+				if mtAuto[i] {
+					mt[i] += share
+					if slot < rem {
+						mt[i]++
+					}
+					slot++
+				}
+				if mbAuto[i] {
+					mb[i] += share
+					if slot < rem {
+						mb[i]++
+					}
+					slot++
+				}
+			}
+			leftover = 0
+			autoMarginsOverrideJustify = true
+		}
+	}
+
 	// Only re-render items flex-grow or flex-shrink adjusted. Every other
 	// item's basis-step render, including the common case where neither
 	// applies at all, is already the final box. Reset r.quoteDepth to what it
@@ -2690,6 +2808,13 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	justify := decls["justify-content"]
 	if reverse {
 		justify = reverseJustify(justify)
+	}
+	if autoMarginsOverrideJustify {
+		// The auto margins above already consumed the leftover and set it to
+		// 0, so distributeJustify is a no-op here whatever the value. Naming
+		// the override explicitly keeps that from being an accident of
+		// ordering if either side changes.
+		justify = ""
 	}
 	leadRows, extraGaps := distributeJustify(justify, leftover, len(items))
 
@@ -2720,10 +2845,26 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			b = alignLinesBox(b, it.decls["text-align"], widths[i])
 		}
 		colOffset := 0
-		switch itemAlign(it, align) {
-		case "center":
+		switch {
+		case mlAuto[i] || mrAuto[i]:
+			// The cross-axis twin of the main-axis pass above (§8.1): an auto
+			// margin absorbs the item's free space within the container's
+			// content width and overrides align-items/align-self for this one
+			// item. Both sides auto centers it, one side alone takes all the
+			// space and pushes the item to the other end, so margin-left: auto
+			// puts it against the container's right edge. With nothing left to
+			// absorb it resolves to 0 rather than to a negative offset, like
+			// every other alignment here.
+			free := max(0, innerW-b.width)
+			switch {
+			case mlAuto[i] && mrAuto[i]:
+				colOffset = free / 2
+			case mlAuto[i]:
+				colOffset = free
+			}
+		case itemAlign(it, align) == "center":
 			colOffset = max(0, (innerW-b.width)/2)
-		case "flex-end":
+		case itemAlign(it, align) == "flex-end":
 			colOffset = max(0, innerW-b.width)
 		}
 		prefix := ""
@@ -2778,8 +2919,8 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 // With no declared height it is one empty line, not none. That is every other
 // empty box's content in this engine, and renderFlexContentBox drops it there
 // if something is going to be drawn around it (see contentEmpty).
-func emptyFlexBox(decls map[string]string) box {
-	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && h > 0 {
+func (r *Engine) emptyFlexBox(decls map[string]string) box {
+	if h, ok, _ := r.resolveFlexContainerHeightFloor(decls); ok && h > 0 {
 		return box{lines: make([]string, h)}
 	}
 	return box{lines: []string{""}}
@@ -2886,9 +3027,9 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// docs/SCROLLING.md), which is a larger piece of work than this.
 	if ov := decls["overflow-y"]; ov == "hidden" || ov == "clip" {
 		limit := 0
-		if h, ok := resolveFlexContainerHeight(decls); ok {
+		if h, ok := r.resolveFlexContainerHeight(decls); ok {
 			limit = h
-		} else if m, _, ok := parseSizeVal(decls["max-height"]); ok && m > 0 {
+		} else if m, ok := resolveCSSHeight(decls["max-height"], r.cbHeight); ok && m > 0 {
 			limit = m
 		}
 		if limit > 0 && len(content.lines) > limit {
@@ -2911,7 +3052,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// through. Those rows were asked for, and layout skipped only the
 	// distribution of them, not the request. See renderBlockContentBox for the
 	// full statement of the rule.
-	if _, hasDeclaredHeight, _ := resolveFlexContainerHeightFloor(decls); contentEmpty && !hasDeclaredHeight && (pt+pb > 0 || topRule != "" || botRule != "") {
+	if _, hasDeclaredHeight, _ := r.resolveFlexContainerHeightFloor(decls); contentEmpty && !hasDeclaredHeight && (pt+pb > 0 || topRule != "" || botRule != "") {
 		content = box{}
 	}
 

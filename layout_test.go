@@ -202,3 +202,41 @@ func TestEmptyFlexContainerBox(t *testing.T) {
 		{name: "an empty flex item is a two-row box on its line", width: 14, css: `.f{display:flex;border-style:solid;width:12}.i{display:flex;border-style:solid}`, html: `<div class="f"><div class="i"></div><span>x</span></div>`, want: "┌──────────┐\n│┌─┐x      │\n│└─┘       │\n└──────────┘\n"},
 	})
 }
+
+// TestViewportUnits covers the vh and vw length units. Unlike a percentage,
+// which needs its containing block and so differs per property and per box,
+// these two name their own basis: vh is the viewport's height and vw its
+// width, on whatever property they appear. Options.Width and Options.Height
+// are that viewport.
+//
+// A vh with no Options.Height has no basis and is ignored, which is the one
+// behavior a browser never shows, since a browser always has a viewport. Zero
+// is exempt: a zero length is dimensionless in CSS, so `0vh` is `0` with no
+// viewport at all, the same rule that makes `flex: 1 1 0px` work.
+func TestViewportUnits(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "vw resolves against Options.Width", width: 20, html: `<div style="width:50vw;border-style:solid">x</div>`, want: "┌────────┐\n│x       │\n└────────┘\n"},
+		{name: "100vw is the full terminal width", width: 12, html: `<div style="width:100vw;border-style:solid">x</div>`, want: "┌──────────┐\n│x         │\n└──────────┘\n"},
+		{name: "vh resolves against Options.Height", width: 8, height: 8, html: `<div style="height:50vh;border-style:solid">x</div>`, want: "┌──────┐\n│x     │\n│      │\n│      │\n│      │\n└──────┘\n\n\n"},
+		{name: "vh with no Options.Height is ignored", width: 8, html: `<div style="height:50vh;border-style:solid">x</div>`, want: "┌──────┐\n│x     │\n└──────┘\n"},
+		// Fractions of a cell truncate, as every percentage here does: 33% of
+		// 24 rows is 7.92, and the box gets 7 content rows rather than 8.
+		{name: "a fractional vh truncates rather than rounding", width: 6, height: 24, html: `<div style="height:33vh;border-style:solid">x</div>`, want: "┌────┐\n│x   │\n│    │\n│    │\n│    │\n│    │\n│    │\n│    │\n└────┘\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"},
+		{name: "zero is dimensionless, so 0vh needs no viewport", width: 8, html: `<div style="margin-left:0vh">x</div>`, want: "x\n"},
+		{name: "a shorthand converts each component independently", width: 16, html: `<div style="margin:0 25vw">x</div>`, want: "    x    \n"},
+		// The pattern this was added for. 100vh reaches flex layout as a
+		// definite main size, so flex-grow has something to distribute.
+		{name: "a column flex container sized in vh lets flex:1 take the slack", width: 10, height: 7, html: `<div style="display:flex;flex-direction:column;height:100vh"><div>h</div><div style="flex:1">m</div><div>f</div></div>`, want: "h         \nm         \n          \n          \n          \n          \nf         \n"},
+		// And it is a definite basis for what's inside it, so a percentage
+		// resolves against a vh-sized container.
+		{name: "a percentage inside a vh-sized container resolves against it", width: 6, height: 8, html: `<div style="display:flex;flex-direction:column;height:100vh"><div style="flex-basis:50%">a</div><div>b</div></div>`, want: "a     \n      \n      \n      \nb     \n      \n      \n      \n"},
+		// The unit is folded to lowercase with every other keyword before the
+		// substitution runs, so an author who shouts is understood.
+		{name: "the unit is case-insensitive", width: 20, html: `<div style="width:50VW;border-style:solid">x</div>`, want: "┌────────┐\n│x       │\n└────────┘\n"},
+		// Not only the sizing properties: the substitution happens once as
+		// declarations enter the render layer, so anything taking a length
+		// gets it.
+		{name: "gap accepts a viewport unit", width: 16, html: `<div style="display:flex;gap:25vw"><div>a</div><div>b</div></div>`, want: "a    b          \n"},
+		{name: "a position offset accepts a viewport unit", width: 16, html: `<div style="position:relative;left:25vw">x</div>`, want: "    x\n"},
+	})
+}

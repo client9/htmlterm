@@ -21,7 +21,12 @@ type renderCase struct {
 	css   string
 	html  string
 	width int
-	want  string
+	// height is Options.Height, the viewport. Zero leaves it unset, which is
+	// what nearly every case wants. Set it only when the case is about the
+	// initial containing block, since a percentage height resolves against the
+	// viewport and is inert without one.
+	height int
+	want   string
 }
 
 // runCases is the shared driver for all render test tables.
@@ -33,7 +38,7 @@ func runCases(t *testing.T, cases []renderCase) {
 			if width == 0 {
 				width = 40
 			}
-			r, err := htmlterm.New(htmlterm.Options{CSS: tc.css, Width: width})
+			r, err := htmlterm.New(htmlterm.Options{CSS: tc.css, Width: width, Height: tc.height})
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
