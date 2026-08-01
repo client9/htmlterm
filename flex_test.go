@@ -919,3 +919,46 @@ func TestFlexSpaceAroundEdgesStayEqual(t *testing.T) {
 		{name: "a single item is centered", width: 9, css: row, html: `<div class="r"><div>a</div></div>`, want: "    a    \n"},
 	})
 }
+
+// TestFlexIntrinsicMainSize covers a flex container being *measured* rather
+// than laid out: as a flex item of another container, where the answer is its
+// flex base size, and inside a table cell, where it is the column's natural
+// width. Both used to come back as the whole probe budget.
+//
+// The cause was that flex-grow, justify-content, and auto margins all spend
+// whatever space the container is handed, so a container probed at a generous
+// measurement budget expanded to fill it and renderFlexContentBox's
+// shrink-to-fit narrowing found nothing to narrow. Row-direction layout now
+// suppresses that distribution under a measurement render (see
+// measuringIntrinsicWidth in internal/render/flex.go), leaving each item at its
+// hypothetical main size and the line at the sum of those.
+//
+// Column direction never had the bug: a stretched column item is deliberately
+// left at whatever width it rendered to rather than padded out to the
+// container's, so the container already narrowed to its widest item.
+func TestFlexIntrinsicMainSize(t *testing.T) {
+	const nest = `.o{display:flex;width:100%}.i{display:flex}.i>div{width:3}`
+	runCases(t, []renderCase{
+		// The inner container's two 3-wide items make it 6 wide, so Z sits at
+		// column 6 whatever the items do with their own free space. It used to
+		// land at column 20, the full width of the outer container.
+		{name: "flex-grow inside a measured container does not widen it", width: 20, css: nest + `.i>div{flex-grow:1}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
+		{name: "justify-content inside a measured container does not widen it", width: 20, css: nest + `.i{justify-content:space-between}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
+		{name: "an auto margin inside a measured container does not widen it", width: 20, css: nest + `.i>div+div{margin-left:auto}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
+		// Stage 1's accepted shortfall, pinned so stage 2 flips a marked
+		// assertion rather than surprising somebody. `flex: 1` is `1 1 0`, and a
+		// zero flex base size makes an item's hypothetical main size its
+		// automatic minimum size, meaning min-content. Summing those measures
+		// this container at 3 columns: "aa bb" contributes its longest word and
+		// wraps to two lines, "c" contributes 1.
+		//
+		// Flexbox §9.9 instead takes each item's *max-content* contribution (5
+		// and 1), divides by the flex-grow factor to get a desired flex fraction
+		// (5 and 1), applies the largest of them to every item, and so sizes
+		// this container at 10: two items of 5, with "aa bb" on one line. Note
+		// that is wider than the same items with no flex factors at all, which
+		// is the counter-intuitive part and the reason stage 2 wants a real use
+		// case first. See docs/proposals/FLEX_INTRINSIC_SIZING.md.
+		{name: "flex:1 items measure at min-content, stage 1's known shortfall", width: 20, css: `.o{display:flex;width:100%}.i{display:flex}.i>div{flex:1}`, html: `<div class="o"><div class="i"><div>aa bb</div><div>c</div></div><div>Z</div></div>`, want: "aacZ                \nbb                  \n"},
+	})
+}
