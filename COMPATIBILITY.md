@@ -452,15 +452,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `docs/RENDERING.md`.
 - **Visual effects:** `box-shadow`, gradients, `background-image`,
   `transform`, `transition`/`animation`, `filter`.
-- **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction,
-  `flex-wrap: wrap-reverse`'s reversed line order (it wraps, but the lines
-  stack top to bottom like plain `wrap`), `align-content: stretch` (approximated as
-  `flex-start`), `justify-items`/`justify-self` (grid properties, inert in a
+- **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction
+  (`wrap-reverse` included; in `row` direction it reverses both the line order
+  and the cross-axis alignment keywords, as it should),
+  `justify-items`/`justify-self` (grid properties, inert in a
   flex container anyway, so the `place-items`/`place-self` shorthands that
   set them are effectively just `align-items`/`align-self`),
   `baseline` alignment, the physical `left`/`right` alignment
-  keywords, `margin: auto` beyond row direction's main axis (row direction's
-  `margin-left`/`margin-right: auto` is supported),
+  keywords, `margin: auto` in column direction (both of row direction's axes
+  are supported: `margin-left`/`margin-right` on the main one,
+  `margin-top`/`margin-bottom` on the cross one),
   `flex-basis`'s intrinsic sizing keywords in `column` direction
   (`min-content`/`max-content`/`fit-content` all behave as `content` there;
   they are fully distinct in `row` direction),
@@ -468,10 +469,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   the item from layout as `display: none`, per §4.4, but a browser keeps the
   collapsed item's cross size contributing to its line's height and this engine
   sizes the line from its remaining items instead, since reserving a blank band for
-  an item nobody can see reads as a rendering bug on a character grid),
-  and text nodes directly
-  inside a flex container, which real CSS wraps in anonymous flex items but
-  this engine drops (wrap loose text in a `<span>`).
+  an item nobody can see reads as a rendering bug on a character grid).
   Also `overflow-y: scroll`/`auto` on a flex container, which would need the
   live scroll-offset and gutter plumbing ordinary boxes have (`overflow-y:
   hidden`/`clip` does clip a flex container to its `height`/`max-height`, and

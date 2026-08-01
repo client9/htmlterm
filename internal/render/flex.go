@@ -17,7 +17,8 @@ import (
 // inline-flex, flex-direction:row|row-reverse|column|column-reverse,
 // justify-content, align-items, align-self, order, gap/row-gap/column-gap,
 // flex-grow/flex-shrink/flex-basis, and, in row direction only,
-// flex-wrap/align-content/margin-left/margin-right:auto.
+// flex-wrap (including wrap-reverse), align-content, and auto margins on
+// either axis. A run of loose text in a container is an anonymous item.
 //
 // Main-axis size is resolved before grow and shrink distribute any leftover
 // space. In row direction that leftover is always available, since width is
@@ -28,7 +29,7 @@ import (
 //
 // See CSS.md's "Flexbox" section for the exact supported subset and its
 // documented non-goals: column-direction wrap, baseline alignment, and
-// cross-axis margin:auto.
+// column-direction margin:auto.
 
 // flexItem is one direct element child of a flex container considered for
 // layout, together with the sizing inputs the main-axis pass needs.
@@ -773,29 +774,111 @@ func parseOrder(decls map[string]string) int {
 	return n
 }
 
-// parseGapLen parses row-gap/column-gap as an absolute rune count. Percentage
-// gaps are not supported, so parseSizeVal's pct return is discarded, matching
-// this engine's existing padding/border sizing model.
-func parseGapLen(v string) int {
-	abs, _, ok := parseSizeVal(v)
+// parseGapLen parses row-gap/column-gap as an absolute rune count. basis is the
+// container's own content size along the same axis the gap applies to: its
+// content width for column-gap, its content height for row-gap. A percentage
+// gap resolves against that (CSS Box Alignment §8.3), truncating like every
+// other percentage in this engine.
+//
+// A basis of 0 means the size in that axis is indefinite, which for row-gap is
+// a container with no declared height and for either axis is a container being
+// measured rather than laid out. A percentage against an indefinite size
+// resolves to zero, matching both the spec and what a browser paints. An
+// absolute gap is unaffected either way.
+func parseGapLen(v string, basis int) int {
+	abs, pct, ok := parseSizeVal(v)
 	if !ok {
 		return 0
+	}
+	if pct > 0 {
+		return int(pct * float64(basis))
 	}
 	return abs
 }
 
-// parseFlexWrap parses flex-wrap. "wrap" enables multi-line row layout, while
-// nowrap, the default and also any other or invalid value, keeps the
-// single-line behavior row-direction flex layout has always had.
+// parseFlexWrap parses flex-wrap into two independent facts: whether the
+// container is multi-line at all, and whether its cross axis points the other
+// way. "nowrap", the default and also any other or invalid value, is neither.
 //
-// "wrap-reverse" is accepted as an alias for "wrap". Its cross-axis line
-// order, last line first, isn't implemented, but line breaking itself is the
-// point of the property, and treating it as nowrap instead made a container
-// that should have wrapped overflow its width on a single line, the loudest
-// possible failure for the part that does work here. See CSS.md.
-func parseFlexWrap(decls map[string]string) bool {
-	v := decls["flex-wrap"]
-	return v == "wrap" || v == "wrap-reverse"
+// wrap-reverse reverses the cross-start and cross-end edges (§5.2), which is
+// not the same shape of change row-reverse makes to the main axis. Line
+// breaking is untouched, since it runs along the main axis: the same items land
+// on the same lines. What changes is where those lines stack, last line first,
+// and what "start" means to everything resolving on the cross axis. See
+// reverseAlignItems and reverseAlignContent.
+func parseFlexWrap(decls map[string]string) (wrap, crossReverse bool) {
+	switch decls["flex-wrap"] {
+	case "wrap":
+		return true, false
+	case "wrap-reverse":
+		return true, true
+	}
+	return false, false
+}
+
+// reverseCrossAlign mirrors an align-items, align-self, or align-content value
+// for a wrap-reverse container, whose cross-start edge is the bottom rather
+// than the top. Only flex-start and flex-end name an edge; center, stretch,
+// and the space-* values are symmetric about the middle and are their own
+// mirror image. So is anything unrecognized, including unset, since both
+// properties' own initial value is stretch.
+//
+// This is where the cross axis differs in shape from the main axis, and why it
+// isn't reverseJustify: justify-content's unset default is flex-start, which
+// does name an edge, so reverseJustify has to mirror the unset case too.
+func reverseCrossAlign(align string) string {
+	switch normalizeAlignKeyword(align) {
+	case "flex-start":
+		return "flex-end"
+	case "flex-end":
+		return "flex-start"
+	}
+	return align
+}
+
+// alignContentStretches reports whether align-content resolves to stretch, its
+// initial value: lines share the container's leftover cross space equally by
+// growing, rather than being packed somewhere within it (§8.4).
+//
+// Everything this file doesn't recognize resolves to stretch as well, matching
+// real CSS, where an invalid declaration is dropped and leaves the property at
+// its initial value. That includes `normal`, which normalizeAlignKeyword folds
+// to unset for exactly this reason.
+func alignContentStretches(align string) bool {
+	switch normalizeAlignKeyword(align) {
+	case "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly":
+		return false
+	}
+	return true
+}
+
+// reverseCrossAxisDecls returns decls with its cross-axis alignment properties
+// mirrored, for a wrap-reverse container. The clone is what layoutFlexLine and
+// distributeAlignContent read, so nothing below them needs to know the axis was
+// flipped: every value they see is already expressed in the direction they
+// resolve in, which is top-down. Items declaring their own align-self are
+// mirrored the same way, since align-self overrides align-items rather than
+// being derived from it.
+func reverseCrossAxisDecls(decls map[string]string, items []flexItem) (map[string]string, []flexItem) {
+	out := maps.Clone(decls)
+	for _, prop := range []string{"align-items", "align-content"} {
+		if v := out[prop]; v != "" {
+			out[prop] = reverseCrossAlign(v)
+		}
+	}
+	flipped := make([]flexItem, len(items))
+	copy(flipped, items)
+	for i, it := range flipped {
+		v := it.decls["align-self"]
+		if v == "" || v == "auto" {
+			// Deferring to align-items, which was already mirrored above.
+			continue
+		}
+		d := maps.Clone(it.decls)
+		d["align-self"] = reverseCrossAlign(v)
+		flipped[i].decls = d
+	}
+	return out, flipped
 }
 
 // resolveFlexContainerHeight resolves an explicit CSS height on a flex
@@ -836,10 +919,10 @@ func resolveFlexContainerHeightFloor(decls map[string]string) (h int, ok, fromMi
 	return abs, true, true
 }
 
-// collectFlexItems gathers n's direct element children that participate in
-// flex layout. Text nodes directly inside a flex container are not rendered;
-// wrap loose text in a <span> to include it (see CSS.md). Any child with
-// display:none is skipped, matching normal flow. Items are stable-sorted by
+// collectFlexItems gathers n's children that participate in flex layout: its
+// direct element children, plus one anonymous item per run of loose text
+// between them (see appendFlexItems). Any child with display:none is skipped,
+// matching normal flow. Items are stable-sorted by
 // the CSS order property, default 0, preserving document order among ties.
 // row-reverse and column-reverse, via reverseFlexItems, are applied on top of
 // this order-sorted sequence by the caller, matching CSS's own layering of
@@ -859,9 +942,39 @@ func (r *Engine) collectFlexItems(n *html.Node) []flexItem {
 // children stacked inside it as ordinary blocks. Their decls come from
 // r.resolveDecls, which walks real ancestors, so anything inherited through
 // the display:contents wrapper still reaches them.
+// A run of loose text between two element children becomes one anonymous flex
+// item, per Flexbox §4: "each contiguous sequence of child text runs is
+// wrapped in an anonymous block container flex item". Only an element child
+// breaks a run. A comment doesn't, since it generates no box and browsers
+// treat the text on either side of it as one run.
 func (r *Engine) appendFlexItems(items []flexItem, n *html.Node) []flexItem {
+	// Resolved once per container and only if a text run is actually found,
+	// since it's a full cascade resolve and the overwhelmingly common flex
+	// container has no loose text in it at all.
+	var parentDecls map[string]string
+	var run []*html.Node
+	flushRun := func() {
+		if len(run) == 0 {
+			return
+		}
+		if parentDecls == nil {
+			parentDecls = r.resolveDecls(n)
+		}
+		if it, ok := r.anonymousFlexItem(n, run, parentDecls); ok {
+			items = append(items, it)
+		}
+		run = nil
+	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		if c.Type != html.ElementNode || isSkippedContentElement(c.Data) {
+		if c.Type == html.TextNode {
+			run = append(run, c)
+			continue
+		}
+		if c.Type != html.ElementNode {
+			continue
+		}
+		flushRun()
+		if isSkippedContentElement(c.Data) {
 			continue
 		}
 		decls := r.resolveDecls(c)
@@ -882,7 +995,108 @@ func (r *Engine) appendFlexItems(items []flexItem, n *html.Node) []flexItem {
 		}
 		items = append(items, flexItem{node: c, decls: decls, grow: parseFlexGrow(decls), shrink: parseFlexShrink(decls), order: parseOrder(decls)})
 	}
+	flushRun()
 	return items
+}
+
+// anonymousFlexItem builds the anonymous flex item wrapping one run of loose
+// text nodes inside a flex container, reporting false for a run that isn't
+// rendered at all. parentDecls is the container's own resolved declarations,
+// which the item inherits from.
+//
+// A whitespace-only run is dropped, per §4's own exception: "if the entire
+// sequence of child text runs contains only white space it is instead not
+// rendered". That is what keeps the newlines and indentation in
+//
+//	<div style="display:flex">
+//	  <span>a</span>
+//	  <span>b</span>
+//	</div>
+//
+// from becoming three empty items with gaps between them, which is the reason
+// the exception exists in the spec. It doesn't apply in a white-space mode
+// that preserves spacing, where that whitespace is content the author asked
+// for.
+//
+// The run is carried on a synthetic element node rather than rendered
+// specially, so an anonymous item reaches every existing sizing path (flex
+// base size, min-content measurement, stretching) as an ordinary item. Three
+// properties of that node matter:
+//
+//   - Its computed style is seeded into the cascade's own per-node cache
+//     rather than resolved through it. An anonymous box is unselectable in
+//     CSS: it has no element for a selector to match, so its whole style is
+//     what it inherits, which cssengine.InheritedDecls supplies. Seeding is
+//     what makes that hold everywhere rather than only here, since a flex item
+//     is re-resolved from its node deeper in the render (inline.go reads
+//     white-space and text-transform off it). Left to the cascade, a `div > *`
+//     rule would style a box the author has no way to name. It has no tag
+//     name for the same reason, so nothing dispatches on it either.
+//   - Its children are *copies* of the run's text nodes, not the nodes
+//     themselves. Splicing the originals in would leave their NextSibling
+//     chain pointing at the container's later children, and rendering the item
+//     would walk straight out of the run and into its siblings.
+//   - It is memoized per run in Engine.anonFlexNodes, so every pass over the
+//     same container gets the same pointer. Measurement re-collects a
+//     container's items repeatedly, and a fresh node each time would defeat
+//     minContentCache and grow directCache without bound.
+func (r *Engine) anonymousFlexItem(container *html.Node, run []*html.Node, parentDecls map[string]string) (flexItem, bool) {
+	ws := parentDecls["white-space"]
+	preserving := ws == "pre" || ws == "pre-wrap" || ws == "break-spaces"
+	if !preserving {
+		blank := true
+		for _, t := range run {
+			if strings.TrimFunc(t.Data, unicode.IsSpace) != "" {
+				blank = false
+				break
+			}
+		}
+		if blank {
+			return flexItem{}, false
+		}
+	}
+	inherited := cssengine.InheritedDecls(parentDecls)
+	node, ok := r.anonFlexNodes[run[0]]
+	if !ok {
+		node = &html.Node{Type: html.ElementNode, Parent: container}
+		var prev *html.Node
+		for i, t := range run {
+			text := t.Data
+			if !preserving {
+				// The item is a block container, so its own leading and
+				// trailing whitespace collapses away at its edges, exactly as
+				// it would for text directly inside a <div>. Doing it here
+				// rather than leaving it to the wrapper keeps the item's flex
+				// base size measured from the text that will actually paint:
+				// " a " is one column wider than "a".
+				if i == 0 {
+					text = strings.TrimLeftFunc(text, unicode.IsSpace)
+				}
+				if i == len(run)-1 {
+					text = strings.TrimRightFunc(text, unicode.IsSpace)
+				}
+			}
+			c := &html.Node{Type: html.TextNode, Data: text, Parent: node}
+			if prev == nil {
+				node.FirstChild = c
+			} else {
+				prev.NextSibling = c
+				c.PrevSibling = prev
+			}
+			prev = c
+		}
+		node.LastChild = prev
+		if r.anonFlexNodes != nil {
+			r.anonFlexNodes[run[0]] = node
+		}
+		if r.directCache != nil {
+			r.directCache[node] = maps.Clone(inherited)
+		}
+	}
+	// No grow, shrink, order, or basis lookups: those are properties of the
+	// item's own box, and an anonymous box has no declarations of its own. The
+	// longhand defaults (grow 0, shrink 1, order 0) are what CSS gives it.
+	return flexItem{node: node, decls: inherited, shrink: 1}, true
 }
 
 // renderFlexItemBox renders one row-direction flex item's own box at the
@@ -1548,10 +1762,11 @@ func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int
 // whole lines on the cross (vertical) axis rather than to items on the main
 // (horizontal) axis. See there for the value handling.
 //
-// "stretch", align-content's real default, has no cell-grid equivalent for
-// growing each line's own items taller than their content, so it falls through
-// to flex-start's no-distribution behavior rather than half implementing
-// per-item vertical growth. See CSS.md.
+// "stretch", align-content's initial value, is not one of the values this
+// distributes: it grows the lines rather than packing them, and is resolved
+// before this is reached (see layoutFlexRow). It falls through to
+// flex-start's no-distribution behavior here, which is what places any
+// remainder stretch couldn't grow into.
 func distributeAlignContent(align string, leftover, n int) (leadRows int, gaps []int) {
 	return distributeJustify(align, leftover, n)
 }
@@ -1578,6 +1793,38 @@ func crossOffset(align string, height, itemHeight int) int {
 	case "flex-end":
 		return extra
 	default:
+		return 0
+	}
+}
+
+// crossAxisOffset resolves how far down its line a row-direction flex item
+// starts: its own margin-top plus whatever align-items or align-self asks for,
+// except where an auto cross-axis margin takes the decision over.
+//
+// An auto margin on the cross axis absorbs that axis's free space, and §8.1
+// gives it priority: "if a flex item has auto cross-axis margins, they absorb
+// the free space in the cross axis, and align-self is ignored". Two auto
+// margins split the space and center the item, which is the property's real
+// use. One auto margin takes all of it and pushes the item to the other end,
+// so margin-top: auto sits an item at the bottom of its line, the cross-axis
+// twin of margin-left: auto pushing an item to the end of the row.
+//
+// This is the same claim on the same space justify-content's own auto-margin
+// override handles on the main axis (see layoutFlexLine), and it is the same
+// safe alignment as everywhere else here: with no free space to absorb, an
+// auto margin resolves to zero rather than to a negative offset.
+func crossAxisOffset(m flexMargins, align string, height, outerHeight int) int {
+	if !m.topAuto && !m.bottomAuto {
+		return m.top + crossOffset(align, height, outerHeight)
+	}
+	free := max(0, height-outerHeight)
+	switch {
+	case m.topAuto && m.bottomAuto:
+		return free / 2
+	case m.topAuto:
+		return free
+	default:
+		// margin-bottom: auto alone, which pushes the item to cross-start.
 		return 0
 	}
 }
@@ -1670,8 +1917,25 @@ func (r *Engine) measuringIntrinsicWidth() bool {
 	return r.shrinkToFit || r.measuringNaturalWidth
 }
 
+// flexMargins is one row-direction flex item's margins as flex layout needs
+// them: its resolved cross-axis (vertical) lengths, plus which of its four
+// sides were declared auto.
+//
+// An auto margin is a claim on leftover space rather than a length, so it
+// contributes nothing to the item's own size on either axis and is resolved
+// only once that axis's free space is known: on the main axis in
+// layoutFlexLine, after flex-grow and flex-shrink, and on the cross axis in
+// crossAxisOffset, against the line's own height. That is why the two auto
+// flags have no length beside them and top/bottom read 0 when their own side
+// is auto.
+type flexMargins struct {
+	top, bottom         int
+	topAuto, bottomAuto bool
+	leftAuto, rightAuto bool
+}
+
 // layoutFlexLine lays out one flex line's worth of items, a subset of
-// items/widths/mt/mb/mlAuto/mrAuto named by group's indices into those slices.
+// items/widths/margins named by group's indices into those slices.
 // It resolves flex-grow and flex-shrink within just this line, then any
 // margin-left/margin-right:auto absorption, then justify-content and
 // align-items exactly as row-direction flex layout always has for a single
@@ -1685,7 +1949,7 @@ func (r *Engine) measuringIntrinsicWidth() bool {
 // against the container's declared height rather than against the content.
 // 0 means "whatever the items come to", the multi-line case, where each line
 // sizes to its own content and align-content places the lines instead.
-func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, mlAuto, mrAuto []bool, group []int, innerW, gap, minHeight int, justify string, decls map[string]string) (box, int, map[*html.Node]Rect) {
+func (r *Engine) layoutFlexLine(items []flexItem, bases, widths []int, margins []flexMargins, group []int, innerW, gap, minHeight int, justify string, decls map[string]string) (box, int, map[*html.Node]Rect) {
 	totalGap := gap * (len(group) - 1)
 	availForItems := max(0, innerW-totalGap)
 
@@ -1755,10 +2019,10 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 	marginsOverrideJustify := false
 	if autoCount := 0; leftover > 0 {
 		for _, i := range group {
-			if mlAuto[i] {
+			if margins[i].leftAuto {
 				autoCount++
 			}
-			if mrAuto[i] {
+			if margins[i].rightAuto {
 				autoCount++
 			}
 		}
@@ -1767,14 +2031,14 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 			rem := leftover % autoCount
 			slot := 0
 			for gi, i := range group {
-				if mlAuto[i] {
+				if margins[i].leftAuto {
 					extraLeft[gi] = share
 					if slot < rem {
 						extraLeft[gi]++
 					}
 					slot++
 				}
-				if mrAuto[i] {
+				if margins[i].rightAuto {
 					extraRight[gi] = share
 					if slot < rem {
 						extraRight[gi]++
@@ -1817,7 +2081,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 		// line's own shared height are resolved against that outer height
 		// rather than the bare content height, matching real CSS, where
 		// alignment distributes free space around an item's margin box.
-		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
+		outerHeights[i] = margins[i].top + len(b.lines) + margins[i].bottom
 		height = max(height, outerHeights[i])
 	}
 
@@ -1834,13 +2098,20 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 	quoteAfter := r.quoteDepth
 	for _, i := range group {
 		it := items[i]
+		if margins[i].topAuto || margins[i].bottomAuto {
+			// An auto cross-axis margin opts the item out of stretching too
+			// (§9.6): the free space it would have stretched into is the free
+			// space the margin is claiming, and the two can't both have it.
+			// crossAxisOffset places the unstretched item within the line.
+			continue
+		}
 		if a := itemAlign(it, align); a != "" && a != "stretch" {
 			continue
 		}
 		if abs, _, ok := parseSizeVal(it.decls["height"]); ok && abs > 0 {
 			continue
 		}
-		want := height - mt[i] - mb[i]
+		want := height - margins[i].top - margins[i].bottom
 		// Stretching makes the item's cross size "as close to the line's as
 		// possible, while still respecting the constraints imposed by
 		// min-height/max-height" (§8.3), so an item's own max-height caps how
@@ -1862,7 +2133,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 		b, pos := r.renderFlexItemBoxSized(it, w, w, want)
 		b = alignLinesBox(b, it.decls["text-align"], w)
 		itemBoxes[i], itemPositions[i] = b, pos
-		outerHeights[i] = mt[i] + len(b.lines) + mb[i]
+		outerHeights[i] = margins[i].top + len(b.lines) + margins[i].bottom
 	}
 	r.quoteDepth = quoteAfter
 
@@ -1890,7 +2161,7 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths, mt, mb []int, m
 			}
 			colStart += extraLeft[gi]
 		}
-		offset := mt[i] + crossOffset(itemAlign(it, align), height, outerHeights[i])
+		offset := crossAxisOffset(margins[i], itemAlign(it, align), height, outerHeights[i])
 		padded := padBoxVertical(itemBoxes[i], height, offset)
 		for li := range rowLines {
 			rowLines[li] += padded.lines[li]
@@ -1950,12 +2221,25 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	if len(items) == 0 {
 		return emptyFlexBox(decls), nil
 	}
-	gap := parseGapLen(decls["column-gap"])
-	rowGap := parseGapLen(decls["row-gap"])
-	wrap := parseFlexWrap(decls)
+	gap := parseGapLen(decls["column-gap"], innerW)
+	// A percentage row-gap needs a definite container height, which only an
+	// explicit height is: a min-height leaves the real height dependent on the
+	// content, which is what these lines are still being laid out to
+	// determine. Same rule percentage flex-basis follows in column direction.
+	rowGapBasis, _ := resolveFlexContainerHeight(decls)
+	rowGap := parseGapLen(decls["row-gap"], rowGapBasis)
+	wrap, crossReverse := parseFlexWrap(decls)
 	justify := decls["justify-content"]
 	if reverse {
 		justify = reverseJustify(justify)
+	}
+	// flex-wrap: wrap-reverse. Everything below lays out top-down, so the axis
+	// is flipped once here, by mirroring the cross-axis alignment values, and
+	// once more at the end, by stacking the finished lines in reverse. Nothing
+	// in between has to know. justify-content is untouched: wrap-reverse turns
+	// the cross axis around, not the main one.
+	if crossReverse {
+		decls, items = reverseCrossAxisDecls(decls, items)
 	}
 
 	// Fixed, non-auto margin-left/margin-right on a flex item needs no
@@ -1983,12 +2267,10 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	// leaving renderBlockContentBox's own unrelated auto-margin-splitting
 	// path nothing to distribute, since remaining is always 0. So it's safe to
 	// leave decls untouched here and let layoutFlexLine own the real
-	// distribution. margin-top/margin-bottom:auto is not supported and falls
-	// back to parseMargin's 0. See CSS.md's Flexbox "Not supported" list.
-	mt := make([]int, len(items))
-	mb := make([]int, len(items))
-	mlAuto := make([]bool, len(items))
-	mrAuto := make([]bool, len(items))
+	// distribution. margin-top/margin-bottom:auto is the cross-axis version of
+	// the same idea and is resolved in crossAxisOffset, against the line's own
+	// height rather than the row's leftover width.
+	margins := make([]flexMargins, len(items))
 	// bases[i] is the item's flex base size and widths[i] its hypothetical main
 	// size, the two sizes §9.7 keeps apart. Line breaking below uses the
 	// hypothetical, as the spec has it, while layoutFlexLine distributes from
@@ -1996,10 +2278,14 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	bases := make([]int, len(items))
 	widths := make([]int, len(items))
 	for i, it := range items {
-		mt[i] = parseMargin(it.decls["margin-top"])
-		mb[i] = parseMargin(it.decls["margin-bottom"])
-		mlAuto[i] = strings.TrimSpace(it.decls["margin-left"]) == "auto"
-		mrAuto[i] = strings.TrimSpace(it.decls["margin-right"]) == "auto"
+		margins[i] = flexMargins{
+			top:        parseMargin(it.decls["margin-top"]),
+			bottom:     parseMargin(it.decls["margin-bottom"]),
+			topAuto:    strings.TrimSpace(it.decls["margin-top"]) == "auto",
+			bottomAuto: strings.TrimSpace(it.decls["margin-bottom"]) == "auto",
+			leftAuto:   strings.TrimSpace(it.decls["margin-left"]) == "auto",
+			rightAuto:  strings.TrimSpace(it.decls["margin-right"]) == "auto",
+		}
 		bases[i], widths[i] = r.resolveMainBasis(it, innerW)
 	}
 
@@ -2029,22 +2315,71 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 		h   int
 		pos map[*html.Node]Rect
 	}
-	results := make([]lineResult, len(lineGroups))
-	for li, group := range lineGroups {
-		b, h, pos := r.layoutFlexLine(items, bases, widths, mt, mb, mlAuto, mrAuto, group, innerW, gap, lineMinHeight, justify, decls)
-		results[li] = lineResult{b, h, pos}
+	widthsBefore := slices.Clone(widths)
+	quoteBefore := r.quoteDepth
+	layout := func(lineMinHeights []int) ([]lineResult, int) {
+		out := make([]lineResult, len(lineGroups))
+		total := 0
+		for li, group := range lineGroups {
+			minH := lineMinHeight
+			if lineMinHeights != nil {
+				minH = lineMinHeights[li]
+			}
+			b, h, pos := r.layoutFlexLine(items, bases, widths, margins, group, innerW, gap, minH, justify, decls)
+			out[li] = lineResult{b, h, pos}
+			total += h
+			if li > 0 {
+				total += rowGap
+			}
+		}
+		return out, total
+	}
+	results, contentHeight := layout(nil)
+
+	// align-content: stretch, its initial value, shares the container's
+	// leftover cross space equally across its lines by *growing* them, rather
+	// than packing them somewhere inside it (§8.4). A line's cross size isn't
+	// known until it's laid out, so this is a replay: the lines are laid out
+	// once to measure, then again at the taller size. Growing a line grows the
+	// items on it, which is the whole point and is already what layoutFlexLine
+	// does with a forced cross size, so the second pass is the same call with
+	// a different minHeight rather than any padding applied from outside.
+	//
+	// Two pieces of state have to be rewound first. layoutFlexLine resolves
+	// flex-grow and flex-shrink into widths in place, so a replay against the
+	// already-distributed widths would see no free space left to distribute.
+	// And content: open-quote advances r.quoteDepth as it renders, so a replay
+	// from where the first pass left off would continue the nesting instead of
+	// repeating it. Both are restored, not merely saved.
+	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && wrap && h > contentHeight && alignContentStretches(decls["align-content"]) {
+		shares := splitEvenly(h-contentHeight, len(results))
+		lineMinHeights := make([]int, len(results))
+		for li, res := range results {
+			lineMinHeights[li] = res.h + shares[li]
+		}
+		copy(widths, widthsBefore)
+		r.quoteDepth = quoteBefore
+		results, contentHeight = layout(lineMinHeights)
 	}
 
-	contentHeight := 0
-	for i, res := range results {
-		contentHeight += res.h
-		if i > 0 {
-			contentHeight += rowGap
-		}
+	if crossReverse {
+		// The lines themselves are unchanged: wrap-reverse moves the
+		// cross-start edge to the bottom of the container, so the first line
+		// is the one that ends up lowest. Reversing here rather than at line
+		// breaking is what keeps the items on each line the ones a browser
+		// puts there, and each line's own item order untouched.
+		slices.Reverse(results)
 	}
+
 	leadRows := 0
 	wantHeight := 0
 	extraGapsBetweenLines := make([]int, len(results)-1)
+	// Anything left over after the stretch pass above, or all of it for the
+	// packing values, which grow nothing. Stretch normally leaves nothing here:
+	// it consumed the leftover by growing the lines themselves. It can still
+	// come up short when a line refuses to grow, which a line whose items all
+	// declare their own height does, and the trailing-blank flush at the end
+	// covers that the same way it covers flex-start's.
 	if h, ok, _ := resolveFlexContainerHeightFloor(decls); ok && h > contentHeight {
 		wantHeight = h
 		leadRows, extraGapsBetweenLines = distributeAlignContent(decls["align-content"], wantHeight-contentHeight, len(results))
@@ -2109,7 +2444,12 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	if len(items) == 0 {
 		return emptyFlexBox(decls), nil
 	}
-	rowGap := parseGapLen(decls["row-gap"])
+	// row-gap is the main axis here, and a percentage of it resolves against
+	// the container's own explicit height for the same reason a percentage
+	// flex-basis does: that height is the only definite main size a column
+	// container has (see pctBasis below).
+	rowGapBasis, _ := resolveFlexContainerHeight(decls)
+	rowGap := parseGapLen(decls["row-gap"], rowGapBasis)
 	align := decls["align-items"]
 	// heightIsMinOnly marks a main size that came from min-height rather than
 	// from an explicit height. It can raise the container, which flex-grow
@@ -2721,7 +3061,10 @@ func (r *Engine) inlineFlexNaturalWidth(n *html.Node, decls map[string]string, a
 		}
 		return widest
 	}
-	total := parseGapLen(decls["column-gap"]) * (len(items) - 1)
+	// A basis of 0: a shrink-to-fit container's own width is what this is
+	// measuring, so it isn't definite yet, and a percentage gap contributes
+	// nothing to an intrinsic size contribution (CSS Box Alignment §8.3).
+	total := parseGapLen(decls["column-gap"], 0) * (len(items) - 1)
 	for _, it := range items {
 		// The hypothetical main size, not the flex base size. Shrink-to-fit is
 		// a content-based measurement, and an item's used minimum, its

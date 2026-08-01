@@ -224,6 +224,28 @@ func (c Cascade) Resolve(n *html.Node) map[string]string {
 	return result
 }
 
+// InheritedDecls returns the subset of an already-resolved declaration map
+// that a child would inherit from it: the inheritable properties plus every
+// custom property. It is the same filter Resolve's own fill-in pass applies,
+// exposed for a caller that has no element to resolve.
+//
+// The caller with no element is an *anonymous box*: a box CSS generates around
+// content that has no element of its own, such as the anonymous flex item
+// wrapping a run of loose text inside a flex container. Such a box has no
+// declarations of its own and cannot be selected, so its entire computed style
+// is what it inherits from its parent, which is exactly this map. Resolving a
+// synthetic element through the cascade instead would let a `div > *` rule
+// style a box the author has no way to name.
+func InheritedDecls(parent map[string]string) map[string]string {
+	out := make(map[string]string, len(parent))
+	for prop, v := range parent {
+		if inheritableProps[prop] || isCustomProp(prop) {
+			out[prop] = v
+		}
+	}
+	return out
+}
+
 // ruleMatch pairs one matching rule's specificity with its declarations, for
 // sorting into cascade order before merging. Shared by Direct and
 // PseudoElement.

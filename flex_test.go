@@ -27,8 +27,47 @@ func TestFlexRow(t *testing.T) {
 		{name: "column-gap inserts space between items", width: 10, html: `<div style="display:flex;width:100%;gap:2"><div>a</div><div>b</div></div>`, want: "a  b      \n"},
 		{name: "align-items center centers shorter items on the cross axis", width: 10, html: `<div style="display:flex;width:100%;align-items:center"><div>a<br>b<br>c</div><div>x</div></div>`, want: "a         \nbx        \nc         \n"},
 		{name: "align-items flex-end aligns items to the row's bottom", width: 10, html: `<div style="display:flex;width:100%;align-items:flex-end"><div>a<br>b</div><div>x</div></div>`, want: "a         \nbx        \n"},
-		{name: "text-only children between flex items are not laid out as items", width: 10, html: `<div style="display:flex;width:100%">loose text<div>a</div></div>`, want: "a         \n"},
+		{name: "loose text before an item becomes an anonymous item of its own", width: 20, html: `<div style="display:flex;width:100%">loose text<div>a</div></div>`, want: "loose texta         \n"},
 		{name: "display:none child is excluded from layout", width: 10, html: `<div style="display:flex;width:100%"><div style="display:none">a</div><div>b</div></div>`, want: "b         \n"},
+	})
+}
+
+// TestFlexAnonymousItems covers loose text inside a flex container. Flexbox §4
+// wraps each contiguous run of it in an anonymous block container flex item,
+// and drops a run that is entirely whitespace. Such an item has no element of
+// its own, so it inherits the container's style and is unreachable by any
+// selector.
+func TestFlexAnonymousItems(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "text between two items is its own item", width: 20, html: `<div style="display:flex;width:100%"><div>a</div>mid<div>b</div></div>`, want: "amidb               \n"},
+		{name: "an element child breaks a run in two", width: 20, html: `<div style="display:flex;width:100%">one<span>|</span>two</div>`, want: "one|two             \n"},
+		{name: "a comment does not break a run", width: 20, html: `<div style="display:flex;width:100%">one<!--x-->two</div>`, want: "onetwo              \n"},
+		// The whitespace-only exception is the reason indented markup doesn't
+		// grow phantom items: the newline and indentation on either side of the
+		// <span> would otherwise be two more items, each contributing a column.
+		{name: "whitespace between items is not an item", width: 20, html: "<div style=\"display:flex;width:100%\">\n  <span>a</span>\n  <span>b</span>\n</div>", want: "ab                  \n"},
+		{name: "a run's own leading and trailing whitespace collapses away", width: 20, html: `<div style="display:flex;width:100%"><div>[</div>  mid  <div>]</div></div>`, want: "[mid]               \n"},
+		{name: "whitespace-only text is kept when white-space preserves it", width: 20, html: `<div style="display:flex;width:100%;white-space:pre"><div>a</div>   <div>b</div></div>`, want: "a   b               \n"},
+		{name: "an anonymous item takes part in justify-content", width: 20, html: `<div style="display:flex;width:100%;justify-content:space-between">a<div>b</div></div>`, want: "a                  b\n"},
+		{name: "an anonymous item is aligned on the cross axis like any other", width: 20, html: `<div style="display:flex;width:100%;align-items:flex-end">x<div>a<br>b</div></div>`, want: " a                  \nxb                  \n"},
+		{name: "an anonymous item inherits the container's inheritable style", width: 20, html: `<div style="display:flex;width:100%;text-transform:uppercase">loose<div>a</div></div>`, want: "LOOSEA              \n"},
+		// An anonymous box is unselectable in CSS: it has no element for a
+		// selector to match, so a rule targeting the container's children can't
+		// reach it. Only inheritance can.
+		{name: "an anonymous item is not reachable by a selector", width: 20, css: `div > *{text-transform:uppercase}`, html: `<div style="display:flex;width:100%">loose<div>a</div></div>`, want: "looseA              \n"},
+		// flex-grow's default of 0 is visible through justify-content: an item
+		// that grew would leave nothing for justify-content to distribute.
+		{name: "an anonymous item's own flex factors are the CSS defaults", width: 20, html: `<div style="display:flex;width:100%;justify-content:flex-end">loose<div>a</div></div>`, want: "              loosea\n"},
+		// flex-shrink defaults to 1 on an anonymous item too, so it takes its
+		// share of an overflow. Its automatic minimum size still floors it at
+		// its longest word.
+		{name: "an anonymous item shrinks and wraps like any other", width: 10, html: `<div style="display:flex;width:100%">loose text<div>a</div></div>`, want: "loose    a\ntext      \n"},
+		{name: "gap applies on both sides of an anonymous item", width: 12, html: `<div style="display:flex;width:100%;gap:1">a<div>b</div>c</div>`, want: "a b c       \n"},
+		{name: "column direction stacks anonymous items with the rest", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%">one<div>b</div>three</div>`, want: "one         \nb           \nthree       \n"},
+		// A display:contents child generates no box, so its own loose text is
+		// hoisted into the container as an anonymous item there, exactly as its
+		// element children are.
+		{name: "loose text inside a display:contents child is hoisted", width: 12, html: `<div style="display:flex;width:100%"><span style="display:contents">a<b>b</b></span></div>`, want: "ab          \n"},
 	})
 }
 
@@ -244,6 +283,34 @@ func TestFlexMarginAuto(t *testing.T) {
 		{name: "margin:auto on both sides centers a single item", width: 10, html: `<div style="display:flex;width:100%"><div style="margin-left:auto;margin-right:auto">a</div></div>`, want: "     a    \n"},
 		{name: "margin:auto overrides justify-content entirely for the line", width: 10, html: `<div style="display:flex;width:100%;justify-content:center"><div style="margin-right:auto">a</div><div>b</div></div>`, want: "a        b\n"},
 		{name: "flex-grow already consuming all leftover space leaves nothing for margin:auto", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-grow:1">a</div><div style="margin-left:auto">b</div></div>`, want: "a                  b\n"},
+		// The cross axis. An auto margin-top/margin-bottom absorbs the free
+		// space between the item and its line's own height, and takes
+		// precedence over align-items/align-self (§8.1).
+		{name: "margin-top and margin-bottom auto center an item on its line", width: 12, html: `<div style="display:flex;width:100%"><div>a<br>a<br>a</div><div style="margin-top:auto;margin-bottom:auto">b</div></div>`, want: "a           \nab          \na           \n"},
+		{name: "margin-top:auto alone drops an item to the bottom of its line", width: 12, html: `<div style="display:flex;width:100%"><div>a<br>a<br>a</div><div style="margin-top:auto">b</div></div>`, want: "a           \na           \nab          \n"},
+		{name: "margin-bottom:auto alone holds an item at the top", width: 12, html: `<div style="display:flex;width:100%"><div>a<br>a<br>a</div><div style="margin-bottom:auto">b</div></div>`, want: "ab          \na           \na           \n"},
+		{name: "a cross-axis auto margin overrides align-items", width: 12, html: `<div style="display:flex;width:100%;align-items:flex-start"><div>a<br>a<br>a</div><div style="margin-top:auto">b</div></div>`, want: "a           \na           \nab          \n"},
+		// An auto cross margin also opts the item out of stretching, the free
+		// space being claimed by the margin instead. Without that, the bordered
+		// item would grow to all five rows and there would be nothing to center
+		// it within.
+		{name: "an auto cross margin opts the item out of align-items:stretch", width: 12, html: `<div style="display:flex;width:100%;height:5"><div>a</div><div style="margin-top:auto;margin-bottom:auto;border-style:solid">b</div></div>`, want: "a           \n ┌─┐        \n │b│        \n └─┘        \n            \n"},
+		{name: "an auto cross margin with no free space to absorb resolves to zero", width: 12, html: `<div style="display:flex;width:100%"><div>a<br>a<br>a</div><div style="margin-top:auto;margin-bottom:auto;border-style:solid">b</div></div>`, want: "a┌─┐        \na│b│        \na└─┘        \n"},
+	})
+}
+
+// TestFlexPercentageGap covers percentage row-gap/column-gap. CSS Box Alignment
+// §8.3 resolves each against the container's own content size in that gap's own
+// axis, and against zero when that size is indefinite.
+func TestFlexPercentageGap(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a percentage column-gap resolves against the container's content width", width: 12, html: `<div style="display:flex;width:100%;column-gap:25%"><div>a</div><div>b</div></div>`, want: "a   b       \n"},
+		{name: "a fractional column of gap truncates, like every other percentage here", width: 12, html: `<div style="display:flex;width:100%;gap:10%"><div>a</div><div>b</div></div>`, want: "a b         \n"},
+		{name: "a percentage row-gap resolves against the container's explicit height", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;height:8;row-gap:25%"><div>a</div><div>b</div></div>`, want: "a           \n            \n            \nb           \n            \n            \n            \n            \n"},
+		// No declared height means no definite size in that axis, so the
+		// percentage resolves to zero rather than to the content's own height.
+		{name: "a percentage row-gap against an indefinite height is zero", width: 12, html: `<div style="display:flex;flex-direction:column;width:100%;row-gap:25%"><div>a</div><div>b</div></div>`, want: "a           \nb           \n"},
+		{name: "a percentage row-gap applies between wrapped lines too", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:8;row-gap:25%;align-content:flex-start"><div style="flex-basis:8">a</div><div style="flex-basis:8">b</div></div>`, want: "a           \n            \n            \nb           \n            \n            \n            \n            \n"},
 	})
 }
 
@@ -533,11 +600,16 @@ func TestFlexNaturalBasisIsContentWidth(t *testing.T) {
 func TestFlexWrap(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "flex-wrap:wrap moves overflowing items to a second line", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
-		// wrap-reverse's reversed cross-axis line order isn't implemented, but
-		// it still wraps: falling back to nowrap made a container that should
-		// have wrapped overflow its width on one line instead.
-		{name: "flex-wrap:wrap-reverse wraps, without reversing the line order", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
-		{name: "flex-flow's wrap-reverse component wraps too", width: 10, html: `<div style="display:flex;flex-flow:row wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a   b     \nc         \n"},
+		// wrap-reverse breaks the same lines as wrap, since line breaking runs
+		// along the main axis, and stacks them the other way.
+		{name: "flex-wrap:wrap-reverse stacks the lines bottom to top", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "c         \na   b     \n"},
+		{name: "flex-flow's wrap-reverse component reverses too", width: 10, html: `<div style="display:flex;flex-flow:row wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "c         \na   b     \n"},
+		{name: "wrap-reverse leaves each line's own item order alone", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div><div style="flex-basis:4">d</div></div>`, want: "c   d     \na   b     \n"},
+		// The two reverses are independent: row-reverse packs each line against
+		// the right edge and runs its items right to left, wrap-reverse puts
+		// the first line at the bottom. Each item's own text stays left-aligned
+		// inside its own four-column box.
+		{name: "row-reverse and wrap-reverse flip both axes independently", width: 10, html: `<div style="display:flex;flex-flow:row-reverse wrap-reverse;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "      c   \n  b   a   \n"},
 		{name: "gap sets both column-gap and row-gap, including between wrapped lines", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;gap:1"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a    b    \n          \nc         \n"},
 		{name: "nowrap (default) keeps items on one line, shrinking to fit rather than wrapping", width: 10, html: `<div style="display:flex;width:100%"><div style="flex-basis:4">a</div><div style="flex-basis:4">b</div><div style="flex-basis:4">c</div></div>`, want: "a  b  c   \n"},
 		{name: "the flex-flow shorthand sets flex-direction and flex-wrap together", width: 10, html: `<div style="display:flex;flex-flow:row wrap;width:100%"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \nb         \n"},
@@ -553,6 +625,66 @@ func TestFlexAlignContent(t *testing.T) {
 		{name: "align-content:space-evenly spreads wrapped lines with equal gaps, edges included", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:6;align-content:space-evenly"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "          \n          \na         \n          \nb         \n          \n"},
 		{name: "align-content has no effect on a nowrap container, which still fills its height", width: 10, html: `<div style="display:flex;width:100%;height:5;align-content:center"><div>a</div></div>`, want: "a         \n          \n          \n          \n          \n"},
 		{name: "align-content applies to a wrapping container even at a single line", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:4;align-content:flex-end"><div>a</div></div>`, want: "          \n          \n          \na         \n"},
+	})
+}
+
+// TestFlexAlignContentStretch covers align-content's initial value. Unlike
+// every other value, stretch doesn't pack the lines somewhere inside the
+// container's leftover cross space: it hands that space to the lines
+// themselves, equally, growing each one (§8.4).
+func TestFlexAlignContentStretch(t *testing.T) {
+	runCases(t, []renderCase{
+		// Four leftover rows over two one-row lines: each line becomes three
+		// rows tall, so the second line starts halfway down rather than
+		// directly under the first.
+		{name: "the unset default grows each line by an equal share", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:6"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \n          \n          \nb         \n          \n          \n"},
+		{name: "align-content:stretch is the same as leaving it unset", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:6;align-content:stretch"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \n          \n          \nb         \n          \n          \n"},
+		{name: "align-content:normal behaves as the unset default", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:6;align-content:normal"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \n          \n          \nb         \n          \n          \n"},
+		// The line grows, and under align-items: stretch (also the default) so
+		// does the item on it, which is what makes a bordered item's own bottom
+		// rule move down rather than a blank row appearing below a closed box.
+		{name: "a stretched line stretches its items' own boxes", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:8"><div style="flex-basis:8;border-style:solid">a</div><div style="flex-basis:8;border-style:solid">b</div></div>`, want: "┌──────┐    \n│a     │    \n│      │    \n└──────┘    \n┌──────┐    \n│b     │    \n│      │    \n└──────┘    \n"},
+		// align-items is what places an item inside its line, and it opts out
+		// of growing with it. The line is still four rows tall; the item just
+		// sits at the top of them.
+		{name: "align-items:flex-start keeps the item its own size within the grown line", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:8;align-items:flex-start"><div style="flex-basis:8;border-style:solid">a</div><div style="flex-basis:8;border-style:solid">b</div></div>`, want: "┌──────┐    \n│a     │    \n└──────┘    \n            \n┌──────┐    \n│b     │    \n└──────┘    \n            \n"},
+		{name: "row-gap comes out of the space before it is shared", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:9;gap:1"><div style="flex-basis:8;border-style:solid">a</div><div style="flex-basis:8;border-style:solid">b</div></div>`, want: "┌──────┐    \n│a     │    \n│      │    \n└──────┘    \n            \n┌──────┐    \n│b     │    \n│      │    \n└──────┘    \n"},
+		// Negative leftover space makes stretch identical to flex-start (§8.4),
+		// which here means the container simply overflows its height.
+		{name: "a container shorter than its lines stretches nothing", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:2"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \nb         \n"},
+		// align-content applies to multi-line containers only, so a nowrap
+		// container's single line takes the container's whole cross size
+		// through align-items instead, as it always has.
+		{name: "a nowrap container is unaffected", width: 10, html: `<div style="display:flex;width:100%;height:6"><div>a</div></div>`, want: "a         \n          \n          \n          \n          \n          \n"},
+		{name: "a wrapping container at a single line grows that one line", width: 12, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:4"><div style="border-style:solid">a</div></div>`, want: "┌─┐         \n│a│         \n│ │         \n└─┘         \n"},
+		// An odd remainder can't be split across lines on a character grid, so
+		// it goes to the earliest lines, one row apiece.
+		{name: "an odd leftover row goes to the first line", width: 10, html: `<div style="display:flex;flex-wrap:wrap;width:100%;height:5"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "a         \n          \n          \nb         \n          \n"},
+	})
+}
+
+// TestFlexWrapReverseCrossAxis covers what wrap-reverse changes beyond the line
+// order: it swaps the cross-start and cross-end edges (§5.2), so every
+// cross-axis alignment keyword means the opposite edge from what it means under
+// plain wrap. The main axis, and so justify-content, is untouched.
+func TestFlexWrapReverseCrossAxis(t *testing.T) {
+	runCases(t, []renderCase{
+		// Cross-start is the bottom, so align-content: flex-start packs the
+		// lines there.
+		{name: "align-content:flex-start packs wrapped lines against the bottom", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;height:5;align-content:flex-start"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "          \n          \n          \nb         \na         \n"},
+		{name: "align-content:flex-end packs them against the top instead", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;height:5;align-content:flex-end"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "b         \na         \n          \n          \n          \n"},
+		// center and the space-* values are symmetric about the container's
+		// middle, so only the line order distinguishes them from plain wrap.
+		{name: "align-content:center is unchanged apart from the line order", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;height:6;align-content:center"><div style="flex-basis:6">a</div><div style="flex-basis:6">b</div></div>`, want: "          \n          \nb         \na         \n          \n          \n"},
+		// Within a line, cross-start is the line's own bottom row.
+		{name: "align-items:flex-start aligns items to the bottom of their line", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;align-items:flex-start"><div>a<br>a</div><div>b</div></div>`, want: "a         \nab        \n"},
+		// stretch, the unset default, fills the line whichever way the cross
+		// axis points, so it is unaffected.
+		{name: "the default stretch is unaffected", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%"><div>a<br>a</div><div>b</div></div>`, want: "ab        \na         \n"},
+		{name: "align-items:flex-end aligns them to the top", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;align-items:flex-end"><div>a<br>a</div><div>b</div></div>`, want: "ab        \na         \n"},
+		{name: "align-self is mirrored the same way as align-items", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;align-items:flex-end"><div>a<br>a</div><div style="align-self:flex-start">b</div></div>`, want: "a         \nab        \n"},
+		{name: "align-items:center is its own mirror image", width: 11, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;align-items:center"><div>a<br>a<br>a</div><div>b</div></div>`, want: "a          \nab         \na          \n"},
+		{name: "justify-content is untouched by wrap-reverse", width: 10, html: `<div style="display:flex;flex-wrap:wrap-reverse;width:100%;justify-content:flex-end"><div>ab</div></div>`, want: "        ab\n"},
 	})
 }
 

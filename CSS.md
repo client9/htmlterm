@@ -931,9 +931,24 @@ which a border alone is enough to make it, breaks the line of text it sits in,
 since this engine places an atomic inline box as a unit rather than on a
 baseline. See `COMPATIBILITY.md`.
 
-Text nodes directly inside a flex container are not rendered as flex items
-(wrap loose text in a `<span>` to include it); a child with `display: none`
-is skipped, same as normal flow. A child with `display: contents` generates
+Each contiguous run of loose text directly inside a flex container becomes an
+**anonymous flex item** (Flexbox §4), so `<div style="display: flex">Total:
+<b>5</b></div>` lays out as two items. Only an element child breaks a run in
+two; a comment doesn't. A run that is entirely whitespace is not rendered at
+all, which is the spec's own exception and what keeps the newlines and
+indentation in ordinary formatted markup from becoming items of their own. In
+a `white-space` mode that preserves spacing (`pre`, `pre-wrap`) that
+whitespace is content, so it does become an item.
+
+An anonymous item has no element of its own. Its whole style is what it
+inherits from the container, so no selector can reach it — a `.row > *` rule
+styles the container's *element* children only — and its own flex properties
+are the CSS defaults (`flex-grow: 0`, `flex-shrink: 1`, `flex-basis: auto`,
+`order: 0`). It otherwise takes part in layout like any other item: it wraps
+and shrinks, `justify-content` and `align-items` position it, and `gap`
+applies on both sides of it. See the [`gap` entry](#gap-row-gap-column-gap).
+
+A child with `display: none` is skipped, same as normal flow. A child with `display: contents` generates
 no box of its own, so *its* children become flex items of the container
 instead (recursively, for nested `display: contents` wrappers) — they take
 part in the container's own `order` sequence, and anything they inherit
@@ -986,11 +1001,19 @@ within once wrapping is in play, not the whole container). Items are collected
 into lines in `order`-modified **document** order whichever way the main axis
 points, so `row-reverse` changes where along each line its items land but not
 *which* line they land on — again matching real CSS, which breaks lines before
-it places anything. `wrap-reverse`
-wraps exactly like `wrap`: its one distinguishing feature — stacking the lines
-bottom to top, so the first line is the last row — is not implemented, and it
-is otherwise treated as `wrap` rather than as `nowrap`, since the alternative
-was overflowing the container's width on a single line. Not inherited.
+it places anything.
+
+`wrap-reverse` breaks the same lines as `wrap` and turns the **cross axis**
+around (Flexbox §5.2), which moves the cross-start edge from the top of the
+container to its bottom. Two things follow. The lines stack bottom to top, so
+the first line is the last row. And every cross-axis alignment keyword now
+names the opposite edge: `align-items`/`align-self`
+`flex-start` puts an item at the *bottom* of its line and `flex-end` at the
+top, while `align-content: flex-start` packs the lines against the container's
+bottom and `flex-end` against its top. `center`, `stretch`, and the `space-*`
+values are symmetric about the middle, so they are their own mirror image.
+`justify-content` is a main-axis property and is unaffected. Each line's own
+item order is unaffected too, that being the main axis as well. Not inherited.
 
 ```css
 /* items reflow onto additional lines once the row is full */
@@ -1113,10 +1136,21 @@ line — but that leftover space only exists when the flex container has an
 **declared [`height` or `min-height`](#container-height-min-height-and-max-height)**
 taller than its wrapped lines' natural stack; without one, there's no free
 space to distribute and this property has nothing to do. A wrapping container is padded with trailing blank rows to reach exactly
-its declared height regardless of which value is set. `stretch` is
-approximated as `flex-start` (no distribution): growing each line's own items
-taller than their content to fill leftover space isn't implemented. Not
-inherited.
+its declared height regardless of which value is set.
+
+`stretch`, the default, is the one value that doesn't pack the lines
+somewhere within that leftover space: it gives the space *to* the lines, split
+equally, growing each one's cross size (§8.4). A grown line grows the items on
+it, the same way an explicit container `height` grows a single-line container's
+one line, so a bordered item's own bottom rule moves down rather than a blank
+row appearing below a closed box. An item that opts out of stretching, by
+`align-items`/`align-self` other than `stretch` or by declaring its own
+`height`, keeps its size and is positioned within the taller line instead. A
+row that can't be split evenly goes to the earliest line rather than being
+fractionally shared, there being no fractional row. With negative leftover
+space `stretch` is identical to `flex-start`, per the spec. An unrecognized
+value behaves as `stretch` too, since real CSS drops an invalid declaration
+and leaves the property at its initial value. Not inherited.
 
 ```css
 /* push wrapped lines to the bottom of a taller-than-content flex container */
@@ -1187,8 +1221,16 @@ container, and between the lines of a **wrapping** `row` container
 (`flex-wrap: wrap`) — that's the one case where both gap properties are live
 at once. `column-gap` has no effect in `column` direction, and `row-gap` none
 in a single-line (`nowrap`) row: there's only one row/column of items to space
-apart. Absolute rune counts only (e.g. `gap: 2`); percentage gaps are not
-supported. Not inherited.
+apart.
+
+A gap is an absolute rune count (`gap: 2`) or a percentage. A percentage
+resolves against the container's own content size **in that gap's own axis**
+(CSS Box Alignment §8.3): `column-gap: 25%` is a quarter of the container's
+content width, `row-gap: 25%` a quarter of its declared `height`. A
+percentage against an indefinite size is `0`, matching real CSS, so a
+percentage `row-gap` does nothing on a container with no declared height —
+that height is what the content is still being laid out to determine. Fractions
+of a cell truncate, as every percentage here does. Not inherited.
 
 #### `flex-grow`
 `<number>` (default `0`). In `row` direction, distributes leftover main-axis
@@ -1524,14 +1566,27 @@ margin encountered in document order. Present on any item, it **overrides
 `justify-content` for the whole line** (matching real CSS: the two
 mechanisms both claim the same leftover space, and auto margins take
 precedence), though it has nothing left to absorb once `flex-grow` has
-already consumed all the leftover space itself. `margin-top`/
-`margin-bottom: auto` (row direction's cross axis) and `margin: auto` in
-`column` direction are not supported — see below.
+already consumed all the leftover space itself.
+
+`margin-top`/`margin-bottom: auto`, also in `row` direction only, is the same
+mechanism on the cross axis: it absorbs the free space between the item and
+its own line's height. Both sides `auto` centers the item vertically on its
+line; one side alone takes all of that space and pushes the item to the other
+end, so `margin-top: auto` sits an item on the line's bottom row. Present on
+an item, it **overrides that item's `align-items`/`align-self`** (§8.1, the
+cross-axis twin of the `justify-content` override above) and opts the item
+out of stretching, since the space it would have stretched into is the space
+the margin is claiming. With no free space to absorb, it resolves to `0`
+rather than to a negative offset, like every other alignment here. `margin:
+auto` in `column` direction is not supported — see below.
 
 ```css
 /* the classic "push this one item to the far end" pattern */
 .row { display: flex; width: 100%; }
 .spacer { margin-left: auto; }
+
+/* and its cross-axis twin: this item alone centers vertically on its line */
+.badge { margin-top: auto; margin-bottom: auto; }
 ```
 
 #### Sizing deviations
@@ -1571,27 +1626,18 @@ The same is true of a multi-line `inline-block`; see `COMPATIBILITY.md`.
 
 - **`flex-wrap`/`align-content` in `column` direction** — wrapping into
   multiple columns isn't implemented; `column` direction remains single-line
-  regardless of `flex-wrap`. **`flex-wrap: wrap-reverse`** (row direction) —
-  only `wrap`'s top-to-bottom line order is supported.
-- **`align-content: stretch`** growing each line's items taller than their
-  content — approximated as `flex-start`; see above.
+  regardless of `flex-wrap`, `wrap-reverse` included.
 - **`baseline`** alignment — falls back to `flex-start`.
 - **The physical `left`/`right` alignment keywords** — unlike `start`/`end`,
   they're direction-relative rather than main-start-relative, so they're left
   unrecognized (falling back to `flex-start`) rather than guessed at.
-- **Text nodes directly inside a flex container** — real CSS wraps a run of
-  loose text in an anonymous flex item; here it isn't rendered at all. Wrap it
-  in a `<span>`.
 - **`overflow-y: scroll`/`auto` on a flex container** — the clipping values
   (`hidden`/`clip`) are supported, but a scrollable flex container would need
   the live scroll-offset/gutter plumbing ordinary boxes have; see
   [Container `height`, `min-height`, and `max-height`](#container-height-min-height-and-max-height).
-- **`margin: auto` beyond `row` direction's main axis** — `margin-top`/
-  `margin-bottom: auto` (row direction's cross axis, which would center/align
-  a single item vertically within its line) and any `margin: auto` in
-  `column` direction are all treated as `0`, not the CSS leftover-space-
-  absorbing behavior; see above for the one case (`row` direction's
-  `margin-left`/`margin-right`) that is supported.
+- **`margin: auto` in `column` direction** — on either axis, treated as `0`
+  rather than absorbing leftover space. Both of `row` direction's axes are
+  supported; see above.
 
 ---
 

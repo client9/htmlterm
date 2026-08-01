@@ -189,9 +189,13 @@ func TestEmptyFlexContainerBox(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "an empty flex container's rules meet", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n└────┘\n"},
 		{name: "column direction is the same", width: 12, css: `.f{display:flex;flex-direction:column;border-style:solid;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n└────┘\n"},
-		// Loose text isn't a flex item here (see CSS.md), so a container holding
-		// only text is an empty container.
-		{name: "a container of only loose text is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f">loose</div>`, want: "┌────┐\n└────┘\n"},
+		// Loose text is an anonymous flex item, so a container holding only text
+		// is not an empty container. "loose" is unbreakable and wider than the
+		// four content columns this container has, so it overflows its own
+		// border, the same graceful overflow any bordered block gives content
+		// it can't fit.
+		{name: "a container of only loose text holds an anonymous item", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f">loose</div>`, want: "┌────┐\n│loose│\n└────┘\n"},
+		{name: "a container of only whitespace is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: "<div class=\"f\">\n  \n</div>", want: "┌────┐\n└────┘\n"},
 		{name: "a container whose only item is display:none is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f"><span style="display:none">x</span></div>`, want: "┌────┐\n└────┘\n"},
 		{name: "an empty container still reserves its declared height", width: 12, css: `.f{display:flex;border-style:solid;height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},
 		{name: "and its min-height", width: 12, css: `.f{display:flex;border-style:solid;min-height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},

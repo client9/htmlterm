@@ -55,7 +55,14 @@ type Engine struct {
 	// min-content probe re-measures every descendant that already probed its
 	// own children, costing ~2^depth for nested `flex: 1` layouts, measured at
 	// 8x on nine levels. Per-render lifetime, same as directCache.
-	minContentCache       map[*html.Node]int
+	minContentCache map[*html.Node]int
+	// anonFlexNodes memoizes the synthetic element node standing in for one
+	// run of loose text inside a flex container (flex.go's
+	// anonymousFlexItem), keyed by the run's first text node. Items are
+	// re-collected on every pass over a container, including every trial
+	// measurement, and these nodes key the two caches above, so they have to
+	// be the same pointer each time. Per-render lifetime, same as directCache.
+	anonFlexNodes         map[*html.Node]*html.Node
 	quoteDepth            int
 	nestedTableWidth      int
 	nestedTableWidthSet   bool
@@ -310,6 +317,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	rr.counterMap = rr.buildCounterMap(doc)
 	rr.directCache = make(map[*html.Node]map[string]string)
 	rr.minContentCache = make(map[*html.Node]int)
+	rr.anonFlexNodes = make(map[*html.Node]*html.Node)
 	rr.quoteDepth = 0
 	rr.outOfFlow, rr.outOfFlowOrder = rr.collectOutOfFlow(doc)
 	tokens := rr.renderRootTokens(doc)
