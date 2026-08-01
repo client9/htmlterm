@@ -12,8 +12,8 @@ import (
 )
 
 // declValue is a single parsed declaration value plus its !important flag.
-// Importance is tracked per declaration (not per rule) because a single rule
-// can mix important and normal declarations, e.g.
+// Importance is tracked per declaration rather than per rule because a single
+// rule can mix important and normal declarations, as in
 // `div { color: red !important; background: blue; }`.
 type declValue struct {
 	value     string
@@ -26,16 +26,15 @@ type declValue struct {
 type Rule struct {
 	selector string
 	decls    map[string]declValue
-	// parts is selector, already parsed once at construction time (here,
-	// the only place a rule is ever built) rather than being re-parsed by
-	// every Match attempt in cascade.go's Direct/PseudoElement paths. Those
-	// used to call parseSelector(rl.selector) fresh
-	// for every rule against every node checked, an O(nodes × rules)
-	// re-parse repeated on every single render. rule values are never
-	// mutated after construction, so parts is safe to share/reuse read-only
-	// across concurrent Render calls and across every Document.Render call
-	// for the document's lifetime. PseudoElement, which needs to temporarily
-	// clear the last part's
+	// parts is selector, already parsed once at construction time, here,
+	// the only place a rule is ever built, rather than being re-parsed by
+	// every Match attempt in cascade.go's Direct and PseudoElement paths.
+	// Those used to call parseSelector(rl.selector) fresh for every rule
+	// against every node checked, an O(nodes × rules) re-parse repeated on
+	// every render. Rule values are never mutated after construction, so
+	// parts is safe to share read-only across concurrent Render calls and
+	// across every Document.Render call for the document's lifetime.
+	// PseudoElement, which needs to temporarily clear the last part's
 	// pseudoElem to match against a real element, copies parts rather than
 	// mutating this shared slice in place.
 	parts []selectorPart
@@ -112,15 +111,15 @@ func ParseStylesheet(src string) ([]Rule, error) {
 			case css.CommentToken:
 				continue
 			case css.AtKeywordToken:
-				// An @-rule (@media, @import, @font-face, @keyframes, ...) —
-				// none are supported (see CSS.md), so its prelude and body
-				// (if any) are skipped as a unit rather than being fed
-				// token-by-token into selBuf/curDecls, which used to
-				// misinterpret a block @-rule's nested "{"/"}" as this
-				// state machine's own selector/declaration boundaries and
-				// silently corrupt whatever rule happened to follow it in
+				// An @-rule: @media, @import, @font-face, @keyframes, and
+				// the rest. None are supported (see CSS.md), so its prelude
+				// and body, if any, are skipped as a unit rather than being
+				// fed token-by-token into selBuf and curDecls. That used to
+				// misinterpret a block @-rule's nested "{" and "}" as this
+				// state machine's own selector and declaration boundaries,
+				// silently corrupting whatever rule happened to follow it in
 				// the same stylesheet. Only recognized when selBuf is
-				// otherwise empty, i.e. at the true start of a rule — an
+				// otherwise empty, meaning at the true start of a rule. An
 				// "@" appearing mid-selector is already invalid CSS and
 				// isn't specially handled.
 				if strings.TrimSpace(selBuf.String()) == "" {
@@ -150,8 +149,8 @@ func ParseStylesheet(src string) ([]Rule, error) {
 					state = inSelector
 				}
 			case css.SemicolonToken:
-				// A statement @-rule (e.g. "@import url(foo.css);") ends
-				// here; a block @-rule's prelude never has a top-level
+				// A statement @-rule, such as "@import url(foo.css);", ends
+				// here. A block @-rule's prelude never has a top-level
 				// semicolon, and any semicolon inside its body is at
 				// atRuleDepth > 0 and is skipped like everything else in
 				// the body.
@@ -159,9 +158,9 @@ func ParseStylesheet(src string) ([]Rule, error) {
 					state = inSelector
 				}
 			default:
-				// Discard the rest of the @-rule's prelude/body tokens
-				// (identifiers, parens, nested selectors and declarations,
-				// strings, etc.) unconditionally.
+				// Discard the rest of the @-rule's prelude and body tokens
+				// unconditionally: identifiers, parens, nested selectors
+				// and declarations, strings, and anything else.
 			}
 
 		case inDeclarations:
@@ -194,11 +193,11 @@ func ParseStylesheet(src string) ([]Rule, error) {
 	}
 }
 
-// ParseDeclarations parses a CSS declaration list (the value of a style=""
-// attribute) into a property→value map, discarding any !important flags.
-// Its only caller outside this package (internal/render/strip.go's hidden-
-// inline check) only needs bare values; cascade.go's inline-style handling,
-// which needs importance to merge correctly, calls
+// ParseDeclarations parses a CSS declaration list, the value of a style=""
+// attribute, into a property→value map, discarding any !important flags.
+// Its only caller outside this package, internal/render/strip.go's
+// hidden-inline check, only needs bare values. cascade.go's inline-style
+// handling, which needs importance to merge correctly, calls
 // parseDeclarationsWithImportance directly instead.
 func ParseDeclarations(src string) map[string]string {
 	parsed := parseDeclarationsWithImportance(src)
@@ -266,13 +265,13 @@ func parseDeclarationsWithImportance(src string) map[string]declValue {
 	return result
 }
 
-// splitImportant splits a trailing "!important" priority flag (case-
-// insensitive) off a parsed CSS declaration value, reporting it separately
-// rather than discarding it — the value is otherwise treated exactly as if
+// splitImportant splits a trailing case-insensitive "!important" priority
+// flag off a parsed CSS declaration value, reporting it separately rather
+// than discarding it. The value is otherwise treated exactly as if
 // "!important" were never written, so callers that only care about the bare
-// value (e.g. strip.go's isHiddenInline recognizing "display:none
-// !important" as hidden, or parseCSSColor recognizing "red !important" as a
-// color) don't need to special-case the suffix themselves. cascade.go uses
+// value don't need to special-case the suffix themselves: strip.go's
+// isHiddenInline recognizing "display:none !important" as hidden, say, or
+// parseCSSColor recognizing "red !important" as a color. cascade.go uses
 // the reported flag to give !important declarations cascade priority over
 // normal ones.
 func splitImportant(val string) (value string, important bool) {
@@ -292,9 +291,9 @@ func copyDecls(m map[string]declValue) map[string]declValue {
 
 // shorthandLonghands maps each shorthand property name to the longhand keys
 // it expands to, for expandCSSWideKeyword's short-circuiting. A property not
-// listed here is treated as an ordinary longhand (or a shorthand whose own
-// normal parsing already passes inherit/unset/initial through unchanged),
-// mapping to itself.
+// listed here maps to itself, treated as an ordinary longhand, or as a
+// shorthand whose own normal parsing already passes inherit, unset, and
+// initial through unchanged.
 var shorthandLonghands = map[string][]string{
 	"margin":         {"margin-top", "margin-right", "margin-bottom", "margin-left"},
 	"padding":        {"padding-top", "padding-right", "padding-bottom", "padding-left"},
@@ -316,13 +315,14 @@ var shorthandLonghands = map[string][]string{
 }
 
 // expandCSSWideKeyword returns the longhand expansion of val when val is
-// exactly "inherit"/"unset"/"initial", short-circuiting a shorthand's own
-// normal value grammar - which would otherwise misparse these keywords
-// (e.g. expandFlexShorthand("inherit") would assign only flex-basis,
-// dropping flex-grow/flex-shrink) or silently drop them entirely
-// (expandListStyleShorthand/expandBackgroundShorthand return an empty map
-// for any unrecognized token). ok is false when val isn't a CSS-wide
-// keyword, meaning the caller should fall through to its normal parsing.
+// exactly "inherit", "unset", or "initial", short-circuiting a shorthand's
+// own normal value grammar. That grammar would otherwise misparse these
+// keywords, as expandFlexShorthand("inherit") would by assigning only
+// flex-basis and dropping flex-grow and flex-shrink, or silently drop them
+// entirely, as expandListStyleShorthand and expandBackgroundShorthand do by
+// returning an empty map for any unrecognized token. ok is false when val
+// isn't a CSS-wide keyword, meaning the caller should fall through to its
+// normal parsing.
 func expandCSSWideKeyword(prop, val string) (result map[string]string, ok bool) {
 	kw := cssWideKeyword(val)
 	if kw == "" {
@@ -344,15 +344,15 @@ func expandCSSWideKeyword(prop, val string) (result map[string]string, ok bool) 
 // property→value pairs. For other properties, the map contains only the
 // original prop→val pair.
 //
-// Supported shorthands: margin, padding (1–4 value syntax), background color
-// extraction, list-style. Supported logical aliases are the block/inline
-// start/end forms for margin and padding.
+// Supported shorthands: margin and padding, in 1–4 value syntax, background
+// color extraction, and list-style. Supported logical aliases are the block
+// and inline start/end forms for margin and padding.
 func expandShorthand(prop, val string) map[string]string {
-	// flex is excluded here: it's routed to expandFlexShorthand below, which
-	// handles inherit/unset/initial itself (its own grammar already treats
-	// the literal token "initial" as a real, spec-correct shorthand value,
-	// which expandCSSWideKeyword's generic "initial" handling must not
-	// shadow - see expandFlexShorthand's own doc comment).
+	// flex is excluded here. It is routed to expandFlexShorthand below, which
+	// handles inherit, unset, and initial itself: its own grammar already
+	// treats the literal token "initial" as a real, spec-correct shorthand
+	// value, which expandCSSWideKeyword's generic "initial" handling must not
+	// shadow. See expandFlexShorthand's own doc comment.
 	if prop != "flex" {
 		if kwResult, ok := expandCSSWideKeyword(prop, val); ok {
 			return kwResult
@@ -381,19 +381,20 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-left":   sides[3],
 		}
 	case "border":
-		// Positional, not type-detected like expandBackgroundShorthand: real
-		// CSS's border shorthand allows <width>/<style>/<color> in any order,
-		// and a real width keyword like "thick" has no way to be
+		// Positional, not type-detected the way expandBackgroundShorthand is.
+		// Real CSS's border shorthand allows <width>, <style>, and <color> in
+		// any order, and a real width keyword like "thick" has no way to be
 		// distinguished from a style keyword by content alone once it's
-		// sitting in an unexpected slot (e.g. "border: thick solid red" —
-		// "thick" is a width keyword, not one of our own border-style preset
-		// names, but classifying tokens by content would need to know that).
-		// Position sidesteps the whole question: slot 0 in a 3-token value is
-		// always the (ignored) width, so "thick solid red" resolves correctly
-		// regardless of what "thick" means to either vocabulary. The one gap
-		// this leaves is the 2-token "<width> <style>" form (no color, e.g.
-		// "border: 2px solid"), which has no positional slot and is silently
-		// dropped like any other unrecognized value - documented in CSS.md.
+		// sitting in an unexpected slot. In "border: thick solid red",
+		// "thick" is a width keyword rather than one of our own border-style
+		// preset names, but classifying tokens by content would need to know
+		// that. Position sidesteps the whole question: slot 0 in a 3-token
+		// value is always the ignored width, so "thick solid red" resolves
+		// correctly regardless of what "thick" means to either vocabulary.
+		// The one gap this leaves is the 2-token "<width> <style>" form with
+		// no color, such as "border: 2px solid", which has no positional slot
+		// and is silently dropped like any other unrecognized value. That is
+		// documented in CSS.md.
 		tokens := splitCSSComponentValues(val)
 		var styleTok, colorTok string
 		switch len(tokens) {
@@ -427,8 +428,8 @@ func expandShorthand(prop, val string) map[string]string {
 		}
 		// The bare "border-color" key is preserved alongside the four
 		// per-edge longhands even though no current internal/render consumer
-		// reads it directly (border coloring there is resolved entirely
-		// per-edge, via border-{top,right,bottom,left}-color) - kept for
+		// reads it directly, border coloring there being resolved entirely
+		// per-edge via border-{top,right,bottom,left}-color. It is kept for
 		// parity with how the "border" shorthand case above and this
 		// package's own tests already expect a bare fallback key to survive
 		// expansion, and as a low-cost hook for any future consumer that
@@ -441,18 +442,18 @@ func expandShorthand(prop, val string) map[string]string {
 			"border-left-color":   sides[3],
 		}
 	case "border-top", "border-right", "border-bottom", "border-left":
-		// Bareword vs. quoted string is the dispatch: a quoted string is
-		// this engine's non-standard "literal border glyph" form (e.g.
-		// border-top: "═") and is passed through completely unchanged -
+		// Bareword versus quoted string is the dispatch. A quoted string is
+		// this engine's non-standard "literal border glyph" form, as in
+		// border-top: "═", and is passed through unchanged:
 		// internal/render/block.go still parses it as a literal character,
 		// and internal/render/table.go still reads a bare "none" value
-		// directly (untouched here, since a single unquoted token is
-		// returned as-is below). A bareword value is instead the standard
-		// CSS border-edge shorthand grammar - <style>, <style> <color>, or
-		// <width> <style> <color> (width dropped) - split out exactly like
-		// the "border" shorthand above; block.go resolves the style token
-		// to a glyph via the same named preset border-style uses, picked
-		// for that specific edge.
+		// directly, untouched here, since a single unquoted token is
+		// returned as-is below. A bareword value is instead the standard
+		// CSS border-edge shorthand grammar — <style>, <style> <color>, or
+		// <width> <style> <color> with the width dropped — split out exactly
+		// like the "border" shorthand above. block.go resolves the style
+		// token to a glyph via the same named preset border-style uses,
+		// picked for that specific edge.
 		trimmed := strings.TrimSpace(val)
 		if isCSSQuotedStringToken(trimmed) {
 			return map[string]string{prop: val}
@@ -499,9 +500,9 @@ func expandShorthand(prop, val string) map[string]string {
 			return map[string]string{prop: val}
 		}
 	case "border-spacing":
-		// <length> alone applies to both axes; <length> <length> is
-		// horizontal then vertical, per the real CSS2 grammar (the reverse
-		// order from "gap"'s row-then-column convention above).
+		// <length> alone applies to both axes. <length> <length> is
+		// horizontal then vertical, per the real CSS2 grammar, the reverse
+		// order from "gap"'s row-then-column convention above.
 		tokens := strings.Fields(val)
 		switch len(tokens) {
 		case 1:
@@ -555,31 +556,36 @@ func expandBackgroundShorthand(val string) map[string]string {
 }
 
 // expandFlexShorthand expands the `flex` shorthand into flex-grow,
-// flex-shrink, and flex-basis longhands, per the CSS grammar: `none` (0 0
-// auto), `auto` (1 1 auto), a single number (that number's flex-grow, with
-// flex-shrink 1 and flex-basis 0 — the common `flex: 1` equal-growth
-// pattern), a single non-numeric token (that token's flex-basis, with
-// flex-grow and flex-shrink both 1 — the shorthand's own omitted-value
-// defaults, not the longhands' initial values), a number followed by a second
-// number (grow shrink, basis 0), a number followed by a basis (grow basis,
-// shrink 1), or the full three-token grow/shrink/basis form — see CSS.md's
-// Flexbox section.
+// flex-shrink, and flex-basis longhands, per the CSS grammar:
+//
+//   - `none` is 0 0 auto, and `auto` is 1 1 auto.
+//   - A single number is that number's flex-grow, with flex-shrink 1 and
+//     flex-basis 0, the common `flex: 1` equal-growth pattern.
+//   - A single non-numeric token is that token's flex-basis, with flex-grow
+//     and flex-shrink both 1, the shorthand's own omitted-value defaults
+//     rather than the longhands' initial values.
+//   - A number followed by a second number is grow and shrink, with basis 0.
+//   - A number followed by a basis is grow and basis, with shrink 1.
+//   - The full three-token form is grow, shrink, basis.
+//
+// See CSS.md's Flexbox section.
 //
 // Every arity validates its components, and a value whose tokens don't fit the
 // grammar is left unexpanded as an inert `flex` declaration rather than
-// half-applying. The one-token form always did this; the two- and three-token
+// half-applying. The one-token form always did this. The two- and three-token
 // forms used to assign positionally without looking, so `flex: 30% 1` became
-// flex-grow: 30% (which parses to 0, collapsing the item) instead of the
+// flex-grow: 30%, which parses to 0 and collapses the item, instead of the
 // grow: 1, basis: 30% a browser resolves it to, and `flex: 1 1 junk` handed out
-// the shorthand's grow/shrink defaults off a basis that would then be ignored.
-// An invalid declaration must leave every longhand it covers at its initial
-// value, not at part of what was written.
+// the shorthand's grow and shrink defaults off a basis that would then be
+// ignored. An invalid declaration must leave every longhand it covers at its
+// initial value, not at part of what was written.
 func expandFlexShorthand(val string) map[string]string {
-	// inherit/unset only - "initial" is deliberately left to the switch
-	// below: flex's own grammar already treats the literal token "initial"
-	// as a real, spec-correct shorthand value (grow:0 shrink:1 basis:auto,
-	// which happens to equal each longhand's own real initial value), so
-	// expandCSSWideKeyword's generic "initial" handling must not shadow it.
+	// inherit and unset only. "initial" is deliberately left to the switch
+	// below, because flex's own grammar already treats the literal token
+	// "initial" as a real, spec-correct shorthand value, grow:0 shrink:1
+	// basis:auto, which happens to equal each longhand's own real initial
+	// value. expandCSSWideKeyword's generic "initial" handling must not
+	// shadow that.
 	if kw := cssWideKeyword(val); kw == "inherit" || kw == "unset" {
 		return map[string]string{"flex-grow": kw, "flex-shrink": kw, "flex-basis": kw}
 	}
@@ -598,26 +604,26 @@ func expandFlexShorthand(val string) map[string]string {
 			return map[string]string{"flex-grow": tokens[0], "flex-shrink": "1", "flex-basis": "0"}
 		}
 		// One-value basis form. A shorthand always resets every longhand it
-		// covers, and flex's own omitted-value defaults are 1/1 (not the
-		// longhands' initial 0/1), so `flex: 30%` is `1 1 30%` - leaving
+		// covers, and flex's own omitted-value defaults are 1 and 1, not the
+		// longhands' initial 0 and 1, so `flex: 30%` is `1 1 30%`. Leaving
 		// flex-grow at its own initial 0 would make the item refuse to grow,
-		// the opposite of what the shorthand asks for. The token has to
-		// actually be a basis for that, though: granting flex-grow: 1 off a
-		// junk value would let an invalid declaration change layout, which is
-		// worse than the inert flex-basis it lands as instead.
+		// the opposite of what the shorthand asks for. The token has to be a
+		// real basis for that, though: granting flex-grow: 1 off a junk value
+		// would let an invalid declaration change layout, which is worse than
+		// the inert flex-basis it lands as instead.
 		if isCSSFlexBasisToken(tokens[0]) {
 			return map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": tokens[0]}
 		}
 		return map[string]string{"flex-basis": tokens[0]}
 	case 2:
 		// The grammar is `[ <'flex-grow'> <'flex-shrink'>? || <'flex-basis'> ]`,
-		// and `||` means the two components may appear in either order - so
+		// and `||` means the two components may appear in either order, so
 		// `flex: 30% 1` is as valid as `flex: 1 30%`, and both mean grow 1,
 		// shrink 1, basis 30%. The grow-first reading is tried first, matching
 		// the grammar's own operand order, which is what keeps an all-numeric
-		// `flex: 1 2` a grow/shrink pair rather than a grow/basis one (a bare
-		// number is a valid basis in this engine, so the two readings really do
-		// overlap).
+		// `flex: 1 2` a grow/shrink pair rather than a grow/basis one. A bare
+		// number is a valid basis in this engine, so the two readings really
+		// do overlap.
 		if isCSSNumberToken(tokens[0]) {
 			if isCSSNumberToken(tokens[1]) {
 				return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": "0"}
@@ -631,8 +637,9 @@ func expandFlexShorthand(val string) map[string]string {
 		return map[string]string{"flex": val}
 	case 3:
 		// Same `||` freedom as the two-token form: the basis may lead or
-		// trail the grow/shrink pair. Grow-first again wins the all-numeric
-		// overlap, so `flex: 1 2 3` stays grow 1, shrink 2, basis 3.
+		// trail the grow and shrink pair. Grow-first again wins the
+		// all-numeric overlap, so `flex: 1 2 3` stays grow 1, shrink 2,
+		// basis 3.
 		if isCSSNumberToken(tokens[0]) && isCSSNumberToken(tokens[1]) && isCSSFlexBasisToken(tokens[2]) {
 			return map[string]string{"flex-grow": tokens[0], "flex-shrink": tokens[1], "flex-basis": tokens[2]}
 		}
@@ -646,15 +653,15 @@ func expandFlexShorthand(val string) map[string]string {
 }
 
 // expandPlaceShorthand expands one of the CSS Box Alignment `place-*`
-// shorthands into its align/justify longhand pair: one value sets both axes,
-// two set the align (block/cross) axis then the justify (inline/main) one -
-// note the order, which is the opposite of the axis order most other
-// two-value shorthands use.
+// shorthands into its align and justify longhand pair. One value sets both
+// axes. Two set the align, block or cross, axis first and the justify, inline
+// or main, axis second — note the order, which is the opposite of the axis
+// order most other two-value shorthands use.
 //
-// A `safe`/`unsafe` overflow-alignment prefix makes a single component two
-// tokens, which this arity-based split can't tell from a two-component value;
-// since neither keyword does anything in this engine, such a value is left
-// unexpanded (an inert shorthand declaration) rather than misparsed into a
+// A `safe` or `unsafe` overflow-alignment prefix makes a single component two
+// tokens, which this arity-based split can't tell from a two-component value.
+// Since neither keyword does anything in this engine, such a value is left
+// unexpanded, as an inert shorthand declaration, rather than misparsed into a
 // wrong axis assignment.
 func expandPlaceShorthand(prop, val, alignProp, justifyProp string) map[string]string {
 	tokens := strings.Fields(strings.ToLower(val))
@@ -675,11 +682,11 @@ func expandPlaceShorthand(prop, val, alignProp, justifyProp string) map[string]s
 
 // expandFlexFlowShorthand expands the `flex-flow` shorthand into
 // flex-direction and flex-wrap. Per the CSS grammar the two components are
-// each optional and may appear in either order ("wrap row" is as valid as
-// "row wrap"); whichever is omitted is set to its own initial value, since a
+// each optional and may appear in either order, so "wrap row" is as valid as
+// "row wrap". Whichever is omitted is set to its own initial value, since a
 // shorthand always resets every longhand it covers. Anything that isn't a
-// keyword of exactly one of the two components - or that names the same
-// component twice - is left unexpanded, so it lands in the cascade as an
+// keyword of exactly one of the two components, or that names the same
+// component twice, is left unexpanded, so it lands in the cascade as an
 // inert `flex-flow` declaration rather than half-applying.
 func expandFlexFlowShorthand(val string) map[string]string {
 	tokens := strings.Fields(strings.ToLower(val))
@@ -718,15 +725,15 @@ func isCSSNumberToken(s string) bool {
 }
 
 // isCSSFlexBasisToken reports whether s is usable as flex's <'flex-basis'>
-// component: the auto/content keywords, the intrinsic sizing keywords, or a
-// <length-percentage> - a CSS number with an optional "%" or unit suffix.
-// Deliberately not a full unit
-// vocabulary check (this engine's own sizing accepts bare counts and "ch", and
-// ignores any other unit): it only has to separate a real basis from a junk
-// token, so that `flex: <junk>` stays inert instead of picking up the
-// shorthand's grow/shrink defaults. Callers that need the value itself parse
-// it later, and an unrecognized unit lands as an ignored flex-basis exactly as
-// it would from the longhand.
+// component: the auto and content keywords, the intrinsic sizing keywords, or
+// a <length-percentage>, meaning a CSS number with an optional "%" or unit
+// suffix. This is deliberately not a full unit vocabulary check, since this
+// engine's own sizing accepts bare counts and "ch" and ignores any other unit.
+// It only has to separate a real basis from a junk token, so that
+// `flex: <junk>` stays inert instead of picking up the shorthand's grow and
+// shrink defaults. Callers that need the value itself parse it later, and an
+// unrecognized unit lands as an ignored flex-basis exactly as it would from
+// the longhand.
 func isCSSFlexBasisToken(s string) bool {
 	s = strings.TrimSpace(s)
 	switch strings.ToLower(s) {
@@ -738,11 +745,11 @@ func isCSSFlexBasisToken(s string) bool {
 }
 
 // ParseNumber parses a CSS <number> token: an optional sign, digits with an
-// optional fractional part (either side may be omitted, but not both), and an
-// optional e-notation exponent. Surrounding whitespace is ignored.
+// optional fractional part, where either side may be omitted but not both,
+// and an optional e-notation exponent. Surrounding whitespace is ignored.
 //
 // This is deliberately stricter than strconv.ParseFloat, which is a Go literal
-// parser and also accepts "NaN", "Inf"/"Infinity", hex-float forms like
+// parser and also accepts "NaN", "Inf", "Infinity", hex-float forms like
 // "0x1p-2", and digit-separating underscores. None of those are CSS numbers,
 // and a NaN reaching layout is worse than a dropped declaration: it compares
 // false against every bound, so it slips past validity checks and then
@@ -769,9 +776,9 @@ func ParseNumber(s string) (float64, bool) {
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		// Syntax is already known-good, so this is out-of-range only - a
+		// Syntax is already known-good, so this is out-of-range only: a
 		// value like 1e400, whose ParseFloat result is an infinity. Rejecting
-		// it keeps the guarantee callers actually rely on: a successful parse
+		// it keeps the guarantee callers rely on, that a successful parse
 		// is always a finite number.
 		return 0, false
 	}
@@ -803,8 +810,8 @@ func expandListStyleShorthand(val string) map[string]string {
 			decls["list-style-position"] = lower
 		case strings.HasPrefix(lower, "symbols("):
 			// symbols(...) is a supported list-style-type value (see
-			// internal/render/symbols.go); kept verbatim, case as written,
-			// so the quoted strings inside aren't lowercased.
+			// internal/render/symbols.go). It is kept verbatim, case as
+			// written, so the quoted strings inside aren't lowercased.
 			decls["list-style-type"] = tok
 		case isCSSFunctionToken(lower):
 			// list-style-image is not supported. Ignore url(...) and other
