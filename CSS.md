@@ -921,6 +921,16 @@ distribute only when the container's main size is definite — inside a plain
 are currently supported, not full CSS Flexbox — see "Not supported" below
 for the gaps.
 
+Either kind of container builds the same margin, border, and padding box every
+other box in this engine does. An `inline-flex` container's own border is drawn
+around its items, its padding reserves columns inside that border, a declared
+`width` is its total painted width with the border characters coming out of it,
+and `overflow-x`/`overflow-y` clip it from inside its own border box. The one
+inline-specific consequence is vertical: a container more than one line tall,
+which a border alone is enough to make it, breaks the line of text it sits in,
+since this engine places an atomic inline box as a unit rather than on a
+baseline. See `COMPATIBILITY.md`.
+
 Text nodes directly inside a flex container are not rendered as flex items
 (wrap loose text in a `<span>` to include it); a child with `display: none`
 is skipped, same as normal flow. A child with `display: contents` generates
@@ -1202,6 +1212,12 @@ across the items that can still grow, repeating until either the leftover is
 placed or every item is capped (real CSS resolves flexible lengths with the
 same freeze-and-repeat loop). Leftover that no item can absorb flows through
 to `justify-content`/the trailing padding instead of being silently dropped.
+In `column` direction that cap is an **outer** size, so a bordered or padded
+item's own border rules and padding rows are added onto its `max-height` before
+it applies: `max-height: 3; border-style: solid` grows to five rows, three of
+them content. `max-height` is content-box here while every main size flex
+resolves is an outer one, and this is the same conversion `flex-basis` and
+`align-items: stretch` already make.
 
 Factors summing to **less than one** distribute only that fraction of the free
 space, matching CSS: two items at `flex-grow: 0.25` share half the leftover

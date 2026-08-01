@@ -665,12 +665,12 @@ func fillGridCellLines(g tableGrid, widths []int, sepW int) {
 			// start a new line and no width-driven wrapping happens, while
 			// still going through wordWrapTokens so cell.tokens' own node
 			// positions are produced instead of discarded.
-			b, positions = wordWrapTokens(cell.tokens, naturalWidthCap, "", 0)
+			b, positions = wordWrapTokens(cell.tokens, naturalWidthCap, "", 0, false)
 			for j, line := range b.lines {
 				b.lines[j] = strings.TrimRight(line, " ")
 			}
 		} else {
-			b, positions = wordWrapTokens(cell.tokens, contentW, "break-word", 0)
+			b, positions = wordWrapTokens(cell.tokens, contentW, "break-word", 0, false)
 		}
 		// text-overflow only applies in nowrap mode (CSS.md: "Ignored when
 		// white-space: normal"); a wrapped line that still overflows contentW

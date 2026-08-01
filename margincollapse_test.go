@@ -55,7 +55,10 @@ func TestMarginCollapse(t *testing.T) {
 			name: "::before content on the parent blocks margin-top collapse",
 			css:  `div::before { content: "X "; }`,
 			html: `<div><h2 style="margin-top:1">no collapse</h2></div>`,
-			want: "X \n\nno collapse\n",
+			// The generated content's own trailing space ends a line, since the
+			// block child that follows breaks it, so white-space:normal drops
+			// it. The margin-top being blocked is what this case is about.
+			want: "X\n\nno collapse\n",
 		},
 		{
 			name: "table cell with a first block child does not leak a leading blank line",

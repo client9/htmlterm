@@ -314,7 +314,9 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	rr.outOfFlow, rr.outOfFlowOrder = rr.collectOutOfFlow(doc)
 	tokens := rr.renderRootTokens(doc)
 	trailingNewline := len(tokens) > 0 && tokens[len(tokens)-1].brk
-	b, positions := wordWrapTokens(tokens, rr.width, "", 0)
+	// The document root itself is never in a preserving white-space mode: a
+	// <pre> reaches here as an already-rendered box token.
+	b, positions := wordWrapTokens(tokens, rr.width, "", 0, false)
 	lines, rowRemap := capBlankRuns(b.lines, b.pre, rr.maxBlankLines)
 	if rr.maxBlankLines > 0 && len(positions) > 0 {
 		remapped := make(map[*html.Node]Rect, len(positions))

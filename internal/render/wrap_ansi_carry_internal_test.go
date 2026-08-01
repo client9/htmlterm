@@ -282,6 +282,6 @@ func TestRestyleTrailingWhitespaceOnlyTokenPlainInlineBranch(t *testing.T) {
 // caller went away; it lives here now so the production package carries no
 // test-only wrapper.
 func wrapText(text string, width int, breakMode string) []string {
-	b, _ := wordWrapTokens([]wrapToken{{text: text}}, width, breakMode, 0)
+	b, _ := wordWrapTokens([]wrapToken{{text: text}}, width, breakMode, 0, false)
 	return b.lines
 }

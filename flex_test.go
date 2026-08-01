@@ -16,9 +16,10 @@ func TestFlexRow(t *testing.T) {
 		{name: "justify-content center centers items with no grow", width: 10, html: `<div style="display:flex;width:100%;justify-content:center"><div>ab</div></div>`, want: "    ab    \n"},
 		{name: "justify-content flex-end pushes items to the end", width: 10, html: `<div style="display:flex;width:100%;justify-content:flex-end"><div>ab</div></div>`, want: "        ab\n"},
 		// 17 free columns over 3 items: each item's share is centered on it, so
-		// the edges get a half-share (3 and 2, the rounding remainder spread
-		// rather than piled onto one edge) and each between-gap gets two.
-		{name: "justify-content space-around distributes half-shares at the edges", width: 20, html: `<div style="display:flex;width:100%;justify-content:space-around"><div>a</div><div>b</div><div>c</div></div>`, want: "   a      b      c  \n"},
+		// the exact slot sizes are 2.83 at each edge and 5.67 between each pair.
+		// Largest-remainder rounding gives 3, 6, 5, 3, which keeps the two edges
+		// equal and puts the one column that can't be split evenly in a gap.
+		{name: "justify-content space-around distributes half-shares at the edges", width: 20, html: `<div style="display:flex;width:100%;justify-content:space-around"><div>a</div><div>b</div><div>c</div></div>`, want: "   a      b     c   \n"},
 		{name: "justify-content space-evenly makes every gap, edges included, equal", width: 20, html: `<div style="display:flex;width:100%;justify-content:space-evenly"><div>a</div><div>b</div><div>c</div></div>`, want: "     a    b    c    \n"},
 		{name: "justify-content start is a synonym for flex-start", width: 10, html: `<div style="display:flex;width:100%;justify-content:start"><div>ab</div></div>`, want: "ab        \n"},
 		{name: "justify-content end is a synonym for flex-end", width: 10, html: `<div style="display:flex;width:100%;justify-content:end"><div>ab</div></div>`, want: "        ab\n"},
@@ -105,6 +106,52 @@ func TestInlineFlex(t *testing.T) {
 		{name: "flex-grow has no free space in a shrink-to-fit container", width: 30, html: `<span style="display:inline-flex"><span style="flex-grow:1;border-style:solid">a</span><span style="flex-grow:1;border-style:solid">b</span></span>`, want: "┌─┐┌─┐\n│a││b│\n└─┘└─┘"},
 		{name: "an explicit width makes the main size definite again", width: 20, html: `<span style="display:inline-flex;width:10;justify-content:space-between"><span>a</span><span>b</span></span>z`, want: "a        bz"},
 		{name: "items wider than the wrap bound still shrink to it", width: 10, html: `<span style="display:inline-flex"><span style="flex-basis:20">a</span><span style="flex-basis:20">b</span></span>`, want: "a    b    "},
+	})
+}
+
+// TestInlineFlexBoxModel pins that an inline-flex container has the same
+// margin/border/padding box every other box in this engine has, and clips to
+// its own overflow-x/overflow-y the same way a block-level display:flex
+// container does.
+//
+// It used to have none of that. renderInlineFlexContent called the layout pass
+// underneath the box model directly, so a bordered inline-flex painted its
+// items and nothing else: no border, no padding, no margin, and no clipping,
+// which left CSS.md's overflow entry true of `display: flex` and false of the
+// `inline-flex` it names alongside it.
+//
+// A bordered container is three lines tall, so it breaks the line it sits in.
+// That is the documented behavior of every atomic inline box taller than one
+// line, inline-block included, not something particular to flex; see
+// COMPATIBILITY.md.
+func TestInlineFlexBoxModel(t *testing.T) {
+	runCases(t, []renderCase{
+		// The space after "x" is a soft-wrap point here, since the bordered box
+		// is three lines tall and takes the line below, so it is trimmed off the
+		// end of the line rather than left dangling. See wordWrapTokens'
+		// trimTail.
+		{name: "border draws around the items and shrinks to fit them", width: 40, html: `<p>x <span style="display:inline-flex;border-style:solid"><span>a</span><span>b</span></span></p>`, want: "x\n┌──┐\n│ab│\n└──┘\n\n"},
+		{name: "padding reserves columns inside the container", width: 40, html: `<p>x<span style="display:inline-flex;padding-left:2;padding-right:2"><span>a</span></span>y</p>`, want: "x  a  y\n\n"},
+		{name: "margin offsets the container within the inline flow", width: 40, html: `<p>x<span style="display:inline-flex;margin-left:4"><span>a</span></span>y</p>`, want: "x    ay\n\n"},
+		// A declared width is a border-box size here, as it is on every other
+		// box, so the border characters come out of it rather than adding to it.
+		{name: "a declared width is the container's total painted width", width: 40, html: `<p>x<span style="display:inline-flex;width:10;border-style:solid;justify-content:space-between"><span>a</span><span>b</span></span>y</p>`, want: "x\n┌────────┐\n│a      b│\n└────────┘\ny\n\n"},
+	})
+}
+
+// TestInlineFlexOverflowClips pins CSS.md's overflow entry for the inline half
+// of `display: flex`/`inline-flex`. Both axes clip from inside the container's
+// own border box, and text-overflow supplies the marker on the horizontal one.
+func TestInlineFlexOverflowClips(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "overflow-x hidden truncates an over-wide item to the container", width: 40, html: `<p>x<span style="display:inline-flex;width:6;overflow-x:hidden;text-overflow:ellipsis"><span style="flex-shrink:0;width:8">aaaaaaaa</span></span>y</p>`, want: "xaaaaa…y\n\n"},
+		{name: "overflow-y hidden truncates the container to its own height", width: 40, html: `<p>x<span style="display:inline-flex;flex-direction:column;height:1;overflow-y:hidden"><span>a</span><span>b</span></span>y</p>`, want: "xay\n\n"},
+		// Failing an explicit height, max-height is what overflow-y clips to,
+		// and the bottom border still closes below the last visible row.
+		{name: "overflow-y hidden clips to max-height from inside the border", width: 40, html: `<p>x<span style="display:inline-flex;flex-direction:column;max-height:1;overflow-y:hidden;border-style:solid"><span>a</span><span>b</span></span>y</p>`, want: "x\n┌─┐\n│a│\n└─┘\ny\n\n"},
+		// Without an overflow of its own the container is left to overflow, the
+		// same as any other box in this engine.
+		{name: "no overflow declaration leaves the item painting past the container", width: 40, html: `<p>x<span style="display:inline-flex;width:6"><span style="flex-shrink:0;width:8">aaaaaaaa</span></span>y</p>`, want: "xaaaaaaaay\n\n"},
 	})
 }
 
@@ -360,6 +407,46 @@ func TestFlexColumnBasisClampedByMinMaxHeight(t *testing.T) {
 		// stack from the boxes in it.
 		{name: "max-height does not shorten a content-sized column item", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="max-height:1;border-style:solid">a<br>b</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│b       │\n└────────┘\nz         \n"},
 		{name: "an explicit overflow-y is what makes it clip", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="max-height:1;overflow-y:hidden;border-style:solid">a<br>b</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
+	})
+}
+
+// TestFlexColumnGrowCeilingIncludesChrome pins that a column item's max-height
+// caps its *outer* grown height, its own border rules and padding rows added
+// back on. max-height is content-box in this engine while every main size flex
+// resolves is an outer one, a conversion clampFlexMainHeight and the
+// align-items:stretch cap both make. The flex-grow ceiling used to compare the
+// two directly, so a bordered item stopped growing exactly its own chrome short
+// of what it asked for: max-height:3 came out three rows in total, one of them
+// content, rather than three content rows inside its border.
+func TestFlexColumnGrowCeilingIncludesChrome(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a bordered item grows to max-height plus its border rows", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:10"><div style="flex-grow:1;max-height:3;border-style:solid">a</div><div>b</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nb         \n          \n          \n          \n          \n"},
+		{name: "padding rows count toward the ceiling the same way", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:2;padding-top:1">a</div><div>b</div></div>`, want: "          \na         \n          \nb         \n          \n          \n          \n          \n"},
+		// An unbordered item is the case that already worked, kept as the
+		// control that the chrome conversion isn't being applied twice.
+		{name: "an item with no chrome is capped at max-height itself", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:3">a</div><div>b</div></div>`, want: "a         \n          \n          \nb         \n          \n          \n          \n          \n"},
+	})
+}
+
+// TestFlexColumnPercentAgainstIndefiniteHeight pins that a percentage min/max
+// height on a column-direction item is ignored when the container's own main
+// size is indefinite, which here means it has a min-height but no explicit
+// height. CSS resolves a percentage against an indefinite basis to auto, or to
+// none for a maximum, since the container's real main size is max(content,
+// min-height) and isn't known until its content is laid out.
+//
+// The indefinite basis used to be carried as a plain 0, which resolves every
+// percentage to a definite *zero*: `max-height: 50%` became a maximum of no
+// rows and froze the item where it stood, and a percentage clamp on a declared
+// flex-basis crushed that basis to a single row. See indefiniteMainSize.
+func TestFlexColumnPercentAgainstIndefiniteHeight(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a percentage max-height doesn't stop flex-grow under a min-height container", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:6"><div style="flex-grow:1;max-height:50%">a</div><div>b</div></div>`, want: "a         \n          \n          \n          \n          \nb         \n"},
+		{name: "a percentage max-height doesn't crush a declared flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:6"><div style="flex-basis:4;flex-grow:0;max-height:75%">a</div><div>b</div></div>`, want: "a         \n          \n          \n          \nb         \n          \n"},
+		{name: "a percentage min-height doesn't raise an item either", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;min-height:4"><div style="flex-basis:1;min-height:200%">a</div><div>b</div></div>`, want: "a         \nb         \n          \n          \n"},
+		// The explicit-height control: there the basis is definite, so the same
+		// percentage resolves and bites, capping growth at half of eight rows.
+		{name: "an explicit container height makes the percentage resolve", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:50%">a</div><div>b</div></div>`, want: "a         \n          \n          \n          \nb         \n          \n          \n          \n"},
 	})
 }
 
@@ -803,5 +890,32 @@ func TestFlexAlignmentIsSafeOnOverflow(t *testing.T) {
 		// align-items has negative free space of its own.
 		{name: "align-items:center keeps an over-tall item at the line's top", width: 6, html: `<div style="display:flex;width:100%;height:1;align-items:center"><div>a<br>b<br>c</div></div>`, want: "a     \nb     \nc     \n"},
 		{name: "align-items:flex-end keeps an over-tall item at the line's top", width: 6, html: `<div style="display:flex;width:100%;height:1;align-items:flex-end"><div>a<br>b<br>c</div></div>`, want: "a     \nb     \nc     \n"},
+	})
+}
+
+// TestFlexSpaceAroundEdgesStayEqual pins that space-around's two edge pads come
+// out the same width whenever the free space allows it. The distribution used
+// to be built by splitting the leftover into 2n half-shares and recombining
+// them pairwise, and splitEvenly hands its remainder to the earliest parts, so
+// the surplus piled up at the start of the line: the four-column case below
+// came out as a 1-column leading pad, a 2-column gap, a 1-column gap and
+// nothing at all on the trailing edge. Weighting the n+1 real slots and
+// rounding by largest remainder puts the edges back in step, and makes
+// space-around agree with space-evenly where the two coincide.
+//
+// The trailing pad isn't visible directly (a block-level container fills its
+// width regardless), so each case reads it off where the last item lands.
+func TestFlexSpaceAroundEdgesStayEqual(t *testing.T) {
+	const row = `.r{display:flex;width:100%;justify-content:space-around}.r>div{width:2}`
+	runCases(t, []renderCase{
+		// 10 columns, three 2-wide items, 4 free: every slot rounds to 1, so the
+		// last item ends one column short of the right edge.
+		{name: "four free columns over three items pad every slot equally", width: 10, css: row, html: `<div class="r"><div>a</div><div>b</div><div>c</div></div>`, want: " a  b  c  \n"},
+		// 12 columns, two 2-wide items, 8 free: exact slots are 2/4/2.
+		{name: "an exactly divisible line splits into half, whole, half", width: 12, css: row, html: `<div class="r"><div>a</div><div>b</div></div>`, want: "  a     b   \n"},
+		// A single item is centered, both edges taking half the leftover. Seven
+		// free columns can't split evenly, so the odd one goes to the leading
+		// edge, the same way center's own integer division rounds.
+		{name: "a single item is centered", width: 9, css: row, html: `<div class="r"><div>a</div></div>`, want: "    a    \n"},
 	})
 }

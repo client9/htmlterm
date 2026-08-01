@@ -2,6 +2,7 @@ package render
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/client9/htmlterm/internal/textcell"
 	"golang.org/x/net/html"
@@ -98,6 +99,38 @@ func lastRune(tokens []wrapToken) (r rune, ok bool) {
 		}
 		return rs[len(rs)-1], true
 	}
+}
+
+// runLeadsWithSpace and runTrailsWithSpace report whether a coalesced text run
+// begins or ends with whitespace in its source. wordWrapTokens needs both
+// because splitting a run into words throws that whitespace away: it separates
+// words, so it is re-inserted between them as a single space, but the space at
+// either *edge* of the run separates the run from a neighboring box token, and
+// there is no word boundary left to carry it. See wordWrapTokens' sepPending.
+//
+// Both strip ANSI styling first. A styled run's leading space can sit behind an
+// SGR sequence, so testing the raw string's first byte reads the escape's `\x1b`
+// and reports no space at all.
+func runLeadsWithSpace(s string) bool {
+	rs := []rune(textcell.Strip(s))
+	return len(rs) > 0 && unicode.IsSpace(rs[0])
+}
+
+func runTrailsWithSpace(s string) bool {
+	rs := []rune(textcell.Strip(s))
+	return len(rs) > 0 && unicode.IsSpace(rs[len(rs)-1])
+}
+
+// trailingSpaceColumns counts the spaces a text run ends with, ignoring ANSI
+// styling. wordWrapTokens uses it to remember how much of what it just wrote
+// verbatim is whitespace it may drop at a soft wrap. See its trimTail.
+func trailingSpaceColumns(s string) int {
+	rs := []rune(textcell.Strip(s))
+	n := 0
+	for i := len(rs) - 1; i >= 0 && rs[i] == ' '; i-- {
+		n++
+	}
+	return n
 }
 
 // trailingBreaks counts consecutive brk tokens at the end of tokens.
@@ -255,8 +288,13 @@ const measureBlockWidthCap = 1 << 16
 
 // tokensNaturalWidth returns the width tokens would need if never
 // text-wrapped: the token-domain equivalent of maxVisibleLineWidth(text).
+// Measured as non-preformatted, matching how the same tokens are rendered by
+// every caller that measures them: table_render.go wraps a cell's content in
+// the same mode, and its nowrap path trims each rendered line's trailing
+// spaces outright. Measuring them in would size a column for columns the cell
+// then doesn't paint.
 func tokensNaturalWidth(tokens []wrapToken) int {
-	b, _ := wordWrapTokens(tokens, naturalWidthCap, "", 0)
+	b, _ := wordWrapTokens(tokens, naturalWidthCap, "", 0, false)
 	return b.width
 }
 
@@ -316,7 +354,25 @@ func blankVisibleContentTokens(tokens []wrapToken) []wrapToken {
 // coordinates. Callers up the composition chain shift these by their own
 // offset as they embed this result into a parent. See docs/RENDERING.md's
 // "Position tracking" section.
-func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWidth int) (box, map[*html.Node]Rect) {
+//
+// preformatted marks content in a white-space mode that preserves its own
+// spacing, meaning `pre` or `pre-wrap`. It changes one thing: the spaces in
+// front of a brk token survive. CSS removes a line's trailing spaces at a
+// soft wrap in every mode, this function's own default (see trimTail), but a
+// forced break is content rather than a fit decision, and pre-wrap keeps what
+// sits before it. Only renderBlockContentBox passes true. Everywhere else the
+// stream is a container's own inline content, where preformatted descendants
+// arrive as already-rendered box tokens, not as text tokens in a preserving
+// mode.
+//
+// A `<td>` or `<li>` declaring pre-wrap on *itself* is the gap that leaves:
+// its own inline content is wrapped as ordinary text, so the spaces before an
+// explicit break in it are dropped. Sizing is why. A table column's width
+// comes from tokensNaturalWidth, which measures the same tokens with no
+// element to read a white-space mode from, and a column measured narrower
+// than its cell then paints is worse than a lost trailing space that only a
+// background-color could reveal.
+func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWidth int, preformatted bool) (box, map[*html.Node]Rect) {
 	if width <= 0 {
 		width = 10
 	}
@@ -380,6 +436,31 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	// blank line, since consecutive <br><br> after a box is as intentional as
 	// after any other content.
 	boxJustClosed := false
+	// trimTail is how many trailing space columns sitting at the end of cur
+	// were written by the verbatim-run path below, which copies a text run out
+	// with its own leading and trailing whitespace intact. Every other writer
+	// sets it back to 0, so it never describes a box token's own content: an
+	// inline-block padded out to a declared width ends in real spaces that are
+	// the box, not whitespace around it, and a pre box's trailing spaces are
+	// its text. Closing a line clears it along with everything else pending.
+	//
+	// softClose consumes it. CSS removes a line's trailing spaces at a soft
+	// wrap, in every white-space mode that wraps at all, so they neither paint
+	// a background nor count toward the line's width. Without this, a run short
+	// enough to be copied verbatim, followed by a box too wide to fit beside
+	// it, left its space stranded at the end of the line: `aaaaaa <span
+	// style="display:inline-block">XX</span>` in eight columns pushed the box
+	// to the next line and kept "aaaaaa " on the first, one column wider than
+	// its own text, with any background-color painting that extra cell.
+	// Word-split text never had the problem, since placeWord writes each
+	// separator in front of the word that follows it rather than behind the
+	// word before it.
+	//
+	// A structural break is deliberately not a soft wrap. `white-space:
+	// pre-wrap` preserves the spaces before an explicit <br>, and the ones at
+	// the very end of a block are already trimmed by renderBlockContentBox,
+	// which knows the white-space mode this function is not told.
+	trimTail := 0
 	closeAndPush := func() {
 		if cur.Len() == 0 && boxJustClosed {
 			boxJustClosed = false
@@ -394,6 +475,28 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		curLen = 0
 		curPre = false
 		freshLine = true
+		trimTail = 0
+	}
+	// softClose ends the current line at a soft wrap, a break taken to make
+	// room for something rather than one the content asked for. See trimTail.
+	softClose := func() {
+		if trimTail > 0 {
+			s := cur.String()
+			trimmed := s
+			for range trimTail {
+				t, ok := textcell.TrimTrailingSpace(trimmed)
+				if !ok {
+					break
+				}
+				trimmed = t
+			}
+			if trimmed != s {
+				cur.Reset()
+				cur.WriteString(trimmed)
+				curLen -= textcell.VisibleLen(s) - textcell.VisibleLen(trimmed)
+			}
+		}
+		closeAndPush()
 	}
 	ensureOpen := func() {
 		if freshLine {
@@ -416,12 +519,13 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			space = ""
 		}
 		if curLen+len(space)+vl > curWidth() && curLen > 0 {
-			closeAndPush()
+			softClose()
 			space = ""
 		}
+		trimTail = 0
 		if breakMode == "break-word" && vl > width {
 			if curLen > 0 {
-				closeAndPush()
+				softClose()
 			}
 			chunks, endCarry := textcell.SplitAtWidth(tok, width, carry)
 			carry = endCarry
@@ -446,14 +550,31 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 	// whatever precedes or follows it. Unlike placeWord, it never inserts an
 	// automatic space, since a box token boundary is an element boundary and
 	// doesn't imply source whitespace the way a textcell.SplitTokens word
-	// boundary does. Any real whitespace there is already its own preceding
-	// or following text token. Its content is already fully self-styled, so
-	// it neither reopens the surrounding carry nor scans into it. isPre
-	// marks the whole resulting line pre if this glued box itself was pre.
-	placeGlued := func(line string, w int, isPre bool) (row, col int) {
-		if curLen+w > curWidth() && curLen > 0 {
-			closeAndPush()
+	// boundary does. Its content is already fully self-styled, so it neither
+	// reopens the surrounding carry nor scans into it. isPre marks the whole
+	// resulting line pre if this glued box itself was pre.
+	//
+	// sep asks for one separating space first, for the one case where real
+	// source whitespace before the box has no other way to reach the output:
+	// the preceding text run ended with a space and was split into words,
+	// which drops it. A space at a line start is not written, matching CSS's
+	// own collapsing of one there. When the box no longer fits once the space
+	// is counted, the line breaks instead: that space is a wrap opportunity,
+	// and dropping it to squeeze the box onto the line would run the box into
+	// the word before it.
+	placeGlued := func(line string, w int, isPre bool, sep bool) (row, col int) {
+		if sep && curLen > 0 {
+			if curLen+1+w <= curWidth() {
+				cur.WriteString(" ")
+				curLen++
+			} else {
+				softClose()
+			}
 		}
+		if curLen+w > curWidth() && curLen > 0 {
+			softClose()
+		}
+		trimTail = 0
 		row, col = len(outLines), curLen
 		cur.WriteString(line)
 		curLen += w
@@ -466,8 +587,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 
 	placeBreakAll := func(text string) {
 		if curLen > 0 {
-			closeAndPush()
+			softClose()
 		}
+		trimTail = 0
 		chunks, endCarry := textcell.SplitAtWidth(text, width, carry)
 		carry = endCarry
 		for k, chunk := range chunks {
@@ -481,11 +603,34 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 		}
 	}
 
+	// sepPending records that the run just placed ended with source whitespace
+	// that word-splitting discarded, so the next thing placed on this line has
+	// to be separated from it by a space. Only a box token consults it: two
+	// words always get placeWord's own separator, and a run boundary only ever
+	// falls next to a brk or a box (coalesceTextRuns merges everything else).
+	//
+	// Without it, whitespace on either side of an atomic inline box was lost
+	// whenever the neighboring text run was tokenized rather than placed
+	// verbatim: `x <input> y` came out as `x ☐y`, and a run long enough to wrap
+	// before an inline-block lost the space in front of it as well. The
+	// verbatim path needs no flag, since it writes the run's own spaces out
+	// as they stand.
+	sepPending := false
 	for _, t := range coalesced {
 		switch {
 		case t.brk:
-			closeAndPush()
+			// A forced break is not a soft wrap, so the trailing spaces before
+			// it are only dropped where the white-space mode collapses them
+			// anyway. See wordWrapTokens' preformatted parameter.
+			if preformatted {
+				closeAndPush()
+			} else {
+				softClose()
+			}
 			firstSegmentDone = true
+			// The break absorbs it: a line's own trailing space is trimmed,
+			// and a leading one at the start of the next line collapses away.
+			sepPending = false
 		case t.box != nil:
 			bx := *t.box
 			lines := bx.lines
@@ -499,8 +644,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 			// the same way any other CSS content does by default.
 			if len(lines) > 1 {
 				if curLen > 0 {
-					closeAndPush()
+					softClose()
 				}
+				trimTail = 0
 				startRow := len(outLines)
 				for i, ln := range lines {
 					pushLine(ln, len(bx.pre) > i && bx.pre[i])
@@ -514,6 +660,9 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				curLen = 0
 				firstSegmentDone = true
 				boxJustClosed = true
+				// Same as a brk: the box ended the line it was on, so a
+				// space pending in front of it has nowhere left to go.
+				sepPending = false
 			} else {
 				line := ""
 				isPre := false
@@ -521,7 +670,8 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 					line = lines[0]
 					isPre = len(bx.pre) > 0 && bx.pre[0]
 				}
-				row, col := placeGlued(line, w, isPre)
+				row, col := placeGlued(line, w, isPre, sepPending)
+				sepPending = false
 				if t.node != nil {
 					positions[t.node] = Rect{Row: row, Col: col, Width: w, Height: 1}
 				}
@@ -532,7 +682,10 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				continue
 			}
 			if breakMode == "break-all" {
+				// SplitAtWidth keeps the run's own characters, spaces
+				// included, so nothing is left pending.
 				placeBreakAll(t.text)
+				sepPending = false
 				continue
 			}
 			// A run starting fresh, with nothing pending on the current
@@ -551,6 +704,12 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 					cur.WriteString(t.text)
 					curLen = vl
 					carry.Scan(t.text)
+					// Written out as it stands, trailing space included, so
+					// there is nothing left pending. Those spaces are the
+					// ones softClose drops if this line turns out to end
+					// here.
+					sepPending = false
+					trimTail = trailingSpaceColumns(t.text)
 					continue
 				}
 			}
@@ -560,13 +719,24 @@ func wordWrapTokens(tokens []wrapToken, width int, breakMode string, firstLineWi
 				// which is rare. Place it as one glued unit rather than
 				// silently dropping it, as textcell.SplitTokens would.
 				placeWord(t.text, true)
+				sepPending = false
+				trimTail = trailingSpaceColumns(t.text)
 				continue
 			}
-			first := true
+			// The first word of a run glues to whatever precedes it: a run
+			// boundary is an element boundary, which implies no whitespace of
+			// its own. Real whitespace at that boundary is the exception, and it
+			// lives at the edge of the run's own text, exactly where word
+			// splitting is about to discard it. So a run that starts with a
+			// space takes placeWord's separator instead of gluing, and one that
+			// ends with a space leaves that separator pending for whatever box
+			// comes next.
+			glue := !runLeadsWithSpace(t.text) && !sepPending
 			for _, tok := range toks {
-				placeWord(tok, first)
-				first = false
+				placeWord(tok, glue)
+				glue = false
 			}
+			sepPending = runTrailsWithSpace(t.text)
 		}
 	}
 	if cur.Len() > 0 || len(outLines) == 0 {

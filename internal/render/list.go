@@ -156,7 +156,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 		// (wrap once via renderInline at contentWidth, split on "\n", then
 		// wrap the first line again narrower and string-concatenate the
 		// prefix on front).
-		body, itemPositions := wordWrapTokens(tokens, contentWidth, "", firstLineWidth)
+		body, itemPositions := wordWrapTokens(tokens, contentWidth, "", firstLineWidth, false)
 		itemStartRow := outRow
 		for i, line := range body.lines {
 			switch {

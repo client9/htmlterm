@@ -496,7 +496,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if breakMode == "" {
 			breakMode = decls["word-break"]
 		}
-		b, positions = wordWrapTokens(tokens, innerW, breakMode, 0)
+		b, positions = wordWrapTokens(tokens, innerW, breakMode, 0, ws == "pre" || ws == "pre-wrap")
 		wasWrapped = !hasStructure && len(b.lines) > 1
 	}
 

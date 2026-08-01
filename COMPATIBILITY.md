@@ -234,8 +234,17 @@ For the design rationale behind the DOM/Events/rendering internals, see
   than one line tall, its line breaks go into the flow as-is instead of the
   box being placed beside the text on the same baseline, so the text before
   and after it ends up on separate rows. Keep such boxes to a single line if
-  they share a line with text. Easiest to hit via `inline-flex`, where any
-  item that wraps makes the container two lines tall.
+  they share a line with text. Easiest to hit via `inline-flex`, where a
+  border, or any item that wraps, already makes the container two lines tall.
+- **An `inline-block` element's own border and padding are not drawn.** The
+  inline flow renders such an element by laying out its content and applying
+  its `width`, which is the property CSS.md's `display` entry names as what
+  `inline-block` adds to `inline`. The rest of the box model is skipped, so
+  `display: inline-block; border-style: solid` paints no border and reserves no
+  columns for one. `inline-flex` is the exception rather than the rule here: it
+  is rendered through the same box model a block-level `display: flex`
+  container uses, so its border, padding, margin, and overflow clipping all
+  apply.
 - **Flex alignment is `safe`, not `unsafe`, when content overflows.** With
   negative free space, `justify-content`/`align-content` and
   `align-items`/`align-self` all pack against the start edge, as if the value

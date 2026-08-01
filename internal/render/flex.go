@@ -385,17 +385,39 @@ func isVisibleOverflow(v string) bool {
 	return v == "" || v == "visible"
 }
 
+// indefiniteMainSize is the axisSize a caller passes to say that percentages
+// have nothing to resolve against on this axis, which resolveFlexCSSSize
+// reports as no length at all.
+//
+// Only column direction's main axis is ever indefinite here. A row's width is
+// however wide the caller says to render at, and a column container's cross
+// axis is that same width, but a column container's *height* is definite only
+// when it declares one (see resolveFlexContainerHeight). Passing a plain 0 for
+// that case is what this constant exists to prevent: 0 is a perfectly good
+// percentage basis arithmetically, so `max-height: 50%` came back as a definite
+// maximum of zero rows rather than as an absent one, and froze the item at one
+// row instead of leaving it unbounded. See layoutFlexColumn's pctBasis.
+const indefiniteMainSize = -1
+
 // resolveFlexCSSSize is resolveCSSSize (block.go) over parseFlexSizeVal, so a
 // declared zero reads as a real length rather than as an absent one. See
 // parseFlexSizeVal. Used where the difference between "0" and unset carries
 // meaning, which in flex layout is min-width's opt-out from the automatic
 // minimum size.
+//
+// A percentage against indefiniteMainSize is not a length. CSS resolves a
+// percentage size against an indefinite basis to `auto` (for a preferred size)
+// or `none` (for a maximum), so reporting false, and leaving every caller to
+// fall through to whatever it does for an unset value, is exactly that rule.
 func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
 	abs, pct, ok := parseFlexSizeVal(s)
 	if !ok {
 		return 0, false
 	}
 	if pct > 0 {
+		if axisSize < 0 {
+			return 0, false
+		}
 		return int(pct * float64(axisSize)), true
 	}
 	return abs, true
@@ -416,6 +438,23 @@ func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
 func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
 	if v, ok := resolveFlexCSSSize(decls[key], axisSize); ok {
 		return max(1, v)
+	}
+	return 0
+}
+
+// flexGrowHeightCeiling is flexGrowCeiling on the vertical axis, where the
+// ceiling and the size it caps are not measured in the same box. Flex layout
+// resolves outer sizes, border rules and padding rows included, while
+// max-height is content-box in this engine, so the item's own vertical chrome
+// is added back before the ceiling is compared against a main size. That is the
+// same conversion clampFlexMainHeight, flexMainAxisHeightFloor, and
+// layoutFlexLine's stretch cap all make. Without it here, a bordered item
+// stopped growing exactly its own border and padding rows short of its
+// max-height. Row direction needs no counterpart, since width is a border-box
+// size already.
+func flexGrowHeightCeiling(decls map[string]string, axisSize int) int {
+	if v, ok := resolveFlexCSSSize(decls["max-height"], axisSize); ok {
+		return max(1, v+blockVerticalChrome(decls))
 	}
 	return 0
 }
@@ -1051,13 +1090,34 @@ func blockVerticalChrome(decls map[string]string) int {
 	return rows
 }
 
+// blockHorizontalChrome is how many columns of a box's total painted width are
+// its own chrome rather than its content: horizontal margin, drawn left and
+// right border characters, and left and right padding. It is
+// blockVerticalChrome's
+// counterpart, and the difference between a flex container's inner content
+// width and the availWidth renderFlexContentBox has to be handed to paint that
+// content at exactly that width. An `auto` margin contributes nothing, matching
+// resolveMarginSide's own reading of it.
+//
+// Border characters are measured in terminal columns, not runes, since a
+// border glyph can legitimately be double-width.
+func blockHorizontalChrome(decls map[string]string, availWidth int) int {
+	bl, br, _, _, _, _, _, _ := resolveBoxBorders(decls)
+	ml, _ := resolveMarginSide(decls["margin-left"], availWidth)
+	mr, _ := resolveMarginSide(decls["margin-right"], availWidth)
+	return ml + mr + textcell.Width(bl.char) + textcell.Width(br.char) +
+		parsePaddingLen(decls["padding-left"]) + parsePaddingLen(decls["padding-right"])
+}
+
 // parseColumnFlexBasis resolves a column-direction flex item's flex-basis to
 // an absolute line count, reporting false when there is no declared base size
 // to use: flex-basis unset, `auto`, `content`, or a percentage with no definite
 // container height to resolve against. Real CSS treats a percentage flex-basis
 // as auto when the container's own main size is indefinite, which this engine
 // only ever considers "definite" when an explicit CSS height is set on the
-// container (see resolveFlexContainerHeight).
+// container (see resolveFlexContainerHeight). containerHeight is
+// indefiniteMainSize in that case, which is what resolveFlexCSSSize reads to
+// drop the percentage.
 //
 // A declared flex-basis of 0 is a definite base size of nothing, not an absent
 // one, and is returned as 0 with ok true (see parseFlexSizeVal). The rule that
@@ -1065,22 +1125,12 @@ func blockVerticalChrome(decls map[string]string) int {
 // the item's minimum, not here. The base size is an arithmetic input to
 // flex-grow, and flooring it at one line is what leaves `flex: 1` items a row
 // off their true shares.
-func parseColumnFlexBasis(decls map[string]string, containerHeight int, hasContainerHeight bool) (int, bool) {
+func parseColumnFlexBasis(decls map[string]string, containerHeight int) (int, bool) {
 	v := decls["flex-basis"]
 	if v == "" || v == "auto" {
 		return 0, false
 	}
-	abs, pct, ok := parseFlexSizeVal(v)
-	if !ok {
-		return 0, false
-	}
-	if pct > 0 {
-		if !hasContainerHeight {
-			return 0, false
-		}
-		return int(pct * float64(containerHeight)), true
-	}
-	return abs, true
+	return resolveFlexCSSSize(v, containerHeight)
 }
 
 // clampFlexMainHeight clamps a column-direction main-axis size to the item's
@@ -1451,14 +1501,33 @@ func distributeJustify(justify string, leftover, n int) (leadPad int, gaps []int
 		}
 		copy(gaps, splitEvenly(leftover, n-1))
 	case "space-around":
-		// Each item gets an equal share centered on it, so the edge pads are
-		// half a share and the pad between two items is two halves. Splitting
-		// into 2n half-shares and recombining keeps the rounding remainder
-		// spread across the line rather than landing on one edge.
-		halves := splitEvenly(leftover, 2*n)
-		leadPad = halves[0]
+		// Each item gets an equal share centered on it, so the two edge pads are
+		// half a share each and the pad between two items is two halves. That is
+		// n+1 slots weighted [0.5, 1, 1, ..., 1, 0.5], handed to the same
+		// largest-remainder split flex-grow's own shares use: each slot takes the
+		// floor of its exact size, then the units flooring left over go one
+		// apiece to the slots with the largest fractional parts.
+		//
+		// Splitting into 2n half-shares and recombining them pairwise, which is
+		// what this used to do, put the remainder wherever the *halves* fell
+		// rather than where the real slots are, and splitEvenly hands its own
+		// remainder to the earliest parts. Both surpluses therefore piled up at
+		// the start of the line. Three items with four free columns came out as
+		// a 1-column leading pad, a 2-column gap, a 1-column gap, and nothing at
+		// all on the trailing edge, where space-evenly gives every slot 1 on the
+		// same input. Weighting the real slots directly keeps the two edges equal
+		// whenever the arithmetic allows it.
+		weights := make([]float64, n+1)
+		slots := make([]int, n+1)
+		for i := range weights {
+			weights[i] = 1
+			slots[i] = i
+		}
+		weights[0], weights[n] = 0.5, 0.5
+		shares := proportionalShares(weights, slots, leftover)
+		leadPad = shares[0]
 		for i := range gaps {
-			gaps[i] = halves[2*i+1] + halves[2*i+2]
+			gaps[i] = shares[i+1]
 		}
 	case "space-evenly":
 		// n+1 equal pads, one before the first item, one between each pair, and
@@ -2011,10 +2080,20 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	// min-height), so it isn't known until the content is laid out, and real CSS
 	// treats a percentage against an indefinite basis as auto. Only an explicit
 	// height feeds percentage resolution below, in parseColumnFlexBasis,
-	// clampFlexMainHeight, flexShrinkFloor, and flexGrowCeiling. containerHeight
-	// itself is used for the row arithmetic, where a min-height is a good
-	// target to grow into and pad out to.
-	pctHeight, hasPctHeight := resolveFlexContainerHeight(decls)
+	// clampFlexMainHeight, flexMainAxisHeightFloor, and flexGrowHeightCeiling.
+	// containerHeight itself is used for the row arithmetic, where a min-height
+	// is a good target to grow into and pad out to.
+	//
+	// The indefinite case is carried as indefiniteMainSize rather than as a
+	// plain 0. A zero basis resolves every percentage to zero, which is a
+	// *definite* bound of nothing, so `max-height: 50%` on an item in a
+	// min-height-only container froze it at one row and `flex-basis: 4;
+	// max-height: 75%` rendered one row instead of four. Both should have
+	// ignored the percentage outright, which is what a browser does.
+	pctBasis := indefiniteMainSize
+	if h, ok := resolveFlexContainerHeight(decls); ok {
+		pctBasis = h
+	}
 
 	// margin-left/margin-right on a flex item needs no separate handling
 	// here. See layoutFlexRow's doc comment on the same point: the block
@@ -2064,7 +2143,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			crossSized[i] = true
 		}
 		widths[i] = max(1, w)
-		declBasis[i], hasBasis[i] = parseColumnFlexBasis(it.decls, pctHeight, hasPctHeight)
+		declBasis[i], hasBasis[i] = parseColumnFlexBasis(it.decls, pctBasis)
 		if hasBasis[i] {
 			// The declared base is clamped by the item's own minimum and
 			// maximum before it is rendered at all. Real CSS resolves an
@@ -2076,7 +2155,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			// max-height, since block.go ranks an explicit height above it by
 			// design, and a `flex-basis: 6; max-height: 1` item rendered six
 			// rows tall.
-			renderH[i] = clampFlexMainHeight(it.decls, declBasis[i], pctHeight)
+			renderH[i] = clampFlexMainHeight(it.decls, declBasis[i], pctBasis)
 		}
 	}
 
@@ -2178,7 +2257,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			allIdx[i] = i
 			grows[i] = it.grow
 			shrinks[i] = it.shrink
-			ceilings[i] = flexGrowCeiling(it.decls, "max-height", pctHeight)
+			ceilings[i] = flexGrowHeightCeiling(it.decls, pctBasis)
 		}
 		switch {
 		case leftover > 0:
@@ -2200,7 +2279,7 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 			// fit would turn a floor into a ceiling.
 			floors := make([]int, len(items))
 			for i, it := range items {
-				floors[i] = r.flexMainAxisHeightFloor(it, renderItems[i], widths[i], heights[i], renderH[i], pctHeight)
+				floors[i] = r.flexMainAxisHeightFloor(it, renderItems[i], widths[i], heights[i], renderH[i], pctBasis)
 			}
 			leftover = -distributeFlexShrink(finalHeights, shrinks, baseH, floors, allIdx, -leftover)
 		}
@@ -2526,35 +2605,57 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	return content, positions
 }
 
-// renderInlineFlexContent renders a display:inline-flex element's row or column
-// layout at availWidth, a wrap-context bound rather than a literal target
-// width, the same convention inline-block already uses. It is returned as a
-// plain string because, like inline-block, an inline-flex container is one
-// atomic trackable unit. See inline.go's nested "inline-block" case for the
-// identical, already-accepted rationale. Its own position is tracked by the
-// caller boxing this string, but individual descendants inside it are not.
+// renderInlineFlexContent renders a display:inline-flex element's whole box at
+// availWidth, a wrap-context bound rather than a literal target width, the same
+// convention inline-block already uses. It is returned as a plain string
+// because, like inline-block, an inline-flex container is one atomic trackable
+// unit. See inline.go's nested "inline-block" case for the identical,
+// already-accepted rationale. Its own position is tracked by the caller boxing
+// this string, but individual descendants inside it are not.
+//
+// The box comes from renderFlexContentBox, the same margin/border/padding model
+// a block-level display:flex container uses, so an inline-flex container's own
+// border, padding, margin, and overflow-x/overflow-y clipping all behave as
+// they do everywhere else. This used to call layoutFlex directly, which is only
+// the *content* half of that model, so every one of those was silently dropped:
+// a bordered inline-flex painted no border at all, and CSS.md's promise that
+// overflow-x/overflow-y clip a `flex`/`inline-flex` container held for one of
+// the two.
 //
 // availWidth is only a bound. An inline-flex container is shrink-to-fit, since
-// real CSS sizes it by fit-content rather than by its containing block, so it
-// lays out at its own natural extent whenever that's narrower. Handing
-// availWidth straight through as the container's main size instead made it a
-// *definite* size that flex-grow and justify-content then had free space to
-// spread items across: `display: inline-flex; justify-content: space-between`
-// pushed its items to the far edges of the surrounding text's wrap bound rather
-// than sitting compactly wherever it was placed.
+// real CSS sizes it by fit-content rather than by its containing block, while
+// renderFlexContentBox fills whatever width it is handed, which is correct for
+// the block-level container it was written for. Narrowing the bound to the
+// container's own natural outer extent first is what reconciles the two: the
+// fill then stops at the content's own width. Handing the full bound over
+// instead makes it a *definite* size that flex-grow and justify-content have
+// free space to spread items across, so `display: inline-flex;
+// justify-content: space-between` pushes its items to the far edges of the
+// surrounding text's wrap bound rather than sitting compactly wherever it was
+// placed.
+//
+// A declared width opts out of the narrowing entirely, since it is a definite
+// size and renderFlexContentBox resolves it against the original bound. So do
+// min-width and max-width, but only inside that resolution: both are applied to
+// the *narrowed* width there, which is what makes a max-width smaller than the
+// content shrink the container while one larger than it leaves a shrink-to-fit
+// box alone rather than padding it out to the maximum.
 func (r *Engine) renderInlineFlexContent(n *html.Node, decls map[string]string, availWidth int) string {
 	if r.measuringNaturalWidth && availWidth > measureBlockWidthCap {
 		availWidth = measureBlockWidthCap
 	}
-	if w, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained && w > 0 {
-		// A declared width, or a min-width or max-width that bites, is a
-		// definite main size. Shrink-to-fit is what an *auto* size resolves to,
-		// and justify-content and flex-grow do have that space to distribute.
-		availWidth = w
-	} else if natural := r.inlineFlexNaturalWidth(n, decls, availWidth); natural > 0 && natural < availWidth {
-		availWidth = natural
+	if _, definite := resolveCSSSize(decls["width"], availWidth); !definite {
+		// The natural extent is measured inside the container's own chrome and
+		// the bound is narrowed outside it, so the two are the same box:
+		// renderFlexContentBox subtracts that chrome straight back off to reach
+		// the inner width the measurement was taken at.
+		chrome := blockHorizontalChrome(decls, availWidth)
+		budget := max(1, availWidth-chrome)
+		if natural := r.inlineFlexNaturalWidth(n, decls, budget); natural > 0 && natural+chrome < availWidth {
+			availWidth = natural + chrome
+		}
 	}
-	b, _ := r.layoutFlex(n, decls, availWidth)
+	b, _ := r.renderFlexContentBox(n, decls, availWidth)
 	return b.join()
 }
 

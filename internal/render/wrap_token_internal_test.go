@@ -18,7 +18,7 @@ func TestWordWrapTokensBoxMidParagraph(t *testing.T) {
 		{box: &bx, node: node},
 		{text: "after"},
 	}
-	got, positions := wordWrapTokens(tokens, 20, "", 0)
+	got, positions := wordWrapTokens(tokens, 20, "", 0, false)
 	want := []string{"before", "X", "Y", "after"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
@@ -42,7 +42,7 @@ func TestWordWrapTokensInlineBlockSiblingsShareLine(t *testing.T) {
 		{box: &boxA, node: nodeA},
 		{box: &boxB, node: nodeB},
 	}
-	got, positions := wordWrapTokens(tokens, 20, "", 0)
+	got, positions := wordWrapTokens(tokens, 20, "", 0, false)
 	want := []string{"AAAAABBBBB"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
@@ -65,7 +65,7 @@ func TestWordWrapTokensInlineBlockSiblingsShareLine(t *testing.T) {
 func TestWordWrapTokensOversizedBoxOverflows(t *testing.T) {
 	bx := box{lines: []string{"0123456789"}, width: 10}
 	tokens := []wrapToken{{box: &bx}}
-	got, _ := wordWrapTokens(tokens, 5, "", 0)
+	got, _ := wordWrapTokens(tokens, 5, "", 0, false)
 	want := []string{"0123456789"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
@@ -86,7 +86,7 @@ func TestWordWrapTokensTextForcesBreakAroundTallBox(t *testing.T) {
 		{box: &bx},
 		{text: "right"},
 	}
-	got, _ := wordWrapTokens(tokens, 20, "", 0)
+	got, _ := wordWrapTokens(tokens, 20, "", 0, false)
 	want := []string{"left", "X", "Y", "Z", "right"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
@@ -101,7 +101,7 @@ func TestWordWrapTokensBrkForcesBreak(t *testing.T) {
 		{brk: true},
 		{text: "b"},
 	}
-	got, _ := wordWrapTokens(tokens, 20, "", 0)
+	got, _ := wordWrapTokens(tokens, 20, "", 0, false)
 	want := []string{"a", "b"}
 	if !reflect.DeepEqual(got.lines, want) {
 		t.Fatalf("lines = %#v, want %#v", got.lines, want)
