@@ -9,11 +9,11 @@ import (
 
 // applyRelativeOffsets walks doc for every element with position: relative
 // (and a non-zero top/right/bottom/left offset) whose Rect was recorded in
-// positions, and shifts its painted content — cutting its own rectangle out
+// positions, and shifts its painted content, cutting its own rectangle out
 // of lines, blanking the original, splicing it back in at the offset
-// location — along with its own and its descendants' recorded Rects, so
+// location, along with its own and its descendants' recorded Rects, so
 // hit-testing (document.elementAt) matches what's actually drawn. width is
-// the horizontal bound lines is clamped against — see docs/RENDERING.md's
+// the horizontal bound lines is clamped against. See docs/RENDERING.md's
 // "Popups / z-order" section for the splice/extract primitives this reuses,
 // and this function's own doc comment there for why this is a post-layout
 // compositing pass rather than a change to renderBlockContentBox's layout
@@ -23,11 +23,11 @@ import (
 // Two callers: Engine.RenderNode, after capBlankRuns/forceHeight (so row
 // indices are final) and before applyOutOfFlow/compositeOpenSelects (so an
 // out-of-flow or open-<select> element that is itself position: relative
-// anchors off the shifted position, not the original layout slot) — doc is
+// anchors off the shifted position, not the original layout slot). doc is
 // the whole document and width is e.width there. And applyOutOfFlow's Phase
 // A, on a single out-of-flow element's own freshly rendered box (doc is
 // that element, lines/positions are its own local box/subPositions, width
-// is that box's own width) — this is what makes a position: relative
+// is that box's own width). This is what makes a position: relative
 // descendant nested inside position: absolute/fixed content shift at all;
 // without it, such a descendant is never in Engine.RenderNode's top-level
 // positions map (its whole subtree was skipped during normal layout, see
@@ -37,7 +37,7 @@ import (
 // splice can paint over an earlier one's shifted content (no z-index for
 // position: relative itself, though an out-of-flow element with position:
 // relative content nested inside it does still get z-index-ordered against
-// other out-of-flow elements — see outofflow.go). A shift that would move
+// other out-of-flow elements; see outofflow.go). A shift that would move
 // content outside lines' current row/col bounds is clamped rather than
 // growing the canvas.
 func (e *Engine) applyRelativeOffsets(doc *html.Node, lines []string, positions map[*html.Node]Rect, width int) ([]string, map[*html.Node]Rect) {
@@ -64,7 +64,8 @@ func (e *Engine) applyRelativeOffsets(doc *html.Node, lines []string, positions 
 // top wins over bottom and left wins over right when both sides of an axis
 // are set (non-auto); resolveMarginSide (box.go) already treats "auto" as a
 // 0 offset, which is exactly the fallback behavior wanted here. Percentage
-// values resolve against width (left/right) or docHeight (top/bottom) — an
+// values resolve against width, for left and right, or docHeight, for top
+// and bottom. An
 // approximation of the real spec's containing-block-relative percentage
 // resolution, consistent with how percentages are already approximated
 // elsewhere in this renderer.

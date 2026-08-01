@@ -6,8 +6,8 @@ import "strings"
 // `display: flex` are the same declaration, the way `DISPLAY:` and `display:`
 // are the same property. Property names have always been folded here (see
 // css.go's commitDecl), but values were stored verbatim, so every keyword
-// comparison in internal/render — all of which spell their keywords in
-// lowercase — silently missed an author who didn't. `display: FLEX` laid out as
+// comparison in internal/render, all of which spell their keywords in
+// lowercase, silently missed an author who didn't. `display: FLEX` laid out as
 // a plain block, `overflow: HIDDEN` clipped nothing, `border-collapse: COLLAPSE`
 // rendered as `separate`.
 //
@@ -18,10 +18,10 @@ import "strings"
 // caseSensitiveValueProps are the properties whose values carry a payload that
 // is *not* a keyword and must survive verbatim. Two kinds:
 //
-//   - author text, emitted as-is — `content` (which also carries counter()/
+//   - author text, emitted as-is: `content`, which also carries counter() and
 //     attr()/var() references and open-quote-style idents, all interleaved with
 //     strings, so it's excluded wholesale rather than picked apart) and `quotes`;
-//   - custom identifiers, which CSS defines as case-sensitive — the three
+//   - custom identifiers, which CSS defines as case-sensitive: the three
 //     counter properties, whose names really do distinguish `Xy` from `xy`
 //     (counter-reset: Xy then counter(xy) legitimately reads a different,
 //     unset counter).
@@ -33,9 +33,9 @@ import "strings"
 // Custom properties (`--*`) are excluded separately, via isCustomProp: both
 // their names and their values are case-sensitive per spec.
 //
-// Every *other* case-sensitive payload in this engine is a quoted string —
+// Every *other* case-sensitive payload in this engine is a quoted string:
 // `border-left: "▌"`, `border-top-left-corner: 'Z'`, `list-style-type: "→ "`,
-// `text-overflow: '…'`, `list-style-type: symbols('Ab' 'Cd')` — and
+// `text-overflow: '…'`, and `list-style-type: symbols('Ab' 'Cd')`, and
 // parseCSSString (render/block.go) requires the quotes, so those need no
 // per-property entry: the quote check in foldKeywordValue covers them all,
 // while still folding the same properties' unquoted keyword forms
@@ -56,7 +56,7 @@ var caseSensitiveValueProps = map[string]bool{
 // A value still containing an unresolved `var(` is left alone: custom property
 // names are case-sensitive, so folding `var(--Foo)` would break the reference.
 // Such a value is folded later, once substitution has replaced it with real
-// text — see foldDeclValues' call sites in cascade.go.
+// text; see foldDeclValues' call sites in cascade.go.
 func foldKeywordValue(prop, val string) string {
 	if caseSensitiveValueProps[prop] || isCustomProp(prop) {
 		return val

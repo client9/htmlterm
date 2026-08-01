@@ -15,15 +15,16 @@ type sgrState struct {
 	url   string
 }
 
-// paintLines writes lines — one already fully-rendered, self-contained ANSI
-// line per Document.Render()'s output, split on "\n" — into screen via
+// paintLines writes lines, one already fully-rendered, self-contained ANSI
+// line per Document.Render()'s output, split on "\n", into screen via
 // SetContent, one row per line. Used by Loop.paint (tcell_loop.go).
 //
 // nextLinkID hands out a fresh synthetic UrlId to every hyperlink opened
 // anywhere in this call (see applyHyperlink), rather than reusing one id
-// per distinct href. A shared id was tried first — tcell.Style.UrlId's own
+// per distinct href. A shared id was tried first, since tcell.Style.UrlId's
 // doc comment says it's meant to group a hyperlink spanning multiple lines
-// under one hoverable region — but tcell v3.4.0's renderer has a confirmed
+// own purpose is grouping cells under one hoverable region, but tcell
+// v3.4.0's renderer has a confirmed
 // bug where an *identical*, multi-cell style (including url+id) repeated
 // across a row boundary silently fails to re-emit the OSC8 sequence for
 // the second row, losing that row's hyperlink entirely, not just its
@@ -46,12 +47,12 @@ func paintLines(screen tcell.Screen, lines []string) {
 
 // writeANSILine decodes one already-rendered ANSI line into cells starting
 // at (0, row) via screen.SetContent, tracking SGR/hyperlink state as it
-// walks left to right — reusing x/ansi's decoder (consumeANSI, below) to
+// walks left to right, reusing x/ansi's decoder (consumeANSI, below) to
 // tokenize each escape sequence, the same way htmlterm's own ansiCarry
 // does internally. Column position advances by textcell.NextGrapheme per
 // visible grapheme cluster (usually one rune, occasionally several for
 // ZWJ/regional-indicator/VS16 sequences; 1 column normally, 2 for East
-// Asian wide/emoji clusters) — this must exactly match
+// Asian wide and emoji clusters). This must exactly match
 // ansiVisibleLen/wordWrapTokens' own column accounting, which measures the
 // same clusters the same way (both now go through
 // internal/textcell.NextGrapheme, backed by the same displaywidth library
@@ -60,16 +61,17 @@ func paintLines(screen tcell.Screen, lines []string) {
 // (an earlier, since-corrected assumption) desynced the painted frame from
 // the frame the CSS engine actually laid out and measured, shifting every
 // character after a wide emoji one column left of where htmlterm's layout
-// placed it — including, on lines that reached the pane's right edge, the
+// placed it, including, on lines that reached the pane's right edge, the
 // scrollbar gutter itself. tcell.Screen.SetContent's own doc comment
 // confirms the contract this depends on: "wide ... runes occupy two
 // cells, and attempts to place a character at the next cell to the right
-// will have undefined effects" — so a wide cluster's second cell must
+// will have undefined effects", so a wide cluster's second cell must
 // never receive its own SetContent call, which advancing col by the
 // cluster's full width (skipping straight past it) guarantees.
 //
 // Once line's content is exhausted, every remaining column up to width is
-// explicitly blanked (a space in the default style) — necessary because
+// explicitly blanked, with a space in the default style. That is necessary
+// because
 // tcell's Show only redraws cells this call actually touches via
 // SetContent; without this, a row that was longer on some earlier frame
 // (e.g. a text input before a Backspace, or before the document reflowed
@@ -119,7 +121,8 @@ func applySequence(state *sgrState, seq string, nextLinkID *int) {
 // vocabulary (reset, bold/dim/italic/underline/blink/reverse/strikethrough
 // and their "off" codes, basic/bright/default fg+bg, 256-color and
 // truecolor fg+bg) even though style.go's inlineStyle only ever emits a
-// subset of it (fg/bg color, bold, italic, underline, strikethrough) —
+// subset of it: foreground and background color, bold, italic, underline,
+// and strikethrough.
 // cheap to handle generically and avoids silently mis-rendering if that
 // vocabulary ever grows.
 func applySGR(state *sgrState, params string) {
@@ -217,7 +220,7 @@ func parseExtendedColor(rest []int) (color tcell.Color, consumed int) {
 // clampByte bounds an SGR truecolor parameter (parsed from arbitrary,
 // possibly-untrusted rendered text by strconv.Atoi, so not guaranteed to
 // fit in a byte) to 0-255 before its int32 conversion into
-// tcell.NewRGBColor — satisfies CodeQL's narrowing-conversion check with a
+// tcell.NewRGBColor. It satisfies CodeQL's narrowing-conversion check with a
 // real bounds check rather than a suppression comment, since NewRGBColor's
 // own `& 0xff` masking only bounds the final color value, not the
 // conversion that feeds it.
@@ -232,11 +235,11 @@ func clampByte(n int) int32 {
 }
 
 // applyHyperlink parses an OSC8 sequence (as emitted by ansi.SetHyperlink/
-// ResetHyperlink, block.go's wrapHyperlink/wrapHyperlinkBox — always
+// ResetHyperlink, and block.go's wrapHyperlink and wrapHyperlinkBox, always
 // "\x1b]8;;URI\x07" or "\x1b]8;;\x07" to reset, htmlterm never emits a
 // params/id segment itself) and updates state.style's Url/UrlId. An empty
 // URI clears the hyperlink; otherwise *nextLinkID mints a fresh id for
-// this occurrence and is incremented — see paintLines' doc comment for why
+// this occurrence and is incremented. See paintLines' doc comment for why
 // ids are never reused across occurrences.
 func applyHyperlink(state *sgrState, seq string, nextLinkID *int) {
 	rest := strings.TrimPrefix(seq, "\x1b]8;")

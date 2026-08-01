@@ -19,10 +19,11 @@ type hBorder struct {
 
 // tableStyle controls the outer border characters a named preset supplies
 // for a generic border box (block element, or a single cell under
-// border-collapse:separate) — resolveBoxBorders (block.go) is the only
+// border-collapse:separate). resolveBoxBorders (block.go) is the only
 // remaining consumer of this data (the legacy per-table shared-frame model
-// this struct originally also served — sep/header/rowSep fields, drawn by
-// table_render.go's now-deleted renderTableBody — was retired in favor of
+// this struct originally also served, via sep, header, and rowSep fields
+// drawn by table_render.go's now-deleted renderTableBody, was retired in
+// favor of
 // real per-cell borders; see table_separate.go/table_collapse.go, and
 // docs/TABLES.md).
 type tableStyle struct {
@@ -34,7 +35,7 @@ type tableStyle struct {
 }
 
 // edgeGlyphTop, edgeGlyphBottom, edgeGlyphLeft, edgeGlyphRight extract the
-// glyph a named preset uses for one outer edge - shared by
+// glyph a named preset uses for one outer edge. Shared by
 // resolveBorderEdgeChar's callers in both block.go (block border edges) and
 // table.go (table border edges), since both resolve against the same
 // tableStyle preset table.
@@ -55,7 +56,7 @@ func edgeGlyphBottom(ts tableStyle) string {
 func edgeGlyphLeft(ts tableStyle) string  { return ts.left }
 func edgeGlyphRight(ts tableStyle) string { return ts.right }
 
-// namedTableStyle returns the preset for a given border-style value —
+// namedTableStyle returns the preset for a given border-style value.
 // htmlterm's own whole-box vocabulary (not real CSS's per-edge line-style
 // keywords), used by resolveBoxBorders (block.go) for any border box:
 // block elements, and per-cell borders under border-collapse:separate.
@@ -130,7 +131,7 @@ func parseSizeVal(s string) (abs int, pct float64, ok bool) {
 // already-resolved declarations. The legacy HTML width attribute is
 // deliberately not consulted: in real-world markup (especially HTML email)
 // it's almost always a pixel value, and there's no reliable way to convert
-// pixels to terminal columns — treating it as a char count (as this engine
+// pixels to terminal columns. Treating it as a char count, as this engine
 // used to) forces columns to absurd widths. Use CSS width (e.g. "10ch") for
 // an unambiguous fixed character width.
 func (r *Engine) cellConstraints(decls map[string]string) colConstraints {
@@ -200,7 +201,7 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 	switch {
 	case fullWidth && total < contentWidth:
 		// Distribute extra space across uncapped flex columns, weighted by
-		// each column's own (already natural/min/max-clamped) width - so an
+		// each column's own width, already clamped by natural, min, and max, so an
 		// empty column (weight 0) gets none of it and a content-heavy column
 		// gets most of it, approximating CSS auto-table-layout's
 		// proportional-to-preferred-width distribution instead of splitting
@@ -347,7 +348,7 @@ func textOverflowSuffix(val string) string {
 	case "ellipsis":
 		return "…"
 	default:
-		// Custom string value — strip surrounding quotes.
+		// Custom string value: strip surrounding quotes.
 		return sanitizeTerminalText(strings.Trim(val, `"'`), false)
 	}
 }

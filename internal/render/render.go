@@ -23,7 +23,7 @@ func isTableLayoutDisplay(display string) bool {
 // element's content while keeping its layout space. `collapse` is included
 // because on anything that isn't a flex item (or a table row/column, which
 // this engine doesn't collapse either) the spec says it simply computes to
-// `hidden` - a *flex* item declaring it is dropped from layout entirely, and
+// `hidden`. A *flex* item declaring it is dropped from layout entirely, and
 // never reaches any of these call sites (see appendFlexItems).
 func isHiddenVisibility(v string) bool {
 	return v == "hidden" || v == "collapse"
@@ -50,8 +50,8 @@ func (r *Engine) renderRootTokens(doc *html.Node) []wrapToken {
 // in a terminal); everything else dispatches through renderRootDisplayTokens.
 //
 // Root-level text nodes have always used a fixed white-space:normal,
-// text-transform:none, tab-size:8 context — never derived from html/body's
-// own (rarely set) CSS — preserved here exactly, not something this
+// text-transform:none, tab-size:8 context, never derived from html or body's
+// own rarely-set CSS, preserved here exactly, not something this
 // migration changes.
 func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapToken {
 	switch n.Type {
@@ -63,7 +63,7 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 		// text == "" (not strings.TrimSpace(text) != "") deliberately: a
 		// standalone space between two root-level inline siblings (e.g.
 		// "<span>a</span> <b>b</b>") is meaningful content to preserve, not
-		// a structural artifact to discard — it's the only thing separating
+		// a structural artifact to discard: it's the only thing separating
 		// them once whitespace-only text nodes reach this point.
 		if text := normalizeWhiteSpace(sanitizeTerminalText(n.Data, true), "normal", 8); text != "" {
 			if lr, ok := lastRune(tokens); !ok || lr == '\n' || lr == ' ' {
@@ -87,7 +87,7 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 				}
 			}
 		case "wbr":
-			// word-break opportunity — no terminal equivalent; emit nothing
+			// word-break opportunity, with no terminal equivalent. Emit nothing
 		case "noscript":
 			var raw strings.Builder
 			for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -102,7 +102,7 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 			}
 			if raw.Len() > 0 {
 				// inner is a full Render() output, not a box.join()'d
-				// value — it has its own complete trailing-newline
+				// value, which has its own complete trailing-newline
 				// semantics already baked in (0, 1, or more, depending on
 				// its own content), so it's embedded verbatim, not trimmed.
 				inner, _ := r.Render(raw.String())
@@ -157,14 +157,14 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 
 // renderRootDisplayTokens is renderDisplayNode's token-based equivalent for
 // root-level content. Top-level <a> anchors get wrapHyperlink applied
-// regardless of display value (block/inline-block/default alike) — this
+// regardless of display value, whether block, inline-block, or default. This
 // asymmetry with inline.go's nested "block" case (which never wraps a
 // block-display anchor in a hyperlink) already existed before this
 // migration and is preserved, not introduced by it.
 func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wrapToken {
 	if r.outOfFlow[n] {
 		// position: absolute/fixed elements reserve no space in normal
-		// flow — applyOutOfFlow (outofflow.go) positions and paints them
+		// flow. applyOutOfFlow (outofflow.go) positions and paints them
 		// after layout finishes, same as compositeOpenSelects does for an
 		// open <select> popup, not here.
 		return tokens
@@ -181,7 +181,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		// renderBlockContentBox runs before consulting decls["margin-top"]:
 		// it may raise that value itself, when n's own first child's
 		// margin-top collapses through n's open top edge (block.go's
-		// leading-trim) - the pre-box separator below must see that
+		// leading-trim), the pre-box separator below must see that
 		// collapsed value, not the one resolveDecls produced.
 		bx, subPositions := r.renderBlockContentBox(n, decls, r.width)
 		if isHiddenVisibility(decls["visibility"]) {
@@ -189,7 +189,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			bx = blankVisibleContentBox(bx)
 		}
 		bx = r.wrapHyperlinkBox(href, bx)
-		// A block box always starts its own line regardless of margin-top —
+		// A block box always starts its own line regardless of margin-top, so
 		// matches inline.go's nested "block" case (pushBoxDirect always
 		// ensures at least 1 separator when there's preceding content); a
 		// non-zero margin-top only raises that minimum further.
@@ -220,7 +220,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		switch text, synthesized := r.synthesizedControlText(n, decls, acc, r.width); {
 		case synthesized:
 			// <input>/<select>/<progress>/<meter> build their content from
-			// attributes rather than from child nodes — see
+			// attributes rather than from child nodes; see
 			// synthesizedControlText (formcontrol.go).
 			inner = text
 		case decls["display"] == "inline-flex":
@@ -241,13 +241,13 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			// matching inline.go's nested inline-block case: inline-block
 			// content is deliberately one atomic unit regardless of height,
 			// and boxing it is also what makes it trackable via
-			// Document.Rect — a single-line <button>/<input> would
+			// Document.Rect. A single-line <button> or <input> would
 			// otherwise become a plain text token with no position at all.
 			bx := newBox(inner)
 			tokens = append(tokens, wrapToken{box: &bx, node: n})
 		}
 	case "contents":
-		// No box, no hyperlink wrap, regardless of n.Data — n's children
+		// No box, no hyperlink wrap, regardless of n.Data. n's children
 		// splice directly into the root token stream as if they were root
 		// siblings themselves. Mirrors inline.go's nested "contents" case.
 		acc := mergeContentsInlineStyle(newInlineStyle(), decls)
@@ -275,7 +275,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			// case: a hyperlink needs whole-string OSC8 wrapping, and a
 			// token-level equivalent isn't worth the complexity given how
 			// rarely a root-level anchor wraps further trackable
-			// descendants (e.g. a form control) — an accepted
+			// descendants, such as a form control. An accepted
 			// position-tracking gap for that specific, uncommon case.
 			acc := extractInlineStyle(decls)
 			savedDepth := r.quoteDepth
@@ -298,7 +298,7 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			// etc.): splice its own tokens directly instead of flattening
 			// to a string first, so a trackable descendant (e.g. an
 			// <input> inside a root-level <label>) keeps its box-token
-			// identity through to the root wordWrapTokens call — see
+			// identity through to the root wordWrapTokens call; see
 			// inline.go's matching nested case for the full rationale.
 			acc := extractInlineStyle(decls)
 			savedDepth := r.quoteDepth

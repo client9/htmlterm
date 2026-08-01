@@ -8,7 +8,7 @@ import (
 )
 
 // defaultBorderSpacing is border-spacing's value when unset. Real browsers
-// default to 2px, imperceptible against a typical line-height - but a
+// default to 2px, imperceptible against a typical line-height, but a
 // terminal "row" of spacing is a full line (100% of a row's height, not
 // ~10%), so a literal 1-character default reads as a much more prominent
 // gap than the real default it's meant to approximate (visually
@@ -32,7 +32,7 @@ func parseSpacingLen(v string) int {
 // <td>/<th> gets its own independently bordered box, built from the same
 // generic block-border primitives any other element uses
 // (resolveBoxBorders/applyBlockBordersBox/drawBlockHBorder/
-// clampCellPadding/parsePaddingLen — see docs/TABLES.md), with
+// clampCellPadding, and parsePaddingLen; see docs/TABLES.md), with
 // border-spacing as the gap between adjacent cell boxes and between the
 // table's own border and its outermost cells. This is the opposite of the
 // legacy renderTable model: that draws one shared frame/divider from a
@@ -42,14 +42,14 @@ func parseSpacingLen(v string) int {
 // reused completely unchanged from the legacy path (resolveTableGrid,
 // collectColDecls, gridColumnConstraints, estimateColumnWidths/
 // measureGridNaturalWidths, fillGridCellTokens, buildGridColumns,
-// fillGridCellLines) — only what happens once a cell's content lines are
-// ready (box it in its own border/padding, assemble rows/grid with
-// border-spacing gaps, wrap the table's own border/padding/margin around
-// the result) is new.
+// fillGridCellLines). Only what happens once a cell's content lines are
+// ready is new: boxing it in its own border and padding, assembling rows and
+// the grid with border-spacing gaps, and wrapping the table's own border,
+// padding, and margin around the result.
 //
 // This is also the real CSS default: border-collapse's initial value is
 // separate, so renderTable dispatches here for both unset and explicit
-// "separate" — only "collapse" goes anywhere else (table_collapse.go).
+// "separate". Only "collapse" goes anywhere else (table_collapse.go).
 func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls map[string]string) (string, map[*html.Node]Rect) {
 	colDecls := r.collectColDecls(n)
 	fullWidth := strings.TrimSpace(tableDecls["width"]) == "100%" && !r.measuringNaturalWidth
@@ -83,11 +83,11 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 	estWidths := estimateColumnWidths(colsEst, availWidth-overhead, fullWidth)
 	if estWidths == nil {
 		// CSS constraints alone weren't enough to estimate (two or more
-		// unconstrained flex columns) - measure each cell's real natural
+		// unconstrained flex columns. Measure each cell's real natural
 		// width up front, exactly as the legacy path does. spacingX is
 		// passed where the legacy path passes sepW: both represent "the
 		// width reclaimed by a spanning cell at each interior column
-		// boundary it crosses" - in separate mode that's the border-spacing
+		// boundary it crosses", which in separate mode is the border-spacing
 		// gap, since a spanning cell's own border box absorbs it directly
 		// rather than any shared divider character.
 		measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, spacingX)
@@ -116,7 +116,8 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 	gridBox, positions := r.composeSeparateGrid(grid, widths, colDecls, colBorderW, spacingX, spacingY)
 
 	// Wrap the table's own border/padding/margin around the assembled grid,
-	// exactly as any other block element would — resolveBoxBorders et al.
+	// exactly as any other block element would. resolveBoxBorders and the
+	// rest
 	// are pure decls-driven functions with no dependency on how the content
 	// inside them was produced. Order mirrors renderBlockContentBox's own
 	// documented sequence: vertical padding -> horizontal padding -> left/
@@ -187,12 +188,12 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 
 // separateColumnBorderOverhead resolves, per column, the border character
 // width (left+right) contributed by a single representative cell in that
-// column — the column's header cell if the table has one, else the first
-// row's cell occupying that column. Used only to size column-width
-// allocation up front; each cell still renders its own actual border
+// column: the column's header cell if the table has one, else the first
+// row's cell occupying that column. It is used only to size column-width
+// allocation up front. Each cell still renders its own actual border
 // independently (see composeSeparateGrid), so a column whose cells set
-// inconsistent border widths may not perfectly align — a documented Phase-1
-// simplification (see docs/TABLES.md) rather than something resolved
+// inconsistent border widths may not align perfectly. That is a documented
+// Phase-1 simplification (see docs/TABLES.md) rather than something resolved
 // generally here.
 func (r *Engine) separateColumnBorderOverhead(g tableGrid, colDecls []map[string]string, numCols int) []int {
 	out := make([]int, numCols)
@@ -219,7 +220,7 @@ func (r *Engine) separateColumnBorderOverhead(g tableGrid, colDecls []map[string
 	return out
 }
 
-// cellBorders caches one cell's resolved border/corner declarations —
+// cellBorders caches one cell's resolved border and corner declarations.
 // resolveBoxBorders is a pure function of a decls map, so this is computed
 // once per unique cell and reused across the height-equalization pass and
 // the final box-building pass in composeSeparateGrid.
@@ -229,10 +230,10 @@ type cellSeparateBorders struct {
 }
 
 // composeSeparateGrid builds the grid-of-independently-bordered-cells
-// content for border-collapse:separate — the counterpart to the legacy
-// path's renderTableBody, but composing each cell as its own complete box
-// (content, then padding, then border — the same primitives any other
-// block element uses) and splicing those boxes onto a blank canvas at
+// content for border-collapse:separate. It is the counterpart to the legacy
+// path's renderTableBody, but composes each cell as its own complete box,
+// content then padding then border, using the same primitives any other
+// block element uses, and splices those boxes onto a blank canvas at
 // their resolved (row, col) offset via textcell.SpliceColumns, rather than
 // interleaving one shared frame's characters directly into each output
 // line. Returned positions are relative to the grid's own (0,0) origin;
@@ -257,8 +258,8 @@ func (r *Engine) composeSeparateGrid(g tableGrid, widths []int, colDecls []map[s
 	// Row-height resolution: a single deficit-growing pass covers both
 	// rowSpan==1 and rowSpan>1 cells uniformly (unlike the legacy path's two
 	// separate passes, which only needs a second pass for rowSpan>1 since it
-	// never has to account for a cell's own border lines — here every cell's
-	// "need" includes however many border-top/border-bottom lines its own
+	// never has to account for a cell's own border lines. Here every cell's
+	// "need" includes however many border-top and border-bottom lines its own
 	// resolved border contributes, since two cells in the same row may have
 	// different border presence and the row must be tall enough for the
 	// tallest one).
@@ -388,9 +389,9 @@ func (r *Engine) composeSeparateGrid(g tableGrid, widths []int, colDecls []map[s
 		}
 
 		// Allocated slot width may differ slightly from this cell's own
-		// actual box width (e.g. a colspan cell, or a column whose
-		// representative border width — used for the up-front width
-		// allocation — differs from this specific cell's own border) — pad
+		// actual box width, as with a colspan cell, or a column whose
+		// representative border width, used for the up-front width
+		// allocation, differs from this specific cell's own border. Pad
 		// or truncate to the slot so the grid stays a strict rectangle. See
 		// separateColumnBorderOverhead's own doc comment.
 		slotWidth := colGroupLeft[cell.colStart+cell.colSpan] - colGroupLeft[cell.colStart] - spacingX

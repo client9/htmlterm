@@ -8,11 +8,11 @@ import (
 )
 
 // compositeOpenSelects splices an open dropdown popup onto lines for every
-// <select> in doc currently carrying e.selectOpenAttr — see docs/RENDERING.md's
-// "Popups / z-order" section: the popup is composed as its own little block
-// of lines, then spliced over the base lines at the select's own Rect via
-// textcell.SpliceColumns, the primitive built for exactly this and
-// otherwise unused until now. Runs after capBlankRuns/forceHeight in
+// <select> in doc currently carrying e.selectOpenAttr. See
+// docs/RENDERING.md's "Popups / z-order" section. The popup is composed as
+// its own small block of lines, then spliced over the base lines at the
+// select's own Rect via textcell.SpliceColumns, the primitive built for
+// exactly this and otherwise unused until now. Runs after capBlankRuns/forceHeight in
 // RenderNode, so it operates on the exact lines/positions about to be
 // emitted, and can extend positions with synthetic Rects for each <option>
 // so the existing elementAt/DispatchClick hit-testing works on them
@@ -52,11 +52,11 @@ type popupRow struct {
 
 // buildPopupRows walks sel's direct children into the flat row list
 // compositeSelectPopup renders: a plain <option> becomes one option row; an
-// <optgroup> becomes one label row (only if it has a non-empty label
-// attribute — an unlabeled optgroup still contributes its options, just no
-// header) followed by one indented option row per <option> child. Mirrors
-// selectOptionNodes' one-level-deep descent into <optgroup>, but (unlike
-// that function) also emits the label rows selectOptionNodes has no need to
+// <optgroup> becomes one label row, only if it has a non-empty label
+// attribute, since an unlabeled optgroup still contributes its options but no
+// header, followed by one indented option row per <option> child. It mirrors
+// selectOptionNodes' one-level-deep descent into <optgroup>, but unlike that
+// function also emits the label rows selectOptionNodes has no need to
 // represent.
 func buildPopupRows(sel *html.Node) []popupRow {
 	var rows []popupRow
@@ -88,17 +88,19 @@ func buildPopupRows(sel *html.Node) []popupRow {
 // for the highlighted row, per option) via overlay_box.go's
 // resolveOverlayBoxStyle/drawOverlayFrame, falling back to the historical
 // hardcoded reverse-video wrap for a marked option row when nothing in that
-// chain sets color/background-color (label rows get no such fallback — see
-// the render loop below) — see docs/RENDERING.md's "Popups / z-order" for
+// chain sets color or background-color. Label rows get no such fallback; see
+// the render loop below. See docs/RENDERING.md's "Popups / z-order" for
 // why this stays a line-splice overlay rather than a real box-tree node.
-// Does nothing if sel has no recorded Rect (not laid out this frame) or no
-// rows, or renders as many rows as fit — canGrow decides whether to extend
-// lines with extra blank rows past its current end (the document's natural/
-// automatic-height case) or clip to whatever room already exists (the
-// fixed-height case, so as not to exceed the caller's requested viewport) —
-// see compositeOpenSelects's doc comment. When clipping is forced, rows
-// (option or label) are dropped first, then the bottom border/padding, and
-// the top border/padding last — so a clipped popup never renders headless.
+//
+// It does nothing if sel has no recorded Rect, meaning it wasn't laid out
+// this frame, or has no rows. Otherwise it renders as many rows as fit, with
+// canGrow deciding whether to extend lines with extra blank rows past their
+// current end, the document's natural or automatic-height case, or to clip to
+// whatever room already exists, the fixed-height case, so as not to exceed
+// the caller's requested viewport. See compositeOpenSelects's doc comment.
+// When clipping is forced, rows, whether option or label, are dropped first,
+// then the bottom border and padding, and the top border and padding last, so
+// a clipped popup never renders headless.
 func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions map[*html.Node]Rect, canGrow bool) ([]string, map[*html.Node]Rect) {
 	rect, ok := positions[sel]
 	if !ok {
@@ -196,16 +198,16 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 
 	// The "▸" marker follows the highlighted option (set by document's
 	// moveSelectHighlight as the user arrows through the popup, separate
-	// from "selected" — see selectHighlightAttr's doc comment for why
+	// from "selected"; see selectHighlightAttr's doc comment for why
 	// browsing shouldn't move the committed value). Fall back to "selected"
-	// when no option carries the highlight attr at all — a popup opened by
+	// when no option carries the highlight attr at all: a popup opened by
 	// setting selectOpenAttr directly in markup, with no live
 	// openSelectPopup call behind it, never gets one. The same highlight
 	// attribute also drives `option:hover` matching in the cascade (see
-	// cssengine.Cascade.HoverAttr) — resolvePopupRowStyle below picks up
+	// cssengine.Cascade.HoverAttr), and resolvePopupRowStyle below picks up
 	// any such rule automatically, with no separate lookup needed here.
-	// Group label rows (opt == nil) are never highlighted or marked — they
-	// aren't navigable, so neither state can ever apply to one.
+	// Group label rows, where opt is nil, are never highlighted or marked,
+	// since they aren't navigable, so neither state can apply to one.
 	highlightAttr := e.selectHighlightAttr
 	anyHighlighted := false
 	if highlightAttr != "" {
@@ -219,10 +221,10 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	for i := range count {
 		r := rows[i]
 		if r.opt == nil {
-			// A group label header: plain text, no marker/highlight, and no
-			// reverse-video fallback (unlike option rows below) — that
-			// fallback exists specifically to make the highlighted/selected
-			// option visually distinct against a styleless popup, a
+			// A group label header: plain text, no marker or highlight, and no
+			// reverse-video fallback, unlike the option rows below. That
+			// fallback exists to make the highlighted or selected option
+			// visually distinct against a styleless popup, and a
 			// non-navigable label row has nothing to distinguish itself from.
 			padded := padPlainToWidth(strings.Repeat(" ", r.indent)+r.label, innerW)
 			rowStyle := e.resolvePopupRowStyle(r.node, style.base)
@@ -248,10 +250,11 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 		}
 		padded := padPlainToWidth(prefix+r.label, innerW)
 		rowStyle := e.resolvePopupRowStyle(r.node, style.base)
-		// The historical fallback (no color/background-color anywhere in
-		// sel/opt/opt:hover's resolved decls) reverse-videos every row
-		// uniformly — not just the marked one — with the "▸ " prefix as the
-		// only per-row distinction; see TestSelectPopupComposition.
+		// The historical fallback, reached when no color or background-color
+		// appears anywhere in sel's, opt's, or opt:hover's resolved decls,
+		// reverse-videos every row uniformly rather than only the marked one,
+		// leaving the "▸ " prefix as the only per-row distinction. See
+		// TestSelectPopupComposition.
 		var rowContent string
 		if rowStyle.has() {
 			rowContent = rowStyle.render(padded, e.profile)
@@ -271,16 +274,18 @@ func (e *Engine) compositeSelectPopup(sel *html.Node, lines []string, positions 
 	return lines, positions
 }
 
-// resolvePopupRowStyle resolves n's own cascaded declarations (color/
-// background-color — including any matching `option:hover` declarations,
-// merged in by the normal cascade whenever an option n carries
-// e.selectHighlightAttr, see cssengine.Cascade.HoverAttr) as this row's
-// style, falling back to popupBase (sel's own resolved style) for whichever
-// of fg/bg n doesn't set itself. Used for both option rows (n is the
-// <option>) and group label rows (n is the <optgroup>) — an `optgroup`
-// selector styling its label row this way has no real-CSS equivalent (real
-// CSS barely styles <optgroup> at all), the same kind of terminal-native
-// repurposing `option:hover` already is.
+// resolvePopupRowStyle resolves n's own cascaded color and background-color
+// declarations as this row's style, falling back to popupBase, sel's own
+// resolved style, for whichever of foreground and background n doesn't set
+// itself. Those declarations include any matching `option:hover` ones, merged
+// in by the normal cascade whenever an option n carries
+// e.selectHighlightAttr (see cssengine.Cascade.HoverAttr).
+//
+// It is used for both option rows, where n is the <option>, and group label
+// rows, where n is the <optgroup>. An `optgroup` selector styling its label
+// row this way has no real-CSS equivalent, since real CSS barely styles
+// <optgroup> at all. It is the same kind of terminal-native repurposing
+// `option:hover` already is.
 func (e *Engine) resolvePopupRowStyle(n *html.Node, popupBase inlineStyle) inlineStyle {
 	s := extractInlineStyle(e.resolveDecls(n))
 	if s.fg == nil {
@@ -292,13 +297,13 @@ func (e *Engine) resolvePopupRowStyle(n *html.Node, popupBase inlineStyle) inlin
 	return s
 }
 
-// padPlainToWidth pads or truncates s (assumed to have no embedded ANSI
-// sequences — every caller here builds it from plain extracted option text)
-// to exactly width visible *columns*.
+// padPlainToWidth pads or truncates s to exactly width visible *columns*. s
+// is assumed to have no embedded ANSI sequences, which holds because every
+// caller here builds it from plain extracted option text.
 //
 // Columns, not runes: every popup row is padded to the same width and then
-// rendered under one highlight/background span, so a row measured in runes
-// comes out visibly shorter or longer than its neighbours — a ragged
+// rendered under one highlight or background span, so a row measured in runes
+// comes out visibly shorter or longer than its neighbours, leaving a ragged
 // reverse-video bar. Truncation goes through textcell.VisiblePrefix, which
 // declines to include a double-width cluster that would overshoot the
 // boundary, so the pad below closes the resulting one-column gap rather than

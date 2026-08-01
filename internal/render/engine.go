@@ -49,12 +49,12 @@ type Engine struct {
 	directCache         map[*html.Node]map[string]string
 	// minContentCache memoizes measureMinContentWidth (flex.go) per node. A
 	// node's min-content width doesn't depend on the width it's offered, so it
-	// is a pure function of the node within one render - and it must be cached,
+	// is a pure function of the node within one render. It must be cached,
 	// because the measurement is itself a full trial render that recurses
 	// through nested flex containers. Without this, a flex container's own
 	// min-content probe re-measures every descendant that already probed its
-	// own children, costing ~2^depth for nested `flex: 1` layouts (measured at
-	// 8x on nine levels). Per-render lifetime, same as directCache.
+	// own children, costing ~2^depth for nested `flex: 1` layouts, measured at
+	// 8x on nine levels. Per-render lifetime, same as directCache.
 	minContentCache       map[*html.Node]int
 	quoteDepth            int
 	nestedTableWidth      int
@@ -63,27 +63,28 @@ type Engine struct {
 	// shrinkToFit makes renderBlockContentBox/renderFlexContentBox size
 	// themselves to their own content rather than filling the available
 	// width they were handed, for the duration of a discardable measurement
-	// render. A block box normally fills its containing block (real CSS
-	// width:auto behavior), and this engine materializes that fill as actual
-	// padding whenever anything needs a rectangle - a border, text-align, a
-	// closed box - so "render it at a generous width and read the result's
-	// width back" measures the generous width, not the content. flex.go's
-	// measureNaturalWidth needs the content answer (an item's flex base size
-	// under flex-basis/width:auto), and needs it recursively: a bordered
-	// *child* of the item being measured has to shrink to its own content
-	// too, or the item measures as wide as its widest filling descendant.
+	// render. A block box normally fills its containing block, real CSS
+	// width:auto behavior, and this engine materializes that fill as actual
+	// padding whenever anything needs a rectangle, whether a border,
+	// text-align, or a closed box. So "render it at a generous width and read
+	// the result's width back" measures the generous width, not the content.
+	// flex.go's measureNaturalWidth needs the content answer, an item's flex
+	// base size under flex-basis:auto or width:auto, and needs it recursively:
+	// a bordered *child* of the item being measured has to shrink to its own
+	// content too, or the item measures as wide as its widest filling
+	// descendant.
 	// Only ever set around a trial render whose output is thrown away.
 	shrinkToFit bool
 	// outOfFlow is the set of elements with position: absolute/fixed,
-	// collected once up front (collectOutOfFlow, outofflow.go) before
-	// normal layout runs — see outofflow.go's doc comment for why this is a
+	// collected once up front by collectOutOfFlow (outofflow.go) before
+	// normal layout runs. See outofflow.go's doc comment for why this is a
 	// static pre-pass rather than incremental discovery. Consulted at every
 	// layout call site that also checks display:none (render.go, inline.go,
 	// flex.go), so an out-of-flow element reserves no space in normal flow,
 	// then positioned and painted by applyOutOfFlow after layout finishes.
 	outOfFlow map[*html.Node]bool
-	// outOfFlowOrder is outOfFlow's membership in preorder (an ancestor
-	// always precedes its descendants) — applyOutOfFlow (outofflow.go)
+	// outOfFlowOrder is outOfFlow's membership in preorder, so an ancestor
+	// always precedes its descendants. applyOutOfFlow (outofflow.go)
 	// relies on that ordering directly for both its containing-block
 	// dependency resolution and its z-index paint-order tiebreak.
 	outOfFlowOrder []*html.Node
@@ -105,15 +106,17 @@ type Engine struct {
 }
 
 // Viewport records a scroll container's visible content-area geometry.
-// GutterCol/GutterWidth/CapStart/CapEnd are only meaningful when
-// GutterWidth > 0 (an overflow-y:scroll gutter was actually reserved this
-// frame — see block.go's hasScrollbarGutter); document.go's
-// tryScrollCapClick uses them, combined with the element's own Rect (whose
-// Col/Row this Viewport's offsets are relative to, same as TopOffset already
-// is), to hit-test a click against the cap buttons' cells. CapStart/CapEnd
-// reflect whether that cap was actually drawn this frame, not just whether a
-// ::scrollbar-cap-start/::scrollbar-cap-end rule set content — a cap dropped
-// for lack of room (see appendScrollbarColumn) must not be clickable.
+// GutterCol, GutterWidth, CapStart, and CapEnd are only meaningful when
+// GutterWidth > 0, meaning an overflow-y:scroll gutter really was reserved
+// this frame (see block.go's hasScrollbarGutter). document.go's
+// tryScrollCapClick uses them, combined with the element's own Rect, whose
+// Col and Row this Viewport's offsets are relative to, same as TopOffset
+// already is, to hit-test a click against the cap buttons' cells.
+//
+// CapStart and CapEnd reflect whether that cap was drawn this frame, not just
+// whether a ::scrollbar-cap-start or ::scrollbar-cap-end rule set content: a
+// cap dropped for lack of room (see appendScrollbarColumn) must not be
+// clickable.
 type Viewport struct {
 	Height      int
 	TopOffset   int
@@ -124,17 +127,18 @@ type Viewport struct {
 }
 
 // ViewportX is Viewport's horizontal counterpart, recorded for an
-// overflow-x:scroll|auto element with an explicit width — see block.go's
-// hasScrollbarGutterX (docs/SCROLLING.md's horizontal-scrolling addendum).
-// Width/LeftOffset are the transpose of Height/TopOffset: LeftOffset is the
-// column shift from the element's own Rect.Col to where its content starts
-// (the same relationship colShift already has to Rect.Col elsewhere).
-// GutterRow/GutterHeight/CapStart/CapEnd are the transpose of
-// GutterCol/GutterWidth/CapStart/CapEnd: GutterRow is the row shift from
-// Rect.Row to the gutter row, only meaningful when GutterHeight > 0 (a
-// visible ::scrollbar-track-x/::scrollbar-thumb-x row was actually drawn
-// this frame). CapStart/CapEnd here mean the *left*/*right* cap
-// (::scrollbar-cap-start-x/::scrollbar-cap-end-x), not top/bottom.
+// overflow-x:scroll|auto element with an explicit width. See block.go's
+// hasScrollbarGutterX and docs/SCROLLING.md's horizontal-scrolling addendum.
+//
+// Width and LeftOffset are the transpose of Height and TopOffset: LeftOffset
+// is the column shift from the element's own Rect.Col to where its content
+// starts, the same relationship colShift already has to Rect.Col elsewhere.
+// GutterRow, GutterHeight, CapStart, and CapEnd are the transpose of
+// GutterCol, GutterWidth, CapStart, and CapEnd. GutterRow is the row shift
+// from Rect.Row to the gutter row, only meaningful when GutterHeight > 0,
+// meaning a visible ::scrollbar-track-x or ::scrollbar-thumb-x row was drawn
+// this frame. CapStart and CapEnd here mean the *left* and *right* cap,
+// ::scrollbar-cap-start-x and ::scrollbar-cap-end-x, not top and bottom.
 type ViewportX struct {
 	Width        int
 	LeftOffset   int
@@ -168,8 +172,8 @@ type Result struct {
 
 // New parses opts.CSS/opts.Stylesheets and returns a reusable render engine.
 //
-// Cascade order (lowest priority first): the built-in default stylesheet
-// (DefaultStylesheet), opts.CSS, then each of opts.Stylesheets in order —
+// Cascade order, lowest priority first: the built-in default stylesheet
+// (DefaultStylesheet), opts.CSS, then each of opts.Stylesheets in order,
 // mirroring how a page's own stylesheet is followed by however many <link>
 // sheets it loads. Document <style> elements and inline style= attributes
 // are layered on top of all of these at render time (see DocumentRules and
@@ -353,8 +357,8 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	}
 }
 
-// DefaultStylesheet is the built-in default stylesheet (lowest priority —
-// Options.CSS and Options.Stylesheets are layered above it). Re-exported by
+// DefaultStylesheet is the built-in default stylesheet, of lowest priority,
+// with Options.CSS and Options.Stylesheets layered above it. Re-exported by
 // the root package as htmlterm.DefaultStylesheet.
 const DefaultStylesheet = `
 table                   { display: table; }
@@ -407,31 +411,32 @@ title, meta, script, style: { display: none; }
 const defaultFocusAttr = "data-htmlterm-focus"
 
 // defaultSelectOpenAttr is the reserved marker attribute (see defaultFocusAttr)
-// a <select> carries while its dropdown popup is open — set/cleared by
-// document's toggleSelectOpen and checked here by compositeOpenSelects
+// a <select> carries while its dropdown popup is open. It is set and cleared
+// by document's toggleSelectOpen and checked here by compositeOpenSelects
 // (select_popup.go) to decide which selects need their popup composited into
 // the frame.
 const defaultSelectOpenAttr = "data-htmlterm-select-open"
 
 // defaultSelectHighlightAttr is the reserved marker attribute (see
 // defaultFocusAttr) an <option> carries while it's the arrow-key-highlighted
-// row within its <select>'s open popup — set/cleared by document's
-// openSelectPopup/moveSelectHighlight/confirmSelectPopup/closeSelectPopup
-// and checked here by compositeSelectPopup (select_popup.go) to decide which
-// option gets the "▸" marker, falling back to the "selected" attribute when
-// no option carries this one (e.g. a popup force-opened directly in markup,
-// with no live browsing session behind it — see compositeSelectPopup).
+// row within its <select>'s open popup. It is set and cleared by document's
+// openSelectPopup, moveSelectHighlight, confirmSelectPopup, and
+// closeSelectPopup, and checked here by compositeSelectPopup
+// (select_popup.go) to decide which option gets the "▸" marker. It falls back
+// to the "selected" attribute when no option carries this one, as with a
+// popup force-opened directly in markup, with no live browsing session behind
+// it (see compositeSelectPopup).
 const defaultSelectHighlightAttr = "data-htmlterm-select-highlight"
 
-// defaultSelectionStartAttr/defaultSelectionEndAttr are the reserved marker
-// attributes (see defaultFocusAttr) a focused text entry carries while it
-// has a non-collapsed selection — set/cleared together by document's
-// Document.setSelection, holding the rune-offset start/end as decimal
-// strings. Read by selectionRange (formcontrol.go) to resolve the
-// ::selection highlight range for a text-like <input>/<textarea>; absent
-// (rather than "0") whenever the selection is collapsed, so their mere
-// presence already implies a non-empty range without needing to compare
-// the two values first.
+// defaultSelectionStartAttr and defaultSelectionEndAttr are the reserved
+// marker attributes (see defaultFocusAttr) a focused text entry carries while
+// it has a non-collapsed selection. They are set and cleared together by
+// document's Document.setSelection, holding the rune-offset start and end as
+// decimal strings. selectionRange (formcontrol.go) reads them to resolve the
+// ::selection highlight range for a text-like <input> or <textarea>. They are
+// absent, rather than "0", whenever the selection is collapsed, so their mere
+// presence already implies a non-empty range without needing to compare the
+// two values first.
 const (
 	defaultSelectionStartAttr = "data-htmlterm-selection-start"
 	defaultSelectionEndAttr   = "data-htmlterm-selection-end"

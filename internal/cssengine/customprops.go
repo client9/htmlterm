@@ -4,7 +4,7 @@ import "strings"
 
 // isCustomProp reports whether name is a CSS custom property ("--foo").
 // Unlike every other property name in this engine, custom property names are
-// case-sensitive (--Foo and --foo are distinct properties per spec) — see
+// case-sensitive, since --Foo and --foo are distinct properties per spec. See
 // css.go's commitDecl/parseDeclarationsWithImportance, which special-case
 // this prefix to skip their usual strings.ToLower.
 func isCustomProp(name string) bool {
@@ -26,7 +26,7 @@ func customPropSubset(m map[string]string) map[string]string {
 }
 
 // isIdentChar reports whether c can appear inside a CSS identifier
-// (including the "-"/"_" this engine's own custom-property names use) —
+// including the "-" and "_" this engine's own custom-property names use.
 // used by isVarCallAt to make sure a "var(" match isn't actually the tail of
 // a longer identifier like "--myvar(" or "somevar(".
 func isIdentChar(c byte) bool {
@@ -72,7 +72,7 @@ func findMatchingParen(val string, start int) int {
 // splitVarArgs splits a var()'s already-extracted argument text (the part
 // between its outer parens) into the custom-property name and fallback text.
 // Per spec, only the first top-level comma is syntactic (the name/fallback
-// separator) — everything after it up to the closing paren is fallback text
+// separator. Everything after it up to the closing paren is fallback text
 // verbatim, including further commas, nested var() calls, and quoted
 // strings, which is why this can't just be a naive strings.Cut(inner, ",").
 func splitVarArgs(inner string) (name, fallback string, hasFallback bool) {
@@ -104,7 +104,7 @@ func splitVarArgs(inner string) (name, fallback string, hasFallback bool) {
 // text replaces the whole var(...) call; where it reports !ok, the original
 // var(...) text (name, fallback, and all) is preserved verbatim in the
 // output. This "leave untouched" behavior on !ok is what lets
-// substituteKnownVarTokens be non-destructive (see its own doc comment) —
+// substituteKnownVarTokens be non-destructive (see its own doc comment).
 // scanVarCalls itself is agnostic to which policy a caller wants.
 func scanVarCalls(val string, resolve func(name, fallback string, hasFallback bool) (string, bool)) string {
 	if !strings.Contains(strings.ToLower(val), "var(") {
@@ -115,7 +115,7 @@ func scanVarCalls(val string, resolve func(name, fallback string, hasFallback bo
 	for i < len(val) {
 		if val[i] == '"' || val[i] == '\'' {
 			// A quoted string (e.g. content: "literal var(--x) text") is
-			// opaque text, not a place to go looking for a var() call —
+			// opaque text, not a place to go looking for a var() call;
 			// copy it through untouched rather than misparsing "var(--x)"
 			// inside it as a real function call.
 			end := consumeCSSQuotedToken(val, i)
@@ -150,7 +150,7 @@ func scanVarCalls(val string, resolve func(name, fallback string, hasFallback bo
 // its own, recursively substituted fallback text, or "" if there is none.
 // Used by Resolve() (after its ancestor-inheritance loop has already
 // flattened the full custom-prop environment into a single map) and by
-// PseudoElement (against the caller-supplied environment) — both places
+// PseudoElement, against the caller-supplied environment. Both places
 // where "unresolved" really does mean "unresolved anywhere", so collapsing
 // to fallback/empty is safe. Contrast with substituteKnownVarTokens, which
 // Direct() uses instead specifically because it must not make that
@@ -170,15 +170,15 @@ func substituteVarTokens(val string, lookup func(name string) (string, bool)) st
 // substituteKnownVarTokens is Direct()'s own-element-only substitution pass
 // (see docs/proposals/VARIABLES.md's Option A scope decision): it resolves
 // only the var() calls whose name is present in known (n's own custom-prop
-// declarations), and leaves every other var() call — name, fallback, and
-// all — completely untouched as literal text.
+// declarations), and leaves every other var() call untouched as literal
+// text, name and fallback alike.
 //
 // This must be non-destructive: Direct(n)'s result seeds Resolve(n)
 // (`direct := c.Direct(n)`), which still needs to see any var() referencing
 // an ancestor-only custom property so its own later, fully ancestor-aware
 // substitution pass can resolve it. Direct() has no ancestor context of its
 // own, so it cannot yet tell "genuinely undefined" apart from "defined
-// further up the tree" — collapsing an unresolved reference to "" or its
+// further up the tree". Collapsing an unresolved reference to "" or its
 // fallback here, the way substituteVarTokens does, would destroy that text
 // before Resolve ever got a chance to look further, silently breaking
 // inheritance for var() on every ordinary (non-custom) property.

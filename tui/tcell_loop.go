@@ -1,9 +1,9 @@
 // Package tui drives a document.Document interactively against a real
-// terminal via tcell.Screen — the only part of htmlterm that depends on
+// terminal via tcell.Screen. It is the only part of htmlterm that depends on
 // tcell, kept separate so a consumer that only wants one-shot or
-// mutate-and-rerender rendering (htmlterm.New/Render, document.Document)
-// never has to pull tcell (and its raw-mode/ioctl/terminfo dependencies)
-// into their binary.
+// mutate-and-rerender rendering, via htmlterm.New and Render or
+// document.Document, never has to pull tcell, and its raw-mode, ioctl, and
+// terminfo dependencies, into their binary.
 package tui
 
 import (
@@ -16,14 +16,14 @@ import (
 )
 
 // Loop drives a Document interactively against a real terminal via
-// tcell.Screen: Screen.Init/EventQ own raw mode, resize, and
-// keyboard/mouse/paste decoding; Run translates the resulting events into
-// Document's public dispatch API (DispatchKey/DispatchClick/DispatchWheel/
-// SetSize) and repaints after each one — or after a SetInterval/SetTimeout
-// timer fires (timer.go, delivered as an event sent on the same EventQ
-// channel), so periodic, non-input-driven updates (a spinner, a live
-// clock) repaint too. It depends only on Document's public API — the same
-// layer any other caller uses — plus tcell.Screen for everything
+// tcell.Screen. Screen.Init and EventQ own raw mode, resize, and keyboard,
+// mouse, and paste decoding. Run translates the resulting events into
+// Document's public dispatch API — DispatchKey, DispatchClick, DispatchWheel,
+// SetSize — and repaints after each one. It also repaints after a SetInterval
+// or SetTimeout timer fires (timer.go, delivered as an event sent on the same
+// EventQ channel), so periodic, non-input-driven updates such as a spinner or
+// a live clock repaint too. It depends only on Document's public API, the
+// same layer any other caller uses, plus tcell.Screen for everything
 // terminal-facing.
 type Loop struct {
 	doc    *document.Document
@@ -34,17 +34,17 @@ type Loop struct {
 
 	quit bool
 
-	// pasting and pasteBuf accumulate a bracketed paste's content: tcell
-	// delivers the pasted text as ordinary EventKeys (as if typed) bracketed
-	// by an EventPaste{Start: true}/EventPaste{Start: false} pair (see
-	// input.go's inputParser — keyPasteStart/keyPasteEnd become EventPaste,
-	// everything between stays EventKey), rather than handing the whole
-	// string over at once. While pasting is true, Run buffers each key via
+	// pasting and pasteBuf accumulate a bracketed paste's content. tcell
+	// delivers the pasted text as ordinary EventKeys, as if typed, bracketed
+	// by an EventPaste{Start: true} and EventPaste{Start: false} pair, rather
+	// than handing the whole string over at once. See input.go's inputParser,
+	// where keyPasteStart and keyPasteEnd become EventPaste and everything
+	// between stays EventKey. While pasting is true, Run buffers each key via
 	// pasteKeyText instead of dispatching it as a normal "keydown", so a
-	// paste never triggers per-key default actions (Tab moving focus, Enter
-	// submitting) along the way — only the final DispatchPaste call, once
-	// EventPaste{Start: false} arrives, acts on the accumulated text as one
-	// unit, mirroring a real "paste" event's single-shot semantics.
+	// paste never triggers per-key default actions along the way, such as Tab
+	// moving focus or Enter submitting. Only the final DispatchPaste call,
+	// once EventPaste{Start: false} arrives, acts on the accumulated text as
+	// one unit, mirroring a real "paste" event's single-shot semantics.
 	pasting  bool
 	pasteBuf strings.Builder
 }
@@ -61,8 +61,8 @@ func NewLoop(doc *document.Document) (*Loop, error) {
 }
 
 // newLoopWithScreen is NewLoop's constructor with the Screen injected
-// directly — the seam tests use to substitute a vt.MockTerm-backed Screen
-// (see cellbridge_test.go's newTestScreen) instead of a real terminal.
+// directly. It is the seam tests use to substitute a vt.MockTerm-backed
+// Screen (see cellbridge_test.go's newTestScreen) for a real terminal.
 func newLoopWithScreen(doc *document.Document, screen tcell.Screen) *Loop {
 	return &Loop{
 		doc:    doc,
@@ -71,23 +71,23 @@ func newLoopWithScreen(doc *document.Document, screen tcell.Screen) *Loop {
 	}
 }
 
-// Run initializes the screen (raw mode, mouse reporting) and repaints doc
-// after every keyboard/mouse event, after every fired timer
-// (SetInterval/SetTimeout, timer.go), and after every terminal resize,
-// until Ctrl-C is read or the screen's event stream ends (Screen.EventQ
-// closing, e.g. after Fini). The terminal is always restored to its
-// original state before Run returns, even on error (Screen.Fini,
-// deferred) — tcell.Screen owns the whole terminal from Init onward, so
-// unlike the previous DSR/originRow-based Loop, there is no inline/
-// preserve-scrollback mode: this is a full-screen-owning TUI.
+// Run initializes the screen, meaning raw mode and mouse reporting, and
+// repaints doc after every keyboard and mouse event, after every fired timer
+// (SetInterval and SetTimeout, timer.go), and after every terminal resize,
+// until Ctrl-C is read or the screen's event stream ends, which happens when
+// Screen.EventQ closes, as it does after Fini. The terminal is always
+// restored to its original state before Run returns, even on error, via a
+// deferred Screen.Fini. tcell.Screen owns the whole terminal from Init
+// onward, so unlike the previous DSR- and originRow-based Loop, there is no
+// inline or preserve-scrollback mode: this is a full-screen-owning TUI.
 func (l *Loop) Run() error {
 	if err := l.screen.Init(); err != nil {
 		return err
 	}
-	// Deferred LIFO: stopAllTimers (registered second) runs before Fini
-	// (registered first) — every timer's forwarding goroutine observes its
+	// Deferred LIFO: stopAllTimers, registered second, runs before Fini,
+	// registered first. Every timer's forwarding goroutine observes its
 	// done channel closed, and stops sending to Screen.EventQ, before the
-	// screen (and its event queue) is torn down.
+	// screen and its event queue are torn down.
 	defer l.screen.Fini()
 	defer l.stopAllTimers()
 	l.screen.EnableMouse(tcell.MouseButtonEvents)
@@ -107,8 +107,8 @@ func (l *Loop) Run() error {
 				continue // ignore key-release events (see keyName's press-only vocabulary)
 			}
 			if l.pasting {
-				// Accumulate rather than dispatch — see pasteBuf's doc
-				// comment on Loop; the paste is acted on as one unit once
+				// Accumulate rather than dispatch; see pasteBuf's doc
+				// comment on Loop. The paste is acted on as one unit once
 				// EventPaste{Start: false} arrives, below.
 				if text, ok := pasteKeyText(ev); ok {
 					l.pasteBuf.WriteString(text)
@@ -119,12 +119,12 @@ func (l *Loop) Run() error {
 				return nil
 			}
 			if ev.Key() == tcell.KeyCtrlX {
-				// Check the clipboard BEFORE dispatching: DispatchCut's
+				// Check the clipboard BEFORE dispatching. DispatchCut's
 				// default action removes the text as part of dispatch, so
-				// cutting on a terminal with no clipboard support (no OSC 52)
-				// would destroy it with nowhere for it to go and no undo —
-				// and with a collapsed caret a cut takes the whole field, not
-				// just a selection.
+				// cutting on a terminal with no clipboard support, meaning no
+				// OSC 52, would destroy it with nowhere for it to go and no
+				// undo. And with a collapsed caret a cut takes the whole
+				// field, not just a selection.
 				if !l.screen.HasClipboard() {
 					break
 				}
@@ -143,7 +143,7 @@ func (l *Loop) Run() error {
 			if ev.Start() {
 				l.pasting = true
 				l.pasteBuf.Reset()
-				continue // nothing to repaint yet — the paste has no content until it ends
+				continue // nothing to repaint yet: the paste has no content until it ends
 			}
 			l.pasting = false
 			l.doc.DispatchPaste(l.pasteBuf.String())
@@ -157,12 +157,12 @@ func (l *Loop) Run() error {
 			case buttons&(tcell.WheelUp|tcell.WheelDown|tcell.WheelLeft|tcell.WheelRight) != 0:
 				dx, dy := wheelDelta(buttons)
 				if ev.Modifiers()&tcell.ModShift != 0 && dy != 0 && dx == 0 {
-					// Shift+vertical-wheel is the common browser/terminal
-					// convention for horizontal scroll, a fallback for
-					// terminals/mice that never report WheelLeft/WheelRight
-					// directly (tcell defines those constants but plenty of
-					// real wheel hardware/terminal reporting only ever sends
-					// WheelUp/WheelDown).
+					// Shift plus a vertical wheel is the common browser and
+					// terminal convention for horizontal scroll, a fallback
+					// for terminals and mice that never report WheelLeft or
+					// WheelRight directly. tcell defines those constants, but
+					// plenty of real wheel hardware and terminal reporting
+					// only ever sends WheelUp and WheelDown.
 					dx, dy = dy, 0
 				}
 				l.doc.DispatchWheel(row, col, dx, dy)
@@ -173,10 +173,10 @@ func (l *Loop) Run() error {
 		case *tcell.EventResize:
 			w, h := ev.Size()
 			l.doc.SetSize(w, h)
-			// No default action to prevent (see event.go's Event doc
-			// comment on "submit") — htmlterm has no re-layout concept of
-			// its own beyond what SetSize just did; a listener reacts to
-			// the new size via Document.Size/Rect.
+			// No default action to prevent; see event.go's Event doc
+			// comment on "submit". htmlterm has no re-layout concept of
+			// its own beyond what SetSize just did, and a listener reacts
+			// to the new size via Document.Size and Rect.
 			l.doc.DispatchResize()
 
 		case *timerFireEvent:
@@ -194,37 +194,38 @@ func (l *Loop) Run() error {
 			return err
 		}
 	}
-	return nil // EventQ closed (screen finalized from elsewhere)
+	return nil // EventQ closed: the screen was finalized from elsewhere
 }
 
 // Quit requests that Run return after the event currently being handled
-// finishes — the programmatic equivalent of the user pressing Ctrl-C. Like
-// SetInterval/SetTimeout callbacks, it's meant to be called from Run's own
-// goroutine (e.g. from inside a Document event listener reacting to a "quit"
-// command typed into the app), matching the package's single-goroutine-
-// mutates-everything contract (see CLAUDE.md's "no locking in the
-// interactive layer" invariant) — there is no synchronization on the quit
-// flag. Skips the final repaint (same as the existing Ctrl-C path) since the
-// screen is about to be torn down anyway. A no-op if Run has already
-// returned or hasn't started.
+// finishes. It is the programmatic equivalent of the user pressing Ctrl-C.
+// Like SetInterval and SetTimeout callbacks, it's meant to be called from
+// Run's own goroutine, for instance from inside a Document event listener
+// reacting to a "quit" command typed into the app, matching the package's
+// single-goroutine-mutates-everything contract (see CLAUDE.md's "no locking
+// in the interactive layer" invariant). There is no synchronization on the
+// quit flag. It skips the final repaint, same as the existing Ctrl-C path,
+// since the screen is about to be torn down anyway. A no-op if Run has
+// already returned or hasn't started.
 func (l *Loop) Quit() {
 	l.quit = true
 }
 
 // keyName maps a tcell.EventKey to htmlterm's existing DispatchKey
 // vocabulary (docs/INTERACTIVE.md): a single printable rune as a UTF-8 string,
-// or a named key from a fixed set ("Enter", "Backspace", "Delete", "Tab",
-// "Escape", "Home", "End", "ArrowUp"/"Down"/"Left"/"Right",
-// "PageUp"/"PageDown"). ok is false for anything outside that vocabulary
-// (function keys, modifier-only events, etc.), which the caller simply
-// ignores — the same restricted-subset stance the previous hand-rolled
-// decoder took. "Home"/"End"/"Delete" are needed for
-// DispatchKey's caret/selection default actions (see
-// docs/proposals/CARET_SELECTION.md) — without them, those key presses
-// never reach Document.DispatchKey at all. Shift+Tab maps to "Tab" as well
-// (tcell reports it as its own KeyBacktab code under legacy keyboard
-// reporting); the Shift that makes DispatchKey walk the tab order backwards
-// is supplied by keyModifiers, not by this function.
+// or a named key from a fixed set — "Enter", "Backspace", "Delete", "Tab",
+// "Escape", "Home", "End", "ArrowUp"/"Down"/"Left"/"Right", and
+// "PageUp"/"PageDown". ok is false for anything outside that vocabulary,
+// such as function keys and modifier-only events, which the caller ignores.
+// That is the same restricted-subset stance the previous hand-rolled decoder
+// took.
+//
+// "Home", "End", and "Delete" are needed for DispatchKey's caret and
+// selection default actions (see docs/proposals/CARET_SELECTION.md); without
+// them, those key presses never reach Document.DispatchKey at all. Shift+Tab
+// maps to "Tab" as well, since tcell reports it as its own KeyBacktab code
+// under legacy keyboard reporting. The Shift that makes DispatchKey walk the
+// tab order backwards is supplied by keyModifiers, not by this function.
 func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	switch ev.Key() {
 	case tcell.KeyEnter:
@@ -238,7 +239,7 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 	case tcell.KeyBacktab:
 		// Shift+Tab. Legacy keyboard reporting gives it its own key code
 		// rather than Tab-with-ModShift, so the Shift half is re-attached
-		// separately — see keyModifiers.
+		// separately; see keyModifiers.
 		return "Tab", true
 	case tcell.KeyEsc:
 		return "Escape", true
@@ -269,7 +270,7 @@ func keyName(ev *tcell.EventKey) (key string, ok bool) {
 // alongside the key name it returned. Normally that's just tcell's own
 // reported modifier mask (see modifiers), but tcell.KeyBacktab is a key code
 // that *means* Shift+Tab without necessarily carrying ModShift, so the Shift
-// flag is re-attached here — otherwise DispatchKey sees a plain "Tab" and
+// flag is re-attached here. Otherwise DispatchKey sees a plain "Tab" and
 // moves focus forward, making Shift+Tab indistinguishable from Tab.
 func keyModifiers(ev *tcell.EventKey) document.Modifiers {
 	mods := modifiers(ev.Modifiers())
@@ -280,15 +281,15 @@ func keyModifiers(ev *tcell.EventKey) document.Modifiers {
 }
 
 // pasteKeyText decodes one EventKey received while Loop.pasting is true back
-// into the literal text it represents — tcell delivers a bracketed paste's
+// into the literal text it represents. tcell delivers a bracketed paste's
 // content as a stream of ordinary key events (see pasteBuf's doc comment on
 // Loop), so reconstructing the pasted string means undoing that decoding
-// rather than reading it off the EventPaste itself. Printable runes and the
-// two whitespace keys a paste can plausibly contain (an embedded newline,
-// decoded as Enter; an embedded tab) map back to their literal characters;
-// ok is false for anything else (arrow keys, function keys, ...), which
-// realistically shouldn't appear inside a paste but are silently dropped
-// rather than corrupting the buffer if a terminal ever sends one anyway.
+// rather than reading it off the EventPaste itself. Printable runes map back
+// to their literal characters, as do the two whitespace keys a paste can
+// plausibly contain: an embedded newline, decoded as Enter, and an embedded
+// tab. ok is false for anything else, such as arrow and function keys, which
+// shouldn't appear inside a paste but are silently dropped rather than
+// corrupting the buffer if a terminal ever sends one anyway.
 func pasteKeyText(ev *tcell.EventKey) (string, bool) {
 	switch ev.Key() {
 	case tcell.KeyRune:
@@ -302,8 +303,8 @@ func pasteKeyText(ev *tcell.EventKey) (string, bool) {
 	}
 }
 
-// modifiers translates tcell's raw modifier bitmask (as reported on both
-// EventKey and EventMouse) into document.Modifiers — the one place this
+// modifiers translates tcell's raw modifier bitmask, as reported on both
+// EventKey and EventMouse, into document.Modifiers. It is the one place this
 // package's tcell dependency leaks a modifier-key concept into Document's
 // vocabulary, mirroring keyName's job for key names.
 func modifiers(mod tcell.ModMask) document.Modifiers {
@@ -316,12 +317,12 @@ func modifiers(mod tcell.ModMask) document.Modifiers {
 }
 
 // wheelDelta translates tcell's wheel button bits into a (deltaX, deltaY)
-// pair matching a real WheelEvent's deltaX/deltaY — positive deltaY is
-// "down"/"away", positive deltaX is "right", matching DispatchWheel's own
-// convention (unchanged from its pre-horizontal vertical-only delta sign).
-// More than one wheel bit can't be set in practice (tcell reports one wheel
-// impulse at a time), but the bits are checked independently rather than in
-// a single switch so nothing breaks if that ever changes.
+// pair matching a real WheelEvent's deltaX and deltaY. Positive deltaY is
+// "down" or "away" and positive deltaX is "right", matching DispatchWheel's
+// own convention, unchanged from its pre-horizontal vertical-only delta sign.
+// More than one wheel bit can't be set in practice, since tcell reports one
+// wheel impulse at a time, but the bits are checked independently rather than
+// in a single switch so nothing breaks if that ever changes.
 func wheelDelta(buttons tcell.ButtonMask) (dx, dy int) {
 	if buttons&tcell.WheelUp != 0 {
 		dy -= 1
@@ -376,13 +377,13 @@ func splitLines(frame string) []string {
 }
 
 // caretLineCol locates rune offset caret within value's "\n"-delimited
-// lines, returning the (zero-based) line index and the column within that
-// line — focusCursorPos's <textarea> helper, mirroring document.go's own
-// lineBounds/DispatchKey caret math (see
+// lines, returning the zero-based line index and the column within that
+// line. It is focusCursorPos's <textarea> helper, mirroring document.go's own
+// lineBounds and DispatchKey caret math (see
 // docs/proposals/CARET_SELECTION.md) rather than reimplementing it
 // differently here. caret is assumed already clamped to
-// [0, len(value) in runes] (true for anything read from
-// Element.SelectionEnd).
+// [0, len(value) in runes], which holds for anything read from
+// Element.SelectionEnd.
 func caretLineCol(value string, caret int) (line, col int) {
 	lines := strings.Split(value, "\n")
 	remaining := caret
@@ -397,17 +398,18 @@ func caretLineCol(value string, caret int) (line, col int) {
 }
 
 // focusCursorPos reports where the terminal's real cursor should land for
-// doc's currently focused element, in doc's own coordinate space — unlike
+// doc's currently focused element, in doc's own coordinate space. Unlike
 // the previous originRow-based version, tcell.Screen owns the whole
-// terminal from (0,0), so no origin-row offset is needed. For a text-like
-// input/textarea it lands at the element's current caret
-// (Element.SelectionEnd — the same edge a real UA parks its blinking caret
-// at even when a range is selected, see docs/proposals/CARET_SELECTION.md),
-// clamped inside the element's own box (e.g. "[value]"); for any other
-// focusable element (checkbox, radio, button) it lands on the box's first
-// column. ok is false if nothing is focused, the focused element has no
-// recorded Rect, or it's currently scrolled out of view by one of its
-// scrollable ancestors (Element.ScrollVisible).
+// terminal from (0,0), so no origin-row offset is needed.
+//
+// For a text-like <input> or <textarea> it lands at the element's current
+// caret, Element.SelectionEnd, the same edge a real UA parks its blinking
+// caret at even when a range is selected (see
+// docs/proposals/CARET_SELECTION.md), clamped inside the element's own box.
+// For any other focusable element, such as a checkbox, radio, or button, it
+// lands on the box's first column. ok is false if nothing is focused, the
+// focused element has no recorded Rect, or it's currently scrolled out of
+// view by one of its scrollable ancestors (Element.ScrollVisible).
 func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	el := doc.FocusedElement()
 	if el == nil {
@@ -423,24 +425,24 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 	row, col = rect.Row, rect.Col
 	if el.IsTextEntry() {
 		caret := el.SelectionEnd()
-		// A <textarea>'s value can span multiple lines (DispatchKey's Enter
-		// default action can insert "\n" anywhere, not just append it — see
-		// document.go's replaceSelection), so the caret's row/column need
-		// locating within the right "\n"-delimited line (caretLineCol), not
-		// assumed to be the last one. This doesn't account for a single
-		// line getting further wrapped by its own width (wordWrapTokens,
-		// block.go) — an accepted narrower approximation gap than not
-		// handling embedded newlines at all.
+		// A <textarea>'s value can span multiple lines, since DispatchKey's
+		// Enter default action can insert "\n" anywhere rather than only
+		// appending it (see document.go's replaceSelection). So the caret's
+		// row and column need locating within the right "\n"-delimited line,
+		// via caretLineCol, not assumed to be the last one. This doesn't
+		// account for a single line getting further wrapped by its own width
+		// (wordWrapTokens, block.go), an accepted approximation gap, and a
+		// narrower one than not handling embedded newlines at all.
 		if strings.ToLower(el.TagName()) == "textarea" {
-			// doc.ContentOffset/ContentOffsetX (see their doc comments) are
-			// the row and column shifts from rect.Row/rect.Col to this
-			// textarea's own first content cell — border-top plus
-			// padding-top, and border-left plus padding-left — needed here
-			// because Rect alone is the full border box (see Rect's doc
-			// comment) and can't say where content actually starts within
+			// doc.ContentOffset and ContentOffsetX (see their doc comments)
+			// are the row and column shifts from rect.Row and rect.Col to
+			// this textarea's own first content cell: border-top plus
+			// padding-top, and border-left plus padding-left. They are
+			// needed here because Rect alone is the full border box (see
+			// Rect's doc comment) and can't say where content starts within
 			// it. The column half matters for the UA stylesheet's own
 			// default <textarea> styling, which draws a border and one
-			// column of padding on each side: without it the cursor lands
+			// column of padding on each side. Without it the cursor lands
 			// two columns left of the real caret, on the border itself.
 			value := el.Value()
 			line, lineCol := caretLineCol(value, caret)
@@ -455,13 +457,13 @@ func focusCursorPos(doc *document.Document) (row, col int, ok bool) {
 				row = maxRow
 			}
 		} else {
-			// A text-like <input> (the only tag reaching this branch —
-			// textarea takes the branch above, and checkbox/radio/submit/
-			// button/reset/hidden are excluded from IsTextEntry entirely)
-			// renders its value plain (formcontrol.go's inputDisplayText),
-			// so the box's first column is the value's own first
-			// character — no offset needed, but caret is still a rune
-			// offset that has to be measured out in columns.
+			// A text-like <input> is the only tag reaching this branch:
+			// textarea takes the branch above, and checkbox, radio, submit,
+			// button, reset, and hidden are excluded from IsTextEntry
+			// entirely. It renders its value plain (formcontrol.go's
+			// inputDisplayText), so the box's first column is the value's
+			// own first character. No offset is needed, but caret is still a
+			// rune offset that has to be measured out in columns.
 			col = rect.Col + textcell.ColumnForRuneIndex(el.Value(), caret)
 		}
 		if maxCol := rect.Col + rect.Width - 1; col > maxCol {

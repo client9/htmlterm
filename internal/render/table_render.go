@@ -23,10 +23,10 @@ type tableCell struct {
 	verticalAlign string
 	lines         []string
 	// positions holds this cell's own trackable descendants' Rects, relative
-	// to cells[i].lines[0] (row 0, col 0) — i.e. after padding-top has been
-	// folded in below, but before this cell is placed into a row/table. See
-	// renderTableBody for how these get shifted into the table's own
-	// coordinate space.
+	// to cells[i].lines[0], row 0 and col 0, meaning after padding-top has
+	// been folded in below but before this cell is placed into a row or
+	// table. See renderTableBody for how these get shifted into the table's
+	// own coordinate space.
 	positions map[*html.Node]Rect
 	// colSpan/rowSpan (always >=1) and rowStart/colStart (this cell's own
 	// anchor position in the grid) come from resolveTableGrid; a cell with
@@ -36,25 +36,28 @@ type tableCell struct {
 	rowStart, colStart int
 }
 
-// tableGrid is the resolved row/column structure of a <table>, accounting
-// for colspan/rowspan. rows[r][c] points to the *tableCell occupying that
-// slot — the same pointer appears at every (row,col) a spanning cell covers,
-// and nil means no cell occupies that slot (a short row). headerRow is the
-// index of the single row treated as the table header (-1 if none),
-// matching the existing thead/first-all-<th>-row rules; used only to pick a
-// representative cell per column for border-overhead sizing (see
-// separateColumnBorderOverhead) — a header cell's own rowspan is otherwise
-// resolved exactly like any other cell's, including merging into data rows.
+// tableGrid is the resolved row and column structure of a <table>,
+// accounting for colspan and rowspan. rows[r][c] points to the *tableCell
+// occupying that slot: the same pointer appears at every (row,col) a spanning
+// cell covers, and nil means no cell occupies that slot, as in a short row.
+//
+// headerRow is the index of the single row treated as the table header, or -1
+// if none, matching the existing thead and first-all-<th>-row rules. It is
+// used only to pick a representative cell per column for border-overhead
+// sizing (see separateColumnBorderOverhead). A header cell's own rowspan is
+// otherwise resolved exactly like any other cell's, including merging into
+// data rows.
 type tableGrid struct {
 	numCols   int
 	rows      [][]*tableCell
 	headerRow int
 }
 
-// collectColDecls scans direct <colgroup> children of a <table> node and returns
-// a slice of declaration maps, one entry per column position (expanded by span).
-// A <colgroup> with <col> children uses per-col decls (col overrides colgroup base).
-// A <colgroup> with no <col> children applies its own decls across its span.
+// collectColDecls scans direct <colgroup> children of a <table> node and
+// returns a slice of declaration maps, one entry per column position, expanded
+// by span. A <colgroup> with <col> children uses per-col decls, where col
+// overrides the colgroup base. A <colgroup> with no <col> children applies its
+// own decls across its span.
 func (r *Engine) collectColDecls(table *html.Node) []map[string]string {
 	var result []map[string]string
 	for cg := table.FirstChild; cg != nil; cg = cg.NextSibling {
@@ -109,9 +112,10 @@ func (r *Engine) collectColDecls(table *html.Node) []map[string]string {
 	return result
 }
 
-// parseSpanAttr parses a colspan/rowspan attribute value: unparsable or <1
-// resolves to 1 (the HTML-spec default), clamped to max (matching the HTML
-// spec's own limits: 1000 for colspan, 65534 for rowspan).
+// parseSpanAttr parses a colspan or rowspan attribute value. Unparsable, or
+// less than 1, resolves to 1, the HTML-spec default, and the result is clamped
+// to max, matching the HTML spec's own limits of 1000 for colspan and 65534
+// for rowspan.
 func parseSpanAttr(raw string, max int) int {
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || n < 1 {
@@ -124,16 +128,17 @@ func parseSpanAttr(raw string, max int) int {
 }
 
 // resolveTableGrid walks a table's rows once, building its full grid
-// topology (column count, per-cell anchor position, colspan/rowspan
-// occupancy) without touching CSS or cell content. Every other pass
-// (CSS-constraint gathering, natural-width measurement, final rendering)
+// topology — column count, per-cell anchor position, and colspan and rowspan
+// occupancy — without touching CSS or cell content. Every other pass, whether
+// CSS-constraint gathering, natural-width measurement, or final rendering,
 // iterates this one resolved grid instead of separately re-deriving column
-// indices from the DOM — keeping colspan/rowspan bookkeeping consistent
-// across all of them.
+// indices from the DOM, which keeps colspan and rowspan bookkeeping
+// consistent across all of them.
 //
-// rowspan="0" ("span to the end") is resolved against the whole table's
-// remaining rows, not scoped per thead/tbody/tfoot section as the spec
-// technically specifies — a documented simplification for a rare case.
+// rowspan="0", meaning "span to the end", is resolved against the whole
+// table's remaining rows rather than being scoped per thead, tbody, or tfoot
+// section as the spec specifies. That is a documented simplification for a
+// rare case.
 func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 	type trInfo struct {
 		node    *html.Node
@@ -196,11 +201,11 @@ func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 			}
 		}
 
-		// Header-row detection: any row inside <thead> is a header candidate;
-		// without <thead>, the first all-<th> row anywhere (not in <tfoot>)
+		// Header-row detection: any row inside <thead> is a header candidate.
+		// Without <thead>, the first all-<th> row anywhere outside <tfoot>
 		// is an implicit header. Only the first candidate encountered becomes
-		// THE header row (used solely as a representative-cell lookup for
-		// column border-overhead sizing - see separateColumnBorderOverhead).
+		// THE header row, used solely as a representative-cell lookup for
+		// column border-overhead sizing (see separateColumnBorderOverhead).
 		allTH := true
 		for td := tr.node.FirstChild; td != nil; td = td.NextSibling {
 			if td.Type == html.ElementNode && td.Data == "td" {
@@ -261,9 +266,9 @@ func (r *Engine) resolveTableGrid(n *html.Node) tableGrid {
 }
 
 // uniqueCells returns every distinct *tableCell in the grid exactly once, in
-// (rowStart, colStart) order — its first appearance scanning row-major,
-// top-to-bottom/left-to-right is always its own anchor, since a cell never
-// appears before its own rowStart/colStart.
+// (rowStart, colStart) order. Its first appearance scanning row-major, top to
+// bottom and left to right, is always its own anchor, since a cell never
+// appears before its own rowStart and colStart.
 func uniqueCells(g tableGrid) []*tableCell {
 	var out []*tableCell
 	seen := make(map[*tableCell]bool)
@@ -279,12 +284,12 @@ func uniqueCells(g tableGrid) []*tableCell {
 	return out
 }
 
-// mergedCellDecls resolves td's own CSS/inline declarations, with the
-// <col>/<colgroup> declarations at column ci (if any) merged in as a
-// lower-priority base. For a spanning cell, ci is its leftmost (colStart)
-// column — a single spanning cell can only take one column's <col> style,
-// so the leftmost one wins; a rare, low-stakes simplification when
-// <colgroup>/<col> and colspan are combined.
+// mergedCellDecls resolves td's own CSS and inline declarations, with any
+// <col> or <colgroup> declarations at column ci merged in as a
+// lower-priority base. For a spanning cell, ci is its leftmost colStart
+// column: a single spanning cell can only take one column's <col> style, so
+// the leftmost one wins. That is a rare, low-stakes simplification, reached
+// only when <colgroup> or <col> and colspan are combined.
 func (r *Engine) mergedCellDecls(td *html.Node, colDecls []map[string]string, ci int) map[string]string {
 	tdDecls := r.resolveDecls(td)
 	if ci < len(colDecls) && len(colDecls[ci]) > 0 {
@@ -300,9 +305,9 @@ func (r *Engine) mergedCellDecls(td *html.Node, colDecls []map[string]string, ci
 	return tdDecls
 }
 
-// mergeColConstraints folds dc into dst, keeping the first fixed/percent
-// value seen and the tightest min/max — the same merge rule used whether the
-// source is a single unconstrained pass or many rows' worth of cells.
+// mergeColConstraints folds dc into dst, keeping the first fixed or percent
+// value seen and the tightest min and max. It is the same merge rule whether
+// the source is a single unconstrained pass or many rows' worth of cells.
 func mergeColConstraints(dst *colConstraints, dc colConstraints) {
 	if dst.fixed == 0 && dc.fixed > 0 {
 		dst.fixed = dc.fixed
@@ -325,12 +330,12 @@ func mergeColConstraints(dst *colConstraints, dc colConstraints) {
 }
 
 // distributeSpanDeficit ensures a spanning cell's spanned columns
-// collectively have at least enough natural width for its content: if the
-// sum of the columns it spans — plus the interior separators it reclaims,
-// since no separator is drawn through a spanned cell — falls short of the
-// cell's own measured natural width, the shortfall is added to those
-// columns' natural field (evenly, remainder to the first columns).
-// Approximates CSS2.1's fallback for spanning cells whose columns don't
+// collectively have at least enough natural width for its content. If the
+// sum of the columns it spans, plus the interior separators it reclaims since
+// no separator is drawn through a spanned cell, falls short of the cell's own
+// measured natural width, the shortfall is added to those columns' natural
+// field, spread evenly with the remainder going to the first columns. This
+// approximates CSS2.1's fallback for spanning cells whose columns don't
 // otherwise have enough room.
 func distributeSpanDeficit(cols []colConstraints, colStart, colSpan, sepW, cellNatural int) {
 	if colSpan <= 1 {
@@ -355,11 +360,12 @@ func distributeSpanDeficit(cols []colConstraints, colStart, colSpan, sepW, cellN
 	}
 }
 
-// gridColumnConstraints gathers CSS/HTML width constraints (fixed/percent/
-// min/max) per column from a resolved grid, without rendering any cell
-// content — only from colSpan==1 cells, since a spanning cell's constraints
-// don't map to a single column unambiguously (its content instead feeds into
-// distributeSpanDeficit once natural widths are known).
+// gridColumnConstraints gathers per-column CSS and HTML width constraints —
+// fixed, percent, min, and max — from a resolved grid, without rendering any
+// cell content. It reads only colSpan==1 cells, since a spanning cell's
+// constraints don't map to a single column unambiguously. Such a cell's
+// content instead feeds into distributeSpanDeficit once natural widths are
+// known.
 func (r *Engine) gridColumnConstraints(g tableGrid, colDecls []map[string]string) []colConstraints {
 	cols := make([]colConstraints, g.numCols)
 	for _, cell := range uniqueCells(g) {
@@ -373,8 +379,8 @@ func (r *Engine) gridColumnConstraints(g tableGrid, colDecls []map[string]string
 }
 
 // measureCellNaturalWidth renders td's content once, at an effectively
-// unbounded width, purely to measure how wide it would be if never forced to
-// wrap — then discards that trial render. measuringNaturalWidth suppresses
+// unbounded width, only to measure how wide it would be if never forced to
+// wrap, then discards that trial render. measuringNaturalWidth suppresses
 // width:100% expansion in any nested <table> so its own shrink-to-fit natural
 // width is measured instead of it stretching to fill the huge trial budget.
 func (r *Engine) measureCellNaturalWidth(td *html.Node) int {
@@ -388,23 +394,23 @@ func (r *Engine) measureCellNaturalWidth(td *html.Node) int {
 	return tokensNaturalWidth(tokens)
 }
 
-// measureTableWidth computes a <table>'s own natural (shrink-to-fit) width -
-// its final rendered box width if never constrained - without producing any
-// actual rendered content. It mirrors renderTable's own column-sizing math
-// (grid topology, CSS constraints, and, when needed, content measurement)
-// but stops there: it never calls fillGridCellTokens/renderTableBody, so it
+// measureTableWidth computes a <table>'s own natural, shrink-to-fit width,
+// meaning its final rendered box width if never constrained, without producing
+// any rendered content. It mirrors renderTable's own column-sizing math —
+// grid topology, CSS constraints, and, when needed, content measurement — but
+// stops there. It never calls fillGridCellTokens or renderTableBody, so it
 // never commits to a full "final" render of this table's cells.
 //
 // This exists specifically for inline.go's nested-<table> handling under
-// measuringNaturalWidth (see measureCellNaturalWidth): without it, measuring
+// measuringNaturalWidth (see measureCellNaturalWidth). Without it, measuring
 // an ancestor's natural width would mean fully rendering every descendant
-// table too (via a real renderTable call) only to discard the string and
-// keep just its width - and since that descendant table's own renderTable
+// table too, via a real renderTable call, only to discard the string and
+// keep just its width. And since that descendant table's own renderTable
 // call would, if it also needed a measurement pass, do the same thing one
 // level further down, the redundant "measure AND fully render" work
 // compounds at every nesting level, making measurement exponential in
-// nesting depth instead of linear. Real-world deeply-nested table markup
-// (e.g. HTML email templates) hits exactly this - see the regression test
+// nesting depth instead of linear. Real-world deeply-nested table markup,
+// such as HTML email templates, hits exactly this; see the regression test
 // covering it.
 func (r *Engine) measureTableWidth(n *html.Node) int {
 	tableDecls := r.resolveDecls(n)
@@ -413,15 +419,15 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 	if grid.numCols == 0 {
 		return 0
 	}
-	// Border overhead, resolved per the mode that actually applies. Collapse's
-	// count is one column per *active grid line* (adjacent cells share theirs,
-	// and the table's own border becomes the outermost two), which is a
-	// different number from separate's per-cell left+right sum in both
-	// directions - see renderTableCollapse. Neither mode's count depends on
-	// column widths, so both are exact here rather than estimates, and this
-	// stays a measurement: resolving declarations over an already-built grid is
-	// what this function was doing anyway, not the full cell render it exists
-	// to avoid.
+	// Border overhead, resolved per the mode that applies. Collapse's count is
+	// one column per *active grid line*, since adjacent cells share theirs and
+	// the table's own border becomes the outermost two. That is a different
+	// number from separate's per-cell left-plus-right sum, in both directions;
+	// see renderTableCollapse. Neither mode's count depends on column widths,
+	// so both are exact here rather than estimates, and this stays a
+	// measurement: resolving declarations over an already-built grid is what
+	// this function was doing anyway, not the full cell render it exists to
+	// avoid.
 	spacingX := parseSpacingLen(tableDecls["border-spacing-x"])
 	overhead := (grid.numCols + 1) * spacingX
 	if tableDecls["border-collapse"] == "collapse" {
@@ -455,12 +461,13 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 
 // measureGridNaturalWidths fills in cols' natural field with each column's
 // real unwrapped content width, for the case where estimateColumnWidths
-// couldn't produce a usable estimate from CSS constraints alone (two or more
-// unconstrained flex columns). It renders each cell once (via
-// measureCellNaturalWidth) to measure its content instead of only reading
-// declared constraints; colSpan==1 cells contribute directly to their own
-// column, colSpan>1 cells are folded in afterward via distributeSpanDeficit.
-// Returns a copy of cols with natural filled in; does not mutate the input.
+// couldn't produce a usable estimate from CSS constraints alone, meaning two
+// or more unconstrained flex columns. It renders each cell once, via
+// measureCellNaturalWidth, to measure its content instead of only reading
+// declared constraints. colSpan==1 cells contribute directly to their own
+// column, and colSpan>1 cells are folded in afterward via
+// distributeSpanDeficit. Returns a copy of cols with natural filled in, and
+// does not mutate the input.
 func (r *Engine) measureGridNaturalWidths(g tableGrid, colDecls []map[string]string, cols []colConstraints, sepW int) []colConstraints {
 	out := append([]colConstraints(nil), cols...)
 	cells := uniqueCells(g)
@@ -489,12 +496,12 @@ func (r *Engine) measureGridNaturalWidths(g tableGrid, colDecls []map[string]str
 }
 
 // estimateColumnWidths computes a best-effort final column width per column
-// before any cell content is rendered, using only CSS/HTML constraints (no
-// natural content width, which isn't known yet). This exactly matches the
-// real final sizeColumns pass whenever every column is either fixed/percent
-// constrained, or there is at most one unconstrained ("flex") column — in
-// both cases the real pass's use of natural width ends up not mattering: a
-// percent/fixed column ignores natural entirely, and a lone flex column
+// before any cell content is rendered, using only CSS and HTML constraints,
+// with no natural content width, which isn't known yet. This exactly matches
+// the real final sizeColumns pass whenever every column is either fixed or
+// percent constrained, or there is at most one unconstrained "flex" column.
+// In both cases the real pass's use of natural width ends up not mattering: a
+// percent or fixed column ignores natural entirely, and a lone flex column
 // always absorbs whatever space is left over regardless of its own natural
 // width. With two or more unconstrained flex columns, natural width does
 // affect the real split, so this returns nil and callers fall back to a
@@ -511,21 +518,21 @@ func estimateColumnWidths(cols []colConstraints, contentWidth int, fullWidth boo
 	}
 	if flexCount == 1 && !fullWidth {
 		// A lone flex column only absorbs the remaining space regardless of
-		// its own natural width when the table is fullWidth (forced
-		// expansion). Without fullWidth its final width is driven by natural
-		// content width, which isn't known yet — don't guess.
+		// its own natural width when the table is fullWidth, meaning forced
+		// expansion. Without fullWidth its final width is driven by natural
+		// content width, which isn't known yet, so don't guess.
 		return nil
 	}
 	return sizeColumns(cols, contentWidth, fullWidth)
 }
 
 // fillGridCellTokens renders every unique cell's content once, using its
-// span-aware final budget (estWidths summed across the columns it spans,
-// plus the interior separators it reclaims since no separator is drawn
-// through a spanned cell) as the wrap width — so nested content (e.g. a
-// nested <table>) is only ever rendered at its real final budget, never
-// prematurely committed at a wrong one. Also resolves each cell's other
-// CSS-derived fields (padding, text-align, etc).
+// span-aware final budget as the wrap width. That budget is estWidths summed
+// across the columns the cell spans, plus the interior separators it reclaims
+// since no separator is drawn through a spanned cell. Nested content, such as
+// a nested <table>, is therefore only ever rendered at its real final budget,
+// never prematurely committed at a wrong one. This also resolves each cell's
+// other CSS-derived fields, including padding and text-align.
 func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, estWidths []int, sepW, fallbackCellWidth int) {
 	for _, cell := range uniqueCells(g) {
 		tdDecls := r.mergedCellDecls(cell.node, colDecls, cell.colStart)
@@ -552,13 +559,13 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 		cellTokens := r.renderInlineAccTokens(cell.node, newInlineStyle(), cellBudget)
 		r.nestedTableWidth, r.nestedTableWidthSet = savedHint, savedHintSet
 
-		// A leading/trailing brk (e.g. from a first/last block child's
-		// margin, or a nested table rendered via pushBox) is only ever
-		// meaningful as structural separation between siblings — at either
-		// edge of the cell's own content it's not real content and would
-		// otherwise wrap to a spurious blank line at the top/bottom of the
-		// cell (table cells don't collapse margins with their content the
-		// way a block container does).
+		// A leading or trailing brk, from a first or last block child's
+		// margin or a nested table rendered via pushBox, is only ever
+		// meaningful as structural separation between siblings. At either
+		// edge of the cell's own content it isn't real content and would
+		// otherwise wrap to a spurious blank line at the top or bottom of
+		// the cell, since table cells don't collapse margins with their
+		// content the way a block container does.
 		cellTokens = cellTokens[leadingBreaks(cellTokens):]
 		for len(cellTokens) > 0 && cellTokens[len(cellTokens)-1].brk {
 			cellTokens = cellTokens[:len(cellTokens)-1]
@@ -593,25 +600,25 @@ func (r *Engine) renderTable(n *html.Node, availWidth int) (string, map[*html.No
 	if tableDecls["border-collapse"] == "collapse" {
 		return r.renderTableCollapse(n, availWidth, tableDecls)
 	}
-	// Real CSS's border-collapse initial value is "separate" - unset and
-	// explicit "separate" are therefore the same thing, not two branches;
-	// separate's own model (table_separate.go) is already spec-correct for
-	// the borderless-by-default case, since it has no fallback border logic
+	// Real CSS's border-collapse initial value is "separate", so unset and
+	// explicit "separate" are the same thing, not two branches. Separate's
+	// own model (table_separate.go) is already spec-correct for the
+	// borderless-by-default case, since it has no fallback border logic
 	// of its own. See docs/TABLES.md.
 	return r.renderTableSeparate(n, availWidth, tableDecls)
 }
 
-// nbsp is U+00A0 (non-breaking space). A real &nbsp; HTML entity decodes to
-// this rune and survives rendering as a distinct character
-// (normalizeWhiteSpace and plainInlineText only touch plain ASCII space);
+// nbsp is U+00A0, the non-breaking space. A real &nbsp; HTML entity decodes
+// to this rune and survives rendering as a distinct character, since
+// normalizeWhiteSpace and plainInlineText only touch plain ASCII space.
 // Render's final pass normalizes it to a plain space in the returned string,
 // since terminals don't distinguish breaking from non-breaking spaces.
 const nbsp = " "
 
 // buildGridColumns rebuilds each column's constraints from its cells' final,
-// already-rendered tokens (natural width) and per-cell CSS constraints —
-// colSpan==1 cells contribute directly to their own column; colSpan>1 cells
-// are folded in afterward via distributeSpanDeficit.
+// already-rendered tokens, which give natural width, and from per-cell CSS
+// constraints. colSpan==1 cells contribute directly to their own column, and
+// colSpan>1 cells are folded in afterward via distributeSpanDeficit.
 func buildGridColumns(g tableGrid, numCols, sepW int) []colConstraints {
 	cols := make([]colConstraints, numCols)
 	cells := uniqueCells(g)
@@ -649,15 +656,15 @@ func fillGridCellLines(g tableGrid, widths []int, sepW int) {
 		var b box
 		var positions map[*html.Node]Rect
 		if cell.noWrap {
-			// Not wrapped, so a plain trailing space from source text (e.g.
-			// "<td>hi </td>") won't get naturally dropped by tokenization the
-			// way wrapping does — trim it explicitly, per line, matching
+			// Not wrapped, so a plain trailing space from source text, as in
+			// "<td>hi </td>", won't get dropped by tokenization the way
+			// wrapping does. Trim it explicitly, per line, matching
 			// plainInlineText's historical role here. naturalWidthCap (see
 			// wraptoken.go) keeps this the token-domain equivalent of the old
-			// flatten-to-string path — only structural brk/box breaks start a
-			// new line, no width-driven wrapping — while still going through
-			// wordWrapTokens so cell.tokens' own node positions are produced
-			// instead of discarded.
+			// flatten-to-string path, where only structural brk and box breaks
+			// start a new line and no width-driven wrapping happens, while
+			// still going through wordWrapTokens so cell.tokens' own node
+			// positions are produced instead of discarded.
 			b, positions = wordWrapTokens(cell.tokens, naturalWidthCap, "", 0)
 			for j, line := range b.lines {
 				b.lines[j] = strings.TrimRight(line, " ")

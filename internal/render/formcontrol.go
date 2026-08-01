@@ -11,9 +11,9 @@ import (
 	"golang.org/x/net/html"
 )
 
-// nodeHasAttr reports whether key is present on n, regardless of its value —
-// needed for boolean attributes like "checked", where nodeAttr's "" return
-// can't distinguish absent from present-but-empty (e.g. checked="").
+// nodeHasAttr reports whether key is present on n, regardless of its value.
+// It is needed for boolean attributes like "checked", where nodeAttr's ""
+// return can't distinguish absent from present-but-empty, as checked="" is.
 func nodeHasAttr(n *html.Node, key string) bool {
 	for _, a := range n.Attr {
 		if a.Key == key {
@@ -24,21 +24,23 @@ func nodeHasAttr(n *html.Node, key string) bool {
 }
 
 // inputDisplayText synthesizes an <input>'s visual content from its
-// attributes rather than children (it has none) — see docs/INTERACTIVE.md's
-// "render actual form controls" section. checkbox/radio show a glyph
-// reflecting the checked attribute; submit/button/reset show a bracketed
-// label (falling back to a type-appropriate default when value is unset);
-// hidden renders nothing; every other type (the text-like default) shows
-// its value, falling back to its placeholder, plain — no brackets. Unlike
-// <button> (a real element with children, so the UA stylesheet's
-// button::before/::after can bracket it like any other content), a
-// text-like <input> gets no boundary glyph at all: it has no children for
-// pseudo-elements to wrap, and — more importantly — a real browser doesn't
-// bracket its text fields either, it just sizes them (see renderInput's
+// attributes rather than from children, since it has none. See
+// docs/INTERACTIVE.md's "render actual form controls" section. checkbox and
+// radio show a glyph reflecting the checked attribute. submit, button, and
+// reset show a bracketed label, falling back to a type-appropriate default
+// when value is unset. hidden renders nothing. Every other type, the
+// text-like default, shows its value plain, with no brackets, falling back to
+// its placeholder.
+//
+// A text-like <input> gets no boundary glyph at all, unlike <button>, which
+// is a real element with children, so the UA stylesheet's button::before and
+// button::after can bracket it like any other content. An <input> has no
+// children for pseudo-elements to wrap, and, more importantly, a real browser
+// doesn't bracket its text fields either. It sizes them (see renderInput's
 // width handling) and leaves any visible edge to the author's own
-// background-color/border. Callers needing a fixed-width field pad this
-// return value themselves (renderInput), since this function has no notion
-// of the resolved box width.
+// background-color and border. Callers needing a fixed-width field pad this
+// return value themselves, as renderInput does, since this function has no
+// notion of the resolved box width.
 func inputDisplayText(n *html.Node) string {
 	typ := strings.ToLower(nodeAttr(n, "type"))
 	if typ == "" {
@@ -79,12 +81,13 @@ func inputDisplayText(n *html.Node) string {
 	}
 }
 
-// inputSizeAttr reads a text-like <input>'s "size" attribute — the number of
-// visible character cells real HTML sizes such a field to — defaulting to
-// 20 (matching browsers' own default) when absent or not a valid positive
+// inputSizeAttr reads a text-like <input>'s "size" attribute, the number of
+// visible character cells real HTML sizes such a field to, defaulting to
+// 20, matching browsers' own default, when absent or not a valid positive
 // integer. This is renderInput's naturalWidth for resolveWidthConstraints,
-// the same width-resolution shared with <progress>/<meter>'s bar: an
-// explicit CSS width/min-width/max-width on the input still overrides it.
+// the same width resolution shared with <progress> and <meter>'s bar, so an
+// explicit CSS width, min-width, or max-width on the input still overrides
+// it.
 func inputSizeAttr(n *html.Node) int {
 	v := nodeAttr(n, "size")
 	if v == "" {
@@ -98,15 +101,15 @@ func inputSizeAttr(n *html.Node) int {
 }
 
 // padInputText right-pads s with spaces to width, so an empty or short
-// value still fills the field's resolved box — matching a real browser,
-// where a text field's empty tail is part of its visible box rather than
-// just wherever the value's own characters happen to end. A value at or
-// past width is returned unchanged: it overflows uncut rather than being
-// truncated or scrolled into view the way a real browser would keep the
-// caret visible — an accepted approximation, see COMPATIBILITY.md.
+// value still fills the field's resolved box, matching a real browser, where
+// a text field's empty tail is part of its visible box rather than just
+// wherever the value's own characters happen to end. A value at or past width
+// is returned unchanged: it overflows uncut rather than being truncated or
+// scrolled into view the way a real browser would keep the caret visible.
+// That is an accepted approximation; see COMPATIBILITY.md.
 //
-// s is measured in terminal columns (textcell.Width), not runes: a value of
-// CJK or emoji characters occupies two cells apiece, so padding by rune count
+// s is measured in terminal columns, via textcell.Width, not in runes. CJK
+// and emoji characters occupy two cells apiece, so padding by rune count
 // would render the field wider than its resolved width and break the
 // column-alignment invariant every other box in this package maintains.
 func padInputText(s string, width int) string {
@@ -118,22 +121,23 @@ func padInputText(s string, width int) string {
 }
 
 // selectionRange reports the [start, end) rune range into a focused text
-// entry's value that should render under the ::selection highlight — see
+// entry's value that should render under the ::selection highlight. See
 // docs/proposals/CARET_SELECTION.md. has is false unless n currently
-// carries the focus marker (real UAs don't paint a selection highlight on
-// an unfocused field) and both selectionStartAttr/selectionEndAttr are
-// present. The two attribute values are reclamped against n's *current*
-// value length here, the same way Document.selection reclamps on every
-// read — they normally can't be stale (Document.setSelection/clearSelection
-// keep them in sync with d.selections), but a direct
-// Element.SetAttribute("value", ...) call bypasses SetValue's
-// clearSelection and can leave them pointing past a since-shortened value;
-// reclamping here keeps this function's notion of the selection consistent
-// with Element.SelectionStart()/SelectionEnd() (which reclamp the same way)
-// rather than trusting the raw attributes verbatim. has is false if,
-// after reclamping, the range is malformed or collapsed (start >= end) —
-// including the collapsed-by-reclamping case, not just an originally
-// collapsed one.
+// carries the focus marker, since real UAs don't paint a selection highlight
+// on an unfocused field, and both selectionStartAttr and selectionEndAttr are
+// present.
+//
+// The two attribute values are reclamped against n's *current* value length
+// here, the same way Document.selection reclamps on every read. They normally
+// can't be stale, since Document.setSelection and clearSelection keep them in
+// sync with d.selections, but a direct Element.SetAttribute("value", ...)
+// call bypasses SetValue's clearSelection and can leave them pointing past a
+// since-shortened value. Reclamping here keeps this function's notion of the
+// selection consistent with Element.SelectionStart() and SelectionEnd(),
+// which reclamp the same way, rather than trusting the raw attributes
+// verbatim. has is false if, after reclamping, the range is malformed or
+// collapsed, meaning start >= end, including the collapsed-by-reclamping
+// case, not just an originally collapsed one.
 func (r *Engine) selectionRange(n *html.Node) (start, end int, has bool) {
 	if !nodeHasAttr(n, r.focusAttr) {
 		return 0, 0, false
@@ -161,7 +165,7 @@ func (r *Engine) selectionRange(n *html.Node) (start, end int, has bool) {
 // author color/background-color declaration wins, the same
 // resolve-then-render shape resolveScrollbarStyle uses for
 // ::scrollbar-track/::scrollbar-thumb. With neither set, it falls back to
-// reverse video (inlineStyle.reverse) — the UA default every terminal
+// reverse video, inlineStyle.reverse, the UA default every terminal
 // editor already uses for a text selection, since there's no
 // terminal-neutral equivalent of a browser's platform selection color to
 // hardcode instead. elemDecls is n's own resolved declarations, read only
@@ -176,24 +180,26 @@ func (r *Engine) resolveSelectionStyle(n *html.Node, elemDecls map[string]string
 }
 
 // synthesizedControlText renders the elements whose visual content is
-// synthesized from their attributes rather than laid out from child nodes —
-// <input> (which has no children at all), <select>'s closed state (built from
-// its <option> labels, not from rendering them), and <progress>/<meter>'s bar.
+// synthesized from their attributes rather than laid out from child nodes:
+// <input>, which has no children at all, <select>'s closed state, built from
+// its <option> labels rather than by rendering them, and <progress> and
+// <meter>'s bar.
 // It reports false for every other element, leaving the caller to render n's
 // children the ordinary way.
 //
 // This is the one copy of that dispatch. It's reached from all four layout
-// paths a control can turn up in — root-level (render.go), nested inline
-// (inline.go), block-level, and as a flex item (both via block.go's content
-// step) — and the fourth is why it was extracted: a flex item is blockified,
+// paths a control can turn up in: root-level (render.go), nested inline
+// (inline.go), block-level, and as a flex item, the last two both via
+// block.go's content step. The fourth is why it was extracted. A flex item is
+// blockified,
 // so it went through renderBlockContentBox, which walked the element's
 // children and found none. Every <input> in a `display: flex` row rendered as
 // nothing at all.
 //
-// <progress>/<meter> are deliberately not wrapped in acc.render, unlike
-// input/select: each glyph run is already individually styled from its own
-// ::progress-*/::meter-* declarations, and one uniform outer style would
-// flatten that (e.g. <meter>'s region coloring).
+// <progress> and <meter> are deliberately not wrapped in acc.render, unlike
+// input and select. Each glyph run is already individually styled from its
+// own ::progress-* and ::meter-* declarations, and one uniform outer style
+// would flatten that, losing <meter>'s region coloring for instance.
 func (r *Engine) synthesizedControlText(n *html.Node, decls map[string]string, acc inlineStyle, availWidth int) (string, bool) {
 	switch n.Data {
 	case "input":
@@ -220,18 +226,20 @@ func (r *Engine) synthesizedControlText(n *html.Node, decls map[string]string, a
 }
 
 // renderInput renders an <input>'s synthesized content, applying acc
-// uniformly — except, for a text-like input with a non-collapsed, focused
-// selection (selectionRange), the [start, end) rune range within its value,
-// which instead renders under resolveSelectionStyle's ::selection style.
-// Checkbox/radio/submit/button/reset/hidden inputs have no notion of a text
-// selection and no resolved width of their own (they size to their glyph/
-// label like <button>), so they keep rendering as a single
-// acc.render(inputDisplayText(n), p) call, same as before this existed. A
-// text-like input's own width instead comes from resolveWidthConstraints
-// (author CSS width/min-width/max-width, falling back to inputSizeAttr's
-// "size"-attribute-or-20 default) — the same mechanism <progress>/<meter>
-// use for their bar — and its display text is padded (padInputText) to
-// fill that width, since without the old "["/"]" brackets there's nothing
+// uniformly. The one exception is a text-like input with a non-collapsed,
+// focused selection (selectionRange), whose [start, end) rune range within
+// its value instead renders under resolveSelectionStyle's ::selection style.
+//
+// checkbox, radio, submit, button, reset, and hidden inputs have no notion of
+// a text selection and no resolved width of their own, sizing to their glyph
+// or label like <button>, so they keep rendering as a single
+// acc.render(inputDisplayText(n), p) call, same as before this existed.
+//
+// A text-like input's own width instead comes from resolveWidthConstraints:
+// author CSS width, min-width, or max-width, falling back to inputSizeAttr's
+// "size"-attribute-or-20 default. That is the same mechanism <progress> and
+// <meter> use for their bar. Its display text is padded by padInputText to
+// fill that width, since without the old "[" and "]" brackets there's nothing
 // else marking the field's resolved size.
 func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inlineStyle, availWidth int, p colorprofile.Profile) string {
 	typ := strings.ToLower(nodeAttr(n, "type"))
@@ -258,9 +266,9 @@ func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inli
 	start = min(max(start, 0), len(runes))
 	end = min(max(end, 0), len(runes))
 	selStyle := r.resolveSelectionStyle(n, elemDecls)
-	// Same column (not rune) measure padInputText uses on the unselected
-	// path above — the two must agree, or a field changes width the moment
-	// a selection appears in it.
+	// The same column measure, not a rune measure, that padInputText uses on
+	// the unselected path above. The two must agree, or a field changes width
+	// the moment a selection appears in it.
 	pad := max(innerWidth-textcell.Width(string(runes)), 0)
 	return acc.render(string(runes[:start]), p) +
 		selStyle.render(string(runes[start:end]), p) +
@@ -268,11 +276,11 @@ func (r *Engine) renderInput(n *html.Node, elemDecls map[string]string, acc inli
 }
 
 // parseFloatAttr reads n's key attribute as a float, falling back to def
-// when the attribute is absent or unparseable — the same "bad numeric
+// when the attribute is absent or unparseable. That is the same "bad numeric
 // attribute silently falls back" behavior real HTML's IDL attribute
-// reflection uses for <progress>/<meter>'s value/max/min/low/high/optimum,
-// none of which have a distinct "invalid" rendering state of their own (see
-// docs/proposals/PROGRESS_METER.md).
+// reflection uses for <progress> and <meter>'s value, max, min, low, high,
+// and optimum, none of which have a distinct "invalid" rendering state of
+// their own (see docs/proposals/PROGRESS_METER.md).
 func parseFloatAttr(n *html.Node, key string, def float64) float64 {
 	v, err := strconv.ParseFloat(nodeAttr(n, key), 64)
 	if err != nil {
@@ -293,9 +301,9 @@ func clampFloat(v, lo, hi float64) float64 {
 
 // progressFraction reads a <progress>'s value/max attributes and returns
 // its completion fraction in [0,1]. indeterminate is true iff the value
-// attribute is absent — per spec, that is the *only* indeterminate trigger;
-// an explicitly present but unparseable value is just clamped like any
-// other bad numeric attribute (parseFloatAttr's def=0), not a second
+// attribute is absent. Per spec that is the *only* indeterminate trigger:
+// an explicitly present but unparseable value is clamped like any other bad
+// numeric attribute, via parseFloatAttr's def=0, not treated as a second
 // indeterminate case. max defaults to 1; an unparseable or non-positive max
 // also falls back to 1, matching real UAs' "candidate maximum value" step.
 func progressFraction(n *html.Node) (fraction float64, indeterminate bool) {
@@ -320,8 +328,9 @@ func progressFraction(n *html.Node) (fraction float64, indeterminate bool) {
 // into [min,max] before the 3-case region algorithm runs (see
 // docs/proposals/PROGRESS_METER.md for why this is 3 distinct cases, not one
 // formula). A zero-width range (max==min after clamping) reports fraction
-// 1.0 if value is at or above min, else 0.0 — real UAs converge on some sane
-// behavior for this degenerate case rather than dividing by zero.
+// 1.0 if value is at or above min and 0.0 otherwise, since real UAs converge
+// on some sane behavior for this degenerate case rather than dividing by
+// zero.
 func meterFraction(n *html.Node) (fraction float64, region string) {
 	min := parseFloatAttr(n, "min", 0)
 	max := parseFloatAttr(n, "max", 1)
@@ -350,7 +359,7 @@ func meterRegion(optimum, low, high, value float64) string {
 	switch {
 	case optimum >= low && optimum <= high:
 		// optimum inside [low,high]: that range alone is optimum, and both
-		// outer ranges are suboptimum — no even-less-good region exists.
+		// outer ranges are suboptimum, so no even-less-good region exists.
 		if value >= low && value <= high {
 			return "optimum"
 		}
@@ -383,13 +392,14 @@ func meterRegion(optimum, low, high, value float64) string {
 // progressDisplayText synthesizes a <progress>'s visual content: innerWidth
 // columns of bar.char, with the leading fraction*innerWidth columns (rounded
 // to the nearest whole column, matching this codebase's existing
-// fractional-to-integer convention — see estimateColumnWidths) replaced by
+// fractional-to-integer convention; see estimateColumnWidths) replaced by
 // value.char, each portion styled independently via its own resolved
-// ::progress-bar/::progress-value declarations. An indeterminate <progress>
-// (no value attribute) has no fraction to size a fill from, so real UAs'
-// animated barber-pole becomes a static full-width bar.char run here — the
-// one deliberate static-not-animated deviation from spec this feature has
-// (no animation support exists at all).
+// ::progress-bar and ::progress-value declarations. An indeterminate
+// <progress>, one with no value attribute, has no fraction to size a fill
+// from, so real UAs' animated barber-pole becomes a static full-width
+// bar.char run here. That is the one deliberate static-not-animated
+// deviation from spec this feature has, since no animation support exists at
+// all.
 func progressDisplayText(n *html.Node, innerWidth int, bar, value scrollbarStyle, profile colorprofile.Profile) string {
 	fraction, indeterminate := progressFraction(n)
 	if indeterminate {
@@ -420,7 +430,7 @@ func meterDisplayText(n *html.Node, innerWidth int, bar, optimum, suboptimum, ev
 
 // selectOptionNodes returns n's <option> descendants usable for layout and
 // navigation, in document order: direct <option> children, plus (one level
-// deep) the <option> children of any direct <optgroup> child — real HTML
+// deep, the <option> children of any direct <optgroup> child. Real HTML
 // only ever nests <option> one level inside <optgroup>, never deeper. See
 // docs/SELECT.md.
 func selectOptionNodes(n *html.Node) []*html.Node {
@@ -463,9 +473,9 @@ func selectOptionLabel(opt *html.Node) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// selectedOption returns n's currently selected <option> — the first one
-// carrying a selected attribute, else the first option (matching HTML's
-// default-selection rule) — or nil if n has no options.
+// selectedOption returns n's currently selected <option>: the first one
+// carrying a selected attribute, else the first option, matching HTML's
+// default-selection rule. Returns nil if n has no options.
 func selectedOption(n *html.Node) *html.Node {
 	options := selectOptionNodes(n)
 	if len(options) == 0 {
@@ -479,10 +489,10 @@ func selectedOption(n *html.Node) *html.Node {
 	return options[0]
 }
 
-// selectDisplayText synthesizes a closed <select>'s visual content — the
-// selected option's label, bracketed with a disclosure indicator. Mirrors
+// selectDisplayText synthesizes a closed <select>'s visual content: the
+// selected option's label, bracketed with a disclosure indicator. It mirrors
 // inputDisplayText's role for <input>. The open dropdown itself is a
-// separate compositing step — see compositeOpenSelects in select_popup.go.
+// separate compositing step; see compositeOpenSelects in select_popup.go.
 func selectDisplayText(n *html.Node) string {
 	label := ""
 	if sel := selectedOption(n); sel != nil {

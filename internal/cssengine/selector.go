@@ -38,9 +38,9 @@ type attrSel struct {
 	val string // empty for opExists
 }
 
-// selectorPart is one compound component of a CSS selector.
-// combo is the combinator that connects this part to the one to its left;
-// it is ignored on parts[0].
+// selectorPart is one compound component of a CSS selector. combo is the
+// combinator that connects this part to the one to its left, and is ignored
+// on parts[0].
 type selectorPart struct {
 	element    string
 	id         string
@@ -52,31 +52,31 @@ type selectorPart struct {
 }
 
 // pseudoClass is a single pseudo-class condition, pre-parsed once at
-// selectorPart-construction time. :not()/:is()/:where() carry a nested
-// selector (list) argument that used to be re-parsed by matchPseudo on
-// every single match attempt — an O(nodes × rules) cost per render, the
+// selectorPart-construction time. :not(), :is(), and :where() carry a nested
+// selector-list argument that used to be re-parsed by matchPseudo on
+// every match attempt, an O(nodes × rules) cost per render. That is the
 // same cost Rule.parts's own caching exists to avoid for the outer
-// selector. Caching the nested parse here closes that gap. Plain
-// pseudo-classes (:hover, :nth-child(2n+1), etc.) have no nested selector
-// to cache and are matched directly off raw via pseudoArg/switch in
+// selector, and caching the nested parse here closes the gap. Plain
+// pseudo-classes such as :hover and :nth-child(2n+1) have no nested selector
+// to cache and are matched directly off raw, via pseudoArg and a switch in
 // matchPseudo, same as before.
 type pseudoClass struct {
 	raw      string
 	notParts []selectorPart   // set for :not(<selector-list>)
 	isParts  []selectorPart   // set for :is(<list>) / :where(<list>)
 	isWhere  bool             // true if isParts came from :where(), which contributes zero specificity
-	hasParts [][]selectorPart // set for :has(<relative-selector-list>) — one full combinator chain per comma-separated item, unlike isParts/notParts which are single compounds
+	hasParts [][]selectorPart // set for :has(<relative-selector-list>): one full combinator chain per comma-separated item, unlike isParts and notParts, which are single compounds
 }
 
-// parsePseudoClass parses a single lowercased pseudo-class token (e.g.
-// "not(.x)", "is(.x, .y)", "nth-child(2n+1)", "hover") into a pseudoClass,
-// pre-parsing any nested :not()/:is()/:where()/:has() selector argument.
+// parsePseudoClass parses a single lowercased pseudo-class token, such as
+// "not(.x)", "is(.x, .y)", "nth-child(2n+1)", or "hover", into a pseudoClass,
+// pre-parsing any nested :not(), :is(), :where(), or :has() argument.
 func parsePseudoClass(ps string) pseudoClass {
 	pc := pseudoClass{raw: ps}
 	if arg, ok := pseudoArg(ps, "not("); ok {
 		// Per the CSS Selectors Level 4 grammar, :not() takes a full
-		// selector list (comma-separated), not a single simple selector —
-		// parsed the same way as :is()/:where() below so a comma nested
+		// comma-separated selector list, not a single simple selector. It is
+		// parsed the same way as :is() and :where() below, so a comma nested
 		// inside the argument is treated as a list separator rather than
 		// literal selector text.
 		pc.notParts = parseSelectorList(arg)
@@ -98,9 +98,9 @@ func parsePseudoClass(ps string) pseudoClass {
 	return pc
 }
 
-// parseSelectorList parses a selector-list argument (as passed to
-// :is()/:where()) into one selectorPart per top-level comma-separated
-// compound selector.
+// parseSelectorList parses a selector-list argument, as passed to :is() and
+// :where(), into one selectorPart per top-level comma-separated compound
+// selector.
 func parseSelectorList(list string) []selectorPart {
 	var parts []selectorPart
 	for _, item := range splitSelectorList(list) {
@@ -111,17 +111,17 @@ func parseSelectorList(list string) []selectorPart {
 	return parts
 }
 
-// parseRelativeSelectorList parses a :has() argument (a comma-separated list
-// of relative selectors, e.g. "img, > p, + span, ~ div") into one full
+// parseRelativeSelectorList parses a :has() argument, a comma-separated list
+// of relative selectors such as "img, > p, + span, ~ div", into one full
 // combinator chain per item, via parseSelector rather than
-// parseSimpleSelector — unlike :is()/:where()/:not(), :has()'s argument is a
-// *relative selector*, which both supports internal combinators (":has(div >
-// p)") and may itself start with a combinator (">", "+", "~") naming the
-// relation between the element being tested and the argument's first
-// compound selector. parseSelector already treats a leading combinator as
-// establishing parts[0].combo (normally unused by matchSelector, since
-// there's nothing before parts[0] in an ordinary selector) — matchesHasChain
-// reads that field to know which relation :has() itself must check.
+// parseSimpleSelector. Unlike :is(), :where(), and :not(), :has()'s argument
+// is a *relative selector*, which both supports internal combinators, as in
+// ":has(div > p)", and may itself start with a ">", "+", or "~" combinator
+// naming the relation between the element being tested and the argument's
+// first compound selector. parseSelector already treats a leading combinator
+// as establishing parts[0].combo, normally unused by matchSelector since
+// there's nothing before parts[0] in an ordinary selector, and
+// matchesHasChain reads that field to know which relation :has() must check.
 func parseRelativeSelectorList(list string) [][]selectorPart {
 	var chains [][]selectorPart
 	for _, item := range splitSelectorList(list) {
@@ -141,8 +141,8 @@ type SelectorGroup struct {
 
 // ParseSelectorGroup parses a comma-separated selector group. Splitting
 // uses splitSelectorList rather than a naive strings.Split so a comma
-// nested inside a functional pseudo-class argument (e.g.
-// "a:is(.x, .y), b") isn't mistaken for a top-level group separator.
+// nested inside a functional pseudo-class argument, as in
+// "a:is(.x, .y), b", isn't mistaken for a top-level group separator.
 func ParseSelectorGroup(sel string) SelectorGroup {
 	var group SelectorGroup
 	for _, s := range splitSelectorList(sel) {
@@ -155,9 +155,9 @@ func ParseSelectorGroup(sel string) SelectorGroup {
 
 // Match reports whether n matches any selector in the group. hoverAttr, like
 // focusAttr, is a synthetic marker attribute a caller sets on a node to make
-// it match :hover — real terminal output has no pointer to hover, so :hover
-// is repurposed (see Cascade.HoverAttr's doc comment) to mean "carries this
-// attribute," the same trick :focus already uses via focusAttr.
+// it match :hover. Real terminal output has no pointer to hover with, so
+// :hover is repurposed (see Cascade.HoverAttr's doc comment) to mean "carries
+// this attribute", the same trick :focus already uses via focusAttr.
 func (g SelectorGroup) Match(n *html.Node, focusAttr, hoverAttr string) bool {
 	for _, parts := range g.groups {
 		if matchSelector(n, parts, focusAttr, hoverAttr) {
@@ -222,8 +222,8 @@ func parseSelector(sel string) []selectorPart {
 					i++
 				}
 			case '(':
-				// Functional pseudo-class argument, e.g. :nth-child(2n+1) —
-				// consume through the matching ')' so '+' and whitespace in
+				// Functional pseudo-class argument, such as :nth-child(2n+1).
+				// Consume through the matching ')' so '+' and whitespace in
 				// an An+B expression don't get mistaken for a combinator.
 				for i < n && sel[i] != ')' {
 					i++
@@ -245,12 +245,12 @@ func parseSelector(sel string) []selectorPart {
 	return parts
 }
 
-// lowerPseudoName lowercases a pseudo-class token's name (case-insensitive
-// per CSS) while preserving the case of any parenthesized argument.
-// Argument content is either case-sensitive itself (a class/id/attribute
-// selector nested in :not()/:is()/:where()) or lowercases what it needs on
-// its own (parseNth's An+B argument), so only the name up to and including
-// the opening "(" should be folded here.
+// lowerPseudoName lowercases a pseudo-class token's name, which CSS treats
+// case-insensitively, while preserving the case of any parenthesized
+// argument. Argument content is either case-sensitive itself, as a class, id,
+// or attribute selector nested in :not(), :is(), or :where() is, or
+// lowercases what it needs on its own, as parseNth's An+B argument does. So
+// only the name up to and including the opening "(" should be folded here.
 func lowerPseudoName(raw string) string {
 	if idx := strings.IndexByte(raw, '('); idx >= 0 {
 		return strings.ToLower(raw[:idx+1]) + raw[idx+1:]
@@ -269,8 +269,8 @@ func parseSimpleSelector(tok string) selectorPart {
 		j++
 	}
 	// CSS type selectors match case-insensitively, and golang.org/x/net/html
-	// always lowercases parsed HTML tag names — lowercase here so matchPart's
-	// n.Data != p.element comparison actually matches an uppercase/mixed-case
+	// always lowercases parsed HTML tag names. Lowercase here so matchPart's
+	// n.Data != p.element comparison matches an uppercase or mixed-case
 	// selector like "DIV { ... }" against a real <div>.
 	p.element = strings.ToLower(tok[i:j])
 	i = j
@@ -358,8 +358,8 @@ func parseAttrSel(s string) (attrSel, bool) {
 
 	if idx, tokenLen, op, ok := findAttrSelectorOp(s); ok {
 		// HTML attribute names are ASCII case-insensitive, and
-		// golang.org/x/net/html always lowercases them on parse — lowercase
-		// the selector's key here so e.g. "[DATA-FOO]" still matches a
+		// golang.org/x/net/html always lowercases them on parse, so lowercase
+		// the selector's key here too, letting "[DATA-FOO]" still match a
 		// parsed data-foo attribute.
 		key := strings.ToLower(strings.TrimSpace(s[:idx]))
 		val := unquoteAttrSelectorValue(strings.TrimSpace(s[idx+tokenLen:]))
@@ -467,7 +467,7 @@ func specificity(parts []selectorPart) specificityScore {
 			switch {
 			case pc.notParts != nil:
 				// :not()'s specificity is that of the most specific selector
-				// in its argument list, same rule as :is() — matches real
+				// in its argument list, same rule as :is(), matching real
 				// CSS's ":not() and :is()... specificity is the specificity
 				// of the most specific complex selector in its argument".
 				innerSpec := maxSpecificityOfParts(pc.notParts)
@@ -476,7 +476,7 @@ func specificity(parts []selectorPart) specificityScore {
 				s.elements += innerSpec.elements
 			case pc.isWhere:
 				// :where() always contributes zero specificity, regardless
-				// of its argument — that's its entire reason to exist.
+				// of its argument. That is its entire reason to exist.
 			case pc.isParts != nil:
 				innerSpec := maxSpecificityOfParts(pc.isParts)
 				s.ids += innerSpec.ids
@@ -484,10 +484,10 @@ func specificity(parts []selectorPart) specificityScore {
 				s.elements += innerSpec.elements
 			case pc.hasParts != nil:
 				// :has()'s specificity is that of the most specific complex
-				// selector in its argument, same rule as :is()/:not() — but
-				// each argument item here is a full chain, not a single
-				// compound, so specificity (which already sums over a whole
-				// chain) is computed per chain rather than per part.
+				// selector in its argument, the same rule as :is() and :not().
+				// But each argument item here is a full chain, not a single
+				// compound, so specificity, which already sums over a whole
+				// chain, is computed per chain rather than per part.
 				innerSpec := maxSpecificityOfChains(pc.hasParts)
 				s.ids += innerSpec.ids
 				s.classes += innerSpec.classes
@@ -524,11 +524,11 @@ func matchesHas(n *html.Node, chains [][]selectorPart, focusAttr, hoverAttr stri
 }
 
 // matchesHasChain walks one relative-selector chain outward from anchor.
-// chain[0].combo is the relation between anchor and chain[0] — descendant
-// (any depth) if the argument had no leading combinator, matching plain
-// ":has(img)" meaning "anchor has an img descendant somewhere," or
-// child/adjacent/general if the argument explicitly started with
-// ">"/"+"/"~" (see parseRelativeSelectorList). Each candidate satisfying
+// chain[0].combo is the relation between anchor and chain[0]. It is
+// descendant, at any depth, if the argument had no leading combinator,
+// matching plain ":has(img)" meaning "anchor has an img descendant
+// somewhere", or child, adjacent, or general if the argument explicitly
+// started with ">", "+", or "~" (see parseRelativeSelectorList). Each candidate satisfying
 // chain[0] becomes the new anchor for the remainder of the chain,
 // recursively: ":has(div p)" requires p to be a descendant of some div that
 // is itself a descendant of anchor, not a descendant of anchor directly, so
@@ -591,10 +591,10 @@ func hasCandidates(anchor *html.Node, combo combinator) []*html.Node {
 	return out
 }
 
-// splitSelectorList splits a selector-list argument (as passed to
-// :is()/:where()) on top-level commas, i.e. commas not nested inside
-// [attr] or :pseudo(...) — a comma inside an attribute value's quotes or a
-// pseudo-class argument must not split the list.
+// splitSelectorList splits a selector-list argument, as passed to :is() and
+// :where(), on top-level commas, meaning commas not nested inside [attr] or
+// :pseudo(...). A comma inside an attribute value's quotes or a pseudo-class
+// argument must not split the list.
 func splitSelectorList(s string) []string {
 	var parts []string
 	depth := 0
@@ -634,11 +634,11 @@ func maxSpecificityOfParts(parts []selectorPart) specificityScore {
 }
 
 // maxSpecificityOfChains returns the highest specificity among a pre-parsed
-// list of complex-selector chains — :has()'s counterpart to
-// maxSpecificityOfParts, which only ever handles single compound selectors
-// (as used by :is()/:where()/:not()); :has()'s argument can itself be a full
-// combinator chain (e.g. ":has(div > p)"), so specificity must be computed
-// over the whole chain via specificity() itself, not per individual part.
+// list of complex-selector chains. It is :has()'s counterpart to
+// maxSpecificityOfParts, which only ever handles the single compound
+// selectors :is(), :where(), and :not() use. :has()'s argument can itself be
+// a full combinator chain, as in ":has(div > p)", so specificity must be
+// computed over the whole chain via specificity() itself, not per part.
 func maxSpecificityOfChains(chains [][]selectorPart) specificityScore {
 	var max specificityScore
 	first := true
@@ -692,27 +692,27 @@ func matchPart(n *html.Node, p selectorPart, focusAttr, hoverAttr string) bool {
 }
 
 // matchPseudo reports whether n satisfies a single pseudo-class condition.
-// :not()/:is()/:where() were pre-parsed into pc.notParts/pc.isParts by
-// parsePseudoClass at selectorPart-construction time, so matching them here
-// never re-parses their nested selector argument.
+// :not(), :is(), and :where() were pre-parsed into pc.notParts and
+// pc.isParts by parsePseudoClass at selectorPart-construction time, so
+// matching them here never re-parses their nested selector argument.
 func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool {
-	// :not(<selector-list>) — matches n if it matches none of the compound
-	// selectors in the (comma-separated) argument list.
+	// :not(<selector-list>) matches n if it matches none of the compound
+	// selectors in the comma-separated argument list.
 	if pc.notParts != nil {
 		return !matchesAnyCompoundParts(n, pc.notParts, focusAttr, hoverAttr)
 	}
-	// :is(<selector-list>) / :where(<selector-list>) — matches n if it
+	// :is(<selector-list>) and :where(<selector-list>) match n if it
 	// matches any compound selector in a comma-separated list. The two are
-	// matching-equivalent; they differ only in specificity contribution
-	// (see specificity()), where :where() always contributes zero. Like
-	// :not(), each list item is a single compound selector — nested
-	// combinators are not supported.
+	// matching-equivalent, differing only in specificity contribution (see
+	// specificity()), where :where() always contributes zero. Like :not(),
+	// each list item is a single compound selector; nested combinators are
+	// not supported.
 	if pc.isParts != nil {
 		return matchesAnyCompoundParts(n, pc.isParts, focusAttr, hoverAttr)
 	}
-	// :has(<relative-selector-list>) — matches n if n satisfies at least one
-	// of the pre-parsed relative-selector chains (comma is a logical OR,
-	// same as :is()/:where()).
+	// :has(<relative-selector-list>) matches n if n satisfies at least one
+	// of the pre-parsed relative-selector chains. Comma is a logical OR,
+	// same as in :is() and :where().
 	if pc.hasParts != nil {
 		return matchesHas(n, pc.hasParts, focusAttr, hoverAttr)
 	}
@@ -759,7 +759,7 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 	case "disabled":
 		// An <option>'s disabled state cascades from its containing
 		// <optgroup> too (matching HTMLOptionElement.disabled's real
-		// inherited-from-optgroup behavior — see document/select.go's
+		// inherited-from-optgroup behavior; see document/select.go's
 		// optionDisabled, the interactivity-layer counterpart of this same
 		// rule), not just its own attribute.
 		if nodeHasAttr(n, "disabled") {
@@ -772,7 +772,7 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 	case "indeterminate":
 		// Real :indeterminate also matches <input type=checkbox>/<input
 		// type=radio> whose IDL indeterminate property is set (checkbox) or
-		// whose group has no checked button (radio) — out of scope here
+		// whose group has no checked button, for radio. That is out of scope here
 		// since this renderer's checkboxes are attribute-driven only, with
 		// no separate JS-settable indeterminate property to reflect (see
 		// COMPATIBILITY.md). This only ever matches the one slice real spec
