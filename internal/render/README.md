@@ -35,7 +35,8 @@ func (e *Engine) DocumentRules(doc *html.Node) []cssengine.Rule
 - `block.go`, `inline.go`, `list.go`, `table.go`, `table_render.go` — block, inline, list, and table layout.
 - `box.go`, `wraptoken.go`, `blankcap.go` — position tracking (`Rect`, `mergePositions`), token-level word wrapping, and blank-line-run capping.
 - `cascade.go`, `style.go`, `color.go`, `strip.go`, `formcontrol.go`, `counter.go`, `csstext.go` — CSS resolution on top of `cssengine` (shorthand expansion and declaration parsing itself live in `internal/cssengine/css.go`, not here), style synthesis, color parsing, hidden-inline stripping, form control rendering, list/heading counters (roman numerals included), and CSS-level text semantics. See "Not in this package" below for where column/width math went.
-- `attrs.go` — small attribute-lookup helpers shared across the above.
+- `attrs.go` — small attribute-lookup helpers shared across the above, plus the reserved `data-htmlterm-*` marker attribute names (focus, select-open, select-highlight, selection start/end) that `document` sets and this package reads.
+- `defaultstylesheet.go` — `DefaultStylesheet`, the user-agent sheet, parsed once per `Engine` by `New` and re-exported as `htmlterm.DefaultStylesheet`. Its header comment covers what belongs in a rule and what is engine behavior instead.
 
 ## Key invariants
 

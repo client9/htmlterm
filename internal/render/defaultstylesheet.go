@@ -1,0 +1,70 @@
+package render
+
+// DefaultStylesheet is the built-in default stylesheet, of lowest priority,
+// with Options.CSS and Options.Stylesheets layered above it. Re-exported by
+// the root package as htmlterm.DefaultStylesheet, so callers can inspect it
+// or diff their own overrides against it. Parsed once per Engine by New.
+//
+// This is the user-agent sheet, the terminal analogue of a browser's own
+// default styles. It carries only what a rule can express: display types,
+// font weight and style, margins and padding, borders, generated content.
+// Anything needing engine behavior instead of a declaration is not here and
+// cannot be moved here by adding a rule.
+//
+// Two categories in particular are handled in Go, not CSS:
+//
+//   - Head-level elements never reach the CSS cascade at all. render.go's
+//     isSkippedContentElement drops <style>, <script>, <meta>, <link>, and
+//     <template> wherever they appear, and its root dispatch skips <head>
+//     outright, which covers <title>. A `display: none` rule for any of them
+//     would be dead weight, so there isn't one.
+//   - Form controls and widgets get their structure from their renderers
+//     (formcontrol.go, select_popup.go, table*.go). The rules below set only
+//     the parts a stylesheet owns, such as a control's outer display type or
+//     a button's bracket affixes.
+const DefaultStylesheet = `
+table                   { display: table; }
+[hidden], [aria-hidden=true] { display: none; }
+p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside, hgroup, search { display: block; }
+dl, dt, dd, figure, figcaption  { display: block; }
+address, details, summary, caption, noscript { display: block; }
+address  { font-style: italic; }
+summary  { font-weight: bold; }
+caption  { text-align: center; }
+p                       { margin-bottom: 1; }
+h1, h2, h3, h4, h5, h6 { font-weight: bold; }
+th                      { font-weight: bold; }
+dt                      { font-weight: bold; }
+strong, b               { font-weight: bold; }
+em, i, dfn              { font-style: italic; }
+samp, var, cite, figcaption { font-style: italic; }
+a                       { text-decoration: underline; }
+/*a > table               { text-decoration: none; } */
+u, ins                  { text-decoration: underline; }
+pre                     { white-space: pre; }
+ul, ol, menu            { padding-left: 4; }
+dd                      { padding-left: 4; }
+dl                      { margin-bottom: 1; }
+blockquote              { border-left: "│"; border-left-color: #555555; padding-left: 1; padding-right: 2; }
+s, del                  { text-decoration: line-through; }
+kbd                     { font-weight: bold; }
+mark                    { background-color: #cc9900; color: #000000; }
+small                   { color: #888888; }
+sup                     { text-transform: superscript; }
+sub                     { text-transform: subscript; }
+q::before               { content: open-quote; }
+q::after                { content: close-quote; }
+img::before             { content: attr(alt); }
+abbr[title]::after      { content: " (" attr(title) ")"; }
+hr                      { display: block; border-top: "─"; }
+form                    { display: block; }
+fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
+legend                  { display: block; font-weight: bold; }
+input, button, select   { display: inline-block; }
+progress, meter         { display: inline-block; width: 20; height: 1; }
+textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
+button::before          { content: "[ "; }
+button::after           { content: " ]"; }
+::scrollbar             { width: 1ch; }
+::scrollbar-x           { height: 1; }
+`
