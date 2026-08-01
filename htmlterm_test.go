@@ -691,6 +691,73 @@ func TestDisplay_InlineBlock(t *testing.T) {
 	})
 }
 
+// TestAtomicInlineBoxKeepsSurroundingSpaces pins that source whitespace either
+// side of an atomic inline box survives, the same as it does around a plain
+// inline element. An inline-block, inline-flex, or form control is placed as a
+// pre-rendered box token rather than as text, and a box token is deliberately
+// glued to its neighbors: an element boundary implies no whitespace of its own,
+// so "<b>foo</b>bar" has to come out "foobar".
+//
+// Real whitespace at that boundary belongs to the neighboring *text* run, and
+// wordWrapTokens used to lose it. Splitting a run into words discards the
+// whitespace between them, which is re-inserted as a single separator between
+// the words themselves, but the whitespace at the run's own edges has no word
+// boundary left to carry it. So `x <input> y` rendered as `x ☐y`. See
+// wordWrapTokens' sepPending.
+func TestAtomicInlineBoxKeepsSurroundingSpaces(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "space after an inline-block survives", html: `<p>x <span style="display:inline-block">AB</span> y</p>`, want: "x AB y\n\n"},
+		{name: "space after an inline-flex survives", html: `<p>x <span style="display:inline-flex"><span>AB</span></span> y</p>`, want: "x AB y\n\n"},
+		{name: "space after a form control survives", html: `<p>x <input type="checkbox"> y</p>`, want: "x ☐ y\n\n"},
+		// The same markup with a plain inline span, which never became a box
+		// token and so always kept both spaces. It is what the three above are
+		// expected to agree with.
+		{name: "a plain inline span is the reference", html: `<p>x <span>AB</span> y</p>`, want: "x AB y\n\n"},
+		{name: "no source whitespace still glues", html: `<p>x<span style="display:inline-block">AB</span>y</p>`, want: "xABy\n\n"},
+		{name: "collapsed runs of whitespace still yield one space", html: `<p>x   <span style="display:inline-block">AB</span>   y</p>`, want: "x AB y\n\n"},
+		{name: "a source newline counts as that whitespace", html: "<p>x\n<span style=\"display:inline-block\">AB</span>\ny</p>", want: "x AB y\n\n"},
+		{name: "whitespace at a line start still collapses away", html: `<p> <span style="display:inline-block">AB</span> y</p>`, want: "AB y\n\n"},
+		// Both edges again, but with the neighboring run long enough to be
+		// word-split and wrapped, which is the path that dropped them. The
+		// verbatim short-run path never did.
+		{name: "the space before a box survives a wrapped run", width: 8, html: `<p>aaaaaaa bb <span style="display:inline-block">XXXXX</span></p>`, want: "aaaaaaa\nbb XXXXX\n\n"},
+		{name: "a box that no longer fits once the space counts wraps instead", width: 8, html: `<p>aaaaaaa bb <span style="display:inline-block">XXXXXX</span></p>`, want: "aaaaaaa\nbb\nXXXXXX\n\n"},
+	})
+}
+
+// TestSoftWrapDropsTrailingSpace pins that a line broken to make room for
+// something drops the spaces left at its end, the way CSS removes them at a
+// soft wrap in every white-space mode that wraps at all. They would otherwise
+// count toward the line's width and paint a background-color one cell past the
+// text.
+//
+// Word-split text never had the problem: placeWord writes each separator in
+// front of the word that follows it, so nothing trails. A short run copied out
+// verbatim does carry its own trailing space, and a box too wide to sit beside
+// it then closed the line with that space still on the end.
+//
+// Only a *soft* wrap trims. A structural break is left alone, since
+// `white-space: pre-wrap` preserves the spaces in front of an explicit <br>,
+// and renderBlockContentBox already handles the end of a block, where it knows
+// the white-space mode this layer doesn't.
+func TestSoftWrapDropsTrailingSpace(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a box wrapping to the next line takes the space with it", width: 8, html: `<p>aaaaaa <span style="display:inline-block">XX</span></p>`, want: "aaaaaa\nXX\n\n"},
+		{name: "a multi-line box does the same", width: 20, html: `<p>aaaa <span style="display:inline-block"><span style="display:block">m</span><span style="display:block">n</span></span></p>`, want: "aaaa\n\nm\nn\n\n"},
+		{name: "pre-wrap's hanging spaces go too, matching a browser", width: 8, html: `<p style="white-space:pre-wrap">aaaaaa <span style="display:inline-block">XX</span></p>`, want: "aaaaaa\nXX\n\n"},
+		// A forced break drops them too, but only where the white-space mode
+		// collapses whitespace at all. pre-wrap preserves what precedes an
+		// explicit break, which is the one place the spaces survive: it is
+		// content the author wrote, not a fit decision this engine made.
+		{name: "a break drops the space in front of it", width: 20, html: `<p>aaaa <br>x</p>`, want: "aaaa\nx\n\n"},
+		{name: "pre-wrap keeps the spaces before an explicit break", width: 20, html: "<p style=\"white-space:pre-wrap\">aaaa   <br>x</p>", want: "aaaa   \nx\n\n"},
+		{name: "pre keeps them as well", width: 20, html: "<pre>aaaa   \nx</pre>", want: "aaaa   \nx\n"},
+		// The box's own trailing columns are content, not whitespace around it,
+		// so a padded inline-block that ends a line keeps its full width.
+		{name: "a padded box's own trailing columns are not trimmed", width: 12, html: `<p><span style="display:inline-block;width:8">hi</span> <span style="display:inline-block;width:8">there</span></p>`, want: "hi      \nthere   \n\n"},
+	})
+}
+
 func TestMargins(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "UA p has margin-bottom:1", html: `<p>text</p>`, want: "text\n\n"},
