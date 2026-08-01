@@ -2,15 +2,15 @@
 
 A field-by-field comparison of the real DOM's `Document` and `Element`/`Node`
 interfaces against `document.Document` and `document.Element`. This is a
-lookup table, not an explainer — see `COMPATIBILITY.md`'s "DOM & Events"
+lookup table, not an explainer. See `COMPATIBILITY.md`'s "DOM & Events"
 section for the narrative version (deviations, terminal-native additions,
 what's deliberately out of scope) and `docs/INTERACTIVE.md` for the design
 rationale.
 
-Column 2 is one of: the htmlterm method/property name, **Missing** (real DOM
-has it, htmlterm doesn't, no workaround), **Partial** (htmlterm has something
-narrower or shaped differently), or **N/A** (doesn't apply — no window, no
-network, no scripting engine).
+Column 2 is one of: the htmlterm method or property name, **Missing** (real
+DOM has it, htmlterm doesn't, no workaround), **Partial** (htmlterm has
+something narrower or shaped differently), or **N/A** (doesn't apply, since
+there is no window, no network, and no scripting engine).
 
 ---
 
@@ -45,47 +45,49 @@ network, no scripting engine).
 
 ### Also available (no direct spec equivalent)
 
-Terminal/interactive-layer additions with no `Document` spec counterpart —
-see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
+Terminal and interactive-layer additions with no `Document` spec counterpart.
+See `COMPATIBILITY.md` for the narrative, and `docs/SCROLLING.md` and
 `docs/REPAINT.md` for design rationale:
 
-- `Render()` — one-shot render to an ANSI string; the closest spec analogue
-  is a browser's internal reflow/paint, which is never exposed to script at
-  all.
-- `SetSize`/`Size` — viewport dimensions in character cells; a spec
+- `Render()` does a one-shot render to an ANSI string. The closest spec
+  analogue is a browser's internal reflow and paint, which is never exposed
+  to script at all.
+- `SetSize` and `Size` are viewport dimensions in character cells. A spec
   equivalent would be `window.innerWidth`/`innerHeight`, but those hang off
   `window`, not `document`.
-- `ContentOffset(el)` / `ContentOffsetX(el)` — the row and column shifts from
-  an element's own `Rect` (the CSS *border* box) to its first content cell,
+- `ContentOffset(el)` and `ContentOffsetX(el)` are the row and column shifts
+  from an element's own `Rect` (the CSS *border* box) to its first content cell,
   i.e. its border-top/padding-top and border-left/padding-left. No spec
   equivalent: a browser hands out `clientTop`/`clientLeft` in pixels, and a
   host here needs cells to place a caret inside a bordered, padded
   `<textarea>`.
-- `DispatchClick`/`DispatchWheel`/`DispatchKey`/`DispatchResize` — synthesize
+- `DispatchClick`, `DispatchWheel`, `DispatchKey`, and `DispatchResize`
+  synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
   `DispatchClick` on a focusable text entry also focuses it and positions
   its caret at the clicked rune (Shift held extends the existing selection
-  instead) — folded into "click" for the same "only one click kind" reason,
+  instead), folded into "click" for the same "only one click kind" reason,
   mirroring a real browser's separate mousedown-driven focus/caret
-  placement — see `docs/proposals/CARET_SELECTION.md`.
-- `DispatchPaste(text)`/`DispatchCut()` — synthesize `"paste"`/`"cut"` with
+  placement. See `docs/proposals/CARET_SELECTION.md`.
+- `DispatchPaste(text)` and `DispatchCut()` synthesize `"paste"` and `"cut"`
+  with
   `Event.ClipboardData` pre-populated (from `text` for paste, from the
-  selected range — or the focused field's whole value if the selection is
-  collapsed — for cut), and run their default action (insert into, or
+  selected range, or the focused field's whole value if the selection is
+  collapsed, for cut), and run their default action (insert into, or
   remove from, a focused text-like field's value at the current selection).
-  Real DOM never exposes a scriptable "fire a paste/cut" call like this —
-  those only ever come from an actual OS clipboard action — but `Document`
+  Real DOM never exposes a scriptable "fire a paste or cut" call like this,
+  since those only ever come from an actual OS clipboard action, but `Document`
   has no OS clipboard access of its own, so a host (`tui.Loop`, on
   bracketed paste / Ctrl-X) calls these explicitly instead. See
   `docs/proposals/CARET_SELECTION.md`.
-- `FocusNext`/`FocusPrev` — programmatic tab-order traversal; no spec
+- `FocusNext` and `FocusPrev` do programmatic tab-order traversal. No spec
   equivalent (real browsers only move focus this way via actual Tab
   keypresses, not a scriptable method).
-- `SetPreRendered(el, ansi)` — splices raw pre-rendered ANSI text into the
+- `SetPreRendered(el, ansi)` splices raw pre-rendered ANSI text into the
   tree as an element's content, bypassing layout entirely; no spec
   equivalent (nothing in real HTML lets you inject already-painted pixels).
-- `DocumentElement()` — spec equivalent is `documentElement`, listed above;
+- `DocumentElement()`'s spec equivalent is `documentElement`, listed above;
   repeated here only because it's this package's sole capitalized-property-
   as-method naming choice worth flagging.
 
@@ -163,12 +165,12 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
 
 ### Also available (no direct spec equivalent)
 
-- `IsTextEntry()` — reports whether an element is a text-like `<input>`/
-  `<textarea>`; used by both `DispatchKey`'s default actions and a host's
-  own cursor-placement logic. No spec equivalent (real DOM has no single
+- `IsTextEntry()` reports whether an element is a text-like `<input>` or
+  `<textarea>`. It is used by both `DispatchKey`'s default actions and a
+  host's own cursor-placement logic. No spec equivalent (real DOM has no single
   predicate for "this is a text-entry control").
 - `Document.AddEventListener(el, typ, capture, fn)` /
-  `Document.RemoveEventListener(handle)` — spec's `EventTarget` interface
+  `Document.RemoveEventListener(handle)`. Spec's `EventTarget` interface
   puts these directly on the node; htmlterm centralizes listener bookkeeping
   on `Document` instead, keyed off a `ListenerHandle` rather than a
   `(type, listener)` pair (which also means, unlike spec, the *same*
@@ -178,19 +180,19 @@ see `COMPATIBILITY.md` for the narrative and `docs/SCROLLING.md`/
   node's list is snapshotted before it's walked, so a listener added during
   dispatch isn't called for that same event, and one removed during dispatch
   doesn't run even though it was in the snapshot.
-- `ScrollTop()`/`SetScrollTop(v)`, `ScrollLeft()`/`SetScrollLeft(v)` — spec's
-  `Element.scrollTop`/`scrollLeft` properties, matching spec placement
-  exactly.
-- `ScrollVisible()` — no direct spec equivalent; see the `scrollIntoView()`
+- `ScrollTop()`/`SetScrollTop(v)` and `ScrollLeft()`/`SetScrollLeft(v)` are
+  spec's `Element.scrollTop` and `scrollLeft` properties, matching spec
+  placement exactly.
+- `ScrollVisible()` has no direct spec equivalent; see the `scrollIntoView()`
   row above for how it differs from the real thing.
 
 ---
 
 ## See Also
 
-- **COMPATIBILITY.md** — the narrative deviations/additions/not-supported
-  breakdown this table is derived from.
-- **docs/INTERACTIVE.md** — design rationale for the `Document`/`Element`/
-  event model's shape.
-- **docs/SCROLLING.md** — scrolling-specific API design (`ScrollTop`/
+- **COMPATIBILITY.md**, for the narrative deviations, additions, and
+  not-supported breakdown this table is derived from.
+- **docs/INTERACTIVE.md**, for design rationale on the shape of the
+  `Document`, `Element`, and event model.
+- **docs/SCROLLING.md**, for scrolling-specific API design (`ScrollTop`/
   `ScrollLeft`/`ScrollVisible`).

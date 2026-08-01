@@ -16,16 +16,16 @@ covers both; CSS.md's own `select` entry is a one-line pointer here.
 | `margin-left`, `margin-top` | ✅ | ✅ (shifts the popup relative to the closed control) | n/a |
 | `margin-right`, `margin-bottom` | ✅ | no effect (nothing follows a floating overlay to push against) | n/a |
 | `width`, `min-width`, `max-width` | ✅ | ✅ (overrides the natural label-driven width) | not supported (every row shares the popup's width) |
-
-The "natural label-driven width" is measured in terminal **columns**, not
-runes, so a double-width label (CJK, emoji) sizes the popup to the room it
-actually needs; every row is then padded to that same column width, which is
-what keeps the highlight bar rectangular rather than ragged.
 | `:hover` | n/a | n/a | ✅ — matches the arrow-key-highlighted row (see below), not real mouse hover |
 | `[selected]` | n/a | n/a | ✅ — ordinary attribute selector, no special-casing needed |
 | `<optgroup>` grouping | n/a | ✅ — label header row + indented options (see below) | n/a |
 | `<optgroup label>` styling | n/a | ✅ via an `optgroup` selector (see below) | n/a |
 | `<optgroup disabled>` | n/a | n/a | ✅ — cascades to every option inside it |
+
+The "natural label-driven width" is measured in terminal **columns**, not
+runes, so a double-width label (CJK, emoji) sizes the popup to the room it
+actually needs; every row is then padded to that same column width, which is
+what keeps the highlight bar rectangular rather than ragged.
 
 ## Closed control
 
@@ -38,22 +38,22 @@ what keeps the highlight bar rectangular rather than ragged.
 
 Renders like any other `display: inline-block` element (the UA stylesheet
 sets this): `[ Banana ▾]` bracketed with a disclosure indicator, styled by
-whatever box properties you set. Nothing special here — if you already know
-how `border`/`padding`/`margin`/`width` work elsewhere in htmlterm, they work
-the same way on a closed `<select>`.
+whatever box properties you set. Nothing special here: if you already know
+how `border`, `padding`, `margin`, and `width` work elsewhere in htmlterm,
+they work the same way on a closed `<select>`.
 
 ## Open popup
 
-Opening the popup (click, or Enter/Space while focused — only on a live
-`Document`, not plain `Renderer.Render`) composites a floating list of
-`<option>`s directly beneath the closed control. It picks up CSS from two
-places:
+Opening the popup, by click or by Enter or Space while focused, and only on a
+live `Document` rather than plain `Renderer.Render`, composites a floating
+list of `<option>`s directly beneath the closed control. It picks up CSS from
+two places:
 
-- **The `<select>` itself** supplies the popup's own box: `background-color`/
-  `color` become every row's default style, and `border`/`padding`/
-  `margin-left`/`margin-top`/`width` shape the popup as a whole (one border
-  and one padding band around the entire list, not per-row).
-- **Each `<option>`** can override `background-color`/`color` for just its
+- **The `<select>` itself** supplies the popup's own box. `background-color`
+  and `color` become every row's default style, and `border`, `padding`,
+  `margin-left`, `margin-top`, and `width` shape the popup as a whole: one
+  border and one padding band around the entire list, not per row.
+- **Each `<option>`** can override `background-color` and `color` for just its
   own row, falling back to the `<select>`'s value for whichever it doesn't
   set.
 
@@ -73,12 +73,12 @@ places:
 
 There's no mouse hover in a terminal, so `:hover` is repurposed: it matches
 whichever `<option>` is currently highlighted by ArrowUp/ArrowDown while the
-popup is open (a separate, browse-first-then-confirm state from `selected` —
-arrowing through options doesn't commit a value until you click an option or
-press Enter). `option:hover` is the only place `:hover` means anything in
+popup is open. That is a separate, browse-first-then-confirm state from
+`selected`: arrowing through options doesn't commit a value until you click an
+option or press Enter. `option:hover` is the only place `:hover` means anything in
 htmlterm; it has no effect on any other element.
 
-`option[selected]` needs no special CSS support — it's an ordinary attribute
+`option[selected]` needs no special CSS support. It's an ordinary attribute
 selector, so `option[selected] { ... }` already works.
 
 ### `<optgroup>`
@@ -96,26 +96,26 @@ selector, so `option[selected] { ... }` already works.
 An `<optgroup>`'s direct `<option>` children (one level of nesting only, same
 as real HTML) are included in the popup, indented two columns so they read as
 grouped under their header. The `label` attribute (if non-empty) renders as
-its own non-selectable, non-clickable header row above them — arrow-key
-navigation skips over it entirely (there's nothing to highlight), and it
-carries no synthetic `Rect`, so `DispatchClick`/hit-testing can never land on
-one. An `<optgroup>` with no `label` still groups and indents its options,
+its own non-selectable, non-clickable header row above them. Arrow-key
+navigation skips over it entirely, there being nothing to highlight, and it
+carries no synthetic `Rect`, so `DispatchClick` and hit-testing can never land
+on one. An `<optgroup>` with no `label` still groups and indents its options,
 just without a header row.
 
 Real CSS barely styles `<optgroup>` at all (browsers just bold+indent the
 label via their UA stylesheet, with no author-facing hook). htmlterm
-repurposes a plain `optgroup` selector as its own styling hook instead — the
+repurposes a plain `optgroup` selector as its own styling hook instead, the
 same kind of terminal-native convention `option:hover` already is:
 
 ```css
 optgroup { color: gray; }
 ```
 
-`optgroup`'s `background-color`/`color` style its label row the same way an
-`option`'s do for an option row (falling back to the `<select>`'s own
-resolved style for whichever it doesn't set) — no border/padding/width
-support on the label row itself, same restriction per-option rows already
-have.
+`optgroup`'s `background-color` and `color` style its label row the same way
+an `option`'s do for an option row, falling back to the `<select>`'s own
+resolved style for whichever it doesn't set. There is no `border`, `padding`,
+or `width` support on the label row itself, the same restriction per-option
+rows already have.
 
 `<optgroup disabled>` cascades to every `<option>` inside it (matching
 `HTMLOptionElement.disabled`'s real inherited-from-optgroup behavior): arrow
@@ -129,23 +129,24 @@ carrying their own `disabled` attribute directly.
 If none of `<select>`, `<option>`, or `option:hover` sets a color anywhere in
 the chain, every row falls back to the historical reverse-video styling
 (white-on-black-inverted), with a `▸` marker as the only visual distinction
-for the highlighted/selected row. Set `background-color`/`color` anywhere in
-that chain to opt into your own styling instead.
+for the highlighted or selected row. Set `background-color` or `color`
+anywhere in that chain to opt into your own styling instead.
 
 ## Not supported
 
-- `<optgroup>` nested inside another `<optgroup>` — real HTML doesn't allow
+- `<optgroup>` nested inside another `<optgroup>`. Real HTML doesn't allow
   this either.
-- Per-option (and per-group-label-row) `border`/`padding`/`width` — every row
-  shares the popup's own content width, matching a real `<select>`'s
-  uniform-width option list.
-- `margin-right`/`margin-bottom` on the popup — there's nothing after a
+- Per-option `border`, `padding`, and `width`, and the same on a group label
+  row. Every row shares the popup's own content width, matching a real
+  `<select>`'s uniform-width option list.
+- `margin-right` and `margin-bottom` on the popup. There's nothing after a
   floating overlay for them to push against.
 
 ## See also
 
-- `docs/RENDERING.md`'s "Popups / z-order" section — the compositing
-  mechanism (why the popup isn't a real box, how border/padding rows are
-  spliced in, how hit-testing is offset to the content sub-rectangle).
-- `docs/INTERACTIVE.md` — `Document`/`Element` event model background,
-  including how `Element.Value()`/`SetValue()` map to `HTMLSelectElement.value`.
+- `docs/RENDERING.md`'s "Popups / z-order" section, for the compositing
+  mechanism: why the popup isn't a real box, how border and padding rows are
+  spliced in, and how hit-testing is offset to the content sub-rectangle.
+- `docs/INTERACTIVE.md`, for `Document` and `Element` event model background,
+  including how `Element.Value()` and `SetValue()` map to
+  `HTMLSelectElement.value`.
