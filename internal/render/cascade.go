@@ -26,7 +26,7 @@ func (r *Engine) directDecls(n *html.Node) map[string]string {
 }
 
 // pseudoElemDecls resolves n's ::which declarations, substituting any var()
-// they contain against env — the custom-property subset of an
+// they contain against env, the custom-property subset of an
 // already-resolved decls map the caller has on hand for n (see
 // cssengine.Cascade.PseudoElement's doc comment for why this isn't resolved
 // internally). Pass nil when the caller has no such map handy and doesn't
@@ -36,7 +36,7 @@ func (r *Engine) pseudoElemDecls(n *html.Node, which string, env map[string]stri
 	return r.cascade().PseudoElement(n, which, env)
 }
 
-// customPropSubset returns just the "--*" entries of decls — the
+// customPropSubset returns just the "--*" entries of decls: the
 // custom-property environment pseudoElemDecls needs for var() resolution
 // (see its own doc comment for why the caller supplies this instead of
 // pseudoElemDecls deriving it internally).

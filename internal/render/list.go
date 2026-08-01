@@ -11,7 +11,7 @@ import (
 // renderList renders <ul> or <ol> with word-wrapped items and hanging indent.
 // The returned position map holds every trackable descendant found inside an
 // <li> (or a nested list), relative to the returned string's own (0,0)
-// origin — the same incremental shift-and-merge convention every other
+// origin, the same incremental shift-and-merge convention every other
 // box-producing function in this package follows (see wraptoken.go's
 // mergePositions doc comment).
 func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string, map[*html.Node]Rect) {
@@ -140,7 +140,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 		tokens := r.renderInlineAccTokens(c, newInlineStyle(), contentWidth)
 		// A first block child's margin-top (e.g. a loose <li><p>...</p></li>)
 		// shows up as leading brk tokens (pushBoxDirect, inline.go) even
-		// though there's nothing inside this <li> to separate from - list
+		// though there's nothing inside this <li> to separate from. List
 		// items don't collapse margins the way a block container does, so
 		// this boundary noise is discarded, not recovered, same as
 		// renderInlineAcc's trim (wraptoken.go's trimBoundaryBreaks doc).
@@ -152,7 +152,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 			prefix = blankVisibleContent(prefix)
 		}
 		// One call handles both the first line's narrower width (room for
-		// the prefix) and the rest — eliminating the historical double-wrap
+		// the prefix) and the rest, eliminating the historical double-wrap
 		// (wrap once via renderInline at contentWidth, split on "\n", then
 		// wrap the first line again narrower and string-concatenate the
 		// prefix on front).
@@ -164,7 +164,7 @@ func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string,
 				sb.WriteString(indentStr + prefix + line + "\n")
 			case line == "":
 				// No hanging-indent padding on a genuinely blank line (e.g.
-				// from "<br><br>" inside the item) — avoids trailing
+				// from "<br><br>" inside the item), which avoids trailing
 				// whitespace-only lines.
 				sb.WriteByte('\n')
 			default:
@@ -215,7 +215,7 @@ func listStyleCustomString(style string) (string, bool) {
 
 // listItemPrefixWidth returns the column width of the widest prefix for the
 // list. Every branch measures in terminal columns (textcell.Width), which is
-// what the hanging indent on a wrapped list item is expressed in — an emoji
+// what the hanging indent on a wrapped list item is expressed in. An emoji
 // or CJK marker measured in runes indents continuation lines too little, so
 // they don't line up under the first line's content.
 func listItemPrefixWidth(style string, ordered bool, count int) int {

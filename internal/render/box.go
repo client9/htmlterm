@@ -7,12 +7,13 @@ import (
 )
 
 // box is rendered content that hasn't been assigned an absolute position yet
-// — position is assigned by whichever caller embeds it into a parent. lines
+// Position is assigned by whichever caller embeds it into a parent. lines
 // holds one entry per output row (ANSI-styled, no trailing "\n"); width is
 // the visible column width, uniform across lines, matching what today's
 // string-based helpers already enforce via padding in practice. pre marks
-// lines that came from pre-formatted (white-space: pre/pre-wrap) content —
-// nil when no such lines are present, else parallel to lines — so the
+// lines that came from pre-formatted content, meaning white-space: pre or
+// pre-wrap. It is nil when no such lines are present, and otherwise parallel
+// to lines, so the
 // final blank-run-capping pass can exempt them the way cappedWriter's
 // preDepth used to.
 type box struct {
@@ -29,7 +30,7 @@ func newBox(s string) box {
 	return box{lines: lines, width: linesWidth(lines)}
 }
 
-// linesWidth is the max textcell.VisibleLen across lines — the box.width a set of
+// linesWidth is the max textcell.VisibleLen across lines: the box.width a set of
 // lines would get if wrapped in a box.
 func linesWidth(lines []string) int {
 	w := 0
@@ -42,7 +43,7 @@ func linesWidth(lines []string) int {
 }
 
 // join reassembles b's lines into a single string, one "\n" between each
-// line and none at the end — the inverse of newBox for content with no
+// line and none at the end. It is the inverse of newBox for content with no
 // trailing newline.
 func (b box) join() string {
 	return strings.Join(b.lines, "\n")
@@ -51,7 +52,7 @@ func (b box) join() string {
 // forceHeight clips or pads lines to exactly height rows (height > 0):
 // truncates from the end if there are more, appends empty lines if there are
 // fewer. Used for Options.Height/renderTree's root-level height constraint,
-// which — unlike a per-element "height" (renderBlockContentBox) — has no
+// which, unlike a per-element "height" (renderBlockContentBox), has no
 // paired "overflow" declaration to gate clipping on: it's a host-supplied
 // viewport size, not CSS, so it always both pads and truncates.
 func forceHeight(lines []string, height int) []string {
@@ -98,7 +99,7 @@ func resolveMarginSide(v string, availWidth int) (val int, isAuto bool) {
 // (availWidth minus the box's own rendered width minus any non-auto margin
 // already resolved by resolveMarginSide); ml/mr are that prior result, passed
 // through unchanged on the non-auto side. Both auto splits the remainder
-// evenly; a single auto side absorbs all of it — matching CSS auto-margin
+// evenly, and a single auto side absorbs all of it, matching CSS auto-margin
 // resolution.
 func splitAutoMargins(remaining, ml, mr int, mlAuto, mrAuto bool) (int, int) {
 	if remaining < 0 {

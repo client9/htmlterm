@@ -25,10 +25,12 @@ type inlineStyle struct {
 	italic    bool
 	underline bool
 	strike    bool
-	// reverse swaps foreground/background at render time (SGR 7) — not a
+	// reverse swaps foreground and background at render time, SGR 7. It is
+	// not a
 	// real CSS property, so mergeInlineStyle never sets it from a
 	// declaration map. It exists purely for resolveSelectionStyle's
-	// ::selection UA-default fallback (no author color/background-color —
+	// ::selection UA-default fallback, reached when no author color or
+	// background-color is set;
 	// see its doc comment), the terminal-native stand-in for a real
 	// browser's platform selection color, which has no terminal-neutral
 	// equivalent to hardcode instead.

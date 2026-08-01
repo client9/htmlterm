@@ -9,10 +9,11 @@ import (
 )
 
 // overlayBoxStyle is the resolved CSS box geometry/colors for a floating
-// overlay — a <select> dropdown popup today; a future tooltip or menu popup
+// overlay: a <select> dropdown popup today, and a future tooltip or menu
 // could resolve one against its own trigger node. Composited onto
 // already-serialized lines post-layout, independent of the box-tree pipeline
-// — see docs/RENDERING.md's "Popups / z-order" section for why an overlay is
+// popup. See docs/RENDERING.md's "Popups / z-order" section for why an
+// overlay is
 // never routed through renderBlockContentBox.
 type overlayBoxStyle struct {
 	bl, br, bt, bb                         blockBorder
@@ -20,7 +21,7 @@ type overlayBoxStyle struct {
 	pl, pr, pt, pb                         int
 	// ml/mt are margin-left/margin-top, shifting the overlay's own start
 	// column/row relative to its trigger element's Rect. margin-right/
-	// margin-bottom are not supported — an overlay has no following sibling
+	// margin-bottom are not supported, since an overlay has no following sibling
 	// content for them to push against, so they'd have no visible effect.
 	ml, mt int
 	base   inlineStyle
@@ -34,7 +35,7 @@ type overlayBoxStyle struct {
 
 // resolveOverlayBoxStyle resolves n's own cascaded declarations into an
 // overlayBoxStyle. availWidth is the overlay's left-edge-relative budget
-// (e.width - originCol), matching resolveWidthConstraints's/
+// (e.width - originCol), matching resolveWidthConstraints' and
 // resolveMarginSide's existing availWidth convention.
 func (e *Engine) resolveOverlayBoxStyle(n *html.Node, availWidth int) overlayBoxStyle {
 	decls := e.resolveDecls(n)
@@ -58,7 +59,8 @@ func (e *Engine) resolveOverlayBoxStyle(n *html.Node, availWidth int) overlayBox
 }
 
 // drawOverlayFrame splices one edge's worth of border/padding rows for an
-// overlay box of the given content boxWidth at (row, col) onto lines — the
+// overlay box of the given content boxWidth at (row, col) onto lines. It is
+// the
 // top border (if any) then style.pt blank padding rows when top is true, or
 // style.pb blank padding rows then the bottom border (if any) when top is
 // false. lines must already have enough rows allocated for whatever this
@@ -66,7 +68,7 @@ func (e *Engine) resolveOverlayBoxStyle(n *html.Node, availWidth int) overlayBox
 // lines needs to grow to fit) is the caller's responsibility, since that
 // depends on the caller's own clipping/growth rules (e.g.
 // compositeSelectPopup's canGrow). Returns the updated lines and the row
-// index immediately after what was drawn — the first content row, when
+// index immediately after what was drawn: the first content row, when
 // top is true.
 func (e *Engine) drawOverlayFrame(lines []string, row, col, boxWidth int, style overlayBoxStyle, top bool) ([]string, int) {
 	interior := max(0, boxWidth-textcell.Width(style.bl.char)-textcell.Width(style.br.char))
@@ -111,7 +113,8 @@ func applyOverlaySideBorders(content string, left, right blockBorder, p colorpro
 }
 
 // overlayFrameRows returns how many extra rows style's border/padding adds on
-// one edge — the top edge (border-top present + padding-top) when top is
+// one edge: the top edge, meaning border-top present plus padding-top, when
+// top is
 // true, the bottom edge (padding-bottom + border-bottom present) otherwise.
 // Shared by drawOverlayFrame's caller to size lines before drawing.
 func overlayFrameRows(style overlayBoxStyle, top bool) int {

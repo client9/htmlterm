@@ -3,7 +3,7 @@
 // mouse (Tab to move forward, type into the focused field, click a
 // checkbox, Enter or click Submit to submit, Ctrl-C to quit). Submitting
 // fires a real "submit" event (Document.AddEventListener) on the <form>,
-// whose handler reveals a result line underneath echoing what was entered —
+// whose handler reveals a result line underneath echoing what was entered,
 // demonstrating the event system end to end, not just individual field
 // mutation.
 //
@@ -13,32 +13,32 @@
 // changing the selection). ArrowUp/ArrowDown change the selection directly
 // whether the popup is open or closed, matching a real <select>. The popup
 // itself is composited as a reverse-video overlay directly beneath the
-// control, on top of whatever content follows it — see docs/RENDERING.md's
+// control, on top of whatever content follows it. See docs/RENDERING.md's
 // "Popups / z-order" section.
 //
 // Width is SizeAutomatic and Height is SizeNatural: resize the terminal
 // window and the long paragraph below the form reflows live at the new
-// width (via Loop's SIGWINCH handling — see loop.go's applyTerminalSize),
+// width, via Loop's SIGWINCH handling (see loop.go's applyTerminalSize),
 // while the document's height is left unconstrained rather than
 // clipped/padded to the terminal's row count.
 //
 // The "Name" field also demonstrates the clipboard events (docs/
 // INTERACTIVE.md's "paste"/"cut" section): paste into it (however your
-// terminal sends a paste — e.g. Cmd-V on macOS Terminal.app/iTerm2,
+// terminal sends a paste, such as Cmd-V on macOS Terminal.app or iTerm2,
 // Ctrl-Shift-V on many Linux terminals/Windows Terminal) to see the pasted
 // text inserted and #clipboard-status update; press Ctrl-X while it's
-// focused to cut the whole field (there's no partial-selection concept —
+// focused to cut the whole field (there's no partial-selection concept;
 // see COMPATIBILITY.md) and, if your terminal supports OSC 52, paste
 // elsewhere to confirm the cut text actually reached the system clipboard.
 //
 // Below the paragraph is a scrollable log pane (overflow-y:scroll with an
-// explicit height — see docs/SCROLLING.md), with a second, nested scrollable
+// explicit height; see docs/SCROLLING.md), with a second, nested scrollable
 // pane inside it (plain overflow:auto) demonstrating that nested scrollable
 // regions need no special handling. Scroll either with the mouse wheel over
 // a pane, or Tab to the button inside the outer one (focus auto-scrolls it
-// into view — Document.Focus's scrollIntoView), then use
+// into view, via Document.Focus's scrollIntoView), then use
 // PageUp/PageDown/ArrowUp/ArrowDown. The outer pane's overflow-y:scroll
-// draws an always-on │/█ gutter/thumb tracking the scroll position — the
+// draws an always-on │ and █ gutter and thumb tracking the scroll position,
 // nested pane's plain overflow:auto deliberately draws none (see
 // docs/SCROLLING.md's "Scrollbar gutter and indicator" for why).
 package main
@@ -100,7 +100,7 @@ Log line 6<br>Log line 7<br>Log line 8<br>Log line 9<br>Log line 10<br>
 `
 
 // spinnerFrames cycles a decorative Braille spinner, driven by
-// Loop.SetInterval (timer.go) — a periodic update with nothing to do with
+// Loop.SetInterval (timer.go): a periodic update with nothing to do with
 // keyboard/mouse input, demonstrating the timer mechanism end to end.
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 

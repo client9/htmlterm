@@ -7,7 +7,7 @@ import (
 	"github.com/client9/htmlterm/internal/textcell"
 )
 
-// CSS-level text semantics: what a string *means* under the cascade —
+// CSS-level text semantics, meaning what a string *means* under the cascade:
 // white-space normalization, text-transform, tab expansion, and the
 // terminal-escape sanitization every piece of untrusted text passes through
 // on its way to output.
@@ -169,7 +169,7 @@ func normalizeWhiteSpace(s, mode string, tabSize int) string {
 // isInvisibleFormatChar reports whether r is a Unicode format character that
 // is never meant to be seen (zero-width joiners/spaces, bidi controls, the
 // BOM). Browsers render these at true zero width with no glyph; terminals
-// are inconsistent about that — many fall back to drawing a tofu/notdef
+// are inconsistent about that: many fall back to drawing a tofu or notdef
 // glyph at width 1 when the character isn't adjacent to the joining-script
 // context it's meant for (e.g. a bare ZWNJ used as HTML-email filler, not
 // next to Arabic/Indic letterforms). Rather than rely on the terminal to

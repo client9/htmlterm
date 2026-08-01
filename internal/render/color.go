@@ -21,7 +21,7 @@ func parseCSSColor(s string) color.Color {
 	}
 	// Fully transparent colors (the "transparent" keyword, or an explicit
 	// zero alpha channel) have nothing to render onto a terminal cell, which
-	// has no compositing model - treat them as unset rather than opaque
+	// has no compositing model, so treat them as unset rather than opaque
 	// black, which is what a bare RGB{0,0,0} would otherwise produce.
 	if _, _, _, a := c.RGBA(); a == 0 {
 		return nil
@@ -30,7 +30,7 @@ func parseCSSColor(s string) color.Color {
 }
 
 // applyOpacity premultiplies the RGB channels by opacity (0.0–1.0).
-// Used for CSS opacity support — terminals can't do alpha compositing,
+// Used for CSS opacity support. Terminals can't do alpha compositing,
 // so dimming the color is the best approximation.
 func applyOpacity(c color.Color, opacity float64) color.Color {
 	if opacity <= 0 {

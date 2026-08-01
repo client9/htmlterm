@@ -9,8 +9,8 @@ import (
 // terminal's current size for that dimension. Plain Renderer.Render/Document
 // have no terminal to query, so it's inert there (behaves like SizeNatural
 // for Height; Width has no natural fallback and is simply left at 0, same as
-// before this constant existed). Loop is what actually resolves it — see
-// Loop.Run and Document.SetSize — querying the terminal once at startup and
+// before this constant existed). Loop is what resolves it, in Loop.Run and
+// Document.SetSize, querying the terminal once at startup and
 // again on every SIGWINCH, keeping whichever of Width/Height is
 // SizeAutomatic live for the life of the Loop. It is the zero value
 // deliberately, matching the rest of Options: a caller who never mentions
@@ -19,7 +19,7 @@ import (
 const SizeAutomatic = 0
 
 // SizeNatural, valid for Options.Height only, means "don't constrain height
-// at all" — the document renders at whatever line count its content
+// at all": the document renders at whatever line count its content
 // produces, with no clipping or padding (today's behavior, before Height
 // existed). There is no equivalent for Width: wrapping always needs a
 // concrete column count, so a "natural width" isn't a meaningful concept
@@ -34,9 +34,10 @@ const DefaultStylesheet = render.DefaultStylesheet
 // ScrollbarGutterWidth is the fixed column width an overflow-y:scroll element
 // reserves for its scrollbar gutter (see docs/SCROLLING.md). Exposed for
 // callers who pre-render content in a separate Renderer.Render/Document pass
-// — outside the scrollable element that will eventually display it, e.g. to
+// outside the scrollable element that will eventually display it, to
 // cache an expensive layout and later splice it into a live pane via
-// Document.SetPreRendered — so that pass can subtract this from its own
+// cache an expensive layout for Document.SetPreRendered, so that pass can
+// subtract this from its own
 // Width and wrap at the same content width the live pane will actually have.
 // Skipping this produces content wrapped 1 column wider than the live pane's
 // real innerW, which desyncs from that pane's own scrollbar gutter and

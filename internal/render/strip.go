@@ -13,7 +13,7 @@ import (
 // patterns are matched: display:none, visibility:hidden/collapse, opacity:0,
 // and zero height/max-height combined with overflow:hidden (the common
 // hidden-preheader trick). Visibility set via a class and a <style> rule is
-// out of scope — this only looks at the node's own style attribute.
+// out of scope: this only looks at the node's own style attribute.
 func stripHiddenInline(doc *html.Node) {
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
