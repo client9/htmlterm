@@ -287,7 +287,7 @@ or a diff — it came out of a long back-and-forth evaluating `ultraviolet`,
 needed (the CSS/DOM engine, not the terminal wiring, is htmlterm's
 differentiated part) — see this repo's session history/PR description for
 that evaluation if it's ever in question again; the short version is
-captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
+captured in `tui/README.md` and those files' own doc comments.
 
 **Current state:**
 - `tcell_loop.go`'s `Loop` translates `tcell.Screen`'s `EventQ()` events
@@ -302,7 +302,7 @@ captured in CLAUDE.md's `tcell_loop.go`/`cellbridge.go` entries.
 - `cellbridge.go` bridges `Document.Render()`'s ANSI-string output (still
   produced exactly as before — the CSS/box/wraptoken engine is completely
   untouched by this migration) into `Screen.SetContent` calls, since tcell
-  has no such bridge itself. See CLAUDE.md's `cellbridge.go` entry for the
+  has no such bridge itself. See `tui/cellbridge.go` for the
   width-1-per-rune consistency requirement, the full-row/column blanking
   requirement (a real bug, found via the same kind of live-pty testing
   this section's original gotchas were found by), and a confirmed tcell

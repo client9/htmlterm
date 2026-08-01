@@ -35,7 +35,8 @@ func isSelectControl(n *html.Node) bool {
 // in document order: direct <option> children, plus, one level deep, the
 // <option> children of any direct <optgroup> child. It mirrors
 // internal/render's formcontrol.go (see docs/SELECT.md). The two packages
-// don't share code (see CLAUDE.md's package-split rationale), so this copy
+// don't share code (see docs/ARCHITECTURE.md's package-split rationale), so
+// this copy
 // must be kept in lockstep with that one.
 func selectOptionNodes(sel *html.Node) []*html.Node {
 	var out []*html.Node

@@ -202,7 +202,8 @@ func (l *Loop) Run() error {
 // Like SetInterval and SetTimeout callbacks, it's meant to be called from
 // Run's own goroutine, for instance from inside a Document event listener
 // reacting to a "quit" command typed into the app, matching the package's
-// single-goroutine-mutates-everything contract (see CLAUDE.md's "no locking
+// single-goroutine-mutates-everything contract (see docs/ARCHITECTURE.md's
+// "no locking
 // in the interactive layer" invariant). There is no synchronization on the
 // quit flag. It skips the final repaint, same as the existing Ctrl-C path,
 // since the screen is about to be torn down anyway. A no-op if Run has

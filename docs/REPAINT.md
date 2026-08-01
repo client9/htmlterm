@@ -22,15 +22,14 @@ Phase 1 (timers) shipped as described below and is unaffected by the later
 `Loop` migration. `timer.go`'s delivery mechanism changed, since timer fires
 are now sent on `tcell.Screen`'s `EventQ()` channel rather than a private
 `timerCh`, but `SetInterval`, `SetTimeout`, `ClearInterval`, and
-`ClearTimeout`'s public behavior is identical; see CLAUDE.md's `timer.go`
-entry.
+`ClearTimeout`'s public behavior is identical; see `tui/timer.go`.
 
 Phase 2 as planned below, hand-rolled line-level diffing inside `paint()`, was
 never built. `Loop` was later rearchitected onto a
 `github.com/gdamore/tcell/v3` `Screen`, whose own `Show()` does real line- and
 cell-level diffing and scroll-region optimization, a materially *more* capable
-diff engine than what Phase 2 sketched (see `cellbridge.go`'s CLAUDE.md
-entry). That was arrived at for unrelated reasons, namely offloading the
+diff engine than what Phase 2 sketched (see `tui/cellbridge.go` and
+`tui/README.md`). That was arrived at for unrelated reasons, namely offloading the
 terminal I/O layer generally, not repaint efficiency specifically. The design
 reasoning below is kept for historical context, since it correctly identified
 the inefficiency and the shape of a fix, but nothing past "Phase 1 (done)"
@@ -82,8 +81,7 @@ None of it was built. `Loop`'s later migration onto a
 cell-level diffing via `Screen.Show()` for free. That was arrived at for
 unrelated reasons, offloading the terminal I/O layer generally, but strictly
 supersedes what this design would have delivered. See INTERACTIVE.md's
-terminal I/O section and `cellbridge.go`'s CLAUDE.md entry for what shipped
-instead.
+terminal I/O section, and `tui/cellbridge.go`, for what shipped instead.
 
 ## Layering note
 

@@ -39,7 +39,7 @@ func (e *Engine) DocumentRules(doc *html.Node) []cssengine.Rule
 
 ## Key invariants
 
-These are load-bearing enough that changing them without updating every call site will produce subtly wrong output — see the repo's [`CLAUDE.md`](../../CLAUDE.md) for the full list, but the ones specific to this package:
+These are load-bearing enough that changing them without updating every call site will produce subtly wrong output — see [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) for the full list, but the ones specific to this package:
 
 - **Position tracking is incremental, not a final pass.** Every box-producing call returns its own local `map[*html.Node]Rect`, relative to its own origin; a parent shifts and merges a child's map (`mergePositions`) as it embeds that child, one level at a time, until the walk reaches the document root.
 - **`Rect` is the CSS border box, not the margin box.** Vertical margin is injected as blank lines around a box (already excluded from `Rect`); horizontal margin is baked into a box's own lines like padding and is not currently subtracted back out.

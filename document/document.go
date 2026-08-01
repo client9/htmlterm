@@ -128,7 +128,8 @@ type Document struct {
 	// Options.Height, via SetSize, and scrollOffsets change per render, and
 	// Render refreshes cachedEngine's copies of those directly rather than
 	// invalidating the cache. Like every other Document field, this assumes
-	// the existing single-goroutine-mutates-Document contract (see CLAUDE.md's
+	// the existing single-goroutine-mutates-Document contract (see
+	// docs/ARCHITECTURE.md's
 	// "no locking in the interactive layer" invariant). It is not safe to call
 	// Render concurrently on the same Document, but nothing in Document ever
 	// has been.
