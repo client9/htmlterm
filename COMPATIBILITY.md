@@ -116,9 +116,53 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`<dialog>`/`<datalist>`.** No native-modal or autocomplete-popup
   equivalent exists; unhandled the same way any other unrecognized element
   is (generic inline fallback, usually rendering no visible content).
+- **Type-specific `<input>` UI beyond `checkbox`/`radio`/`submit`/
+  `reset`/`button`/`hidden`.** Every other `type` value, including
+  `range`, `number`, `date`, `time`, `month`, `week`, `color`, `file`,
+  `email`, `url`, `tel`, and `search`, renders the same generic way as
+  the default, unset type: the plain `value` (or `placeholder` when
+  empty), space-padded to the resolved width, no brackets (CSS.md's
+  `input` entry covers that rendering). The type-specific interaction is
+  missing along with it. A `range` input has no slider track or thumb. A
+  `number` input has no spinner buttons and no arrow-key increment or
+  decrement default action. A `date`/`time`/`month`/`week` input has no
+  picker and no field-by-field editing. A `color` input has no swatch or
+  picker. A `file` input has no file-open dialog and no `FileList`; its
+  `value` is whatever string an author or `SetValue` put there. Typing
+  still works, since none of these types opt out of the generic
+  single-line-text default actions `DispatchKey` already runs for any
+  text entry.
+- **`<label for>` association, and click-through from a label's own text
+  to its nested control.** The `for` attribute, pointing at a control
+  elsewhere in the document, isn't read anywhere; there's no lookup from
+  a label to the control it names. Clicking a nested control's own glyph
+  still works, since that glyph is the control's own positioned element,
+  but nothing forwards a click that lands on the label's surrounding
+  text to that control the way a browser's implicit label association
+  does. `<label>Name: <input type="text"></label>` flows the two on one
+  line (CSS.md's `label` entry), which reads correctly, but only the
+  input's own cells are clickable.
+- **`<fieldset disabled>` cascading to its descendants.** `<fieldset>`
+  only gets rendering defaults, a border and an indented `<legend>` (see
+  CSS.md's `fieldset`/`legend` entries). A `disabled` attribute on the
+  `fieldset` itself has no effect on the controls nested inside it; each
+  control still needs its own `disabled` attribute directly, unlike a
+  browser, which disables every form control inside a disabled
+  `<fieldset>` except those nested in its first `<legend>`.
 - **`contenteditable`.** The attribute isn't read anywhere; there's no
   editable-content model outside a real `<input>`/`<textarea>` (see "Form
   controls are attribute-driven" above).
+- **Accessibility attributes: ARIA beyond `aria-hidden`, and
+  `accesskey`.** The UA stylesheet's `[aria-hidden=true] { display: none
+  }` rule (see CSS.md) is the only place any `aria-*` attribute has
+  meaning. `role`, `aria-label`, `aria-live`, `aria-expanded`,
+  `aria-checked`, and the rest of the ARIA vocabulary are read as plain
+  attributes and given no semantics. `accesskey` isn't read at all;
+  there's no keyboard-shortcut dispatch tied to it. Neither gap has a
+  terminal-native workaround the way `:hover` or `::selection` do,
+  because there's no accessibility tree here to attach one to: htmlterm
+  produces styled text, not a tree a screen reader could query
+  independently of that text.
 
 ---
 
@@ -642,6 +686,21 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`keyup`/`keypress`.** Only `"keydown"` is dispatched; there's no
   key-release event, so a host can't detect a key being held or released
   (only that a key was pressed once).
+- **`compositionstart`/`compositionupdate`/`compositionend`, and
+  `beforeinput`.** No IME composition model exists. A terminal's own
+  input path delivers text after composition has already happened,
+  whether that's an OS-level input method composing CJK text or a
+  terminal emulator resolving a dead-key accent, so there's no
+  in-progress composition state that could ever reach htmlterm to
+  expose. Composed input arrives the same way any other keystroke does,
+  through `DispatchKey`'s single-rune default typing action.
+- **Undo and redo for text entry.** There's no edit history for
+  `<input>`/`<textarea>` values, and no `Event.Key` name reserved for an
+  undo or redo chord (see the `Event.Key` deviation above). Every
+  `DispatchKey` typing, Backspace, Delete, cut, or paste default action
+  mutates a field's `value` directly and irreversibly. A host that wants
+  undo has to build it itself, typically by snapshotting `Value()` on
+  each `"input"` event and replaying a snapshot through `SetValue()`.
 - **`focusin`/`focusout`.** There's no separately-named bubbling pair;
   see "`\"focus\"`/`\"blur\"` bubble here, unlike spec" under "Deviations
   from Spec" above for how to observe focus entering/leaving a descendant
@@ -654,6 +713,18 @@ For the design rationale behind the DOM/Events/rendering internals, see
   falls back to native OS selection/copy). `"cut"`/`"paste"` are supported
   (see "Clipboard" above) but always act on a whole field, not a selected
   range, since there's no selection to scope them to.
+- **Constraint validation.** `required`, `pattern`, `min`, `max`, `step`,
+  `minlength`, and `maxlength` sit on the element as ordinary attributes
+  and are never given effect beyond that. `required`'s bare presence is
+  the one exception: it feeds the `:required` selector (see CSS.md) and
+  nothing else. There is no `ValidityState`, no `Element.CheckValidity()`/
+  `ReportValidity()`/`SetCustomValidity()`, and no
+  `:valid`/`:invalid`/`:in-range`/`:out-of-range` CSS to style a field
+  against. A submit control's default action fires a form's `"submit"`
+  event unconditionally, regardless of whether a required field is empty
+  or a value fails its own `pattern`/`min`/`max`/`step`. A real browser
+  runs the constraint validation algorithm first, blocking submission and
+  focusing the first invalid control when a field fails.
 - **Shadow DOM, custom elements, `MutationObserver`.** There is no tree-
   change observation API; a host must re-render after mutating.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
