@@ -147,8 +147,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   broken-image icon's box the way a browser shows it.
 - **`abbr[title]::after`** appends the title attribute's expansion inline,
   there being no hover-tooltip concept in a terminal to show it in instead.
-- **`<hr>`** renders as a text rule line via `border-top`, not a pixel-drawn
-  line.
 - **`progress-style`/`meter-style` and `::progress-bar`/`::progress-value`/
   `::meter-bar`/`::meter-optimum-value`/`::meter-suboptimum-value`/
   `::meter-even-less-good-value`.** Real CSS has no author-facing hook to
