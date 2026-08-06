@@ -772,6 +772,9 @@ func TestMargins(t *testing.T) {
 		{name: "margin collapse: larger wins", css: `div { margin-bottom: 2; } p { margin-top: 1; }`, html: `<div>above</div><p>below</p>`, want: "above\n\n\nbelow\n\n"},
 		{name: "custom margin-bottom on element", css: `h2 { margin-bottom: 2; }`, html: `<h2>heading</h2><p>body</p>`, want: "heading\n\n\nbody\n\n"},
 		{name: "margin-bottom on last element still applies", html: `<p>last</p>`, want: "last\n\n"},
+		{name: "margin-top ch is the same value as a bare integer", html: `<div>above</div><div style="margin-top:2ch">below</div>`, width: 10, want: "above\n\n\nbelow\n"},
+		{name: "margin-top percent resolves against the containing block's width, not its height", html: `<div>above</div><div style="margin-top:50%">below</div>`, width: 10, want: "above\n\n\n\n\n\nbelow\n"},
+		{name: "margin-bottom percent resolves against the containing block's width", html: `<div style="margin-bottom:50%">above</div>below`, width: 10, want: "above\n\n\n\n\n\nbelow"},
 	})
 }
 

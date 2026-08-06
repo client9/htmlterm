@@ -511,10 +511,17 @@ example, `margin: 1 auto` sets top/bottom margins to `1` and left/right margins
 to `auto`. Not inherited.
 
 #### `margin-top`
-Integer line count (e.g. `1`). Extra blank lines above a block element. Adjacent margins collapse: the larger wins. Not inherited.
+Integer line count (e.g. `1`) or percentage (e.g. `50%`). Extra blank lines
+above a block element. Adjacent margins collapse: the larger wins. A
+percentage resolves against the containing block's own **width**, not its
+height — real CSS's own rule for vertical margins (CSS 2.1 §8.3), not
+something specific to this engine. Not inherited.
 
 #### `margin-bottom`
-Integer line count (e.g. `1`). Extra blank lines below a block element. Collapses with the next element's `margin-top`. Not inherited.
+Integer line count (e.g. `1`) or percentage (e.g. `50%`). Extra blank lines
+below a block element. Collapses with the next element's `margin-top`. A
+percentage resolves the same way `margin-top`'s does, against the containing
+block's width. Not inherited.
 
 #### `margin-left`
 Integer (e.g. `4`) or `auto`. Spaces prepended to every line of a block element, outside any `border-left`. Not inherited.

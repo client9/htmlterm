@@ -285,8 +285,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					if isHiddenVisibility(childDecls["visibility"]) {
 						bx = blankVisibleContentBox(bx)
 					}
-					pushBoxDirect(bx, tablePositions, parseMargin(childDecls["margin-top"]), c)
-					tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+					pushBoxDirect(bx, tablePositions, resolveVerticalMargin(childDecls["margin-top"], availWidth), c)
+					tokens = ensureBreaks(tokens, resolveVerticalMargin(childDecls["margin-bottom"], availWidth)+1)
 				} else {
 					savedDepth := r.quoteDepth
 					bx, subPositions := r.renderBlockContentBox(c, childDecls, availWidth)
@@ -294,8 +294,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 						r.quoteDepth = savedDepth
 						bx = blankVisibleContentBox(bx)
 					}
-					pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
-					tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+					pushBoxDirect(bx, subPositions, resolveVerticalMargin(childDecls["margin-top"], availWidth), c)
+					tokens = ensureBreaks(tokens, resolveVerticalMargin(childDecls["margin-bottom"], availWidth)+1)
 				}
 				continue
 			}
@@ -314,8 +314,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					r.quoteDepth = savedDepth
 					bx = blankVisibleContentBox(bx)
 				}
-				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
-				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+				pushBoxDirect(bx, subPositions, resolveVerticalMargin(childDecls["margin-top"], availWidth), c)
+				tokens = ensureBreaks(tokens, resolveVerticalMargin(childDecls["margin-bottom"], availWidth)+1)
 			case "flex":
 				savedDepth := r.quoteDepth
 				bx, subPositions := r.renderFlexContentBox(c, childDecls, availWidth)
@@ -323,8 +323,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					r.quoteDepth = savedDepth
 					bx = blankVisibleContentBox(bx)
 				}
-				pushBoxDirect(bx, subPositions, parseMargin(childDecls["margin-top"]), c)
-				tokens = ensureBreaks(tokens, parseMargin(childDecls["margin-bottom"])+1)
+				pushBoxDirect(bx, subPositions, resolveVerticalMargin(childDecls["margin-top"], availWidth), c)
+				tokens = ensureBreaks(tokens, resolveVerticalMargin(childDecls["margin-bottom"], availWidth)+1)
 			case "contents":
 				// The element generates no box of its own (no margin/
 				// padding/border/background, no forced line break); its

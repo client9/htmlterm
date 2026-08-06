@@ -233,12 +233,53 @@ func applyBlockBordersBox(b box, left, right blockBorder, p colorprofile.Profile
 }
 
 // parseMargin parses a CSS margin-top / margin-bottom value as a line count.
+// It accepts only a bare integer: a percentage or a "ch" suffix falls back to
+// 0, the same as any other unparseable value, since none of the three parse
+// as a plain Go int. margin-top/margin-bottom themselves go through
+// resolveVerticalMargin instead, which shares parseSizeVal's full length
+// vocabulary rather than this narrower one. This narrower parser survives
+// only because list.go also calls it for padding-top/padding-bottom, which
+// have never accepted a percentage or "ch" here and are out of this fix's
+// scope.
 func parseMargin(s string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(s))
 	if err != nil || n < 0 {
 		return 0
 	}
 	return n
+}
+
+// resolveVerticalMargin resolves a CSS margin-top/margin-bottom value as a
+// line count, through the same parseSizeVal vocabulary every other length in
+// this engine uses: a bare integer, a "ch" suffix (identical to the bare
+// integer), or a percentage. parseMargin, used before this existed, only
+// ever recognized the first, so `margin-top: 2ch` and `margin-top: 50%` both
+// silently resolved to 0.
+//
+// basis is the containing block's own content WIDTH, not its height. That is
+// real CSS's own rule for margin-top/margin-bottom (CSS 2.1 §8.3, unchanged
+// in the current Box Model spec): despite widening a box vertically, a
+// vertical margin's percentage resolves against the containing block's
+// inline size, the same basis padding-top/padding-bottom and the horizontal
+// margins already use. It is not a rule this engine invented to dodge an
+// indefinite height; it is what a browser does. Unlike a percentage height,
+// this needs no indefinite-basis guard: every box in this engine has a
+// definite width, the terminal's own column count bounding the whole tree,
+// so basis is always a real number here.
+//
+// "auto" and any other unparseable value resolve to 0, matching
+// margin-top/margin-bottom's own initial value: outside a flex or grid
+// item, "auto" has no defined resolution on this axis and simply computes to
+// 0, the same fallback parseMargin already gave every invalid value.
+func resolveVerticalMargin(s string, basis int) int {
+	abs, pct, ok := parseSizeVal(s)
+	if !ok {
+		return 0
+	}
+	if pct > 0 {
+		return int(pct * float64(basis))
+	}
+	return abs
 }
 
 // resolveBoxBorders resolves the four border edges, as glyph and color, and
@@ -479,7 +520,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		if marginLines := leadingBrk - 1; marginLines > 0 {
 			if bt.char == "" && pt == 0 && heightLines == 0 {
 				tokens = tokens[marginLines:]
-				if marginLines > parseMargin(decls["margin-top"]) {
+				if marginLines > resolveVerticalMargin(decls["margin-top"], availWidth) {
 					decls["margin-top"] = strconv.Itoa(marginLines)
 				}
 			}
@@ -491,7 +532,7 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if bottomOpen := bb.char == "" && pb == 0 && heightLines == 0; bottomOpen {
 		if trailingBrk := trailingBreaks(tokens); trailingBrk > 1 {
 			tokens = tokens[:len(tokens)-trailingBrk]
-			if collapsed := trailingBrk - 1; collapsed > parseMargin(decls["margin-bottom"]) {
+			if collapsed := trailingBrk - 1; collapsed > resolveVerticalMargin(decls["margin-bottom"], availWidth) {
 				decls["margin-bottom"] = strconv.Itoa(collapsed)
 			}
 		}

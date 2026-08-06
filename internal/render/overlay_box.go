@@ -50,7 +50,7 @@ func (e *Engine) resolveOverlayBoxStyle(n *html.Node, availWidth int) overlayBox
 		pt:   parsePaddingLen(decls["padding-top"]),
 		pb:   parsePaddingLen(decls["padding-bottom"]),
 		ml:   ml,
-		mt:   parseMargin(decls["margin-top"]),
+		mt:   resolveVerticalMargin(decls["margin-top"], availWidth),
 		base: extractInlineStyle(decls),
 
 		width:            width,

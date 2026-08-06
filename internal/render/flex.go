@@ -2329,8 +2329,8 @@ func (r *Engine) layoutFlexRow(n *html.Node, decls map[string]string, innerW int
 	widths := make([]int, len(items))
 	for i, it := range items {
 		margins[i] = flexMargins{
-			top:        parseMargin(it.decls["margin-top"]),
-			bottom:     parseMargin(it.decls["margin-bottom"]),
+			top:        resolveVerticalMargin(it.decls["margin-top"], innerW),
+			bottom:     resolveVerticalMargin(it.decls["margin-bottom"], innerW),
 			topAuto:    strings.TrimSpace(it.decls["margin-top"]) == "auto",
 			bottomAuto: strings.TrimSpace(it.decls["margin-bottom"]) == "auto",
 			leftAuto:   strings.TrimSpace(it.decls["margin-left"]) == "auto",
@@ -2573,8 +2573,8 @@ func (r *Engine) layoutFlexColumn(n *html.Node, decls map[string]string, innerW 
 	hasBasis := make([]bool, len(items))
 	renderH := make([]int, len(items))
 	for i, it := range items {
-		mt[i] = parseMargin(it.decls["margin-top"])
-		mb[i] = parseMargin(it.decls["margin-bottom"])
+		mt[i] = resolveVerticalMargin(it.decls["margin-top"], innerW)
+		mb[i] = resolveVerticalMargin(it.decls["margin-bottom"], innerW)
 		mtAuto[i] = strings.TrimSpace(it.decls["margin-top"]) == "auto"
 		mbAuto[i] = strings.TrimSpace(it.decls["margin-bottom"]) == "auto"
 		mlAuto[i] = strings.TrimSpace(it.decls["margin-left"]) == "auto"

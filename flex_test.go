@@ -273,6 +273,13 @@ func TestFlexItemMargin(t *testing.T) {
 		// laid out last (so it paints rightmost) and its margin-right is still
 		// on its right, past the right edge of the packed sequence.
 		{name: "row-reverse keeps each item's own margin, not mirrored", width: 20, html: `<div style="display:flex;flex-direction:row-reverse;width:100%"><div style="margin-right:2">a</div><div>b</div></div>`, want: "                ba  \n"},
+		// margin-top/margin-bottom resolve a percentage the same way
+		// margin-left/margin-right always have: against the containing block's
+		// own width (real CSS's own rule for vertical margins, not something
+		// specific to flex items), which in row direction is the flex
+		// container's own content width, here 10.
+		{name: "row margin-top percent resolves against the container's width, widening the cross axis", width: 10, html: `<div style="display:flex;width:100%;align-items:flex-start"><div style="margin-top:50%">x</div></div>`, want: "          \n          \n          \n          \n          \nx         \n"},
+		{name: "column margin-top percent is the main axis and resolves against the container's width", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:10"><div style="margin-top:50%">x</div></div>`, want: "          \n          \n          \n          \n          \nx         \n          \n          \n          \n          \n"},
 	})
 }
 

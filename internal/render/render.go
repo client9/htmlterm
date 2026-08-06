@@ -124,25 +124,25 @@ func (r *Engine) renderRootNodeTokens(tokens []wrapToken, n *html.Node) []wrapTo
 			case "table":
 				if isTableLayoutDisplay(decls["display"]) {
 					if hasContent(tokens) {
-						tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+						tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-top"], r.width)+1)
 					}
 					tableContent, tablePositions := r.renderTable(n, r.width)
 					bx := newBox(strings.TrimSuffix(tableContent, "\n"))
 					tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: tablePositions})
 					tokens = append(tokens, wrapToken{brk: true})
-					tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
+					tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-bottom"], r.width)+1)
 				} else {
 					tokens = r.renderRootDisplayTokens(tokens, n)
 				}
 			case "ol", "ul", "menu":
 				ordered := n.Data == "ol"
 				if hasContent(tokens) {
-					tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+					tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-top"], r.width)+1)
 				}
 				listContent, listPositions := r.renderList(n, ordered, r.width)
 				bx := newBox(strings.TrimSuffix(listContent, "\n"))
 				tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: listPositions})
-				tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
+				tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-bottom"], r.width)+1)
 			case "br":
 				tokens = append(tokens, wrapToken{brk: true})
 			}
@@ -194,11 +194,11 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		// ensures at least 1 separator when there's preceding content); a
 		// non-zero margin-top only raises that minimum further.
 		if hasContent(tokens) {
-			tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+			tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-top"], r.width)+1)
 		}
 		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
-		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
+		tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-bottom"], r.width)+1)
 	case "flex":
 		savedDepth := r.quoteDepth
 		bx, subPositions := r.renderFlexContentBox(n, decls, r.width)
@@ -208,11 +208,11 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		}
 		bx = r.wrapHyperlinkBox(href, bx)
 		if hasContent(tokens) {
-			tokens = ensureBreaks(tokens, parseMargin(decls["margin-top"])+1)
+			tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-top"], r.width)+1)
 		}
 		tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
 		tokens = append(tokens, wrapToken{brk: true})
-		tokens = ensureBreaks(tokens, parseMargin(decls["margin-bottom"])+1)
+		tokens = ensureBreaks(tokens, resolveVerticalMargin(decls["margin-bottom"], r.width)+1)
 	case "inline-block", "inline-flex":
 		acc := extractInlineStyle(decls)
 		savedDepth := r.quoteDepth
