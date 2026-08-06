@@ -1227,9 +1227,18 @@ items distribute among themselves in `column` direction, and the **cross size**
 
 `overflow-y: hidden`/`clip` truncates the container to that height from inside
 its own border box, so a bordered container's bottom rule still closes below the
-last visible row. `overflow-y: scroll`/`auto` is **not** supported on a flex
-container: it needs the live scroll-offset and gutter plumbing ordinary boxes
-have (see `docs/SCROLLING.md`).
+last visible row. `overflow-y: scroll`/`auto` make the container a real
+scrollable viewport, the same as an ordinary box with an explicit `height` (see
+the [`overflow`](#overflow-overflow-x-overflow-y) entry): a live per-element
+scroll offset, adjustable via mouse wheel, `PageUp`/`PageDown`/arrow keys, or
+focus scroll-into-view, and, for `scroll` specifically, an always-reserved
+gutter with track and thumb. This applies uniformly regardless of the
+container's `flex-direction`: a `column` container overflows on its main axis
+when `flex-shrink` can't absorb the deficit, a `row` container overflows on its
+cross axis when an item's own content is taller than the container, and both
+reduce to the same flat set of rendered lines the scroll gate slices from.
+Only `overflow-x: scroll`/`auto` remains unsupported on a flex container; see
+[Not supported](#not-supported) below.
 
 The container's own `height`/`min-height` may be a **percentage**, resolved
 against *its* containing block under the rules in the [`height`](#height) entry.
@@ -1703,9 +1712,10 @@ The same is true of a multi-line `inline-block`; see `COMPATIBILITY.md`.
 - **The physical `left`/`right` alignment keywords** — unlike `start`/`end`,
   they're direction-relative rather than main-start-relative, so they're left
   unrecognized (falling back to `flex-start`) rather than guessed at.
-- **`overflow-y: scroll`/`auto` on a flex container** — the clipping values
-  (`hidden`/`clip`) are supported, but a scrollable flex container would need
-  the live scroll-offset/gutter plumbing ordinary boxes have; see
+- **`overflow-x: scroll`/`auto` on a flex container** — the clipping value
+  (`hidden`/`clip`) is supported, and so is `overflow-y: scroll`/`auto`, but a
+  horizontally scrollable flex container would need the live scroll-offset/
+  gutter plumbing ordinary boxes have on that axis; see
   [Container `height`, `min-height`, and `max-height`](#container-height-min-height-and-max-height).
 
 ---

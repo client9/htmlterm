@@ -723,47 +723,10 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 					}
 				}
 			case "scroll", "auto":
-				// A scrollable container's clip must also shift its
-				// descendants' recorded positions by -offset, mirroring
-				// mergePositions' existing shift-on-placement primitive, so
-				// a scrolled-off descendant's Rect lands outside the visible
-				// range instead of the pre-scroll range. It is kept rather
-				// than deleted, matching a scrolled-off real DOM element's
-				// getBoundingClientRect(). r.liveScrollOffsets is this
-				// frame's freshly rebuilt scroll-offset map (see
-				// docs/SCROLLING.md). r.scrollOffsets is nil for a plain
-				// Renderer.Render call, which has no persistent Document to
-				// read a prior offset from, so offset is 0 there.
-				offset := r.scrollOffsets[n]
-				totalLines := len(lines)
-				maxOffset := max(0, totalLines-heightLines)
-				offset = min(max(offset, 0), maxOffset)
-				if r.liveScrollOffsets == nil {
-					r.liveScrollOffsets = map[*html.Node]int{}
-				}
-				r.liveScrollOffsets[n] = offset
-				if len(lines) > heightLines {
-					lines = lines[offset : offset+heightLines]
-					positions = mergePositions(nil, positions, -offset, 0)
-				}
-				for len(lines) < heightLines {
-					lines = append(lines, blank)
-				}
-				// hasScrollbarGutter, rather than just ovY == "scroll",
-				// draws an always-on gutter indicator, regardless of whether
-				// this frame needed to slice. See docs/SCROLLING.md's
-				// "Scrollbar gutter and indicator" for why "auto"
-				// deliberately gets none, and why a too-narrow box, one where
-				// the gutter wasn't actually reserved in innerW, must not
-				// draw one either: content would get an unreserved column
-				// appended on top of it instead of a properly narrowed box.
-				if hasScrollbarGutter {
-					track := r.resolveScrollbarStyle(n, decls, "scrollbar-track")
-					thumb := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb")
-					capStart, hasCapStart := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start")
-					capEnd, hasCapEnd := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end")
-					lines, capStartDrawn, capEndDrawn = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, capStart, capEnd, hasCapStart, hasCapEnd, r.profile)
-				}
+				// See applyVerticalScroll's own doc comment for the offset
+				// clamp, position-shift, padding, and gutter-draw behavior
+				// this delegates to; it's shared with renderFlexContentBox.
+				lines, positions, capStartDrawn, capEndDrawn = r.applyVerticalScroll(n, decls, lines, positions, heightLines, innerW, gutterWidth, hasScrollbarGutter)
 			default:
 				for len(lines) < heightLines {
 					lines = append(lines, blank)
@@ -913,30 +876,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	}
 	r.liveContentOffsetsX[n] = colShift
 	if heightLines > 0 && (ovY == "scroll" || ovY == "auto") {
-		// Rect, assigned by whichever caller embeds this box as a token, is
-		// the full CSS border box, which unlike heightLines includes any
-		// border and padding rows added above. DispatchKey's PageUp/PageDown
-		// and Focus's scrollIntoView both need the actual content-box viewport
-		// height and the row offset from this box's own top to its first
-		// visible content row, which only rowShift and heightLines capture.
-		if r.liveScrollViewport == nil {
-			r.liveScrollViewport = map[*html.Node]Viewport{}
-		}
-		// GutterCol mirrors colShift's own reasoning just above: the offset
-		// from this box's own Rect.Col, which anchors to the start of its
-		// composed lines with margin-left included, per Rect's own doc
-		// comment, to where child content starts. The gutter sits
-		// immediately after content, so it's colShift plus innerW. Only
-		// meaningful when GutterWidth > 0, and only used then by
-		// document.go's tryScrollCapClick.
-		r.liveScrollViewport[n] = Viewport{
-			Height:      heightLines,
-			TopOffset:   rowShift,
-			GutterCol:   colShift + innerW,
-			GutterWidth: gutterWidth,
-			CapStart:    capStartDrawn,
-			CapEnd:      capEndDrawn,
-		}
+		// See recordScrollViewport's own doc comment; it's shared with
+		// renderFlexContentBox.
+		r.recordScrollViewport(n, heightLines, rowShift, colShift, innerW, gutterWidth, capStartDrawn, capEndDrawn)
 	}
 	if hasExplicitWidth && (ovX == "scroll" || ovX == "auto") {
 		if r.liveScrollViewportX == nil {
@@ -1075,6 +1017,106 @@ func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string)
 		return abs
 	}
 	return ScrollbarGutterWidth
+}
+
+// applyVerticalScroll implements overflow-y: scroll/auto's real-scrolling
+// behavior: it clamps the live per-element scroll offset, slices lines to
+// the visible heightLines window, shifts positions to match, and draws the
+// scrollbar gutter when one was reserved. Shared by renderBlockContentBox and
+// renderFlexContentBox, which otherwise arrive at lines by different routes
+// (wrapped inline content versus flex item layout) but hit an identical
+// scroll problem once heightLines and lines are in hand. See
+// docs/SCROLLING.md's Section 1 "Rendering" and "Scrollbar gutter and
+// indicator" for the design this implements.
+//
+// A scrolled container's clip must also shift its descendants' recorded
+// positions by -offset, mirroring mergePositions' existing
+// shift-on-placement primitive, so a scrolled-off descendant's Rect lands
+// outside the visible range instead of the pre-scroll range. It is kept
+// rather than deleted, matching a scrolled-off real DOM element's
+// getBoundingClientRect(). r.liveScrollOffsets is this frame's freshly
+// rebuilt scroll-offset map. r.scrollOffsets is nil for a plain
+// Renderer.Render call, which has no persistent Document to read a prior
+// offset from, so offset is 0 there.
+//
+// lines shorter than heightLines are padded with blank lines before the
+// gutter is drawn, so the gutter's own track always spans the full declared
+// height even when the caller's content came up short. For
+// renderBlockContentBox this is load-bearing: wrapped inline content is never
+// grown to fill a declared height on its own. For renderFlexContentBox it is
+// a defensive no-op today, since layoutFlexRow/layoutFlexColumn already pad
+// to heightLines themselves, but padding here too means that guarantee
+// moving is not required to stay a cross-file invariant.
+//
+// capStartDrawn and capEndDrawn report which cap buttons, if any, were
+// actually drawn (see appendScrollbarColumn), for the caller's own
+// liveScrollViewport bookkeeping via recordScrollViewport.
+func (r *Engine) applyVerticalScroll(n *html.Node, decls map[string]string, lines []string, positions map[*html.Node]Rect, heightLines, innerW, gutterWidth int, hasScrollbarGutter bool) ([]string, map[*html.Node]Rect, bool, bool) {
+	offset := r.scrollOffsets[n]
+	totalLines := len(lines)
+	maxOffset := max(0, totalLines-heightLines)
+	offset = min(max(offset, 0), maxOffset)
+	if r.liveScrollOffsets == nil {
+		r.liveScrollOffsets = map[*html.Node]int{}
+	}
+	r.liveScrollOffsets[n] = offset
+	if len(lines) > heightLines {
+		lines = lines[offset : offset+heightLines]
+		positions = mergePositions(nil, positions, -offset, 0)
+	}
+	blank := strings.Repeat(" ", innerW)
+	for len(lines) < heightLines {
+		lines = append(lines, blank)
+	}
+	// hasScrollbarGutter, rather than just an overflow-y of exactly "scroll",
+	// draws an always-on gutter indicator, regardless of whether this frame
+	// needed to slice. See docs/SCROLLING.md's "Scrollbar gutter and
+	// indicator" for why "auto" deliberately gets none, and why a too-narrow
+	// box, one where the gutter wasn't actually reserved in innerW, must not
+	// draw one either: content would get an unreserved column appended on top
+	// of it instead of a properly narrowed box.
+	var capStartDrawn, capEndDrawn bool
+	if hasScrollbarGutter {
+		track := r.resolveScrollbarStyle(n, decls, "scrollbar-track")
+		thumb := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb")
+		capStart, hasCapStart := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start")
+		capEnd, hasCapEnd := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end")
+		lines, capStartDrawn, capEndDrawn = appendScrollbarColumn(lines, offset, totalLines, heightLines, innerW, gutterWidth, track, thumb, capStart, capEnd, hasCapStart, hasCapEnd, r.profile)
+	}
+	return lines, positions, capStartDrawn, capEndDrawn
+}
+
+// recordScrollViewport stores this frame's Viewport geometry for n, an
+// overflow-y:scroll|auto container with a resolved height. Shared by
+// renderBlockContentBox and renderFlexContentBox: a scroll container's
+// Viewport shape has nothing box-model-specific in it, just the values both
+// callers already have in hand at the point they call this, after resolving
+// their own rowShift/colShift.
+//
+// Rect, assigned by whichever caller embeds this box as a token, is the full
+// CSS border box, which unlike heightLines includes any border and padding
+// rows added around content. DispatchKey's PageUp/PageDown and Focus's
+// scrollIntoView both need the actual content-box viewport height and the
+// row offset from this box's own top to its first visible content row, which
+// only rowShift and heightLines capture.
+//
+// GutterCol is the offset from this box's own Rect.Col, the same
+// relationship rowShift already has to Rect.Row, to where child content
+// starts. The gutter sits immediately after content, so it's colShift plus
+// innerW. Only meaningful when GutterWidth > 0, and only used then by
+// document.go's tryScrollCapClick.
+func (r *Engine) recordScrollViewport(n *html.Node, heightLines, rowShift, colShift, innerW, gutterWidth int, capStartDrawn, capEndDrawn bool) {
+	if r.liveScrollViewport == nil {
+		r.liveScrollViewport = map[*html.Node]Viewport{}
+	}
+	r.liveScrollViewport[n] = Viewport{
+		Height:      heightLines,
+		TopOffset:   rowShift,
+		GutterCol:   colShift + innerW,
+		GutterWidth: gutterWidth,
+		CapStart:    capStartDrawn,
+		CapEnd:      capEndDrawn,
+	}
 }
 
 // scrollbarGutterHeight is scrollbarGutterWidth's horizontal counterpart. It

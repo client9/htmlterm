@@ -1414,6 +1414,144 @@ func TestScrollContainerWithFocusableChildIsNotDoubleTabStop(t *testing.T) {
 	}
 }
 
+// mustRenderStripped parses and renders htmlStr at the given width, failing
+// the test on any parse or render error, and returns the live Document
+// alongside its ANSI-stripped output. mustReRenderStripped is its
+// already-parsed counterpart, for a test that mutates the document (e.g.
+// SetScrollTop) and needs a second render. Both exist to collapse the
+// parse-render-strip boilerplate the flex-container scroll tests below would
+// otherwise repeat, near-identically, five more times.
+func mustRenderStripped(t *testing.T, htmlStr string, width int) (*document.Document, string) {
+	t.Helper()
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: width})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	return doc, mustReRenderStripped(t, doc)
+}
+
+func mustReRenderStripped(t *testing.T, doc *document.Document) string {
+	t.Helper()
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	return stripANSI(out)
+}
+
+// TestFlexColumnOverflowYAutoSlicesContent is the flex-container counterpart
+// of TestScrollOverflowAutoSlicesContent: overflow-y:auto on a column-direction
+// display:flex container scrolls the same way it does on an ordinary block box,
+// since layoutFlexColumn already reduces to a flat content.lines the scroll
+// gate treats identically to renderBlockContentBox's own wrapped content.
+func TestFlexColumnOverflowYAutoSlicesContent(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;flex-direction:column;height:3;overflow-y:auto">` +
+		`<div>line1</div><div>line2</div><div>line3</div><div>line4</div><div>line5</div></div>`
+	doc, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line3") || strings.Contains(got, "line4") {
+		t.Fatalf("initial render (offset 0) = %q, want line1-line3 visible, not line4/5", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if top, ok := pane.ScrollTop(); !ok || top != 0 {
+		t.Errorf("ScrollTop(pane) after first render = (%d, %v), want (0, true)", top, ok)
+	}
+
+	pane.SetScrollTop(100) // beyond max; must clamp on next Render
+	got = mustReRenderStripped(t, doc)
+	if !strings.Contains(got, "line3") || !strings.Contains(got, "line5") || strings.Contains(got, "line1") {
+		t.Fatalf("render after over-scrolling = %q, want line3-line5 visible (clamped), not line1", got)
+	}
+	if top, ok := pane.ScrollTop(); !ok || top != 2 {
+		t.Errorf("ScrollTop(pane) after clamp = (%d, %v), want (2, true) [max offset = 5-3]", top, ok)
+	}
+}
+
+// TestFlexRowOverflowYAutoSlicesContent covers the other flex direction: a
+// row-direction container whose single item's own multi-line content is taller
+// than the container's explicit height, so the overflow is on the cross axis
+// rather than the main axis. content.lines still comes out flat by the time
+// the overflow-y gate runs, so this exercises the same code path as the
+// column-direction case above, just reached from the other layoutFlexRow/
+// layoutFlexColumn entry point.
+func TestFlexRowOverflowYAutoSlicesContent(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;height:3;overflow-y:auto">` +
+		`<div>line1<br>line2<br>line3<br>line4<br>line5</div></div>`
+	doc, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line3") || strings.Contains(got, "line4") {
+		t.Fatalf("initial render (offset 0) = %q, want line1-line3 visible, not line4/5", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	pane.SetScrollTop(100) // beyond max; must clamp on next Render
+	got = mustReRenderStripped(t, doc)
+	if !strings.Contains(got, "line3") || !strings.Contains(got, "line5") || strings.Contains(got, "line1") {
+		t.Fatalf("render after over-scrolling = %q, want line3-line5 visible (clamped), not line1", got)
+	}
+}
+
+// TestFlexOverflowYScrollDrawsGutterIndicator is TestOverflowYScrollDrawsGutterIndicator's
+// flex-container counterpart: overflow-y:scroll on a display:flex container
+// reserves a column and draws a track/thumb, the same as it does on an
+// ordinary block box.
+func TestFlexOverflowYScrollDrawsGutterIndicator(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start { content: none; } #pane::scrollbar-cap-end { content: none; }</style>` +
+		`<div id="pane" style="display:flex;flex-direction:column;height:3;overflow-y:scroll">` +
+		`<div>line1</div><div>line2</div><div>line3</div><div>line4</div><div>line5</div></div>`
+	_, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with overflow-y:scroll = %q, want a thumb character (█)", got)
+	}
+	if !strings.Contains(got, "│") {
+		t.Errorf("render with overflow-y:scroll = %q, want at least one track character (│)", got)
+	}
+}
+
+// TestFlexOverflowYHiddenClipUnaffected locks in that this feature didn't
+// change the already-shipped overflow-y:hidden/clip truncation behavior on a
+// flex container (CSS.md's "Container height, min-height, and max-height").
+func TestFlexOverflowYHiddenClipUnaffected(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;flex-direction:column;height:3;overflow-y:hidden">` +
+		`<div>line1</div><div>line2</div><div>line3</div><div>line4</div><div>line5</div></div>`
+	doc, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "line1") || !strings.Contains(got, "line3") || strings.Contains(got, "line4") {
+		t.Fatalf("render with overflow-y:hidden = %q, want line1-line3 visible, not line4/5", got)
+	}
+	if strings.ContainsAny(got, "█│") {
+		t.Errorf("render with overflow-y:hidden = %q, want no gutter/indicator characters", got)
+	}
+	// hidden has no live scroll offset: it's static truncation, not real
+	// scrolling, matching docs/SCROLLING.md's convention table.
+	pane := doc.GetElementByID("pane")
+	if _, ok := pane.ScrollTop(); ok {
+		t.Error("ScrollTop(pane) ok = true under overflow-y:hidden, want false")
+	}
+}
+
+// TestDispatchWheelScrollsFlexContainer confirms the generic wheel-dispatch
+// plumbing (document.go's nearestScrollable/DispatchWheel) picks up a flex
+// container purely from its presence in d.scrollOffsets, with no
+// flex-specific code of its own — see docs/SCROLLING.md's own claim that
+// Document's dispatch layer needs no changes per new scroll-container kind.
+func TestDispatchWheelScrollsFlexContainer(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;flex-direction:column;height:2;overflow:auto">` +
+		`<span id="inner">line1<br>line2<br>line3<br>line4</span></div>`
+	doc, _ := mustRenderStripped(t, htmlStr, 20)
+
+	pane := doc.GetElementByID("pane")
+	rect, ok := pane.Rect()
+	if !ok {
+		t.Fatal("Rect(pane) ok = false, want true")
+	}
+
+	if got := doc.DispatchWheel(rect.Row, rect.Col, 0, 1); !got {
+		t.Fatal("DispatchWheel over pane = false, want true")
+	}
+	if top, ok := pane.ScrollTop(); !ok || top <= 0 {
+		t.Errorf("ScrollTop(pane) after wheel-down = (%d, %v), want a positive offset", top, ok)
+	}
+}
+
 // TestOverflowYScrollDrawsGutterIndicator covers docs/SCROLLING.md's "Scrollbar
 // gutter and indicator": overflow-y:scroll reserves a column and draws a
 // track/thumb, unconditionally (regardless of whether content overflows).

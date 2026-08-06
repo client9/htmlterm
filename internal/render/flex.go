@@ -2955,8 +2955,32 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	}
 
 	avail := hBorderWidth - textcell.Width(bl.char) - textcell.Width(br.char)
+	// ovY, heightLines, gutterWidth, hasScrollbarGutter, capStartDrawn, and
+	// capEndDrawn mirror renderBlockContentBox's identically-named locals
+	// (block.go): ovY is read once here rather than repeatedly from decls
+	// below. heightLines is resolved ahead of layoutFlex only so a scrollable
+	// container's gutter can reserve its column before wrapping. Only an
+	// explicit height counts, not max-height, the same "min-height/max-height
+	// alone don't count" rule CSS.md's overflow entry already documents for
+	// ordinary boxes. capStartDrawn and capEndDrawn are declared here, not
+	// with := in the overflow-y switch below, so they survive that switch's
+	// scope for the liveScrollViewport assignment near the end of this
+	// function.
+	ovY := decls["overflow-y"]
+	heightLines := 0
+	if h, ok := r.resolveFlexContainerHeight(decls); ok {
+		heightLines = h
+	}
+	gutterWidth := 0
+	if heightLines > 0 && ovY == "scroll" {
+		if w := r.scrollbarGutterWidth(n, decls); avail-w >= 1 {
+			gutterWidth = w
+		}
+	}
+	hasScrollbarGutter := gutterWidth > 0
+	var capStartDrawn, capEndDrawn bool
 	var innerW int
-	pl, pr, innerW = clampCellPadding(avail, pl, pr)
+	pl, pr, innerW = clampCellPadding(avail-gutterWidth, pl, pr)
 	if innerW < 1 {
 		innerW = 1
 	}
@@ -2974,7 +2998,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// Engine.shrinkToFit.
 	if r.shrinkToFit && !hasExplicitWidth && content.width < innerW {
 		innerW = max(1, content.width)
-		hBorderWidth = textcell.Width(bl.char) + pl + innerW + pr + textcell.Width(br.char)
+		hBorderWidth = textcell.Width(bl.char) + pl + innerW + gutterWidth + pr + textcell.Width(br.char)
 	}
 	// overflow-x: hidden/clip truncates each line to the container's content
 	// width, the same as renderBlockContentBox does for an ordinary block box
@@ -3011,29 +3035,42 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// than innerW under a non-stretch align-items, rather than leaving a
 	// ragged-width box.
 	content = padLinesToWidthBox(content, innerW)
-	// overflow-y: hidden/clip truncates the container to its own declared
+	// overflow-y truncates or scrolls the container to its own declared
 	// height, the vertical counterpart of the overflow-x block above and of
 	// what renderBlockContentBox does for an ordinary block box (block.go).
 	// Growing to a height, or to a min-height, is layout's job: layoutFlexRow
 	// and layoutFlexColumn pad to it themselves, since the items have to be
 	// able to distribute those rows among themselves. But nothing in layout
 	// ever shortens the container, so a flex container whose content exceeded
-	// its height ignored both the height and the author's overflow. An
-	// explicit height wins over max-height, matching block.go's own priority.
-	//
-	// Deliberately not extended to scroll/auto, for the same reason the
-	// overflow-x block above isn't: a scrollable flex container needs the live
-	// offset and gutter plumbing block.go has for ordinary boxes (see
-	// docs/SCROLLING.md), which is a larger piece of work than this.
-	if ov := decls["overflow-y"]; ov == "hidden" || ov == "clip" {
-		limit := 0
-		if h, ok := r.resolveFlexContainerHeight(decls); ok {
-			limit = h
-		} else if m, ok := resolveCSSHeight(decls["max-height"], r.cbHeight); ok && m > 0 {
-			limit = m
+	// its height ignored both the height and the author's overflow.
+	switch ovY {
+	case "hidden", "clip":
+		// An explicit height wins over max-height, matching block.go's own
+		// priority. heightLines already holds the explicit-height case;
+		// max-height is the fallback only when there's no explicit height.
+		limit := heightLines
+		if limit == 0 {
+			if m, ok := resolveCSSHeight(decls["max-height"], r.cbHeight); ok && m > 0 {
+				limit = m
+			}
 		}
 		if limit > 0 && len(content.lines) > limit {
 			lines := content.lines[:limit]
+			content = box{lines: lines, width: linesWidth(lines)}
+		}
+	case "scroll", "auto":
+		// Unlike hidden/clip, max-height never substitutes for an explicit
+		// height here: real scrolling needs a resolved height to scroll
+		// within, and CSS.md's overflow entry already documents "min-height/
+		// max-height alone don't count" for auto on an ordinary box.
+		// applyVerticalScroll is shared with renderBlockContentBox (block.go);
+		// row-direction and column-direction flex containers alike already
+		// reduce to a flat content.lines by this point, the same as hidden/clip
+		// already treats them uniformly above, so no direction-specific branch
+		// is needed here either.
+		if heightLines > 0 {
+			var lines []string
+			lines, positions, capStartDrawn, capEndDrawn = r.applyVerticalScroll(n, decls, content.lines, positions, heightLines, innerW, gutterWidth, hasScrollbarGutter)
 			content = box{lines: lines, width: linesWidth(lines)}
 		}
 	}
@@ -3124,7 +3161,13 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	if r.liveContentOffsetsX == nil {
 		r.liveContentOffsetsX = map[*html.Node]int{}
 	}
-	r.liveContentOffsetsX[n] = pl + textcell.Width(bl.char) + ml
+	colShift := pl + textcell.Width(bl.char) + ml
+	r.liveContentOffsetsX[n] = colShift
+	if heightLines > 0 && (ovY == "scroll" || ovY == "auto") {
+		// See recordScrollViewport's own doc comment (block.go); it's shared
+		// with renderBlockContentBox.
+		r.recordScrollViewport(n, heightLines, rowShift, colShift, innerW, gutterWidth, capStartDrawn, capEndDrawn)
+	}
 	return content, positions
 }
 
