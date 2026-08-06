@@ -149,6 +149,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
   control still needs its own `disabled` attribute directly, unlike a
   browser, which disables every form control inside a disabled
   `<fieldset>` except those nested in its first `<legend>`.
+- **`autofocus`.** The attribute isn't read anywhere. Parsing a document
+  with `<input autofocus>` leaves nothing focused, the same as one with
+  no `autofocus` at all. A host that wants a field focused on load has
+  to call `Element.Focus()` itself after `ParseDocument`, and has to
+  pick which element to call it on rather than reading that intent from
+  the markup.
 - **`contenteditable`.** The attribute isn't read anywhere; there's no
   editable-content model outside a real `<input>`/`<textarea>` (see "Form
   controls are attribute-driven" above).
@@ -725,6 +731,20 @@ For the design rationale behind the DOM/Events/rendering internals, see
   or a value fails its own `pattern`/`min`/`max`/`step`. A real browser
   runs the constraint validation algorithm first, blocking submission and
   focusing the first invalid control when a field fails.
+- **A radio-button group as a single tab stop, and arrow-key navigation
+  within one.** Real HTML treats every `<input type="radio">` sharing a
+  `name` as one tab stop: Tab lands on the checked member, or the first
+  one if none is checked, and ArrowUp/Down/Left/Right then move both
+  focus and the checked state among the group without another Tab
+  press. Here, `isFocusable`/`inTabOrder` (see docs/DOM_API.md) tab-stop
+  each radio individually, so moving from one member of a group to
+  another takes as many Tab presses as there are stops between them, and
+  arrow keys do nothing to a focused radio input at all. `clearRadioSiblings`
+  still gives `applyCheckToggle` correct same-`name`, same-`<form>`-scoped
+  exclusivity on click or Space (the "Only one click kind exists"
+  deviation, above, covers the click side), so the grouping concept
+  exists at the checked-state level. It just isn't reflected in focus
+  traversal.
 - **Shadow DOM, custom elements, `MutationObserver`.** There is no tree-
   change observation API; a host must re-render after mutating.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
