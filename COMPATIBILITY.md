@@ -18,7 +18,9 @@ land, so each surface below gets three sections instead:
   scripting engine; no real pointer/window).
 - **Terminal-Native Additions.** Things invented for this renderer with no
   browser equivalent at all.
-- **Not Supported.** Real features that simply aren't implemented.
+- **Not Implemented.** Features that are not currently implemented.
+- **Not Supported.** Features that can't work in terminal rendering, 
+  or are unlikely to be implemented.
 
 For the design rationale behind the DOM/Events/rendering internals, see
 `docs/INTERACTIVE.md`, `docs/RENDERING.md`, `docs/REPAINT.md`, and
@@ -75,14 +77,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`<noscript>` content always renders.** There's no scripting engine to
   disable it for, so (unlike a browser, which only shows `noscript` content
   when JavaScript is off) it's unconditionally treated as regular markup.
-- **`<details>`/`<summary>` always render fully expanded.** No collapse/
-  expand interactivity exists; a real browser's native disclosure widget
-  has no terminal equivalent here.
-- **An indeterminate `<progress>` (no `value` attribute) renders statically,
-  not animated.** Real browsers show an animated barber-pole; this renderer
-  has no `animation` support at all, so `:indeterminate` instead shows
-  `::progress-bar`'s track glyph repeated across the full width, with no
-  fill. See `docs/PROGRESS_METER.md`.
 - **A `<label>` click redirects to its named control as one event, not two.**
   Both association forms work: an explicit `for` pointing at an id anywhere
   in the document, and, lacking that, the first labelable descendant nested
@@ -155,18 +149,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   non-standard); `progress-style`/`meter-style` reuse `scrollbar-style`'s
   exact five preset names and merge mechanism. See `docs/PROGRESS_METER.md`.
 
-### Not Supported
+### Not Implemented
 
-- **`<script>`, `<canvas>`, `<video>`, `<audio>`, `<iframe>`, `<embed>`,
-  `<object>`, `<svg>`.** No scripting, media playback, embedding, or
-  vector-graphics rendering exists. `<script>`/`<meta>`/`<link>` content is
-  explicitly skipped during rendering; other unhandled elements aren't
-  specifically stripped, they just fall back to generic inline treatment of
-  whatever text content they happen to contain (usually none).
-- **The legacy `width` HTML attribute** on table cells and columns. It is
-  ignored in favor of CSS `width`: in real-world markup, especially HTML
-  email, it's almost always a pixel value with no reliable pixel-to-column
-  conversion.
+- **`<details>`/`<summary>` always render fully expanded.** No collapse/
+  expand interactivity exists; a real browser's native disclosure widget
+  has no terminal equivalent here.
+- **An indeterminate `<progress>` (no `value` attribute) renders statically,
+  not animated.** Real browsers show an animated barber-pole; this renderer
+  has no `animation` support at all, so `:indeterminate` instead shows
+  `::progress-bar`'s track glyph repeated across the full width, with no
+  fill. See `docs/PROGRESS_METER.md`.
 - **`<dialog>`/`<datalist>`.** No native-modal or autocomplete-popup
   equivalent exists; unhandled the same way any other unrecognized element
   is (generic inline fallback, usually rendering no visible content).
@@ -186,6 +178,19 @@ For the design rationale behind the DOM/Events/rendering internals, see
   still works, since none of these types opt out of the generic
   single-line-text default actions `DispatchKey` already runs for any
   text entry.
+
+### Not Supported
+
+- **`<script>`, `<canvas>`, `<video>`, `<audio>`, `<iframe>`, `<embed>`,
+  `<object>`, `<svg>`.** No scripting, media playback, embedding, or
+  vector-graphics rendering exists. `<script>`/`<meta>`/`<link>` content is
+  explicitly skipped during rendering; other unhandled elements aren't
+  specifically stripped, they just fall back to generic inline treatment of
+  whatever text content they happen to contain (usually none).
+- **The legacy `width` HTML attribute** on table cells and columns. It is
+  ignored in favor of CSS `width`: in real-world markup, especially HTML
+  email, it's almost always a pixel value with no reliable pixel-to-column
+  conversion.
 - **`contenteditable`.** The attribute isn't read anywhere; there's no
   editable-content model outside a real `<input>`/`<textarea>` (see "Form
   controls are attribute-driven" above).
@@ -268,12 +273,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `background-color` set, it falls back to reverse video rather than a
   browser's platform-native selection color, which has no terminal-neutral
   equivalent. See `docs/proposals/CARET_SELECTION.md`.
-- **`text-transform: superscript`/`subscript`** substitutes each character
-  for its Unicode superscript/subscript code point where one exists
-  (there's no real script or font rendering). Characters with no Unicode
-  equivalent pass through unchanged. **`font-variant: small-caps`**
-  similarly uppercases everything, since terminals can't render true small
-  caps.
 - **`background` shorthand** only extracts the color component. `image`,
   `repeat`, `attachment`, `position`, `size`, `origin`, and `clip` tokens
   are recognized as present (so they don't break parsing) but otherwise
@@ -469,6 +468,36 @@ For the design rationale behind the DOM/Events/rendering internals, see
   the label via their own UA stylesheet, not something an author can
   restyle); this is the same kind of repurposing `option:hover` already is.
   See `docs/SELECT.md`.
+- **`text-transform: superscript`/`subscript`** substitutes each character
+  for its Unicode superscript/subscript code point where one exists
+  (there's no real script or font rendering). Characters with no Unicode
+  equivalent pass through unchanged.
+- **`font-variant: small-caps`**
+  uppercases everything, since terminals can't render true small
+  caps.
+
+### Not Implemented
+
+- `display: grid` is not implemented.
+- **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
+  `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
+  (Variables)" section.)
+- **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
+  consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
+  consulted, via real conflict resolution against their column's cells). The
+  legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes
+  on
+  `<table>` aren't read either (use the CSS equivalents). Multi-line cell
+  content combined with `white-space: nowrap` remains unsupported under
+  either border model. See `docs/TABLES.md`.
+- **List gaps:** `list-style-image`; most of the real spec's predefined
+  `list-style-type` counter styles: `armenian`/`lower-armenian`/
+  `upper-armenian`, `georgian`, the CJK/Japanese/Korean variants
+  (`cjk-decimal`, `cjk-ideographic`, `japanese-formal`/`informal`,
+  `korean-hangul-formal`, etc.), `hebrew`, `devanagari` and the other
+  script-specific systems, `disclosure-open`/`disclosure-closed`,
+  `decimal-leading-zero`, and `lower-greek`. Only the small Western subset in
+  CSS.md's `list-style-type` entry is implemented.
 
 ### Not Supported
 
@@ -476,9 +505,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
   (ignored; use bare integers, `ch`, `%`, `vw`, or `vh`). A **zero** length is
   accepted in any unit, since a zero length is dimensionless in CSS and there
   is nothing to convert, so `flex: 1 1 0px` works.
-- **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
-  `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
-  (Variables)" section.)
+- **Visual effects:** `box-shadow`, gradients, `background-image`,
+  `transform`, `transition`/`animation`, `filter`.
+- **`font-size`.** There is no concept of font size at all; terminal
+  glyphs are a fixed cell size.
+- **`line-height`, `letter-spacing`, `word-spacing`.** No per-line vertical
+  spacing or extra inter-character/inter-word spacing concept exists; a
+  terminal cell grid has no sub-line leading to adjust and no fractional
+  character-width budget to insert gaps into.
 - **At-rules:** `@media`, `@font-face`, `@keyframes`, `@import`,
   `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
   styles), and the rest. The parser recognizes any `@`-rule and skips it as a unit
@@ -500,7 +534,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `inherit`/`unset`/`initial` are also not supported inside
   `::before`/`::after`/`::marker`/scrollbar pseudo-element declarations,
   which resolve inheritance through a separate mechanism.
-- **Layout models:** `display: grid`, `display: list-item`, any other
+- **Layout models:** `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`, including the standalone
   CSS-table display values (`table-row`/`table-cell`/`table-row-group`/
@@ -511,10 +545,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `content-box`/`border-box` distinction because htmlterm's box model
   always behaves like `border-box` (padding/border are subtracted from a
   declared `width`/`height`, not added on top of it).
-- **`line-height`, `letter-spacing`, `word-spacing`.** No per-line vertical
-  spacing or extra inter-character/inter-word spacing concept exists; a
-  terminal cell grid has no sub-line leading to adjust and no fractional
-  character-width budget to insert gaps into.
 - **`outline`/`outline-offset`.** No separate box-decoration layer outside
   the border exists to draw one on; use `border`/`border-style` directly
   (including on `:focus`) for a terminal-native focus ring instead.
@@ -541,8 +571,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   positions by an offset) are shared by both, but `<select>`'s popup
   predates and isn't (yet) reimplemented on top of `position`. See
   `docs/RENDERING.md`.
-- **Visual effects:** `box-shadow`, gradients, `background-image`,
-  `transform`, `transition`/`animation`, `filter`.
 - **Flexbox gaps:** `flex-wrap`/`align-content` in `column` direction
   (`wrap-reverse` included; in `row` direction it reverses both the line order
   and the cross-axis alignment keywords, as it should),
@@ -570,27 +598,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `max(content, min-height)`, which isn't definite until the content is laid
   out; real CSS calls a percentage against such a basis `auto` too).
   See CSS.md's Flexbox section for the full reasoning per gap.
-- **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
-  consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
-  consulted, via real conflict resolution against their column's cells). The
-  legacy HTML `border`/`cellpadding`/`cellspacing` presentational attributes
-  on
-  `<table>` aren't read either (use the CSS equivalents). Multi-line cell
-  content combined with `white-space: nowrap` remains unsupported under
-  either border model. See `docs/TABLES.md`.
-- **List gaps:** `list-style-image`; most of the real spec's predefined
-  `list-style-type` counter styles: `armenian`/`lower-armenian`/
-  `upper-armenian`, `georgian`, the CJK/Japanese/Korean variants
-  (`cjk-decimal`, `cjk-ideographic`, `japanese-formal`/`informal`,
-  `korean-hangul-formal`, etc.), `hebrew`, `devanagari` and the other
-  script-specific systems, `disclosure-open`/`disclosure-closed`,
-  `decimal-leading-zero`, and `lower-greek`. Only the small Western subset in
-  CSS.md's `list-style-type` entry is implemented.
 - **`<select>` gaps:** per-`<option>` (and per-group-label-row) border/
   padding, and width, and `<optgroup>` nested inside another `<optgroup>`; see
   `docs/SELECT.md`.
-- **`font-size`.** There is no concept of font size at all; terminal
-  glyphs are a fixed cell size.
 
 ---
 
@@ -729,7 +739,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
   custom, matching this package's existing "one struct, not subclasses"
   style.
 
-### Not Supported
+### Not Implemented
 
 - **`mousemove`, `mouseover`/`mouseout`, `dblclick`, `contextmenu`,
   drag-and-drop events.** No continuous hover tracking exists in a
@@ -737,6 +747,21 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`keyup`/`keypress`.** Only `"keydown"` is dispatched; there's no
   key-release event, so a host can't detect a key being held or released
   (only that a key was pressed once).
+- **Constraint validation.** `required`, `pattern`, `min`, `max`, `step`,
+  `minlength`, and `maxlength` sit on the element as ordinary attributes
+  and are never given effect beyond that. `required`'s bare presence is
+  the one exception: it feeds the `:required` selector (see CSS.md) and
+  nothing else. There is no `ValidityState`, no `Element.CheckValidity()`/
+  `ReportValidity()`/`SetCustomValidity()`, and no
+  `:valid`/`:invalid`/`:in-range`/`:out-of-range` CSS to style a field
+  against. A submit control's default action fires a form's `"submit"`
+  event unconditionally, regardless of whether a required field is empty
+  or a value fails its own `pattern`/`min`/`max`/`step`. A real browser
+  runs the constraint validation algorithm first, blocking submission and
+  focusing the first invalid control when a field fails.
+
+### Not Supported
+
 - **`compositionstart`/`compositionupdate`/`compositionend`, and
   `beforeinput`.** No IME composition model exists. A terminal's own
   input path delivers text after composition has already happened,
@@ -764,18 +789,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   falls back to native OS selection/copy). `"cut"`/`"paste"` are supported
   (see "Clipboard" above) but always act on a whole field, not a selected
   range, since there's no selection to scope them to.
-- **Constraint validation.** `required`, `pattern`, `min`, `max`, `step`,
-  `minlength`, and `maxlength` sit on the element as ordinary attributes
-  and are never given effect beyond that. `required`'s bare presence is
-  the one exception: it feeds the `:required` selector (see CSS.md) and
-  nothing else. There is no `ValidityState`, no `Element.CheckValidity()`/
-  `ReportValidity()`/`SetCustomValidity()`, and no
-  `:valid`/`:invalid`/`:in-range`/`:out-of-range` CSS to style a field
-  against. A submit control's default action fires a form's `"submit"`
-  event unconditionally, regardless of whether a required field is empty
-  or a value fails its own `pattern`/`min`/`max`/`step`. A real browser
-  runs the constraint validation algorithm first, blocking submission and
-  focusing the first invalid control when a field fails.
 - **Shadow DOM, custom elements, `MutationObserver`.** There is no tree-
   change observation API; a host must re-render after mutating.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,
