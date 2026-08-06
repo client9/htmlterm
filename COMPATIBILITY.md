@@ -243,8 +243,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `solid`/`rounded`/`heavy`/`double`/`markdown`/`hidden`/`none` (only
   `solid`/`double`/`none`/`hidden` overlap in name with real CSS, and even
   those pick a specific box-drawing character set rather than a line style).
-  `heavy` is not named `thick`, avoiding a collision with real CSS's
-  `border-width: thick` keyword.
 - **The `border`/`border-<edge>` shorthand is matched positionally, not by
   CSS value type.** Real CSS's border shorthand allows `<width>`/
   `<style>`/`<color>` in any order, and a real width keyword like `thick`
