@@ -255,17 +255,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`border-style` values don't match real CSS's keyword set.** Real CSS
   has `solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/
   `none`/`hidden`. htmlterm's are named ASCII-art presets instead:
-  `solid`/`rounded`/`heavy`/`double`/`markdown`/`hidden`/`none` (only
-  `solid`/`double`/`none`/`hidden` overlap in name with real CSS, and even
-  those pick a specific box-drawing character set rather than a line style).
-- **The `border`/`border-<edge>` shorthand is matched positionally, not by
-  CSS value type.** Real CSS's border shorthand allows `<width>`/
-  `<style>`/`<color>` in any order, and a real width keyword like `thick`
-  can't be distinguished from a style keyword by content alone once it's in
-  an unexpected slot. A consequence: the real-CSS two-value `<width>
-  <style>` form (no color) is indistinguishable from this engine's
-  `<style> <color>` form and is silently dropped. Use the three-value form
-  or set `border-style` directly.
+  `solid`/`rounded`/`heavy`/`double`/`markdown`/`standard`/`hidden`/`none`
+  (only `solid`/`double`/`none`/`hidden` overlap in name with real CSS, and
+  even those pick a specific box-drawing character set rather than a line
+  style).
 - **`border-left: none`/`border-right: none` keep that side's corners** even
   though the vertical rule itself is gone (`┌────┐` with no `│` down the
   left side, not `────┐`). That is the same convention any block element's

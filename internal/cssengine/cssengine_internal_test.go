@@ -72,23 +72,70 @@ func TestExpandShorthand(t *testing.T) {
 		}},
 		{name: "border-color invalid arity falls back", prop: "border-color", val: "red blue green yellow purple", want: map[string]string{"border-color": "red blue green yellow purple"}},
 		{name: "border one value is style only", prop: "border", val: "solid", want: map[string]string{"border-style": "solid"}},
+		{name: "border one value is color only, style resets to none", prop: "border", val: "red", want: map[string]string{
+			"border-style": "none", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border one value is width only, style resets to none and color stays unset", prop: "border", val: "thick", want: map[string]string{"border-style": "none"}},
 		{name: "border two values are style then color", prop: "border", val: "solid red", want: map[string]string{
 			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border two values are color then style, order does not matter", prop: "border", val: "red solid", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border two-value width-and-style form now resolves, fixing the previous documented gap", prop: "border", val: "2px solid", want: map[string]string{"border-style": "solid"}},
+		{name: "border two-value width-and-color form sets color and resets style to none", prop: "border", val: "2px red", want: map[string]string{
+			"border-style": "none", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
 		}},
 		{name: "border three values ignore leading width", prop: "border", val: "1px solid red", want: map[string]string{
 			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
 		}},
-		{name: "border three values with real CSS width keyword still resolves positionally", prop: "border", val: "thick solid red", want: map[string]string{
+		{name: "border three values with real CSS width keyword still resolves, type detection tells it from the style keyword", prop: "border", val: "thick solid red", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border three values in width color style order still resolves, order does not matter", prop: "border", val: "thick red solid", want: map[string]string{
 			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
 		}},
 		{name: "border functional color is not split on internal spaces", prop: "border", val: "solid rgb(255 0 0)", want: map[string]string{
 			"border-style": "solid", "border-color": "rgb(255 0 0)", "border-top-color": "rgb(255 0 0)", "border-right-color": "rgb(255 0 0)", "border-bottom-color": "rgb(255 0 0)", "border-left-color": "rgb(255 0 0)",
 		}},
+		{name: "border two style keywords is invalid and falls back", prop: "border", val: "solid double", want: map[string]string{"border": "solid double"}},
+		{name: "border two color tokens is invalid and falls back", prop: "border", val: "red blue", want: map[string]string{"border": "red blue"}},
 		{name: "border invalid arity falls back", prop: "border", val: "1px solid red extra", want: map[string]string{"border": "1px solid red extra"}},
+		// Classification runs ahead of the cascade's own keyword folding (see
+		// css.go's foldKeywordValue), so it has to lowercase its own
+		// comparisons, the same way expandFlexFlowShorthand already does.
+		{name: "border mixed-case style and color keywords still classify correctly", prop: "border", val: "SOLID Red", want: map[string]string{
+			"border-style": "SOLID", "border-color": "Red", "border-top-color": "Red", "border-right-color": "Red", "border-bottom-color": "Red", "border-left-color": "Red",
+		}},
+		// A var() token can't be classified by content since it isn't
+		// resolved until per-element cascade time, well after this shorthand
+		// already expanded once at parse time. It is presumed to be the
+		// color when the color slot is otherwise open (the common case,
+		// mirroring "solid var(--c)" below), and otherwise presumed to be
+		// the (always discarded) width, so an explicit literal color still
+		// comes through instead of the whole declaration being rejected as
+		// two same-kind components.
+		{name: "border var() token fills the open color slot", prop: "border", val: "solid var(--c)", want: map[string]string{
+			"border-style": "solid", "border-color": "var(--c)", "border-top-color": "var(--c)", "border-right-color": "var(--c)", "border-bottom-color": "var(--c)", "border-left-color": "var(--c)",
+		}},
+		{name: "border var() token is presumed width when a literal color is also present", prop: "border", val: "var(--bw) solid red", want: map[string]string{
+			"border-style": "solid", "border-color": "red", "border-top-color": "red", "border-right-color": "red", "border-bottom-color": "red", "border-left-color": "red",
+		}},
+		{name: "border two var() tokens is invalid and falls back", prop: "border", val: "var(--a) var(--b)", want: map[string]string{"border": "var(--a) var(--b)"}},
+		// Documented limitation (see parseBorderComponents's doc comment in
+		// css.go): a lone var() intended as the width, with a style but no
+		// literal color, has nothing to tell it apart from a var() intended
+		// as the color, so it's guessed as color anyway. border-style still
+		// resolves correctly regardless.
+		{name: "border lone var() token intended as width is misread as color, a documented limitation", prop: "border", val: "var(--bw) solid", want: map[string]string{
+			"border-style": "solid", "border-color": "var(--bw)", "border-top-color": "var(--bw)", "border-right-color": "var(--bw)", "border-bottom-color": "var(--bw)", "border-left-color": "var(--bw)",
+		}},
 		{name: "border-top quoted literal glyph passes through unchanged", prop: "border-top", val: `"═"`, want: map[string]string{"border-top": `"═"`}},
 		{name: "border-top bareword none passes through unchanged for table.go's literal check", prop: "border-top", val: "none", want: map[string]string{"border-top": "none"}},
 		{name: "border-top one value is style only", prop: "border-top", val: "solid", want: map[string]string{"border-top": "solid"}},
+		{name: "border-top one value is color only, style resets to none", prop: "border-top", val: "red", want: map[string]string{"border-top": "none", "border-top-color": "red"}},
 		{name: "border-top two values are style then color", prop: "border-top", val: "solid red", want: map[string]string{"border-top": "solid", "border-top-color": "red"}},
+		{name: "border-top two-value width-and-style form now resolves, fixing the previous documented gap", prop: "border-top", val: "1px solid", want: map[string]string{"border-top": "solid"}},
 		{name: "border-top three values ignore leading width", prop: "border-top", val: "1px solid red", want: map[string]string{"border-top": "solid", "border-top-color": "red"}},
 		{name: "border-left functional color is not split on internal spaces", prop: "border-left", val: "solid rgb(255 0 0)", want: map[string]string{"border-left": "solid", "border-left-color": "rgb(255 0 0)"}},
 		{name: "border-right invalid arity falls back", prop: "border-right", val: "1px solid red extra", want: map[string]string{"border-right": "1px solid red extra"}},

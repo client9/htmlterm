@@ -381,37 +381,15 @@ func expandShorthand(prop, val string) map[string]string {
 			prop + "-left":   sides[3],
 		}
 	case "border":
-		// Positional, not type-detected the way expandBackgroundShorthand is.
-		// Real CSS's border shorthand allows <width>, <style>, and <color> in
-		// any order, and a real width keyword like "thick" has no way to be
-		// distinguished from a style keyword by content alone once it's
-		// sitting in an unexpected slot. In "border: thick solid red",
-		// "thick" is a width keyword rather than one of our own border-style
-		// preset names, but classifying tokens by content would need to know
-		// that. Position sidesteps the whole question: slot 0 in a 3-token
-		// value is always the ignored width, so "thick solid red" resolves
-		// correctly regardless of what "thick" means to either vocabulary.
-		// The one gap this leaves is the 2-token "<width> <style>" form with
-		// no color, such as "border: 2px solid", which has no positional slot
-		// and is silently dropped like any other unrecognized value. That is
-		// documented in CSS.md.
-		tokens := splitCSSComponentValues(val)
-		var styleTok, colorTok string
-		switch len(tokens) {
-		case 1:
-			styleTok = tokens[0]
-		case 2:
-			styleTok, colorTok = tokens[0], tokens[1]
-		case 3:
-			styleTok, colorTok = tokens[1], tokens[2]
-		default:
-			return map[string]string{prop: val}
-		}
-		result := map[string]string{"border-style": styleTok}
-		if colorTok != "" {
+		// Type-detected, matching real CSS's own border shorthand grammar:
+		// <width>, <style>, and <color> may appear in any order, and each is
+		// told apart by what it looks like, not by which slot it landed in.
+		// See parseBorderComponents's doc comment for how a real width
+		// keyword like "thick" is distinguished from this engine's own
+		// border-style preset names.
+		return expandBorderShorthandComponents(prop, val, "border-style", func(result map[string]string, colorTok string) {
 			maps.Copy(result, expandShorthand("border-color", colorTok))
-		}
-		return result
+		})
 	case "border-color":
 		tokens := splitCSSComponentValues(val)
 		switch len(tokens) {
@@ -449,32 +427,16 @@ func expandShorthand(prop, val string) map[string]string {
 		// and internal/render/table.go still reads a bare "none" value
 		// directly, untouched here, since a single unquoted token is
 		// returned as-is below. A bareword value is instead the standard
-		// CSS border-edge shorthand grammar — <style>, <style> <color>, or
-		// <width> <style> <color> with the width dropped — split out exactly
-		// like the "border" shorthand above. block.go resolves the style
-		// token to a glyph via the same named preset border-style uses,
-		// picked for that specific edge.
+		// CSS border-edge shorthand grammar, type-detected the same way as
+		// the "border" shorthand above, just resolved to this one edge's own
+		// style and color keys instead of the whole box's.
 		trimmed := strings.TrimSpace(val)
 		if isCSSQuotedStringToken(trimmed) {
 			return map[string]string{prop: val}
 		}
-		tokens := splitCSSComponentValues(val)
-		var styleTok, colorTok string
-		switch len(tokens) {
-		case 1:
-			styleTok = tokens[0]
-		case 2:
-			styleTok, colorTok = tokens[0], tokens[1]
-		case 3:
-			styleTok, colorTok = tokens[1], tokens[2]
-		default:
-			return map[string]string{prop: val}
-		}
-		result := map[string]string{prop: styleTok}
-		if colorTok != "" {
+		return expandBorderShorthandComponents(prop, val, prop, func(result map[string]string, colorTok string) {
 			result[prop+"-color"] = colorTok
-		}
-		return result
+		})
 	case "overflow":
 		tokens := strings.Fields(val)
 		switch len(tokens) {
@@ -724,24 +686,189 @@ func isCSSNumberToken(s string) bool {
 	return ok
 }
 
+// isCSSLengthLikeToken reports whether s is a bare CSS number once a
+// trailing run of ASCII letters (a unit) and, when allowPercent is set, a
+// trailing "%" are trimmed off. Shared by isCSSFlexBasisToken and
+// isCSSBorderWidthToken, which both need to separate a real length from a
+// keyword or another shorthand component without a full unit vocabulary
+// check: this engine's own sizing accepts bare counts and "ch" and ignores
+// any other unit, so an unrecognized one is still treated as a length and
+// left for the caller to do whatever it does with an ignored unit.
+func isCSSLengthLikeToken(s string, allowPercent bool) bool {
+	cutset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	if allowPercent {
+		cutset = "%" + cutset
+	}
+	num := strings.TrimRight(s, cutset)
+	return num != "" && isCSSNumberToken(num)
+}
+
 // isCSSFlexBasisToken reports whether s is usable as flex's <'flex-basis'>
 // component: the auto and content keywords, the intrinsic sizing keywords, or
 // a <length-percentage>, meaning a CSS number with an optional "%" or unit
-// suffix. This is deliberately not a full unit vocabulary check, since this
-// engine's own sizing accepts bare counts and "ch" and ignores any other unit.
-// It only has to separate a real basis from a junk token, so that
+// suffix. It only has to separate a real basis from a junk token, so that
 // `flex: <junk>` stays inert instead of picking up the shorthand's grow and
-// shrink defaults. Callers that need the value itself parse it later, and an
-// unrecognized unit lands as an ignored flex-basis exactly as it would from
-// the longhand.
+// shrink defaults. Callers that need the value itself parse it later.
 func isCSSFlexBasisToken(s string) bool {
 	s = strings.TrimSpace(s)
 	switch strings.ToLower(s) {
 	case "auto", "content", "min-content", "max-content", "fit-content":
 		return true
 	}
-	num := strings.TrimRight(s, "%abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	return num != "" && isCSSNumberToken(num)
+	return isCSSLengthLikeToken(s, true)
+}
+
+// BorderStyleNames is the closed vocabulary border-style, and by extension
+// the border and border-<edge> shorthands, accept: htmlterm's own named
+// presets, not real CSS's solid/dashed/dotted/double/groove/ridge/inset/
+// outset/none/hidden keyword set (see CSS.md's border-style entry for which
+// names overlap and which don't).
+//
+// This is the canonical copy. internal/render owns what each name actually
+// draws (internal/render/table.go's borderStylePresets), since glyphs are a
+// rendering concern and cssengine sits below render in the package layering,
+// unable to import it to share that mapping directly. But render already
+// imports cssengine, so borderStylePresets keys off this map instead of
+// carrying a second hand-written name list: rather than "kept in sync by
+// hand" with a chance to silently drift, TestNamedTableStyleMatchesBorderStyleVocabulary
+// (internal/render) asserts the two sets are identical on every test run, so
+// adding a name in only one place fails a test immediately instead of
+// quietly misclassifying a shorthand value or leaving a preset undrawable.
+var BorderStyleNames = map[string]bool{
+	"solid": true, "rounded": true, "heavy": true, "double": true,
+	"markdown": true, "standard": true, "hidden": true, "none": true,
+}
+
+// isCSSBorderWidthToken reports whether s is usable as a border shorthand's
+// <line-width> component: one of CSS's three width keywords, or a bare
+// <length> (border-width has no percentage form, unlike flex-basis, so
+// isCSSLengthLikeToken's allowPercent is off here). border-width is always a
+// no-op in this engine (a box-drawing character has no line-thickness notion
+// separate from the glyph itself, see CSS.md's border-width entry), so this
+// only has to tell a real width apart from a style keyword or a color, not
+// interpret the value. s must already be lowercase; callers compare against
+// the lowercased token, the same convention expandFlexFlowShorthand uses,
+// since expandShorthand runs ahead of the cascade's own keyword folding and
+// can't rely on it yet.
+func isCSSBorderWidthToken(s string) bool {
+	switch s {
+	case "thin", "medium", "thick":
+		return true
+	}
+	return isCSSLengthLikeToken(s, false)
+}
+
+// parseBorderComponents parses the border or border-<edge> shorthand's value
+// into a style token and a color token, type-detecting each of up to three
+// space-separated components the way real CSS's own grammar does: a
+// component is classified as <line-width>, <line-style>, or <color> by what
+// it looks like, not by which slot it landed in. Real CSS's border shorthand
+// allows those three in any order, and a real width keyword like "thick" has
+// no way to be told apart from a style keyword by content alone once it sits
+// in an unexpected slot, which is exactly why position can't be the
+// dispatch. Type detection sidesteps that: "thick solid red" resolves
+// correctly regardless of which slot "thick" is in, because it is
+// recognized as a width keyword on its own merits, and so does the
+// previously unsupported two-value "<width> <style>" form with no color,
+// such as "2px solid", because a missing third component no longer needs a
+// fixed slot to be detected as absent. The returned tokens keep their
+// original casing; only the classification decision is made against a
+// lowercased copy of each token, the cascade's own keyword folding not
+// having run yet at this point in parsing.
+//
+// A token holding an unresolved var() reference, such as
+// "border: var(--bw) solid red", can't be classified by content at all: it
+// might expand to any of the three kinds once substituted, and substitution
+// happens later, per element, well after this shorthand has already been
+// expanded once at parse time (see CSS.md's "Shorthand fan-out" gap). Such a
+// token is classified as color if the color slot is still open, matching the
+// common "style var(--color)" pattern, and otherwise treated as the (always
+// discarded) width, on the working assumption that an author combining a
+// var() with both an explicit style and an explicit color most likely meant
+// the var() for the width. That assumption can be wrong, but the alternative,
+// two same-kind components rejecting the whole declaration, is worse for the
+// common case this is guessing about.
+//
+// ok is false when val doesn't fit the grammar: more than three components,
+// or two literal (non-var()) components that classify as the same kind (CSS
+// permits each of width, style, and color at most once). A false ok leaves
+// the shorthand's own declaration in place, unexpanded, the same "invalid
+// value stays inert" handling expandFlexShorthand uses. The returned style
+// token is "" when val had no style component at all, such as "border: red"
+// setting only a color; expandBorderShorthandComponents is what turns that
+// "" into an explicit reset to "none", matching real CSS's own rule that a
+// shorthand resets every longhand it covers, not just the ones it writes.
+func parseBorderComponents(val string) (styleTok, colorTok string, ok bool) {
+	tokens := splitCSSComponentValues(val)
+	if len(tokens) == 0 || len(tokens) > 3 {
+		return "", "", false
+	}
+	var haveWidth bool
+	var varTok string
+	for _, tok := range tokens {
+		lower := strings.ToLower(tok)
+		switch {
+		case !isCSSQuotedStringToken(tok) && containsVarCall(tok):
+			if varTok != "" {
+				return "", "", false
+			}
+			varTok = tok
+		case BorderStyleNames[lower]:
+			if styleTok != "" {
+				return "", "", false
+			}
+			styleTok = tok
+		case isCSSBorderWidthToken(lower):
+			if haveWidth {
+				return "", "", false
+			}
+			haveWidth = true
+		default:
+			if colorTok != "" {
+				return "", "", false
+			}
+			colorTok = tok
+		}
+	}
+	if varTok != "" && colorTok == "" {
+		colorTok = varTok
+	}
+	// varTok != "" && colorTok != "": the color slot is already taken by a
+	// literal token, so the var() is presumed to be the (always discarded)
+	// width, and simply dropped.
+	return styleTok, colorTok, true
+}
+
+// expandBorderShorthandComponents finishes what parseBorderComponents
+// starts, shared by the "border" and "border-top"/"border-right"/
+// "border-bottom"/"border-left" cases in expandShorthand: styleKey is the
+// longhand the style component is written to ("border-style" for the
+// whole-box shorthand, prop itself for an edge one), and applyColor writes
+// whatever the color component maps to for that caller (border-color's own
+// four-side expansion for the whole box, a single prop+"-color" for an
+// edge).
+//
+// styleKey is always present in the returned map when val parses at all,
+// even when val has no style component of its own: real CSS's border
+// shorthand resets every longhand it covers, style included, not just the
+// ones it happens to write, and an absent key here would instead let a
+// separately set border-style (or border-top, etc.) survive the cascade
+// merge untouched, since that merge is per-key. "none" is the reset value,
+// matching real CSS's own border-style initial value and this engine's
+// existing "hidden"/"none" no-border presets.
+func expandBorderShorthandComponents(prop, val, styleKey string, applyColor func(result map[string]string, colorTok string)) map[string]string {
+	styleTok, colorTok, ok := parseBorderComponents(val)
+	if !ok {
+		return map[string]string{prop: val}
+	}
+	if styleTok == "" {
+		styleTok = "none"
+	}
+	result := map[string]string{styleKey: styleTok}
+	if colorTok != "" {
+		applyColor(result, colorTok)
+	}
+	return result
 }
 
 // ParseNumber parses a CSS <number> token: an optional sign, digits with an

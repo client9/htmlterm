@@ -56,46 +56,50 @@ func edgeGlyphBottom(ts tableStyle) string {
 func edgeGlyphLeft(ts tableStyle) string  { return ts.left }
 func edgeGlyphRight(ts tableStyle) string { return ts.right }
 
-// namedTableStyle returns the preset for a given border-style value.
-// htmlterm's own whole-box vocabulary (not real CSS's per-edge line-style
-// keywords), used by resolveBoxBorders (block.go) for any border box:
-// block elements, and per-cell borders under border-collapse:separate.
-// table_collapse.go's junction-glyph tables are built from the same
-// characters directly (kept in sync by hand, not derived from this
-// function), since real collapsed-border junctions need the full T/cross
-// combinations this struct no longer carries.
+// borderStylePresets maps each of htmlterm's own named border-style values
+// to the glyphs it draws. It is the render-side half of the border-style
+// vocabulary; cssengine.BorderStyleNames (internal/cssengine/css.go) is the
+// canonical copy of the name set itself, consulted while parsing the border
+// and border-<edge> shorthands, well before any of these glyphs come into
+// it. The two must carry exactly the same keys, checked automatically by
+// TestNamedTableStyleMatchesBorderStyleVocabulary rather than left to drift
+// apart the way a comment-only "kept in sync by hand" note would allow.
+// table_collapse.go's junction-glyph tables are a separate case still kept in
+// sync by hand, not derived from this map, since real collapsed-border
+// junctions need the full T/cross combinations a tableStyle doesn't carry.
+var borderStylePresets = map[string]tableStyle{
+	"solid": {
+		top:    &hBorder{"┌", "─", "┐"},
+		bottom: &hBorder{"└", "─", "┘"},
+		left:   "│", right: "│",
+	},
+	"rounded": {
+		top:    &hBorder{"╭", "─", "╮"},
+		bottom: &hBorder{"╰", "─", "╯"},
+		left:   "│", right: "│",
+	},
+	"heavy": {
+		top:    &hBorder{"┏", "━", "┓"},
+		bottom: &hBorder{"┗", "━", "┛"},
+		left:   "┃", right: "┃",
+	},
+	"double": {
+		top:    &hBorder{"╔", "═", "╗"},
+		bottom: &hBorder{"╚", "═", "╝"},
+		left:   "║", right: "║",
+	},
+	"markdown": {left: "|", right: "|"},
+	"standard": {},
+	"hidden":   {},
+	"none":     {},
+}
+
+// namedTableStyle returns the preset for a given border-style value, used by
+// resolveBoxBorders (block.go) for any border box: block elements, and
+// per-cell borders under border-collapse:separate.
 func namedTableStyle(name string) (tableStyle, bool) {
-	switch name {
-	case "solid":
-		return tableStyle{
-			top:    &hBorder{"┌", "─", "┐"},
-			bottom: &hBorder{"└", "─", "┘"},
-			left:   "│", right: "│",
-		}, true
-	case "rounded":
-		return tableStyle{
-			top:    &hBorder{"╭", "─", "╮"},
-			bottom: &hBorder{"╰", "─", "╯"},
-			left:   "│", right: "│",
-		}, true
-	case "heavy":
-		return tableStyle{
-			top:    &hBorder{"┏", "━", "┓"},
-			bottom: &hBorder{"┗", "━", "┛"},
-			left:   "┃", right: "┃",
-		}, true
-	case "double":
-		return tableStyle{
-			top:    &hBorder{"╔", "═", "╗"},
-			bottom: &hBorder{"╚", "═", "╝"},
-			left:   "║", right: "║",
-		}, true
-	case "markdown":
-		return tableStyle{left: "|", right: "|"}, true
-	case "standard", "hidden", "none":
-		return tableStyle{}, true
-	}
-	return tableStyle{}, false
+	ts, ok := borderStylePresets[name]
+	return ts, ok
 }
 
 // colConstraints holds horizontal sizing constraints for one table column.

@@ -265,8 +265,11 @@ notes live in `docs/proposals/VARIABLES.md`.
   `--sides: 1 2 3 4` to fan out into four independent sides does **not**
   work — the shorthand expander already collapsed to the single-token "all
   sides same" branch before the var had a value, so after substitution all
-  four sides get the same literal string `"1 2 3 4"`. Same category of
-  limitation as the existing two-token `border: <width> <style>` gap above.
+  four sides get the same literal string `"1 2 3 4"`. [`border`](#border)'s
+  own type detection has the same root cause for a narrower case: a `var()`
+  token can't be classified as `<width>`/`<style>`/`<color>` by content this
+  early, so it's classified with a best-effort guess instead (see
+  `parseBorderComponents` in `css.go`).
 - **`counter-reset`/`counter-increment` only see a `var()` reference to a
   custom property declared on the *same* element**, not one inherited from
   an ancestor — these are non-inherited properties resolved via
@@ -785,33 +788,46 @@ The UA stylesheet defines `q::before { content: open-quote; }` and `q::after { c
 Shorthand for `border-style` plus `border-color` on the whole box (all four
 edges uniformly — there is no per-edge form of this shorthand; use the
 individual `border-top`/`border-right`/`border-bottom`/`border-left` and
-`border-*-color` longhands for that). Values are matched **positionally**,
-not by type: real CSS's `border` shorthand allows `<width>`/`<style>`/
-`<color>` in any order, and a real width keyword like `thick` can't be
-distinguished from a style keyword by content alone once it's in an
-unexpected slot — positional matching sidesteps that, resolving
-`border: thick solid red` correctly (slot 0 of a 3-token value is always
-the ignored width) regardless of what `thick` means to either vocabulary.
+`border-*-color` longhands for that). Values are matched **by type, not by
+position**, the same way real CSS's own `border` shorthand works: each of up
+to three space-separated components is classified as a `<width>`, a
+`<style>`, or a `<color>` by what it looks like, and the three may appear in
+any order. `<width>` is one of CSS's three width keywords
+(`thin`/`medium`/`thick`) or a bare length; `<style>` is one of the
+[`border-style`](#border-style) preset names; anything else is treated as
+`<color>`. A real width keyword like `thick` is told apart from a style
+keyword by checking that keyword list first, not by which slot it landed in,
+so `border: thick solid red` resolves correctly regardless of `thick`'s
+position, and so does `border: solid thick red` or `border: red thick
+solid`.
 
 | Values | Meaning |
 |--------|---------|
 | `<style>` | `border-style: <style>` |
-| `<style> <color>` | `border-style: <style>; border-color: <color>` |
-| `<width> <style> <color>` | `<width>` ignored; `border-style: <style>; border-color: <color>` |
+| `<color>` | `border-color: <color>`; `border-style` resets to `none`, so no border shows, matching real CSS's own "a shorthand resets every longhand it covers" rule |
+| `<width>` | ignored; `border-style` still resets to `none` |
+| `<style> <color>`, in either order | `border-style: <style>; border-color: <color>` |
+| `<width> <style>`, in either order | `<width>` ignored; `border-style: <style>` |
+| `<width> <color>`, in either order | `<width>` ignored; `border-color: <color>`; `border-style` resets to `none` |
+| `<width> <style> <color>`, in any order | `<width>` ignored; `border-style: <style>; border-color: <color>` |
 
 ```css
 div { border: solid red; }        /* border-style: solid; border-color: red; */
 div { border: 1px solid red; }    /* same; "1px" is ignored */
+div { border: 2px solid; }        /* border-style: solid; no color set */
+div { border: red; }              /* border-color: red; no border shows: border-style resets to none */
 ```
 
-**Not supported: the two-value `<width> <style>` form** (e.g. `border: 2px
-solid;`, no color) — with no positional color slot to detect its absence,
-this is indistinguishable from the two-value `<style> <color>` form and is
-silently dropped like any other unrecognized value. Set `border-style`
-directly instead. Not inherited.
+A value with more than three components, or with two components that
+classify to the same kind (CSS allows each of width, style, and color at
+most once), is invalid and left as an inert `border` declaration, the same
+"invalid value doesn't half-apply" handling `flex` uses. A `var()` component
+is a partial exception: it's classified by a fallback guess rather than
+rejected outright, since it can't be resolved this early; see "Shorthand
+fan-out" under Custom Properties. Not inherited.
 
 #### `border-style`
-`solid` | `rounded` | `heavy` | `double` | `markdown` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders. Not inherited.
+`solid` | `rounded` | `heavy` | `double` | `markdown` | `standard` | `hidden` | `none`. Applies a named border preset as a shorthand for all individual border properties. Individual `border-*` properties set on the same element override the preset for that edge (e.g. `border-top: ═` overrides the fill but keeps preset corners). `hidden`/`none` clears all borders; `standard` does too, but as an explicit "no border" marker distinct from simply never setting the property (see [`docs/TABLES.md`](docs/TABLES.md)'s `border-collapse: collapse` section). Not inherited.
 
 **Note:** these preset names are htmlterm's own vocabulary, not real CSS's `border-style` keyword set (`solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/`none`/`hidden`) — only `solid`/`double`/`none`/`hidden` overlap in name; `rounded`/`heavy`/`markdown` are terminal-specific box-drawing presets with no real-CSS equivalent. `heavy` (drawn with Unicode "Box Drawings Heavy" characters, e.g. `┏━┓`) is not named `thick`, avoiding a collision with real CSS's `border-width: thick` keyword — see [`border`](#border) above for why that distinction matters.
 
@@ -830,18 +846,19 @@ Each accepts **two different forms**, dispatched on whether the value is quoted:
 | Form | Example | Meaning |
 |------|---------|---------|
 | Quoted string | `border-left: "▌"` | This engine's literal-glyph form (predates the shorthand below, and remains the primary way to use box-drawing characters that have no CSS style-keyword equivalent). The exact character(s) prepended/appended (for `-left`/`-right`) or repeated as the horizontal-rule fill (for `-top`/`-bottom`). `none` (unquoted) or unset = no border. A glyph is charged its real terminal width, so a double-width one (CJK, emoji) costs the box two columns per side rather than one. |
-| Bareword, standard CSS shorthand grammar | `border-left: solid red` | `<style>`, `<style> <color>`, or `<width> <style> <color>` (`<width>` ignored) — the same positional grammar as the [`border`](#border) shorthand, just resolved to *this one edge's* glyph from the named preset (e.g. `top.fill` for `border-top`, `left`/`right` for `border-left`/`border-right`) instead of the whole box. `<style>` is one of the [`border-style`](#border-style) preset names. An explicit `border-top: none` clears just that edge, even when `border-style` is also set on the same element (this used to be silently overridden by the preset — no longer). |
+| Bareword, standard CSS shorthand grammar | `border-left: solid red` | The same type-detected grammar as the [`border`](#border) shorthand (any of `<width>`, `<style>`, `<color>`, in any order), just resolved to *this one edge's* glyph from the named preset (e.g. `top.fill` for `border-top`, `left`/`right` for `border-left`/`border-right`) instead of the whole box. `<style>` is one of the [`border-style`](#border-style) preset names. An explicit `border-top: none` clears just that edge, even when `border-style` is also set on the same element (this used to be silently overridden by the preset — no longer). |
 
 ```css
 div { border-top: "═"; }              /* literal glyph, unchanged from before */
 div { border-top: double; }           /* double preset's top glyph, no color change */
 div { border-top: double red; }       /* double preset's top glyph, red */
 div { border-top: 1px double red; }   /* same; "1px" is ignored */
+div { border-top: 2px double; }       /* double preset's top glyph, no color change; "2px" is ignored */
+div { border-top: red; }              /* sets border-top-color; border-top resets to none, so no edge draws, matching real CSS */
 div { border-style: solid; border-top: none; }  /* solid box with the top edge removed */
 ```
 
-As with [`border`](#border), the two-value `<width> <style>` form (no color) has
-no positional color slot and is silently dropped. Not inherited.
+Not inherited.
 
 #### `border-left-color`
 Any CSS color value (see [Color Values](#color-values)). ANSI color applied to the left border character. Not inherited.
@@ -1922,7 +1939,6 @@ Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a nam
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, `@import`, `@charset`, `@supports`, `@page`, or any other at-rule — the parser recognizes any `@`-rule and skips it as a unit (its prelude, and its `{ ... }` body if it has one, including any rules nested inside that body), so an at-rule the renderer doesn't understand is simply ignored rather than corrupting whatever rule follows it in the same stylesheet
 - `:active`, and pseudo-classes beyond those listed under [Selectors](#selectors) — a large set *is* supported there, including `:not()`, `:is()`, `:where()`, `:has()`, the structural `:nth-*` family, and the attribute-driven `:checked`/`:disabled`/`:required`. `:focus` needs a live `Document` rather than one-shot `Render`, and `:hover` matches only `option:hover` in an open `<select>`
-- The two-value `<width> <style>` form (no color) of `border`/`border-top`/`border-right`/`border-bottom`/`border-left` — see those sections
 - `display: grid`, `display: list-item`, or any other display values beyond `block`, `inline`, `inline-block`, `flex`, `inline-flex`, `table`, `contents`, and `none`
 - `flex-wrap`/`align-content` in `column` direction, `baseline` alignment, and the physical `left`/`right` alignment keywords — see [Flexbox](#flexbox)'s "Not supported" for the full list and why
 - `grid`, and `position: sticky` (`relative`/`absolute`/`fixed` are supported — see [`position`](#position)); shrink-to-fit auto-sizing and the "static position" algorithm for `absolute`/`fixed` (see that section's deviations)
