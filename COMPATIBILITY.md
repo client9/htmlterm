@@ -46,6 +46,18 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `SetAttribute("value", ...)` writes whatever it's given. A literal
   `"\n"` in an inline `<input>`'s value *does* render as a real line break
   here, unlike a browser, which ignores it.
+
+  Form reset (`<input type="reset">`, `<button type="reset">`, Enter on a
+  focused reset control) works despite that, but through a narrower
+  mechanism than a real dirty-value flag: `ParseDocument` walks the tree once
+  and snapshots every control's parse-time value, checkedness, or selected
+  option, the same one-time approximation `autofocus` already uses elsewhere
+  in this list. Activating a reset control fires `"reset"` on the nearest
+  `<form>` and, unless a listener calls `PreventDefault`, restores every
+  descendant control to its snapshot, mirroring HTML's own event-then-reset
+  order. A control added to the tree after `ParseDocument` (`AppendChild`,
+  `SetInnerHTML`) has no snapshot and is left untouched by reset, the same
+  gap `autofocus` has for a control inserted after parse.
 - **Text-field selection is a single flat range, not real DOM's
   `Selection`/`Range` model.** `Element.SelectionStart()`/`SelectionEnd()`/
   `SelectionDirection()`/`SetSelectionRange()` mirror

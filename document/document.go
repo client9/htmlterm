@@ -65,7 +65,24 @@ type Document struct {
 	// mirroring listeners above. Entries are removed once consumed, on blur,
 	// on focus moving elsewhere, or on Enter-commit, so the map never grows
 	// past the number of currently-focused elements, which is at most one.
+	// triggerReset resyncs a tracked entry too, when a reset restores the
+	// value of the field currently holding it. See triggerReset's doc
+	// comment for why that resync matters.
 	valueAtFocus map[*html.Node]string
+
+	// defaults holds every form control's reset target: the value,
+	// checkedness, or (for <select>) selected option applyFormDefaults
+	// captured at ParseDocument time. triggerReset reads it to restore a
+	// control's state on "reset", mirroring the DOM's
+	// defaultValue/defaultChecked reflection, but only as a one-time,
+	// parse-time snapshot rather than a live attribute-vs-property split (see
+	// COMPATIBILITY.md's "Form controls are attribute-driven, not
+	// stateful"). Unlike scrollOffsets and the other render-derived maps
+	// below, this one is never rebuilt. A control added after ParseDocument
+	// has no entry, so triggerReset leaves it untouched. Always
+	// non-nil, initialized by ParseDocument, and swept by pruneDetachedState
+	// alongside selections and valueAtFocus.
+	defaults map[*html.Node]controlDefault
 
 	// scrollOffsets holds the current vertical scroll offset for every
 	// element that was an overflow:scroll|auto container with a resolved
@@ -195,9 +212,74 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	d := &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}, scrollOffsetsX: map[*html.Node]int{}}
+	d := &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}, scrollOffsetsX: map[*html.Node]int{}, defaults: map[*html.Node]controlDefault{}}
 	d.applyAutofocus()
+	d.applyFormDefaults()
 	return d, nil
+}
+
+// controlDefaultKind tags which field of a controlDefault is meaningful.
+// applyFormDefaults decides it once, from the control's kind at parse time.
+// triggerReset switches on this stored tag instead of re-deriving the kind
+// from the control's live state. That matters because a control's type
+// attribute can change between ParseDocument and a later reset
+// (SetAttribute("type", ...) is unrestricted public API); without a stored
+// tag, triggerReset's own isCheckable/isSelectControl check could disagree
+// with applyFormDefaults's and silently discard the recorded default.
+type controlDefaultKind int
+
+const (
+	valueDefaultKind controlDefaultKind = iota
+	checkedDefaultKind
+	selectDefaultKind
+)
+
+// controlDefault is one form control's reset target, as captured by
+// applyFormDefaults. Only the field kind identifies is meaningful: checked
+// for checkedDefaultKind (a checkbox or radio input), value for
+// valueDefaultKind (a text entry or hidden input) and selectDefaultKind (a
+// <select>, where value is the default selected option's value per
+// selectValue).
+type controlDefault struct {
+	kind    controlDefaultKind
+	value   string
+	checked bool
+}
+
+// walkElements calls visit for root and every element-type descendant, in
+// document order. It never stops early, unlike applyAutofocus's own walk,
+// which is why applyAutofocus doesn't use it: applyFormDefaults and
+// triggerReset both need to visit every matching node, not just the first.
+func walkElements(root *html.Node, visit func(n *html.Node)) {
+	if root.Type == html.ElementNode {
+		visit(root)
+	}
+	for c := root.FirstChild; c != nil; c = c.NextSibling {
+		walkElements(c, visit)
+	}
+}
+
+// applyFormDefaults captures every form control's parse-time value,
+// checkedness, or (for <select>) selected option into d.defaults, the
+// target triggerReset later restores. It is the one-time, parse-time
+// approximation of HTML's defaultValue/defaultChecked reflection this
+// parse-once Document supports. There is no live dirty-value-flag tracking
+// the way a real browser has; see COMPATIBILITY.md's "Form controls are
+// attribute-driven, not stateful". A control added after ParseDocument
+// (AppendChild, SetInnerHTML, and the like) is never given a default, so
+// triggerReset leaves it alone, the same limitation applyAutofocus already
+// documents for autofocus set after parse.
+func (d *Document) applyFormDefaults() {
+	walkElements(d.doc, func(n *html.Node) {
+		switch {
+		case isCheckable(n):
+			d.defaults[n] = controlDefault{kind: checkedDefaultKind, checked: nodeHasAttr(n, "checked")}
+		case isSelectControl(n):
+			d.defaults[n] = controlDefault{kind: selectDefaultKind, value: selectValue(n)}
+		case isResettableValue(n):
+			d.defaults[n] = controlDefault{kind: valueDefaultKind, value: nodeAttr(n, "value")}
+		}
+	})
 }
 
 // applyAutofocus focuses the first focusable element carrying an autofocus
@@ -691,12 +773,18 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // bubble phases to the innermost matching element, and, unless a listener
 // called Event.PreventDefault, runs the built-in default action. That action
 // is one of: toggling a checkbox's checked state; checking a radio button and
-// clearing its sibling radios (see clearRadioSiblings); or, for a submit
-// control, dispatching a "submit" event on the nearest ancestor <form> (see
-// nearestForm). A submit control is an input[type=submit], or a button whose
-// type is unset or "submit", matching HTML's default button type. htmlterm has
-// no navigation or network concept, so "submit" is all a listener sees: there
-// is no default action for it to prevent.
+// clearing its sibling radios (see clearRadioSiblings); for a submit control,
+// dispatching a "submit" event on the nearest ancestor <form> (see
+// nearestForm); or, for a reset control, firing "reset" on the nearest
+// ancestor <form> and, unless that gets prevented, restoring every one of its
+// controls to its parse-time default (see triggerReset). A submit control is
+// an input[type=submit], or a button whose type is unset or "submit",
+// matching HTML's default button type. A reset control is an
+// input[type=reset] or a button[type=reset] (isResetControl). Reset always
+// needs an explicit type, unlike submit, since a bare button's default type
+// is submit, not reset. htmlterm has no navigation or network concept, so
+// "submit" is all a listener sees: there is no default action for it to
+// prevent.
 //
 // A disabled target, per nodeHasAttr(target, "disabled") or an ancestor
 // <fieldset disabled> (cssengine.IsFieldsetDisabled), is inert, matching
@@ -790,6 +878,10 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "", Modifiers{})
+		}
+	} else if isResetControl(target) {
+		if form := nearestForm(target); form != nil {
+			d.triggerReset(form)
 		}
 	}
 	return true
@@ -1092,6 +1184,99 @@ func isSubmitControl(n *html.Node) bool {
 	return false
 }
 
+// isResetControl reports whether n is a control that resets its form when
+// activated: an input[type=reset], or a button[type=reset]. Unlike
+// isSubmitControl, a bare <button> with no type doesn't count here, since
+// HTML's default button type is "submit", not "reset".
+func isResetControl(n *html.Node) bool {
+	if strings.ToLower(nodeAttr(n, "type")) != "reset" {
+		return false
+	}
+	switch strings.ToLower(n.Data) {
+	case "input", "button":
+		return true
+	}
+	return false
+}
+
+// isResettableValue reports whether n is a form control whose "value"
+// content attribute applyFormDefaults records and triggerReset restores.
+// That's the same set isTextEntry recognizes, plus a hidden input.
+// isTextEntry excludes hidden because DispatchKey's typing default actions
+// don't apply to a field nothing can focus or type into. A hidden input's
+// value is still real form data with a real default to restore on reset,
+// matching the DOM's HTMLInputElement.defaultValue, which applies to every
+// input type that has a value at all.
+func isResettableValue(n *html.Node) bool {
+	if isTextEntry(n) {
+		return true
+	}
+	return strings.EqualFold(n.Data, "input") && strings.EqualFold(nodeAttr(n, "type"), "hidden")
+}
+
+// triggerReset fires "reset" on form. Unless a listener calls
+// Event.PreventDefault, it then restores every descendant control to the
+// default applyFormDefaults captured for it: a checkbox or radio's checked
+// attribute, a <select>'s selected option (setSelectValue), or anything
+// else's value attribute. Shared by DispatchClick and DispatchKey's default
+// actions for a reset control (isResetControl).
+//
+// Firing the event before mutating anything matters here in a way it
+// doesn't for "submit". HTML's own reset algorithm fires "reset" first and
+// only resets field values if that comes back unprevented, so triggerReset
+// gates the restore the same way. Submit has no default action of its own
+// to skip, which is why isSubmitControl's callers dispatch "submit"
+// unconditionally with no such gate.
+//
+// Restoring a value also clears any recorded selection state for that
+// control, mirroring SetValue's own programmatic-assignment behavior of
+// collapsing the caret to the field's new end. If the control being reset
+// is also the one currently focused, this resyncs valueAtFocus to the
+// restored value too. Without that resync, a field reset while still
+// focused could fire a spurious "change" on the next blur or Enter: a click
+// only moves focus when the click target itself is a text entry, so a
+// reset button elsewhere in the form never blurs the field it resets, and
+// that field's pre-reset commitChange baseline would otherwise be compared
+// against the post-reset value.
+//
+// Matching real DOM, this fires neither "input" nor "change" for any
+// control it touches. Those events are reserved for direct user edits.
+//
+// The walk below reaches every control in form's subtree and never needs to
+// check which form owns each one: golang.org/x/net/html's parser can never
+// produce a <form> nested inside another <form> (a second <form> start tag
+// while one is already open is dropped by the parser's own form-pointer
+// rule), so every control this walk reaches genuinely belongs to form, the
+// same form nearestForm's own upward walk would report for it.
+func (d *Document) triggerReset(form *html.Node) {
+	ev := d.dispatch(form, "reset", "", Modifiers{})
+	if ev.DefaultPrevented() {
+		return
+	}
+	walkElements(form, func(n *html.Node) {
+		def, ok := d.defaults[n]
+		if !ok {
+			return
+		}
+		switch def.kind {
+		case checkedDefaultKind:
+			if def.checked {
+				setAttr(n, "checked", "")
+			} else {
+				removeAttr(n, "checked")
+			}
+		case selectDefaultKind:
+			setSelectValue(n, def.value)
+		case valueDefaultKind:
+			setAttr(n, "value", def.value)
+			d.clearSelection(n)
+			if _, tracked := d.valueAtFocus[n]; tracked {
+				d.valueAtFocus[n] = def.value
+			}
+		}
+	})
+}
+
 // nearestForm returns n's nearest ancestor <form>, or nil if it has none.
 func nearestForm(n *html.Node) *html.Node {
 	for p := n.Parent; p != nil; p = p.Parent {
@@ -1125,6 +1310,9 @@ func nearestForm(n *html.Node) *html.Node {
 //     the value differs from its value at focus time (see commitChange), and
 //     dispatches "submit" on the nearest ancestor <form>, matching HTML's
 //     implicit-submit-on-Enter behavior for a single-line text field.
+//   - "Enter" on a reset control fires "reset" on the nearest ancestor
+//     <form> and, unless that's prevented, restores every one of its
+//     controls to its parse-time default (see triggerReset).
 //   - Any other single-rune key replaces a focused text entry's current
 //     selection, or inserts at the caret if collapsed (see replaceSelection).
 //
@@ -1201,6 +1389,10 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// implicit-submits, editable or not.
 		if isEditable(target) {
 			d.replaceSelection(target, key, "\n", mods)
+		}
+	case key == "Enter" && isResetControl(target):
+		if form := nearestForm(target); form != nil {
+			d.triggerReset(form)
 		}
 	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
 		d.commitChange(target, false)
@@ -2134,9 +2326,9 @@ func (d *Document) focusedListIndex(list []*html.Node, notFound int) int {
 // scrollOffsets, scrollViewport, and contentOffsets need no such cleanup: all
 // three are rebuilt wholesale on the next Render, so stale entries for
 // removed nodes are dropped rather than lingering (see their own doc comments
-// on Document). The two per-node maps that *aren't* rebuilt, selections and
-// valueAtFocus, are swept explicitly by pruneDetachedState, alongside the
-// focus clearing above.
+// on Document). The per-node maps that *aren't* rebuilt, selections,
+// valueAtFocus, and defaults, are swept explicitly by pruneDetachedState,
+// alongside the focus clearing above.
 func (d *Document) setInnerHTML(el *Element, htmlStr string) error {
 	if el == nil {
 		return fmt.Errorf("htmlterm: SetInnerHTML on nil element")
@@ -2207,15 +2399,17 @@ func (d *Document) SetPreRendered(el *Element, ansi string) {
 //
 // Focus is cleared silently, with no "blur" dispatched, since the element is
 // gone rather than blurred, instead of being left dangling on a detached node.
-// d.selections and d.valueAtFocus are swept the same way. Unlike
+// d.selections, d.valueAtFocus, and d.defaults are swept the same way. Unlike
 // scrollOffsets, scrollViewport, and contentOffsets, which Render rebuilds
 // wholesale every frame and which therefore drop stale nodes for free, those
-// two are keyed by node and only ever written on demand. Without this sweep, a
-// long-running Loop that repeatedly refreshes a container via SetInnerHTML,
-// the documented pattern for content that changes shape, would accumulate one
-// entry per text entry it ever rendered, for the Document's whole lifetime.
-// Both maps hold at most a handful of live entries, so the sweep is cheap even
-// though it's a full scan.
+// three are keyed by node and only ever written on demand (defaults only
+// once, at ParseDocument, but a removed control's entry would otherwise
+// linger for the Document's whole remaining lifetime same as the other two).
+// Without this sweep, a long-running Loop that repeatedly refreshes a
+// container via SetInnerHTML, the documented pattern for content that
+// changes shape, would accumulate one stale entry per form control it ever
+// rendered. All three maps hold at most a handful of live entries for a
+// typical form, so the sweep is cheap even though it's a full scan.
 //
 // Event listeners are deliberately NOT swept: dropping a subtree without
 // RemoveEventListener leaks its listeners here as it does in a real DOM, and
@@ -2232,6 +2426,11 @@ func (d *Document) pruneDetachedState() {
 	for n := range d.valueAtFocus {
 		if n != d.focused && !isDescendant(d.doc, n) {
 			delete(d.valueAtFocus, n)
+		}
+	}
+	for n := range d.defaults {
+		if !isDescendant(d.doc, n) {
+			delete(d.defaults, n)
 		}
 	}
 }

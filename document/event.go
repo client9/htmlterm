@@ -270,15 +270,16 @@ func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) 
 
 // defaultCancelable reports whether a built-in event type typ's own
 // Dispatch* method already gates its default action on DefaultPrevented().
-// click, keydown, paste, cut, and submit do, since each already has
-// default-action code it skips when prevented. input, change, focus, blur,
-// and resize don't, since nothing gates on them today, matching real spec for
-// input, change, focus, and blur, and simply having nothing to skip for
-// resize. Any other, custom type is false here: custom events get their
-// Cancelable from CustomEventInit instead.
+// click, keydown, paste, cut, submit, and reset do, since each already has
+// default-action code it skips when prevented ("reset" via triggerReset,
+// which skips its own restore walk). input, change, focus, blur, and resize don't,
+// since nothing gates on them today, matching real spec for input, change,
+// focus, and blur, and simply having nothing to skip for resize. Any other,
+// custom type is false here: custom events get their Cancelable from
+// CustomEventInit instead.
 func defaultCancelable(typ string) bool {
 	switch typ {
-	case "click", "keydown", "paste", "cut", "submit":
+	case "click", "keydown", "paste", "cut", "submit", "reset":
 		return true
 	default:
 		return false

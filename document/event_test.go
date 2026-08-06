@@ -546,6 +546,205 @@ func TestDispatchClickSubmitInputFiresSubmitOnForm(t *testing.T) {
 	}
 }
 
+func TestDispatchClickResetButtonRestoresFormDefaults(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f">
+		<input type="text" id="name" value="Ada">
+		<input type="checkbox" id="agree" checked>
+		<input type="radio" name="color" id="red" value="red" checked>
+		<input type="radio" name="color" id="blue" value="blue">
+		<select id="pick"><option value="a">A</option><option value="b" selected>B</option></select>
+		<button type="reset" id="go">Reset</button>
+	</form>`)
+	name := doc.GetElementByID("name")
+	agree := doc.GetElementByID("agree")
+	red := doc.GetElementByID("red")
+	blue := doc.GetElementByID("blue")
+	pick := doc.GetElementByID("pick")
+	btn := doc.GetElementByID("go")
+
+	// Dirty every control away from its parsed default.
+	name.SetValue("Grace")
+	agree.SetChecked(false)
+	red.SetChecked(false)
+	blue.SetChecked(true)
+	pick.SetValue("a")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	reset := false
+	doc.AddEventListener(doc.GetElementByID("f"), "reset", false, func(e *document.Event) { reset = true })
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if !reset {
+		t.Error("clicking a reset button did not fire \"reset\" on its form")
+	}
+	if got := name.Value(); got != "Ada" {
+		t.Errorf("name.Value() after reset = %q, want \"Ada\"", got)
+	}
+	if !agree.Checked() {
+		t.Error("agree.Checked() after reset = false, want true")
+	}
+	if !red.Checked() {
+		t.Error("red.Checked() after reset = false, want true")
+	}
+	if blue.Checked() {
+		t.Error("blue.Checked() after reset = true, want false")
+	}
+	if got := pick.Value(); got != "b" {
+		t.Errorf("pick.Value() after reset = %q, want \"b\"", got)
+	}
+}
+
+func TestDispatchClickResetPreventDefaultLeavesValuesAlone(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name" value="Ada"><button type="reset" id="go">Reset</button></form>`)
+	form := doc.GetElementByID("f")
+	name := doc.GetElementByID("name")
+	btn := doc.GetElementByID("go")
+
+	name.SetValue("Grace")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	doc.AddEventListener(form, "reset", false, func(e *document.Event) { e.PreventDefault() })
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if got := name.Value(); got != "Grace" {
+		t.Errorf("name.Value() after prevented reset = %q, want unchanged \"Grace\"", got)
+	}
+}
+
+func TestDispatchClickResetInputRestoresFormDefaults(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name" value="Ada"><input type="reset" id="go" value="Reset"></form>`)
+	name := doc.GetElementByID("name")
+	btn := doc.GetElementByID("go")
+
+	name.SetValue("Grace")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if got := name.Value(); got != "Ada" {
+		t.Errorf("name.Value() after resetting via input[type=reset] = %q, want \"Ada\"", got)
+	}
+}
+
+func TestDispatchKeyEnterOnResetButtonRestoresFormDefaults(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name" value="Ada"><button type="reset" id="go">Reset</button></form>`)
+	name := doc.GetElementByID("name")
+	btn := doc.GetElementByID("go")
+	btn.Focus()
+
+	name.SetValue("Grace")
+
+	doc.DispatchKey("Enter", document.Modifiers{})
+
+	if got := name.Value(); got != "Ada" {
+		t.Errorf("name.Value() after Enter on a focused reset button = %q, want \"Ada\"", got)
+	}
+}
+
+func TestDispatchClickResetControlAddedAfterParseHasNoDefault(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"></form>`)
+	form := doc.GetElementByID("f")
+
+	input := doc.CreateElement("input")
+	input.SetAttribute("id", "late")
+	input.SetAttribute("value", "original")
+	form.AppendChild(input)
+
+	resetBtn := doc.CreateElement("button")
+	resetBtn.SetAttribute("type", "reset")
+	resetBtn.SetAttribute("id", "go")
+	form.AppendChild(resetBtn)
+
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	input.SetValue("changed")
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rect, _ := resetBtn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	// input never had a parse-time default recorded (it didn't exist at
+	// ParseDocument), so reset leaves its current value untouched.
+	if got := input.Value(); got != "changed" {
+		t.Errorf("input.Value() after reset on a post-parse control = %q, want unchanged \"changed\"", got)
+	}
+}
+
+func TestDispatchClickResetOnStillFocusedFieldDoesNotFireSpuriousChange(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name" value="Ada"><button type="reset" id="go">Reset</button></form>`)
+	name := doc.GetElementByID("name")
+	btn := doc.GetElementByID("go")
+
+	// Focus the field and commit an edit via Enter, which snapshots a new
+	// valueAtFocus baseline while leaving the field focused.
+	name.Focus()
+	doc.DispatchKey("Backspace", document.Modifiers{})
+	doc.DispatchKey("Backspace", document.Modifiers{})
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	changed := false
+	doc.AddEventListener(name, "change", false, func(e *document.Event) { changed = true })
+
+	// Clicking the reset button doesn't move focus away from name (only a
+	// click that targets a text entry does), so name is still focused when
+	// triggerReset restores its value.
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if got := name.Value(); got != "Ada" {
+		t.Fatalf("name.Value() after reset = %q, want \"Ada\"", got)
+	}
+	if got := doc.FocusedElement(); got == nil || got.ID() != "name" {
+		t.Fatalf("FocusedElement() after reset click = %v, want still \"name\"", got)
+	}
+
+	// Committing again with no further edit must not see a stale
+	// pre-reset baseline and fire a spurious "change".
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if changed {
+		t.Error("\"change\" fired after a reset with no user edit since, want none (stale valueAtFocus baseline)")
+	}
+}
+
+func TestDispatchClickResetSurvivesTypeAttributeMutation(t *testing.T) {
+	doc := mustParseDoc(t, `<form id="f"><input type="checkbox" id="cb" checked><button type="reset" id="go">Reset</button></form>`)
+	cb := doc.GetElementByID("cb")
+	btn := doc.GetElementByID("go")
+
+	// Mutate the control's type after parse: applyFormDefaults captured its
+	// default under checkedDefaultKind, and triggerReset must keep restoring
+	// checkedness from that stored kind rather than re-deriving (and
+	// disagreeing on) the control's kind from its now-different live type.
+	cb.SetAttribute("type", "text")
+	cb.SetChecked(false)
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rect, _ := btn.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if !cb.Checked() {
+		t.Error("cb.Checked() after reset = false, want true (checkedness restored from captured kind, not live type)")
+	}
+}
+
 func TestDispatchClickDisabledCheckboxDoesNotToggle(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb" disabled>`)
 	cb := doc.GetElementByID("cb")
