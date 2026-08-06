@@ -563,11 +563,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   collapsed item's cross size contributing to its line's height and this engine
   sizes the line from its remaining items instead, since reserving a blank band for
   an item nobody can see reads as a rendering bug on a character grid).
-  Also `overflow-x: scroll`/`auto` on a flex container, which would need the
-  live scroll-offset and gutter plumbing ordinary boxes have on that axis
-  (`overflow-x: hidden`/`clip` does clip a flex container's width, and
-  `overflow-y: scroll`/`auto` are both supported, real scrolling included; see
-  `docs/SCROLLING.md` for what the scrolling variants entail).
   `flex-grow`/`flex-shrink`/`justify-content` do work in `column` direction,
   but only once the container has a declared `height` or `min-height`. This
   engine has no other notion of a column flex container's main-axis size (row
@@ -714,10 +709,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
 ### Terminal-Native Additions
 
 - **Scroll containers as tab stops:** an `overflow-x`/`overflow-y`
-  `auto|scroll` element with an explicit width/resolved height respectively,
-  and no other focusable descendant, automatically becomes a keyboard tab
-  stop, purely so `PageUp`/`PageDown`/arrow keys have something to scroll
-  once focused.
+  `auto|scroll` element that actually became a scroll container (an explicit
+  width/resolved height respectively for an ordinary block box; a
+  `display: flex`/`inline-flex` container's `overflow-x` doesn't need one,
+  per its own carve-out — see `CSS.md`'s overflow entry), and has no other
+  focusable descendant, automatically becomes a keyboard tab stop, purely so
+  `PageUp`/`PageDown`/arrow keys have something to scroll once focused.
 - **Scrollbar cap buttons** (`::scrollbar-cap-start`/`-end`) are clickable
   via `DispatchClick`, but do *not* dispatch a `"click"` `Event` on the
   scrollable element, since they're rendering chrome, not real element content

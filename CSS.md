@@ -660,7 +660,7 @@ Integer line count (e.g. `10`) or `<N%>`. Maximum content-box height in lines. C
 `visible` | `hidden` | `clip` | `scroll` | `auto`. Controls whether content that exceeds an explicit `width`/`height` is clipped. `overflow` is shorthand for the two per-axis longhands: one value sets both `overflow-x`/`overflow-y`; two values set `overflow-x` then `overflow-y` respectively. A longhand set directly overrides just its own axis, per the normal cascade (so `overflow: auto; overflow-y: scroll` leaves `overflow-x` at `auto`). `overflow-x` gates horizontal (width) clipping and scrolling; `overflow-y` gates vertical (height) clipping and scrolling. Default `visible`: content overflows the box. Not inherited.
 
 - **`hidden` / `clip`** — `overflow-x` truncates each line to the content width (**requires an explicit `width`**; without one the element already fills the available width — except on a `display: flex`/`inline-flex` container, where no width is required, since flex items floored at their [automatic minimum size](#automatic-minimum-size-min-widthmin-height-auto) can overflow a container that has none); `overflow-y` truncates excess lines when an explicit `height` — or, failing that, a `max-height` — is also set; this works on a `display: flex`/`inline-flex` container too, truncating it from inside its own border box. `text-overflow` controls the truncation marker.
-- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Element.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**) is the same idea transposed: a live horizontal scroll offset (`Element.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
+- **`auto`** — `overflow-y` (with an explicit `height`; `min-height`/`max-height` alone don't count) makes the element a real scrollable viewport: a live per-element scroll offset (`Element.ScrollTop`/`SetScrollTop`) selects which window of lines is visible, adjustable via mouse wheel (`Document.DispatchWheel`), `PageUp`/`PageDown`/`ArrowUp`/`ArrowDown` on a focused descendant (`Document.DispatchKey`), or focus landing on an off-screen descendant (`Element.Focus` auto-scrolls it into view). `overflow-x` (**requires an explicit `width`**; same `display: flex`/`inline-flex` carve-out as `hidden`/`clip` above, for the same automatic-minimum-size reason) is the same idea transposed: a live horizontal scroll offset (`Element.ScrollLeft`/`SetScrollLeft`) selects which window of columns is visible per line, adjustable via mouse wheel (`Document.DispatchWheel`'s `deltaX`) or `ArrowLeft`/`ArrowRight` on a focused descendant (`Document.DispatchKey`) — there is no horizontal scroll-into-view on focus yet. Either axis draws no visible scrollbar/indicator under `auto`.
 - **`scroll`** — same scrolling behavior as `auto` per axis, **plus** an always-reserved gutter — a column (default 1 wide) for `overflow-y`, a row (default 1 tall) for `overflow-x` — with a track and thumb tracking the scroll position, drawn regardless of whether the content actually overflows, matching real CSS's own unconditional-scrollbar semantics for `scroll` vs. only-if-needed for `auto`. Silently omitted (content unaffected) if the box is too narrow/short to spare one, or — for `overflow-x`'s gutter row specifically — if the element also has an explicit `height` of its own (both axes' visible gutters can't coexist yet; the scroll offsets themselves still work in that combination — see `docs/SCROLLING.md`). **See `docs/SCROLLBARS.md`** for the full styling reference (`::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-*` and their `-x` horizontal counterparts, `scrollbar-style` presets, cap-button click behavior).
 
 See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` never gets an indicator).
@@ -1237,8 +1237,23 @@ container's `flex-direction`: a `column` container overflows on its main axis
 when `flex-shrink` can't absorb the deficit, a `row` container overflows on its
 cross axis when an item's own content is taller than the container, and both
 reduce to the same flat set of rendered lines the scroll gate slices from.
-Only `overflow-x: scroll`/`auto` remains unsupported on a flex container; see
-[Not supported](#not-supported) below.
+
+`overflow-x: scroll`/`auto` work the same way on the horizontal axis, with one
+divergence from the ordinary-box behavior described in the
+[`overflow`](#overflow-overflow-x-overflow-y) entry: they are **not** gated on
+the container having an explicit `width`, the same carve-out `overflow-x:
+hidden`/`clip` already gets above, and for the same reason — a `row` container's
+items floored at their [automatic minimum
+size](#automatic-minimum-size-min-widthmin-height-auto) can overflow a
+container that declared no width at all, so requiring one would make `scroll`/
+`auto` do nothing in exactly the case they're reached for. This carve-out is
+unconditional, not partial: `Element.ScrollLeft`/`SetScrollLeft`, wheel and
+arrow-key scrolling, `Element.Focus`'s scroll-into-view, and the `scroll`
+gutter's cap-button clicks all work identically whether or not the container
+declared a `width`, since none of that machinery actually needs one — a
+resolved render width (available width, or the shrink-to-fit width an
+`inline-flex` container measures) serves exactly as well as an author-declared
+one.
 
 The container's own `height`/`min-height` may be a **percentage**, resolved
 against *its* containing block under the rules in the [`height`](#height) entry.
@@ -1712,11 +1727,6 @@ The same is true of a multi-line `inline-block`; see `COMPATIBILITY.md`.
 - **The physical `left`/`right` alignment keywords** — unlike `start`/`end`,
   they're direction-relative rather than main-start-relative, so they're left
   unrecognized (falling back to `flex-start`) rather than guessed at.
-- **`overflow-x: scroll`/`auto` on a flex container** — the clipping value
-  (`hidden`/`clip`) is supported, and so is `overflow-y: scroll`/`auto`, but a
-  horizontally scrollable flex container would need the live scroll-offset/
-  gutter plumbing ordinary boxes have on that axis; see
-  [Container `height`, `min-height`, and `max-height`](#container-height-min-height-and-max-height).
 
 ---
 

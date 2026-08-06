@@ -2955,17 +2955,19 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	}
 
 	avail := hBorderWidth - textcell.Width(bl.char) - textcell.Width(br.char)
-	// ovY, heightLines, gutterWidth, hasScrollbarGutter, capStartDrawn, and
-	// capEndDrawn mirror renderBlockContentBox's identically-named locals
-	// (block.go): ovY is read once here rather than repeatedly from decls
-	// below. heightLines is resolved ahead of layoutFlex only so a scrollable
-	// container's gutter can reserve its column before wrapping. Only an
-	// explicit height counts, not max-height, the same "min-height/max-height
-	// alone don't count" rule CSS.md's overflow entry already documents for
-	// ordinary boxes. capStartDrawn and capEndDrawn are declared here, not
-	// with := in the overflow-y switch below, so they survive that switch's
-	// scope for the liveScrollViewport assignment near the end of this
-	// function.
+	// ovX, ovY, heightLines, gutterWidth, hasScrollbarGutter, capStartDrawn,
+	// and capEndDrawn mirror renderBlockContentBox's identically-named locals
+	// (block.go): ovX and ovY are read once here rather than repeatedly from
+	// decls below. heightLines is resolved ahead of layoutFlex only so a
+	// scrollable container's vertical gutter can reserve its column before
+	// wrapping. Only an explicit height counts, not max-height, the same
+	// "min-height/max-height alone don't count" rule CSS.md's overflow entry
+	// already documents for ordinary boxes. capStartDrawn, capEndDrawn,
+	// gutterHeightX, gutterRowX, capStartXDrawn, and capEndXDrawn are declared
+	// here, not with := in the overflow-y/overflow-x switches below, so they
+	// survive those switches' scope for the liveScrollViewport/
+	// liveScrollViewportX assignments near the end of this function.
+	ovX := decls["overflow-x"]
 	ovY := decls["overflow-y"]
 	heightLines := 0
 	if h, ok := r.resolveFlexContainerHeight(decls); ok {
@@ -2979,6 +2981,8 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	}
 	hasScrollbarGutter := gutterWidth > 0
 	var capStartDrawn, capEndDrawn bool
+	var gutterHeightX, gutterRowX int
+	var capStartXDrawn, capEndXDrawn bool
 	var innerW int
 	pl, pr, innerW = clampCellPadding(avail-gutterWidth, pl, pr)
 	if innerW < 1 {
@@ -3000,7 +3004,7 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		innerW = max(1, content.width)
 		hBorderWidth = textcell.Width(bl.char) + pl + innerW + gutterWidth + pr + textcell.Width(br.char)
 	}
-	// overflow-x: hidden/clip truncates each line to the container's content
+	// overflow-x truncates or scrolls each line to the container's content
 	// width, the same as renderBlockContentBox does for an ordinary block box
 	// (block.go). A flex container is no exception to CSS.md's overflow-x
 	// entry, but this used to be the one box model that never consulted it, so
@@ -3008,25 +3012,45 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	// nested flex item that exceeded its allotment could only be trimmed from
 	// outside, which cut its right border glyph off.
 	//
-	// Unlike block.go's, this is not gated on the container having an explicit
-	// width. That gate exists because a plain block with no declared width
-	// already fills its available width and so has nothing to clip, an
-	// assumption a flex container breaks: items floored at their automatic
-	// minimum size (flexMainAxisFloor) can overflow a container that declared
-	// no width at all. Gating here would make `overflow: hidden` do nothing in
-	// exactly the case it's reached for. See CSS.md's overflow entry, which
-	// carries the same carve-out.
+	// Unlike block.go's, neither case here is gated on the container having an
+	// explicit width. That gate exists in block.go because a plain block with
+	// no declared width already fills its available width and so has nothing
+	// to clip or scroll, an assumption a flex container breaks: items floored
+	// at their automatic minimum size (flexMainAxisFloor) can overflow a
+	// container that declared no width at all. Gating here would make
+	// `overflow: hidden`/`scroll`/`auto` do nothing in exactly the case each
+	// is reached for. See CSS.md's overflow entry, which carries the same
+	// carve-out. This is safe for the scroll/auto case's shrink-to-fit
+	// interaction too: when r.shrinkToFit && !hasExplicitWidth, innerW was
+	// already narrowed to content.width just above, before this switch runs,
+	// which makes scroll/auto's own maxOffsetX resolve to 0 there
+	// automatically. A shrink-to-fit box (an inline-flex container, or a flex
+	// item measuring its own natural width) has nothing to scroll within by
+	// definition, so it self-selects out of ever needing to without a
+	// separate gate.
 	//
-	// Deliberately not extended to scroll/auto: a horizontally scrollable flex
-	// container would need the live offset and gutter plumbing block.go has for
-	// ordinary boxes (see docs/SCROLLING.md), which is a larger piece of work
-	// than this.
-	if ov := decls["overflow-x"]; ov == "hidden" || ov == "clip" {
+	// liveScrollViewportX (see the assignment near the end of this function)
+	// is recorded unconditionally too, for the same reason: innerW, and
+	// everything derived from it, is exactly as meaningful for a no-width
+	// flex container as for one with a declared width, so there is no data
+	// gap left that would justify gating just that one recording. A container
+	// with no declared width scrolls correctly via wheel, arrow keys, focus
+	// scroll-into-view, and cap-button clicks alike.
+	switch ovX {
+	case "hidden", "clip":
 		suffix := textOverflowSuffix(decls["text-overflow"])
 		lines := make([]string, len(content.lines))
 		for i, ln := range content.lines {
 			lines[i] = textcell.TruncateToWidth(ln, innerW, suffix)
 		}
+		content = box{lines: lines, width: linesWidth(lines)}
+	case "scroll", "auto":
+		// applyHorizontalScroll is shared with renderBlockContentBox
+		// (block.go); see its own doc comment for the offset clamp,
+		// windowing, position-shift, and gutter-row behavior.
+		gutterRowX = len(content.lines)
+		var lines []string
+		lines, positions, gutterHeightX, capStartXDrawn, capEndXDrawn = r.applyHorizontalScroll(n, decls, content.lines, positions, innerW, content.width, heightLines, ovX)
 		content = box{lines: lines, width: linesWidth(lines)}
 	}
 	// A block-level flex container fills its available width by default, same
@@ -3167,6 +3191,21 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 		// See recordScrollViewport's own doc comment (block.go); it's shared
 		// with renderBlockContentBox.
 		r.recordScrollViewport(n, heightLines, rowShift, colShift, innerW, gutterWidth, capStartDrawn, capEndDrawn)
+	}
+	if ovX == "scroll" || ovX == "auto" {
+		// See recordScrollViewportX's own doc comment (block.go); it's shared
+		// with renderBlockContentBox. Unlike block.go's own call site, this one
+		// is not gated on hasExplicitWidth, matching the scroll/auto case
+		// above it: innerW, colShift, rowShift, gutterRowX, gutterHeightX,
+		// capStartXDrawn, and capEndXDrawn are all already resolved
+		// unconditionally by this point, so there is no data an explicit
+		// width would be needed to produce. Recording it unconditionally is
+		// also load-bearing, not just more complete: scrollIntoViewX reads
+		// scrollViewportX for every node present in scrollOffsetsX, which the
+		// scroll/auto case above already populates unconditionally, so
+		// withholding this would leave that lookup silently reading a
+		// zero-value Width instead of finding no entry.
+		r.recordScrollViewportX(n, innerW, colShift, rowShift, gutterRowX, gutterHeightX, capStartXDrawn, capEndXDrawn)
 	}
 	return content, positions
 }

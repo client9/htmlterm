@@ -784,8 +784,12 @@ func (e *Element) SetScrollTop(offset int) {
 
 // ScrollLeft is ScrollTop's horizontal counterpart: it reports e's current
 // horizontal scroll offset and whether e was an overflow-x:scroll|auto
-// container with an explicit width as of the most recent Document.Render
-// call, mirroring the DOM's element.scrollLeft.
+// container as of the most recent Document.Render call, mirroring the DOM's
+// element.scrollLeft. For an ordinary block box this only happens with an
+// explicit width, since an unsized block already fills its available width
+// and has nothing to scroll. A display:flex container is the one exception:
+// its items can overflow a container with no declared width at all (see
+// CSS.md's overflow-x entry), so ok can be true there without one.
 func (e *Element) ScrollLeft() (offset int, ok bool) {
 	if e == nil || e.doc == nil {
 		return 0, false

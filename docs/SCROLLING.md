@@ -662,6 +662,27 @@ axis-parameterized version of `nearestScrollable`), since the nearest
 horizontally- and vertically-scrollable ancestors can legitimately differ
 for a nested pane.
 
+**Update:** when both scrolling axes were later extended to `display: flex`
+containers (`internal/render/flex.go`), the *explicit width* requirement
+above turned out not to transfer: a flex container's items floored at their
+automatic minimum size can overflow one with no declared width at all, the
+same gap `overflow-x: hidden`/`clip` already had to route around on flex.
+`scrollOffsetsX`, `Element.ScrollLeft`, and wheel/arrow-key scrolling were all
+ungated for flex from the start. `scrollViewportX` (below) was initially kept
+behind `hasExplicitWidth` anyway, on the assumption its click-target geometry
+needed a declared width the way the rest of this section's design narrative
+assumed — that assumption doesn't hold on inspection (`ViewportX`'s fields are
+built entirely from `innerW`/`colShift`/`rowShift`, none of which are
+width-declaration-specific), and left `scrollOffsetsX` and `scrollViewportX`
+briefly out of sync for a no-width flex container: `scrollIntoViewX`
+(`document.go`) reads `scrollViewportX` without checking for the entry's
+presence, so it silently computed against a zero-value `Viewport` instead of
+skipping the ancestor, a real bug caught in review and fixed alongside
+ungating `scrollViewportX` too. `scrollOffsetsX`, `Element.ScrollLeft`, wheel
+and arrow-key scrolling, `Element.Focus`'s scroll-into-view, and cap-button
+clicks all now work identically with or without a declared width. See
+`CSS.md`'s overflow entry for the shipped behavior.
+
 ### Rendering
 
 Extends `renderBlockContentBox`'s existing `ovX` gate (previously just

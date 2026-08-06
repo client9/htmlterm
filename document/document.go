@@ -535,8 +535,9 @@ func (d *Document) setScrollTop(el *Element, offset int) {
 
 // scrollLeft is Element.ScrollLeft's implementation, scrollTop's horizontal
 // counterpart: it reports el's current horizontal scroll offset and whether
-// el was an overflow-x:scroll|auto container with an explicit width as of the
-// most recent Render call.
+// el was an overflow-x:scroll|auto container as of the most recent Render
+// call. See Element.ScrollLeft's own comment for when that does, and
+// doesn't, require an explicit width.
 func (d *Document) scrollLeft(el *Element) (int, bool) {
 	if el == nil {
 		return 0, false
@@ -574,7 +575,8 @@ func (d *Document) nearestScrollable(n *html.Node) *html.Node {
 
 // nearestScrollableX is nearestScrollable's horizontal counterpart: the
 // nearest inclusive ancestor of n that was an overflow-x:scroll|auto
-// container with an explicit width as of the most recent Render call. It is
+// container as of the most recent Render call (see Element.ScrollLeft's own
+// comment for when that does, and doesn't, require an explicit width). It is
 // kept as its own ancestor walk rather than a shared axis-parameterized
 // helper, since the nearest horizontally-scrollable ancestor and nearest
 // vertically-scrollable ancestor can legitimately differ for a nested pane.
@@ -1926,7 +1928,19 @@ func (d *Document) scrollIntoViewX(n *html.Node) {
 		if !ok {
 			continue
 		}
-		vp := d.scrollViewportX[anc]
+		// Guarded, unlike scrollIntoView's own vp := d.scrollViewport[anc]
+		// above: renderFlexContentBox (flex.go) is the one box model whose
+		// scrollOffsetsX entry doesn't require an explicit width, so anc being
+		// present in scrollOffsetsX doesn't, by construction alone, prove a
+		// matching scrollViewportX entry exists too, only that the two
+		// renderers currently keep them paired (see CSS.md's overflow entry).
+		// Skip rather than compute against a zero-value Width if that pairing
+		// were ever to lapse, the same "no data, no guess" choice
+		// tryScrollCapClickX already makes for the same map.
+		vp, hasViewport := d.scrollViewportX[anc]
+		if !hasViewport {
+			continue
+		}
 		contentLeft := ancRect.Col + vp.LeftOffset
 		relLeft := elRect.Col - contentLeft
 		relRight := relLeft + elRect.Width - 1

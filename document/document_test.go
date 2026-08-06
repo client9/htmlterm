@@ -1552,6 +1552,202 @@ func TestDispatchWheelScrollsFlexContainer(t *testing.T) {
 	}
 }
 
+// TestFlexRowOverflowXAutoSlicesContent is TestFlexColumnOverflowYAutoSlicesContent's
+// horizontal counterpart: overflow-x:auto on a row-direction flex container
+// whose flex-shrink:0 items overflow its explicit width scrolls the same way
+// overflow-x:auto does on an ordinary block box, reusing applyHorizontalScroll
+// (shared with renderBlockContentBox; see block.go).
+func TestFlexRowOverflowXAutoSlicesContent(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;width:5;overflow-x:auto">` +
+		`<div style="flex-shrink:0;width:3">AAA</div>` +
+		`<div style="flex-shrink:0;width:3">BBB</div>` +
+		`<div style="flex-shrink:0;width:3">CCC</div></div>`
+	doc, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "AAA") || strings.Contains(got, "CCC") {
+		t.Fatalf("initial render (offset 0) = %q, want AAA visible, not CCC", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if left, ok := pane.ScrollLeft(); !ok || left != 0 {
+		t.Errorf("ScrollLeft(pane) after first render = (%d, %v), want (0, true)", left, ok)
+	}
+
+	pane.SetScrollLeft(100) // beyond max; must clamp on next Render
+	got = mustReRenderStripped(t, doc)
+	if !strings.Contains(got, "CCC") || strings.Contains(got, "AAA") {
+		t.Fatalf("render after over-scrolling = %q, want CCC visible (clamped), not AAA", got)
+	}
+	if left, ok := pane.ScrollLeft(); !ok || left != 4 {
+		t.Errorf("ScrollLeft(pane) after clamp = (%d, %v), want (4, true) [max offset = 9-5]", left, ok)
+	}
+}
+
+// TestFlexRowOverflowXNoExplicitWidthStillScrolls covers the one deliberate
+// divergence from renderBlockContentBox's own overflow-x precondition: a
+// row-direction flex container's items can overflow even without a declared
+// width, since automatic-minimum-size flooring (flexMainAxisFloor) can push a
+// row wider than the container's available width regardless of whether
+// `width` was ever set. flex-shrink:0 forces that overflow here
+// deterministically, but the same carve-out is what makes an ordinary,
+// shrinkable item's automatic-minimum-size overflow scrollable too. See
+// flex.go's own comment on this switch and CSS.md's overflow entry.
+func TestFlexRowOverflowXNoExplicitWidthStillScrolls(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;overflow-x:auto">` +
+		`<div style="flex-shrink:0;width:5">AAAAA</div>` +
+		`<div style="flex-shrink:0;width:5">BBBBB</div></div>`
+	doc, got := mustRenderStripped(t, htmlStr, 8) // narrower than the 10-column content
+	if !strings.Contains(got, "AAAAA") || strings.Contains(got, "BBBBB") {
+		t.Fatalf("initial render (offset 0) = %q, want AAAAA visible, not BBBBB", got)
+	}
+
+	pane := doc.GetElementByID("pane")
+	pane.SetScrollLeft(100) // beyond max; must clamp on next Render
+	got = mustReRenderStripped(t, doc)
+	if !strings.Contains(got, "BBBBB") || strings.Contains(got, "AAAAA") {
+		t.Fatalf("render after over-scrolling = %q, want BBBBB visible (clamped), not AAAAA", got)
+	}
+}
+
+// TestFlexRowOverflowXNoExplicitWidthFocusScrollsIntoView is
+// TestFocusScrollsIntoViewHorizontally's width-less-flex counterpart. It
+// pins a real regression: scrollIntoViewX (document.go) reads
+// d.scrollViewportX[anc] unguarded, and an earlier version of this feature
+// left scrollViewportX gated on hasExplicitWidth while scrollOffsetsX was
+// not, so a width-less flex container was "scrollable" per scrollOffsetsX but
+// had no matching scrollViewportX entry. scrollIntoViewX then computed
+// against the zero-value Viewport{Width:0} instead of skipping the ancestor,
+// scrolling to a garbage offset on focus instead of a correct one. Both maps
+// are now populated unconditionally together for flex (see flex.go's
+// overflow-x switch), so this asserts the exact, deterministic offset focus
+// should produce, not just "some positive number" (which the bogus zero-width
+// computation would also have produced).
+func TestFlexRowOverflowXNoExplicitWidthFocusScrollsIntoView(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;overflow-x:auto">` +
+		`<input id="inp" style="flex-shrink:0;width:15"></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 8})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	pane := doc.GetElementByID("pane")
+	if left, ok := pane.ScrollLeft(); !ok || left != 0 {
+		t.Fatalf("ScrollLeft(pane) before focus = (%d, %v), want (0, true)", left, ok)
+	}
+
+	inp := doc.GetElementByID("inp")
+	inp.Focus()
+	// inp is 15 columns wide, starting at pane's own content-left (0), inside
+	// an 8-column pane: scrolling it fully into view needs offset 15-8=7,
+	// which is also the maximum valid offset (content width 15, minus the
+	// 8-column viewport) for this container. The pre-fix bug computed against
+	// a zero-value Viewport (Width 0), which would have produced offset 15
+	// instead: entirely off the end of the content.
+	if left, ok := pane.ScrollLeft(); !ok || left != 7 {
+		t.Errorf("ScrollLeft(pane) after focusing an overflowing-right input = (%d, %v), want (7, true)", left, ok)
+	}
+
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !inp.ScrollVisible() {
+		t.Error("ScrollVisible(inp) after focus-triggered horizontal scroll = false, want true")
+	}
+}
+
+// TestFlexRowOverflowXNoExplicitWidthCapClickScrollsOneStep confirms
+// scrollbar-cap-end-x click-to-scroll also works on a width-less flex
+// container: an earlier version of this feature left scrollViewportX (which
+// tryScrollCapClickX needs) gated on hasExplicitWidth even after
+// scrollOffsetsX itself was ungated for flex, silently no-opping clicks here.
+// Mirrors TestScrollbarCapClickScrollsOneLine's pattern, transposed to the X
+// axis and default (unstyled) cap glyphs.
+func TestFlexRowOverflowXNoExplicitWidthCapClickScrollsOneStep(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;overflow-x:scroll">` +
+		`<div style="flex-shrink:0;width:5">AAAAA</div>` +
+		`<div style="flex-shrink:0;width:5">BBBBB</div></div>`
+	doc, err := document.ParseDocument(htmlStr, htmlterm.Options{Width: 8})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	lines := strings.Split(stripANSI(out), "\n")
+	capEndRow, capEndCol := findGlyph(lines, '▼') // default ::scrollbar-cap-end-x glyph
+	if capEndRow < 0 {
+		t.Fatalf("cap-end-x glyph not found in %q", out)
+	}
+
+	before, ok := pane.ScrollLeft()
+	if !ok {
+		t.Fatal("ScrollLeft(pane) ok = false, want true")
+	}
+	if !doc.DispatchClick(capEndRow, capEndCol, document.Modifiers{}) {
+		t.Fatalf("DispatchClick on cap-end-x cell returned false")
+	}
+	if _, err := doc.Render(); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if after, _ := pane.ScrollLeft(); after != before+1 {
+		t.Errorf("ScrollLeft(pane) after cap-end-x click = %d, want %d", after, before+1)
+	}
+}
+
+// TestFlexOverflowXScrollDrawsGutterIndicator is
+// TestFlexOverflowYScrollDrawsGutterIndicator's horizontal counterpart:
+// overflow-x:scroll on a display:flex container reserves a gutter row and
+// draws a track/thumb, the same as it does on an ordinary block box. Default
+// ::scrollbar-track-x/::scrollbar-thumb-x content is the same glyphs as the
+// vertical pseudo-elements' own defaults (docs/SCROLLBARS.md), not a
+// horizontal-specific pair, so the assertions below match the vertical
+// gutter test's exactly.
+func TestFlexOverflowXScrollDrawsGutterIndicator(t *testing.T) {
+	htmlStr := `<style>#pane::scrollbar-cap-start-x { content: none; } #pane::scrollbar-cap-end-x { content: none; }</style>` +
+		`<div id="pane" style="display:flex;width:5;overflow-x:scroll">` +
+		`<div style="flex-shrink:0;width:3">AAA</div>` +
+		`<div style="flex-shrink:0;width:3">BBB</div>` +
+		`<div style="flex-shrink:0;width:3">CCC</div></div>`
+	_, got := mustRenderStripped(t, htmlStr, 20)
+	if !strings.Contains(got, "█") {
+		t.Errorf("render with overflow-x:scroll = %q, want a thumb character (█)", got)
+	}
+	if !strings.Contains(got, "│") {
+		t.Errorf("render with overflow-x:scroll = %q, want at least one track character (│)", got)
+	}
+}
+
+// TestDispatchWheelScrollsFlexContainerHorizontally is
+// TestDispatchWheelScrollsFlexContainer's deltaX counterpart, confirming the
+// generic wheel-dispatch plumbing (document.go's nearestScrollableX/
+// DispatchWheel) picks up a flex container purely from its presence in
+// d.scrollOffsetsX, with no flex-specific code of its own.
+func TestDispatchWheelScrollsFlexContainerHorizontally(t *testing.T) {
+	htmlStr := `<div id="pane" style="display:flex;width:5;overflow-x:auto">` +
+		`<div style="flex-shrink:0;width:3">AAA</div>` +
+		`<div style="flex-shrink:0;width:3">BBB</div>` +
+		`<div style="flex-shrink:0;width:3">CCC</div></div>`
+	doc, _ := mustRenderStripped(t, htmlStr, 20)
+
+	pane := doc.GetElementByID("pane")
+	rect, ok := pane.Rect()
+	if !ok {
+		t.Fatal("Rect(pane) ok = false, want true")
+	}
+
+	if got := doc.DispatchWheel(rect.Row, rect.Col, 1, 0); !got {
+		t.Fatal("DispatchWheel over pane = false, want true")
+	}
+	if left, ok := pane.ScrollLeft(); !ok || left <= 0 {
+		t.Errorf("ScrollLeft(pane) after wheel-right = (%d, %v), want a positive offset", left, ok)
+	}
+}
+
 // TestOverflowYScrollDrawsGutterIndicator covers docs/SCROLLING.md's "Scrollbar
 // gutter and indicator": overflow-y:scroll reserves a column and draws a
 // track/thumb, unconditionally (regardless of whether content overflows).

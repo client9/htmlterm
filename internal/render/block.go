@@ -595,57 +595,12 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 			}
 			b = box{lines: newLines, width: linesWidth(newLines)}
 		case "scroll", "auto":
-			// Unlike overflow-y's height gate, there's no separate
-			// "heightLines" concept to slice against here. innerW already
-			// bounds normally-wrapped content to begin with, so this only
-			// ever does something for content wordWrapTokens couldn't
-			// shrink to fit, meaning white-space:pre or nowrap, or an
-			// unbreakable overlong token. No white-space:nowrap gate is
-			// needed: a wrapped box's own maxLineWidth already comes out
-			// <= innerW, which naturally clamps offsetX to 0 (see
-			// docs/SCROLLING.md).
-			offsetX := r.scrollOffsetsX[n]
-			maxLineWidth := 0
-			for _, ln := range b.lines {
-				if w := textcell.VisibleLen(ln); w > maxLineWidth {
-					maxLineWidth = w
-				}
-			}
-			maxOffsetX := max(0, maxLineWidth-innerW)
-			offsetX = min(max(offsetX, 0), maxOffsetX)
-			if r.liveScrollOffsetsX == nil {
-				r.liveScrollOffsetsX = map[*html.Node]int{}
-			}
-			r.liveScrollOffsetsX[n] = offsetX
-			lines := make([]string, len(b.lines))
-			for i, ln := range b.lines {
-				window := textcell.VisibleWindow(ln, offsetX, innerW)
-				if pad := innerW - textcell.VisibleLen(window); pad > 0 {
-					window += strings.Repeat(" ", pad)
-				}
-				lines[i] = window
-			}
-			positions = mergePositions(nil, positions, 0, -offsetX)
-			// A visible horizontal gutter row is only drawn when ovX is
-			// exactly "scroll", mirroring overflow-y's own "auto gets no
-			// indicator" convention, and this box has no fixed height of
-			// its own. An active vertical gutter or scroll region already
-			// claims the box's bottom row for its own purposes, and this
-			// renderer has no corner-cell concept to let both visible
-			// gutters coexist there, the same problem a real GUI
-			// scrollbar solves with a dedicated corner square (see
-			// docs/SCROLLING.md). The offset and scrolling above still
-			// work in that combination; only the drawn indicator is
-			// skipped.
-			if heightLines == 0 && ovX == "scroll" {
-				gutterHeightX = r.scrollbarGutterHeight(n, decls)
-				trackX := r.resolveScrollbarStyle(n, decls, "scrollbar-track-x")
-				thumbX := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb-x")
-				capStartX, hasCapStartX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start-x")
-				capEndX, hasCapEndX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end-x")
-				gutterRowX = len(lines)
-				lines, capStartXDrawn, capEndXDrawn = appendScrollbarRow(lines, offsetX, maxLineWidth, innerW, gutterHeightX, trackX, thumbX, capStartX, capEndX, hasCapStartX, hasCapEndX, r.profile)
-			}
+			// See applyHorizontalScroll's own doc comment for the offset
+			// clamp, windowing, position-shift, and gutter-row behavior this
+			// delegates to; it's shared with renderFlexContentBox.
+			gutterRowX = len(b.lines)
+			var lines []string
+			lines, positions, gutterHeightX, capStartXDrawn, capEndXDrawn = r.applyHorizontalScroll(n, decls, b.lines, positions, innerW, b.width, heightLines, ovX)
 			b = box{lines: lines, width: linesWidth(lines)}
 		}
 	}
@@ -881,23 +836,9 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 		r.recordScrollViewport(n, heightLines, rowShift, colShift, innerW, gutterWidth, capStartDrawn, capEndDrawn)
 	}
 	if hasExplicitWidth && (ovX == "scroll" || ovX == "auto") {
-		if r.liveScrollViewportX == nil {
-			r.liveScrollViewportX = map[*html.Node]ViewportX{}
-		}
-		// GutterRow mirrors GutterCol's own reasoning above, transposed.
-		// rowShift is where this box's own content starts, row-wise, and
-		// gutterRowX is how many content rows came before the gutter rows
-		// were appended, or 0 if none were, since GutterHeight being 0
-		// already signals "not drawn" to document.go's tryScrollCapClickX
-		// either way. Only meaningful when GutterHeight > 0.
-		r.liveScrollViewportX[n] = ViewportX{
-			Width:        innerW,
-			LeftOffset:   colShift,
-			GutterRow:    rowShift + gutterRowX,
-			GutterHeight: gutterHeightX,
-			CapStart:     capStartXDrawn,
-			CapEnd:       capEndXDrawn,
-		}
+		// See recordScrollViewportX's own doc comment; it's shared with
+		// renderFlexContentBox.
+		r.recordScrollViewportX(n, innerW, colShift, rowShift, gutterRowX, gutterHeightX, capStartXDrawn, capEndXDrawn)
 	}
 	return b, positions
 }
@@ -1116,6 +1057,91 @@ func (r *Engine) recordScrollViewport(n *html.Node, heightLines, rowShift, colSh
 		GutterWidth: gutterWidth,
 		CapStart:    capStartDrawn,
 		CapEnd:      capEndDrawn,
+	}
+}
+
+// applyHorizontalScroll is applyVerticalScroll's horizontal counterpart:
+// clamps the live per-element column offset, windows every line to
+// [offsetX, offsetX+innerW), shifts positions to match, and appends the
+// scrollbar gutter row when this box has no vertical gutter of its own to
+// conflict with. Shared by renderBlockContentBox and renderFlexContentBox.
+//
+// maxLineWidth is the caller's own already-computed max line width (b.width
+// or content.width, both linesWidth's output from moments earlier in either
+// caller), not rescanned here: lines hasn't been touched since that width was
+// computed, so a second linear scan over it would only reproduce the same
+// number.
+//
+// Unlike overflow-y's height gate, there's no separate "heightLines" concept
+// to slice against here. For an ordinary block box, innerW already bounds
+// normally-wrapped content to begin with, so this only ever does something
+// for content wordWrapTokens couldn't shrink to fit, meaning white-space:pre
+// or nowrap, or an unbreakable overlong token: a wrapped box's own
+// maxLineWidth already comes out <= innerW, which naturally clamps offsetX to
+// 0. A flex container's lines can come out wider than innerW far more
+// routinely, from flex-shrink:0 items or the automatic minimum size floor
+// (flexMainAxisFloor); see docs/SCROLLING.md.
+//
+// heightLines and ovX are the caller's own overflow-y height and overflow-x
+// value, used only to compute drawGutterRow := heightLines==0 &&
+// ovX=="scroll" internally rather than making each caller repeat that
+// formula: a visible horizontal gutter row is only drawn when ovX is exactly
+// "scroll", mirroring overflow-y's own "auto gets no indicator" convention,
+// and only when the box has no fixed height of its own. An active vertical
+// gutter or scroll region already claims the box's bottom row for its own
+// purposes, and this renderer has no corner-cell concept to let both visible
+// gutters coexist there, the same problem a real GUI scrollbar solves with a
+// dedicated corner square. The offset and scrolling above still work in that
+// combination; only the drawn indicator is skipped.
+func (r *Engine) applyHorizontalScroll(n *html.Node, decls map[string]string, lines []string, positions map[*html.Node]Rect, innerW, maxLineWidth, heightLines int, ovX string) ([]string, map[*html.Node]Rect, int, bool, bool) {
+	drawGutterRow := heightLines == 0 && ovX == "scroll"
+	offsetX := r.scrollOffsetsX[n]
+	maxOffsetX := max(0, maxLineWidth-innerW)
+	offsetX = min(max(offsetX, 0), maxOffsetX)
+	if r.liveScrollOffsetsX == nil {
+		r.liveScrollOffsetsX = map[*html.Node]int{}
+	}
+	r.liveScrollOffsetsX[n] = offsetX
+	newLines := make([]string, len(lines))
+	for i, ln := range lines {
+		window := textcell.VisibleWindow(ln, offsetX, innerW)
+		if pad := innerW - textcell.VisibleLen(window); pad > 0 {
+			window += strings.Repeat(" ", pad)
+		}
+		newLines[i] = window
+	}
+	positions = mergePositions(nil, positions, 0, -offsetX)
+	var gutterHeightX int
+	var capStartXDrawn, capEndXDrawn bool
+	if drawGutterRow {
+		gutterHeightX = r.scrollbarGutterHeight(n, decls)
+		trackX := r.resolveScrollbarStyle(n, decls, "scrollbar-track-x")
+		thumbX := r.resolveScrollbarStyle(n, decls, "scrollbar-thumb-x")
+		capStartX, hasCapStartX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-start-x")
+		capEndX, hasCapEndX := r.resolveScrollbarCap(n, decls, "scrollbar-cap-end-x")
+		newLines, capStartXDrawn, capEndXDrawn = appendScrollbarRow(newLines, offsetX, maxLineWidth, innerW, gutterHeightX, trackX, thumbX, capStartX, capEndX, hasCapStartX, hasCapEndX, r.profile)
+	}
+	return newLines, positions, gutterHeightX, capStartXDrawn, capEndXDrawn
+}
+
+// recordScrollViewportX is recordScrollViewport's horizontal counterpart,
+// shared the same way between renderBlockContentBox and
+// renderFlexContentBox. gutterRowX is the row count of the caller's own
+// content lines captured before applyHorizontalScroll's gutter row (if any)
+// was appended on top, the same "before" point colShift/rowShift are always
+// measured from; GutterRow is only meaningful when GutterHeight > 0, and only
+// used then by document.go's tryScrollCapClickX.
+func (r *Engine) recordScrollViewportX(n *html.Node, innerW, colShift, rowShift, gutterRowX, gutterHeightX int, capStartXDrawn, capEndXDrawn bool) {
+	if r.liveScrollViewportX == nil {
+		r.liveScrollViewportX = map[*html.Node]ViewportX{}
+	}
+	r.liveScrollViewportX[n] = ViewportX{
+		Width:        innerW,
+		LeftOffset:   colShift,
+		GutterRow:    rowShift + gutterRowX,
+		GutterHeight: gutterHeightX,
+		CapStart:     capStartXDrawn,
+		CapEnd:       capEndXDrawn,
 	}
 }
 
