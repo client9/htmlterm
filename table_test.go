@@ -490,9 +490,9 @@ func TestCollapsedGridLineWidthBudget(t *testing.T) {
 //
 // measureCellNaturalWidth now measures under shrinkToFit, the same state
 // flex.go's own measureNaturalWidth uses, which is the flag that tells every
-// box model to report its content's width instead of its fill's. See
-// docs/proposals/FLEX_INTRINSIC_SIZING.md, which found this through the flex
-// case before establishing it was general.
+// box model to report its content's width instead of its fill's. This was
+// found through the flex case first, in flex.go's own natural-width
+// measurement, before establishing it was a general table-cell gap too.
 func TestTableCellNaturalWidthShrinksToFit(t *testing.T) {
 	const tbl = `table{border-collapse:collapse}td{border-style:solid}`
 	runCases(t, []renderCase{

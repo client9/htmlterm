@@ -1122,21 +1122,22 @@ func TestFlexIntrinsicMainSize(t *testing.T) {
 		{name: "flex-grow inside a measured container does not widen it", width: 20, css: nest + `.i>div{flex-grow:1}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
 		{name: "justify-content inside a measured container does not widen it", width: 20, css: nest + `.i{justify-content:space-between}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
 		{name: "an auto margin inside a measured container does not widen it", width: 20, css: nest + `.i>div+div{margin-left:auto}`, html: `<div class="o"><div class="i"><div>a</div><div>b</div></div><div>Z</div></div>`, want: "a  b  Z             \n"},
-		// Stage 1's accepted shortfall, pinned so stage 2 flips a marked
-		// assertion rather than surprising somebody. `flex: 1` is `1 1 0`, and a
-		// zero flex base size makes an item's hypothetical main size its
-		// automatic minimum size, meaning min-content. Summing those measures
-		// this container at 3 columns: "aa bb" contributes its longest word and
-		// wraps to two lines, "c" contributes 1.
+		// A known, accepted shortfall, pinned here so a future fix flips this
+		// assertion deliberately rather than surprising somebody. `flex: 1` is
+		// `1 1 0`, and a zero flex base size makes an item's hypothetical main
+		// size its automatic minimum size, meaning min-content. Summing those
+		// measures this container at 3 columns: "aa bb" contributes its longest
+		// word and wraps to two lines, "c" contributes 1.
 		//
 		// Flexbox §9.9 instead takes each item's *max-content* contribution (5
 		// and 1), divides by the flex-grow factor to get a desired flex fraction
 		// (5 and 1), applies the largest of them to every item, and so sizes
 		// this container at 10: two items of 5, with "aa bb" on one line. Note
 		// that is wider than the same items with no flex factors at all, which
-		// is the counter-intuitive part and the reason stage 2 wants a real use
-		// case first. See docs/proposals/FLEX_INTRINSIC_SIZING.md.
-		{name: "flex:1 items measure at min-content, stage 1's known shortfall", width: 20, css: `.o{display:flex;width:100%}.i{display:flex}.i>div{flex:1}`, html: `<div class="o"><div class="i"><div>aa bb</div><div>c</div></div><div>Z</div></div>`, want: "aacZ                \nbb                  \n"},
+		// is the counter-intuitive part and the reason this hasn't been
+		// implemented without a real use case driving it. See
+		// COMPATIBILITY.md's "A flex: 1 container measures narrower..." entry.
+		{name: "flex:1 items measure at min-content, a known shortfall against §9.9", width: 20, css: `.o{display:flex;width:100%}.i{display:flex}.i>div{flex:1}`, html: `<div class="o"><div class="i"><div>aa bb</div><div>c</div></div><div>Z</div></div>`, want: "aacZ                \nbb                  \n"},
 	})
 }
 

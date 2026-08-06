@@ -958,9 +958,11 @@ sized to its items' own extent unless it declares a `width` of its own (or
 their extent exceeds the space available, in which case that space bounds it).
 That matters for `justify-content` and `flex-grow`, which have free space to
 distribute only when the container's main size is definite — inside a plain
-`inline-flex` there is none, so both are inert. Only single-row and single-column layouts
-are currently supported, not full CSS Flexbox — see "Not supported" below
-for the gaps.
+`inline-flex` there is none, so both are inert. This is a subset of full CSS
+Flexbox, not the whole spec. `row` direction supports multiple lines via
+`flex-wrap` (see [`flex-wrap`](#flex-wrap) below); `column` direction remains
+single-line regardless of `flex-wrap`, which is the one directional asymmetry
+in what's supported here. See "Not supported" below for the rest of the gaps.
 
 Either kind of container builds the same margin, border, and padding box every
 other box in this engine does. An `inline-flex` container's own border is drawn

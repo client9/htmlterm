@@ -428,8 +428,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   which makes such a container **wider** than the same items carry with no flex
   factors at all. Nothing here implements that step, so `flex: 1` children of
   an intrinsically sized container wrap text a browser would keep on one line.
-  This and the `flex-basis: auto` entry above are the same missing machinery;
-  see `docs/proposals/FLEX_INTRINSIC_SIZING.md`.
+  This and the `flex-basis: auto` entry above are the same missing machinery:
+  Flexbox §9.9's chosen-flex-fraction step, which nothing in this engine
+  implements yet.
 
 ### Terminal-Native Additions
 

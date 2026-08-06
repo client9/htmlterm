@@ -1961,7 +1961,7 @@ func breakFlexLines(n int, widths []int, innerW, gap int, wrap bool) [][]int {
 // (`flex: 1`), where a hypothetical main size is the automatic minimum size,
 // meaning min-content, and §9.9 would use the item's max-content contribution.
 // Such a container measures narrower here than in a browser. See
-// docs/proposals/FLEX_INTRINSIC_SIZING.md, which scopes that as stage 2.
+// COMPATIBILITY.md's "A flex: 1 container measures narrower..." entry.
 func (r *Engine) measuringIntrinsicWidth() bool {
 	return r.shrinkToFit || r.measuringNaturalWidth
 }
