@@ -313,6 +313,191 @@ func TestDispatchClickRadioGroupScopedToForm(t *testing.T) {
 	}
 }
 
+func TestRadioGroupIsOneTabStopAtFirstMemberWhenNoneChecked(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1"><input type="radio" name="r" id="r2"><input type="text" id="after">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "r1" {
+		t.Fatalf("first FocusNext() = %v, want \"r1\"", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "after" {
+		t.Errorf("second FocusNext() = %v, want \"after\" (r2 skipped, same group as r1)", second)
+	}
+}
+
+func TestRadioGroupIsOneTabStopAtCheckedMember(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1"><input type="radio" name="r" id="r2" checked><input type="text" id="after">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "r2" {
+		t.Errorf("first FocusNext() = %v, want \"r2\" (the checked member)", first)
+	}
+}
+
+func TestRadioGroupTabStopSkipsDisabledCanonicalMember(t *testing.T) {
+	// Regression test: isRadioGroupTabStop used to designate the checked
+	// (or first) member as the group's Tab stop without checking whether
+	// that member was itself disabled. A disabled checked/first member
+	// made the entire group untabbable, even with an enabled member still
+	// in it, since no other member could ever match "the checked member"
+	// or "the first member" either.
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked disabled><input type="radio" name="r" id="r2"><input type="text" id="after">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "r2" {
+		t.Errorf("first FocusNext() with a disabled checked member = %v, want \"r2\" (the next enabled member)", first)
+	}
+}
+
+func TestRadioGroupTabStopSkipsDisabledFirstMember(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" disabled><input type="radio" name="r" id="r2"><input type="text" id="after">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "r2" {
+		t.Errorf("first FocusNext() with a disabled first, unchecked member = %v, want \"r2\"", first)
+	}
+}
+
+func TestRadioGroupTabStopScopedToForm(t *testing.T) {
+	// Two same-name groups in different forms are independent, mirroring
+	// clearRadioSiblings' own form-scoping.
+	doc := mustParseDoc(t, `<form><input type="radio" name="r" id="a1"><input type="radio" name="r" id="a2" checked></form>`+
+		`<form><input type="radio" name="r" id="b1"><input type="radio" name="r" id="b2"></form>`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "a2" {
+		t.Errorf("first FocusNext() = %v, want \"a2\" (checked, in the first form's own group)", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "b1" {
+		t.Errorf("second FocusNext() = %v, want \"b1\" (first, unchecked, in the second form's own group)", second)
+	}
+}
+
+func TestRadioGroupMemberStillReachableByFocusAndClickDespiteTabSkip(t *testing.T) {
+	// Only sequential Tab navigation skips a non-canonical group member;
+	// Focus() and a direct click still reach it, the same "skipped by Tab,
+	// not by everything else" split tabindex="-1" already has.
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1"><input type="radio" name="r" id="r2">`)
+	r2 := doc.GetElementByID("r2")
+
+	if !r2.Focus() {
+		t.Fatal("Focus() on a non-canonical radio group member = false, want true")
+	}
+	if got := doc.FocusedElement(); got == nil || got.ID() != "r2" {
+		t.Errorf("FocusedElement() after Focus() = %v, want \"r2\"", got)
+	}
+
+	doc.GetElementByID("r1").Blur()
+	rect, _ := r2.Rect()
+	if !doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{}) {
+		t.Fatal("DispatchClick() on a non-canonical radio group member = false, want true")
+	}
+	if !r2.Checked() {
+		t.Error("r2 not checked after a direct click")
+	}
+}
+
+func TestFocusNextAfterFocusingNonCanonicalRadioAdvancesPastGroup(t *testing.T) {
+	// Regression test: FocusNext/FocusPrev used to search for d.focused by
+	// exact match in focusableList and silently fall back to list[0] (or
+	// list[len-1] for FocusPrev) whenever it wasn't found there. A
+	// non-canonical radio group member reached via Focus() is exactly that
+	// case now that only one member of a group is ever in focusableList,
+	// so Tab used to reset all the way to the document's first tab stop
+	// instead of advancing past the group the user was actually on.
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2"><input type="text" id="after">`)
+	doc.GetElementByID("r2").Focus()
+
+	next := doc.FocusNext()
+	if next == nil || next.ID() != "after" {
+		t.Errorf("FocusNext() after Focus()ing a non-canonical group member = %v, want \"after\" (the stop past the whole group), not a reset to the document's first stop", next)
+	}
+}
+
+func TestFocusPrevAfterFocusingNonCanonicalRadioAdvancesPastGroup(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="text" id="before"><input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2">`)
+	doc.GetElementByID("r2").Focus()
+
+	prev := doc.FocusPrev()
+	if prev == nil || prev.ID() != "before" {
+		t.Errorf("FocusPrev() after Focus()ing a non-canonical group member = %v, want \"before\" (the stop before the whole group)", prev)
+	}
+}
+
+func TestDispatchKeyArrowDownMovesAndChecksNextRadio(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2"><input type="radio" name="r" id="r3">`)
+	doc.GetElementByID("r1").Focus()
+
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
+
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "r2" {
+		t.Fatalf("FocusedElement() after ArrowDown = %v, want \"r2\"", got)
+	}
+	if doc.GetElementByID("r1").Checked() {
+		t.Error("r1 still checked after ArrowDown moved to r2")
+	}
+	if !doc.GetElementByID("r2").Checked() {
+		t.Error("r2 not checked after ArrowDown")
+	}
+}
+
+func TestDispatchKeyArrowUpWrapsToLastRadio(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2"><input type="radio" name="r" id="r3">`)
+	doc.GetElementByID("r1").Focus()
+
+	doc.DispatchKey("ArrowUp", document.Modifiers{})
+
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "r3" {
+		t.Errorf("FocusedElement() after ArrowUp from the first member = %v, want \"r3\" (wraps to the last)", got)
+	}
+	if !doc.GetElementByID("r3").Checked() {
+		t.Error("r3 not checked after ArrowUp wrapped to it")
+	}
+}
+
+func TestDispatchKeyArrowLeftRightAlsoNavigateRadioGroup(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2">`)
+	doc.GetElementByID("r1").Focus()
+
+	doc.DispatchKey("ArrowRight", document.Modifiers{})
+	if got := doc.FocusedElement(); got == nil || got.ID() != "r2" {
+		t.Fatalf("FocusedElement() after ArrowRight = %v, want \"r2\"", got)
+	}
+
+	doc.DispatchKey("ArrowLeft", document.Modifiers{})
+	if got := doc.FocusedElement(); got == nil || got.ID() != "r1" {
+		t.Errorf("FocusedElement() after ArrowLeft = %v, want \"r1\"", got)
+	}
+}
+
+func TestDispatchKeyRadioGroupArrowSkipsDisabledMember(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked><input type="radio" name="r" id="r2" disabled><input type="radio" name="r" id="r3">`)
+	doc.GetElementByID("r1").Focus()
+
+	doc.DispatchKey("ArrowDown", document.Modifiers{})
+
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "r3" {
+		t.Errorf("FocusedElement() after ArrowDown past a disabled member = %v, want \"r3\"", got)
+	}
+}
+
+func TestDispatchKeyRadioGroupArrowNoOpOnGroupOfOne(t *testing.T) {
+	doc := mustParseDoc(t, `<input type="radio" name="r" id="r1" checked>`)
+	doc.GetElementByID("r1").Focus()
+
+	if doc.DispatchKey("ArrowDown", document.Modifiers{}) != true {
+		t.Fatal("DispatchKey() = false, want true (still dispatches keydown even if the default action is a no-op)")
+	}
+	if got := doc.FocusedElement(); got == nil || got.ID() != "r1" {
+		t.Errorf("FocusedElement() after ArrowDown in a group of one = %v, want unchanged \"r1\"", got)
+	}
+}
+
 func TestDispatchClickSubmitButtonFiresSubmitOnForm(t *testing.T) {
 	doc := mustParseDoc(t, `<form id="f"><input type="text" id="name"><button id="go">Go</button></form>`)
 	form := doc.GetElementByID("f")
@@ -369,6 +554,194 @@ func TestDispatchClickDisabledCheckboxDoesNotToggle(t *testing.T) {
 	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	if cb.Checked() {
 		t.Error("disabled checkbox toggled on click, want no-op")
+	}
+}
+
+func TestDispatchClickCheckboxInDisabledFieldsetDoesNotToggle(t *testing.T) {
+	doc := mustParseDoc(t, `<fieldset disabled><input type="checkbox" id="cb"></fieldset>`)
+	cb := doc.GetElementByID("cb")
+	rect, ok := cb.Rect()
+	if !ok {
+		t.Fatal("Rect(cb) ok = false, want true")
+	}
+
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if cb.Checked() {
+		t.Error("checkbox in a disabled fieldset toggled on click, want no-op")
+	}
+}
+
+func TestDispatchClickNonFormContentInDisabledFieldsetStillFires(t *testing.T) {
+	// Regression test: DispatchClick's disabled-target check used to call
+	// isFieldsetDisabled with no restriction to form-associated elements,
+	// so a disabled <fieldset> silently swallowed clicks on any nested
+	// content at all, not just the form controls real HTML's
+	// fieldset-disabling algorithm actually reaches.
+	doc := mustParseDoc(t, `<fieldset disabled><div id="d">Click me</div></fieldset>`)
+	d := doc.GetElementByID("d")
+	clicked := false
+	doc.AddEventListener(d, "click", false, func(e *document.Event) { clicked = true })
+
+	rect, ok := d.Rect()
+	if !ok {
+		t.Fatal("Rect(d) ok = false, want true")
+	}
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if !clicked {
+		t.Error("clicking a <div> inside a disabled <fieldset> did not fire \"click\", want it unaffected since <div> isn't a form-associated element")
+	}
+}
+
+func TestFocusInDisabledFieldsetFails(t *testing.T) {
+	doc := mustParseDoc(t, `<fieldset disabled><input id="in" value="x"></fieldset>`)
+	in := doc.GetElementByID("in")
+
+	if in.Focus() {
+		t.Error("Focus() on a control inside a disabled fieldset = true, want false")
+	}
+	if doc.FocusedElement() != nil {
+		t.Error("FocusedElement() != nil after a rejected Focus() call")
+	}
+}
+
+func TestFocusInFieldsetFirstLegendSucceedsDespiteDisabled(t *testing.T) {
+	// HTML's one exemption: a fieldset's own disabled attribute doesn't
+	// reach into its first <legend> child.
+	doc := mustParseDoc(t, `<fieldset disabled><legend><input id="in" value="x"></legend><input id="other" value="y"></fieldset>`)
+
+	if !doc.GetElementByID("in").Focus() {
+		t.Error("Focus() on a control inside the fieldset's first legend = false, want true")
+	}
+	if doc.GetElementByID("other").Focus() {
+		t.Error("Focus() on a control outside the legend, still inside the disabled fieldset, = true, want false")
+	}
+}
+
+func TestFocusInNestedFieldsetsRequiresEscapingEveryDisabledOne(t *testing.T) {
+	// An inner fieldset's own legend only exempts its own fieldset's
+	// disabling; an outer disabled fieldset still applies.
+	doc := mustParseDoc(t, `<fieldset disabled><fieldset disabled><legend><input id="in" value="x"></legend></fieldset></fieldset>`)
+
+	if doc.GetElementByID("in").Focus() {
+		t.Error("Focus() inside the inner fieldset's legend, but still inside an outer disabled fieldset, = true, want false")
+	}
+}
+
+func TestDispatchKeyTypingBlockedInDisabledFieldset(t *testing.T) {
+	// A host can focus a field, then have the fieldset around it disabled
+	// afterward (SetAttribute, not through Focus's own isFocusable gate);
+	// isEditable's fieldset check is the safety net for that case,
+	// mirroring the same defensive check it already does for a directly
+	// disabled control.
+	doc := mustParseDoc(t, `<fieldset id="fs"><input id="in" value=""></fieldset>`)
+	in := doc.GetElementByID("in")
+	if !in.Focus() {
+		t.Fatal("Focus() before disabling = false, want true")
+	}
+	doc.GetElementByID("fs").SetAttribute("disabled", "")
+
+	doc.DispatchKey("x", document.Modifiers{})
+	if in.Value() != "" {
+		t.Errorf("Value() = %q after typing into a since-disabled fieldset's control, want unchanged", in.Value())
+	}
+}
+
+func TestDispatchClickLabelTextTogglesNestedCheckbox(t *testing.T) {
+	// The implicit-association case: no for attribute, the checkbox is a
+	// descendant of the label. Clicking the label's own text ("Remember
+	// me"), not the checkbox glyph itself, must still toggle it.
+	doc := mustParseDoc(t, `<label id="lbl"><input type="checkbox" id="cb"> Remember me</label>`)
+	cb := doc.GetElementByID("cb")
+	lbl := doc.GetElementByID("lbl")
+	lblRect, ok := lbl.Rect()
+	if !ok {
+		t.Fatal("Rect(lbl) ok = false, want true")
+	}
+	cbRect, _ := cb.Rect()
+	textCol := cbRect.Col + cbRect.Width + 1 // inside "Remember me", past the glyph
+	if textCol < lblRect.Col || textCol >= lblRect.Col+lblRect.Width {
+		t.Fatalf("test setup: textCol %d not inside label rect %+v", textCol, lblRect)
+	}
+
+	doc.DispatchClick(lblRect.Row, textCol, document.Modifiers{})
+	if !cb.Checked() {
+		t.Error("clicking label text did not toggle its nested checkbox")
+	}
+}
+
+func TestDispatchClickLabelForFocusesNamedControl(t *testing.T) {
+	// The explicit-association case: a for attribute pointing at a sibling
+	// control's id.
+	doc := mustParseDoc(t, `<label for="name" id="lbl">Name:</label> <input type="text" id="name">`)
+	lbl := doc.GetElementByID("lbl")
+	rect, ok := lbl.Rect()
+	if !ok {
+		t.Fatal("Rect(lbl) ok = false, want true")
+	}
+
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "name" {
+		t.Errorf("FocusedElement() after clicking label = %v, want \"name\"", got)
+	}
+}
+
+func TestDispatchClickLabelForRedirectsClickEventToControl(t *testing.T) {
+	// The "click" event itself, not just the default action, targets the
+	// named control, matching a real browser's forwarded synthetic click:
+	// a listener on the label never sees it, a listener on the control does.
+	doc := mustParseDoc(t, `<label for="cb" id="lbl">Remember me</label> <input type="checkbox" id="cb">`)
+	lbl := doc.GetElementByID("lbl")
+	cb := doc.GetElementByID("cb")
+	var labelClicked, controlClicked bool
+	doc.AddEventListener(lbl, "click", false, func(e *document.Event) { labelClicked = true })
+	doc.AddEventListener(cb, "click", false, func(e *document.Event) { controlClicked = true })
+
+	rect, _ := lbl.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if labelClicked {
+		t.Error("label's own \"click\" listener fired, want the redirected control to be the sole target")
+	}
+	if !controlClicked {
+		t.Error("named control's \"click\" listener did not fire")
+	}
+	if !cb.Checked() {
+		t.Error("named checkbox not toggled by the redirected click")
+	}
+}
+
+func TestDispatchClickLabelWithNoAssociationDispatchesOwnClick(t *testing.T) {
+	// No for, and no labelable descendant: labelledControl finds nothing,
+	// so the label keeps its own "click" dispatch rather than being
+	// silently swallowed.
+	doc := mustParseDoc(t, `<label id="lbl">Just text</label>`)
+	lbl := doc.GetElementByID("lbl")
+	clicked := false
+	doc.AddEventListener(lbl, "click", false, func(e *document.Event) { clicked = true })
+
+	rect, ok := lbl.Rect()
+	if !ok {
+		t.Fatal("Rect(lbl) ok = false, want true")
+	}
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if !clicked {
+		t.Error("label with no associated control did not dispatch its own click")
+	}
+}
+
+func TestDispatchClickLabelForStaleIDFallsBackToOwnClick(t *testing.T) {
+	// A for attribute pointing at a nonexistent id is the same as no
+	// association at all, not an error.
+	doc := mustParseDoc(t, `<label for="ghost" id="lbl">Name:</label>`)
+	lbl := doc.GetElementByID("lbl")
+	clicked := false
+	doc.AddEventListener(lbl, "click", false, func(e *document.Event) { clicked = true })
+
+	rect, _ := lbl.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if !clicked {
+		t.Error("label with a stale for= did not fall back to dispatching its own click")
 	}
 }
 

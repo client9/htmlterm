@@ -761,12 +761,19 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 		// <optgroup> too (matching HTMLOptionElement.disabled's real
 		// inherited-from-optgroup behavior; see document/select.go's
 		// optionDisabled, the interactivity-layer counterpart of this same
-		// rule), not just its own attribute.
+		// rule), not just its own attribute. A form control's disabled
+		// state cascades from an ancestor <fieldset disabled> the same way
+		// (see IsFieldsetDisabled below), except a control nested in that
+		// fieldset's own first <legend> child, matching real HTML's
+		// fieldset-disabling algorithm.
 		if nodeHasAttr(n, "disabled") {
 			return true
 		}
-		return strings.EqualFold(n.Data, "option") && n.Parent != nil &&
-			strings.EqualFold(n.Parent.Data, "optgroup") && nodeHasAttr(n.Parent, "disabled")
+		if strings.EqualFold(n.Data, "option") && n.Parent != nil &&
+			strings.EqualFold(n.Parent.Data, "optgroup") && nodeHasAttr(n.Parent, "disabled") {
+			return true
+		}
+		return IsFieldsetDisabled(n)
 	case "required":
 		return nodeHasAttr(n, "required")
 	case "indeterminate":
@@ -1042,6 +1049,80 @@ func nodeAttr(n *html.Node, key string) string {
 func nodeHasAttr(n *html.Node, key string) bool {
 	for _, a := range n.Attr {
 		if a.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// IsFieldsetDisabled reports whether n is disabled by an ancestor
+// <fieldset disabled>, per HTML's fieldset-disabling algorithm: every
+// disabled <fieldset> ancestor disables n, except one whose first <legend>
+// child n is nested inside, which exempts only that fieldset's own
+// disabling, not any further-out disabled fieldset that also isn't
+// exempted. Exported because both this package's :disabled matching and
+// document.go's DispatchClick/isFormFocusable/isEditable need the exact
+// same predicate; document.go already imports cssengine directly (for
+// ParseSelectorGroup, ParseDeclarations, and Cascade), so it calls this
+// instead of keeping its own independent copy that could drift out of
+// sync.
+//
+// n must itself be one of the elements HTML's algorithm actually reaches:
+// only a "listed" form-associated element (button, fieldset, input,
+// select, or textarea; real HTML's own list also has output and object,
+// neither implemented here) can be fieldset-disabled at all. Every other
+// element type returns false unconditionally, even when genuinely nested
+// inside a disabled fieldset: a plain <div> or <a> in
+// <fieldset disabled><div>...</div></fieldset> is not disabled, and must
+// keep receiving clicks and :disabled must not match it, matching real
+// HTML, which never disables non-form content this way.
+func IsFieldsetDisabled(n *html.Node) bool {
+	if !isFieldsetDisablable(n) {
+		return false
+	}
+	for anc := n.Parent; anc != nil; anc = anc.Parent {
+		if anc.Type != html.ElementNode || !strings.EqualFold(anc.Data, "fieldset") || !nodeHasAttr(anc, "disabled") {
+			continue
+		}
+		if !isInFieldsetFirstLegend(n, anc) {
+			return true
+		}
+	}
+	return false
+}
+
+// isFieldsetDisablable reports whether n is one of the "listed" elements
+// HTML's fieldset-disabling algorithm can apply to at all. See
+// IsFieldsetDisabled's own doc comment for the full list and why the
+// restriction matters.
+func isFieldsetDisablable(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	switch strings.ToLower(n.Data) {
+	case "button", "fieldset", "input", "select", "textarea":
+		return true
+	}
+	return false
+}
+
+// isInFieldsetFirstLegend reports whether n is fieldset's first <legend>
+// child, or nested inside it. That first legend is the one place HTML's
+// fieldset-disabling algorithm exempts from a fieldset's own disabled
+// attribute; a second or later <legend> gets no such exemption.
+func isInFieldsetFirstLegend(n, fieldset *html.Node) bool {
+	var legend *html.Node
+	for c := fieldset.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "legend") {
+			legend = c
+			break
+		}
+	}
+	if legend == nil {
+		return false
+	}
+	for anc := n; anc != nil && anc != fieldset; anc = anc.Parent {
+		if anc == legend {
 			return true
 		}
 	}

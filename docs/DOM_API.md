@@ -69,7 +69,11 @@ See `COMPATIBILITY.md` for the narrative, and `docs/SCROLLING.md` and
   its caret at the clicked rune (Shift held extends the existing selection
   instead), folded into "click" for the same "only one click kind" reason,
   mirroring a real browser's separate mousedown-driven focus/caret
-  placement. See `docs/proposals/CARET_SELECTION.md`.
+  placement. See `docs/proposals/CARET_SELECTION.md`. A click that hits a
+  `<label>` is redirected to the control it names (via `for` or a nested
+  labelable descendant) before any of that runs, as a single event targeted
+  at the control, not the two-event label-then-control sequence a real
+  browser fires; see `COMPATIBILITY.md`'s label deviation.
 - `DispatchPaste(text)` and `DispatchCut()` synthesize `"paste"` and `"cut"`
   with
   `Event.ClipboardData` pre-populated (from `text` for paste, from the
@@ -159,6 +163,7 @@ See `COMPATIBILITY.md` for the narrative, and `docs/SCROLLING.md` and
 | `HTMLInputElement.setSelectionRange(start, end, direction)` | `SetSelectionRange(start, end, direction...)` | `direction` is variadic (0 or 1 args) rather than a required third parameter; an omitted or unrecognized direction normalizes to `"none"`. `DispatchKey`'s arrow/Home/End/Backspace/Delete/typing default actions, and `DispatchClick`'s click-to-caret default action (with Shift extending), all go through this same state — see `docs/proposals/CARET_SELECTION.md`. |
 | `HTMLElement.hidden` | `Hidden()` / `SetHidden(v)` | Attribute-presence wrapper, same shape as `Checked`/`SetChecked`; the UA stylesheet already maps a present `hidden` attribute to `display:none` (see COMPATIBILITY.md). |
 | `HTMLElement.tabIndex` | Missing (typed accessor) | `tabindex` itself *is* read (drives focus order — see COMPATIBILITY.md's DOM & Events "At a Glance" and "Deviations from Spec"); there's just no typed `Element.TabIndex()`/`SetTabIndex()` shortcut — use `GetAttribute`/`SetAttribute("tabindex", ...)` directly, same as the rest of this row. |
+| `HTMLElement.autofocus` | Missing (typed accessor) | `autofocus` itself *is* read, once, by `ParseDocument` (see COMPATIBILITY.md's "`autofocus` applies once, at `ParseDocument`" deviation); there's no typed `Element.Autofocus()`/`SetAutofocus()` shortcut and, unlike `tabindex`, setting the attribute afterward has no effect at all, since there's no later moment `ParseDocument`'s one-time walk could react to. |
 | `HTMLElement.title`, etc. (remaining typed property shortcuts) | Missing | Use `GetAttribute`/`SetAttribute` with the matching attribute name. |
 | `EventTarget.addEventListener` / `removeEventListener` | `Document.AddEventListener(el, ...)` / `Document.RemoveEventListener(handle)` | Registration lives on `Document`, not `Element` — see "Also available" below and the `Document` table above. |
 | `EventTarget.dispatchEvent` | `Element.DispatchEvent(ev)` | Unlike registration, dispatch *does* live on `Element` here, matching spec's `target.dispatchEvent(...)` shape — pair with `NewCustomEvent`/`CustomEventInit` to build `ev`. See the `Document` table's `dispatchEvent` row above for how `Document`-wide dispatch is covered without a second method. |

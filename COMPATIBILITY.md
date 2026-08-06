@@ -83,6 +83,62 @@ For the design rationale behind the DOM/Events/rendering internals, see
   has no `animation` support at all, so `:indeterminate` instead shows
   `::progress-bar`'s track glyph repeated across the full width, with no
   fill. See `docs/PROGRESS_METER.md`.
+- **A `<label>` click redirects to its named control as one event, not two.**
+  Both association forms work: an explicit `for` pointing at an id anywhere
+  in the document, and, lacking that, the first labelable descendant nested
+  inside the label (an `<input>` other than `type="hidden"`, a `<button>`,
+  a `<textarea>`, or a `<select>`). A real browser fires `"click"` on the
+  label itself first, then, as the label's own default action, synthesizes
+  a *second*, separate `"click"` at the named control. `DispatchClick`
+  instead resolves the control before dispatching anything and fires one
+  `"click"` targeted at the control directly; a listener on the label never
+  sees the event at all. This is the same "one click kind, atomic" model
+  `DispatchClick`'s own doc comment already uses for
+  mousedown-plus-click-plus-default-action, applied to label forwarding too,
+  and it means a label with no resolvable control (a stale `for`, or no
+  labelable descendant) keeps its own `"click"` dispatch rather than being
+  left with nothing to fire at all. A click that lands directly on a nested
+  control's own glyph, rather than the label's surrounding text, was
+  already going straight to that control before this existed and is
+  unaffected. See `docs/DOM_API.md`'s `dispatchEvent` row for the general
+  shape of what a `Dispatch*` default action does and doesn't replicate from
+  spec.
+
+  Getting a `<label>` a click target of its own at all is also a rendering
+  deviation, not just an event-dispatch one: `<label>` is `display: inline`
+  by default, and a plain inline element normally has no `Rect` of its own
+  here (see the "trackable element" invariant in `docs/ARCHITECTURE.md`) so
+  there'd be nothing for `DispatchClick` to hit-test a click on the label's
+  surrounding text against. Giving it one means rendering a label's content
+  as one atomic unit, the same way `display: inline-block` already is,
+  rather than letting it reflow across its own boundary with text before or
+  after it on the same line. In the overwhelmingly common case, a label on
+  its own line in a form, that's not a visible difference; it only matters
+  for a `<label>` deliberately mixed into running prose. See CSS.md's
+  `label` entry.
+- **`autofocus` applies once, at `ParseDocument`, not through HTML's live
+  algorithm.** Real HTML tracks a per-document "autofocus candidates" list
+  and can focus a later-inserted autofocus element asynchronously, after
+  the element with the attribute is inserted, provided nothing else already
+  claimed focus by then. `ParseDocument` instead walks the freshly parsed
+  tree once, synchronously, and focuses the first element, in document
+  order, that carries `autofocus` and is currently focusable
+  (`Document.isFocusable`, the same predicate `Element.Focus()` and Tab
+  order use); an `autofocus` candidate that isn't focusable, disabled, say,
+  is skipped in favor of the next one, rather than leaving nothing
+  focused. Since there's no later "element inserted" moment this renderer
+  reacts to, `autofocus` set through `SetAttribute` or present on an
+  element added after `ParseDocument` (`AppendChild`, `SetInnerHTML`, and
+  the like) has no effect; call `Element.Focus()` directly for that.
+
+  The `"focus"` event this fires is unobservable, for a related reason: it
+  dispatches inside `ParseDocument`, before that call has returned the
+  `*Document` a caller needs in order to register a listener for it at
+  all. `FocusedElement()` still correctly reports the autofocused element
+  afterward; only the event itself is lost, not the resulting state. A
+  real browser's own script can already be listening by the time its
+  autofocus processing runs; this package's synchronous, code-only
+  construction model has no equivalent moment.
 
 ### Terminal-Native Additions
 
@@ -132,29 +188,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   still works, since none of these types opt out of the generic
   single-line-text default actions `DispatchKey` already runs for any
   text entry.
-- **`<label for>` association, and click-through from a label's own text
-  to its nested control.** The `for` attribute, pointing at a control
-  elsewhere in the document, isn't read anywhere; there's no lookup from
-  a label to the control it names. Clicking a nested control's own glyph
-  still works, since that glyph is the control's own positioned element,
-  but nothing forwards a click that lands on the label's surrounding
-  text to that control the way a browser's implicit label association
-  does. `<label>Name: <input type="text"></label>` flows the two on one
-  line (CSS.md's `label` entry), which reads correctly, but only the
-  input's own cells are clickable.
-- **`<fieldset disabled>` cascading to its descendants.** `<fieldset>`
-  only gets rendering defaults, a border and an indented `<legend>` (see
-  CSS.md's `fieldset`/`legend` entries). A `disabled` attribute on the
-  `fieldset` itself has no effect on the controls nested inside it; each
-  control still needs its own `disabled` attribute directly, unlike a
-  browser, which disables every form control inside a disabled
-  `<fieldset>` except those nested in its first `<legend>`.
-- **`autofocus`.** The attribute isn't read anywhere. Parsing a document
-  with `<input autofocus>` leaves nothing focused, the same as one with
-  no `autofocus` at all. A host that wants a field focused on load has
-  to call `Element.Focus()` itself after `ParseDocument`, and has to
-  pick which element to call it on rather than reading that intent from
-  the markup.
 - **`contenteditable`.** The attribute isn't read anywhere; there's no
   editable-content model outside a real `<input>`/`<textarea>` (see "Form
   controls are attribute-driven" above).
@@ -632,6 +665,24 @@ For the design rationale behind the DOM/Events/rendering internals, see
   rendered content, such as documentation pages and HTML email, would otherwise
   flood Tab order with every inline link ahead of a page's actual
   controls).
+- **A radio-button group is one Tab stop, and its own members ignore an
+  explicit `tabindex`.** Every `<input type="radio">` sharing a `name`
+  (scoped to the nearest `<form>`, or the whole document without one, the
+  same scope `clearRadioSiblings` already used for click-driven
+  exclusivity) is one stop in sequential Tab navigation: the checked
+  member if one exists, otherwise the first in document order. The rest of
+  the group drops out of Tab order the same way a negative `tabindex`
+  already does (`inTabOrder`), reachable by `Element.Focus()` or a click
+  regardless, same as any other `tabindex="-1"` element. Once a group
+  member is focused, ArrowUp/Down/Left/Right move to the next or previous
+  member, wrapping at either end and skipping a disabled one, and check
+  the newly focused member (unlike Tab, which never changes the checked
+  state by itself), matching real HTML's radio-group keyboard model. Real
+  HTML lets an individual group member's own `tabindex` override its
+  group-derived position in this computation; that refinement isn't
+  implemented here, so an explicit `tabindex` on one radio in a group is
+  silently ignored for Tab-order purposes, though it still takes effect
+  for every other element type.
 - **`Element.Style()` doesn't round-trip shorthand properties or preserve
   declaration order.** It mirrors `CSSStyleDeclaration` for the inline
   `style=""` attribute only (there's no `getComputedStyle`; see
@@ -731,20 +782,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   or a value fails its own `pattern`/`min`/`max`/`step`. A real browser
   runs the constraint validation algorithm first, blocking submission and
   focusing the first invalid control when a field fails.
-- **A radio-button group as a single tab stop, and arrow-key navigation
-  within one.** Real HTML treats every `<input type="radio">` sharing a
-  `name` as one tab stop: Tab lands on the checked member, or the first
-  one if none is checked, and ArrowUp/Down/Left/Right then move both
-  focus and the checked state among the group without another Tab
-  press. Here, `isFocusable`/`inTabOrder` (see docs/DOM_API.md) tab-stop
-  each radio individually, so moving from one member of a group to
-  another takes as many Tab presses as there are stops between them, and
-  arrow keys do nothing to a focused radio input at all. `clearRadioSiblings`
-  still gives `applyCheckToggle` correct same-`name`, same-`<form>`-scoped
-  exclusivity on click or Space (the "Only one click kind exists"
-  deviation, above, covers the click side), so the grouping concept
-  exists at the checked-state level. It just isn't reflected in focus
-  traversal.
 - **Shadow DOM, custom elements, `MutationObserver`.** There is no tree-
   change observation API; a host must re-render after mutating.
 - **Windows.** `Loop`'s automatic resize tracking requires `syscall.SIGWINCH`,

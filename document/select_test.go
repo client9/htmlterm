@@ -135,6 +135,35 @@ func TestSelectClickTogglesOpenClosed(t *testing.T) {
 	}
 }
 
+func TestLabelForClickTogglesOpenSelectClosedNotReopened(t *testing.T) {
+	// Regression test: DispatchClick used to call closeSelectsExcept with
+	// the raw <label> node before resolving its for redirect, so
+	// nearestSelect(label) found no relationship to the select the label
+	// names, closed it unconditionally, and the label-redirected
+	// applySelectClick that followed then reopened it, since by then it
+	// looked closed. A label click could never actually close its named
+	// select, unlike a direct click on the select itself.
+	doc := mustParseDoc(t, `<label for="s" id="lbl">Pick:</label> `+fruitSelectHTML)
+	sel := doc.GetElementByID("s")
+	lbl := doc.GetElementByID("lbl")
+	lblRect, ok := lbl.Rect()
+	if !ok {
+		t.Fatal("Rect(lbl) ok = false, want true")
+	}
+
+	doc.DispatchClick(lblRect.Row, lblRect.Col, document.Modifiers{})
+	out, _ := doc.Render()
+	if !strings.Contains(out, "Apple") {
+		t.Fatalf("popup did not open on first label click: %q", out)
+	}
+
+	doc.DispatchClick(lblRect.Row, lblRect.Col, document.Modifiers{})
+	out, _ = doc.Render()
+	if strings.Contains(out, "Apple") {
+		t.Errorf("popup still open after a second label click, want it closed same as a direct click on %v would", sel)
+	}
+}
+
 func TestSelectKeyEnterOpensAndEscapeCloses(t *testing.T) {
 	doc, sel := mustParseSelectDoc(t, fruitSelectHTML)
 	sel.Focus()

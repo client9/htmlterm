@@ -270,7 +270,8 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 		}
 		tokens = append(tokens, childTokens...)
 	default:
-		if n.Data == "a" {
+		switch {
+		case n.Data == "a":
 			// <a> stays string-based, matching inline.go's nested "default"
 			// case: a hyperlink needs whole-string OSC8 wrapping, and a
 			// token-level equivalent isn't worth the complexity given how
@@ -293,13 +294,49 @@ func (r *Engine) renderRootDisplayTokens(tokens []wrapToken, n *html.Node) []wra
 			default:
 				tokens = append(tokens, wrapToken{text: inner})
 			}
-		} else {
-			// Plain inline root content (a root-level <label>, <span>,
-			// etc.): splice its own tokens directly instead of flattening
+		case n.Data == "label":
+			// A root-level <label> mirrors inline.go's nested "label" case:
+			// it needs its own trackable Rect (for DispatchClick's
+			// label-to-control redirect; see COMPATIBILITY.md's <label>
+			// click-redirect deviation, in the HTML "Deviations from Spec"
+			// section) while still forwarding a nested trackable
+			// descendant's own position, via wordWrapTokens directly rather
+			// than the flatten-to-string r.renderInlineAcc uses for <a>
+			// above. See inline.go's nested case for the full rationale,
+			// including the accepted display:inline-block-like reflow
+			// tradeoff.
+			acc := extractInlineStyle(decls)
+			savedDepth := r.quoteDepth
+			childTokens := r.renderInlineAccTokens(n, acc, r.width)
+			// Trim one trailing brk, matching the plain-inline default
+			// case below and inline.go's nested label case: a nested
+			// block-ish descendant's own mandatory trailing brk is
+			// structural, not content, and would otherwise closeAndPush a
+			// spurious blank line once wordWrapTokens processes it.
+			if len(childTokens) > 0 && childTokens[len(childTokens)-1].brk {
+				childTokens = childTokens[:len(childTokens)-1]
+			}
+			if isHiddenVisibility(decls["visibility"]) {
+				r.quoteDepth = savedDepth
+				childTokens = blankVisibleContentTokens(childTokens)
+			}
+			breakMode := decls["overflow-wrap"]
+			if breakMode == "" {
+				breakMode = decls["word-break"]
+			}
+			bx, subPositions := wordWrapTokens(childTokens, r.width, breakMode, 0, false)
+			if !(len(bx.lines) <= 1 && bx.width == 0) {
+				tokens = append(tokens, wrapToken{box: &bx, node: n, subPositions: subPositions})
+			}
+		default:
+			// Plain inline root content (a root-level <span>, <em>, and the
+			// like): splice its own tokens directly instead of flattening
 			// to a string first, so a trackable descendant (e.g. an
-			// <input> inside a root-level <label>) keeps its box-token
+			// <input> inside a root-level <span>) keeps its box-token
 			// identity through to the root wordWrapTokens call; see
 			// inline.go's matching nested case for the full rationale.
+			// <label> is the one plain-inline element that opts out of this
+			// path; see its own case above.
 			acc := extractInlineStyle(decls)
 			savedDepth := r.quoteDepth
 			childTokens := r.renderInlineAccTokens(n, acc, r.width)

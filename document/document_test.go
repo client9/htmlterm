@@ -466,6 +466,49 @@ func TestDocumentRectFormControlInsideLabel(t *testing.T) {
 	}
 }
 
+func TestDocumentRectLabelElement(t *testing.T) {
+	// A <label> is now trackable itself, not just its nested descendants
+	// (see TestDocumentRectFormControlInsideLabel above), so DispatchClick
+	// can hit-test a click that lands on the label's own text and redirect
+	// it to the control the label names. Root-level and nested placement
+	// both go through label-specific dispatch (render.go and inline.go
+	// respectively), so this checks both.
+	doc, err := document.ParseDocument(
+		`<label id="root"><input type="checkbox" id="cb"> Remember me</label>`+
+			`<p><label id="nested">Name:</label> <input id="in" value="x"></p>`,
+		htmlterm.Options{Width: 40},
+	)
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	out, err := doc.Render()
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	rootRect, ok := doc.GetElementByID("root").Rect()
+	if !ok {
+		t.Fatal("Rect(root) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 0, Col: 0, Width: 13, Height: 1}); rootRect != want { // "☐ Remember me"
+		t.Errorf("Rect(root) = %+v, want %+v (rendered: %q)", rootRect, want, out)
+	}
+	// The nested checkbox must keep its own position too, not just the
+	// label's: DispatchClick still hit-tests it directly for its own
+	// default action (toggle).
+	if _, ok := doc.GetElementByID("cb").Rect(); !ok {
+		t.Error("Rect(cb) ok = false, want true: nested control lost its position when the label became trackable")
+	}
+
+	nestedRect, ok := doc.GetElementByID("nested").Rect()
+	if !ok {
+		t.Fatal("Rect(nested) ok = false, want true")
+	}
+	if want := (document.Rect{Row: 1, Col: 0, Width: 5, Height: 1}); nestedRect != want { // "Name:"
+		t.Errorf("Rect(nested) = %+v, want %+v (rendered: %q)", nestedRect, want, out)
+	}
+}
+
 func TestDocumentRectFormControlInsideListItem(t *testing.T) {
 	// Regression test: renderList used to discard the position map
 	// wordWrapTokens returned for each <li>'s content, so a trackable
@@ -983,6 +1026,68 @@ func TestDispatchKeyPageAndArrowScroll(t *testing.T) {
 	afterPageUp, _ := pane.ScrollTop()
 	if afterPageUp >= afterPage {
 		t.Errorf("ScrollTop(pane) after PageUp = %d, want < %d", afterPageUp, afterPage)
+	}
+}
+
+func TestAutofocusFocusesElementAtParseTime(t *testing.T) {
+	doc, err := document.ParseDocument(`<input id="a"><input id="b" autofocus>`, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "b" {
+		t.Errorf("FocusedElement() after ParseDocument = %v, want \"b\"", got)
+	}
+}
+
+func TestAutofocusFirstInDocumentOrderWins(t *testing.T) {
+	doc, err := document.ParseDocument(`<input id="a" autofocus><input id="b" autofocus>`, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "a" {
+		t.Errorf("FocusedElement() with two autofocus elements = %v, want the first, \"a\"", got)
+	}
+}
+
+func TestAutofocusSkipsUnfocusableCandidate(t *testing.T) {
+	// A disabled control isn't focusable, so autofocus falls through to the
+	// next candidate in document order rather than focusing nothing.
+	doc, err := document.ParseDocument(`<input id="a" autofocus disabled><input id="b" autofocus>`, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	got := doc.FocusedElement()
+	if got == nil || got.ID() != "b" {
+		t.Errorf("FocusedElement() with a disabled first candidate = %v, want the next one, \"b\"", got)
+	}
+}
+
+func TestAutofocusAbsentLeavesNothingFocused(t *testing.T) {
+	doc, err := document.ParseDocument(`<input id="a">`, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	if got := doc.FocusedElement(); got != nil {
+		t.Errorf("FocusedElement() with no autofocus attribute anywhere = %v, want nil", got)
+	}
+}
+
+func TestAutofocusDoesNotApplyToElementsInsertedAfterParse(t *testing.T) {
+	// Scoped, documented gap: autofocus only fires once, at ParseDocument.
+	// An element with autofocus added afterward has no effect; see
+	// Element.Focus for the programmatic equivalent.
+	doc, err := document.ParseDocument(`<div id="pane"></div>`, htmlterm.Options{Width: 20})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	pane := doc.GetElementByID("pane")
+	if err := pane.SetInnerHTML(`<input id="late" autofocus>`); err != nil {
+		t.Fatalf("SetInnerHTML: %v", err)
+	}
+	if got := doc.FocusedElement(); got != nil {
+		t.Errorf("FocusedElement() after inserting an autofocus element post-parse = %v, want nil", got)
 	}
 }
 

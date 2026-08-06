@@ -195,7 +195,54 @@ func ParseDocument(htmlStr string, opts Options) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("htmlterm: %w", err)
 	}
-	return &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}, scrollOffsetsX: map[*html.Node]int{}}, nil
+	d := &Document{doc: doc, opts: opts, scrollOffsets: map[*html.Node]int{}, scrollOffsetsX: map[*html.Node]int{}}
+	d.applyAutofocus()
+	return d, nil
+}
+
+// applyAutofocus focuses the first focusable element carrying an autofocus
+// attribute, in document order, the one-time approximation of HTML's
+// autofocus processing this parse-once Document supports. Real HTML's own
+// algorithm is asynchronous, runs against a live "autofocus candidates"
+// list, and can re-fire whenever a later insertion adds a new autofocus
+// candidate with no focused ancestor already in its path; none of that
+// applies here, since ParseDocument has exactly one moment to react in.
+// autofocus set later via SetAttribute, or present on an element inserted
+// after ParseDocument (AppendChild, SetInnerHTML, and the like), has no
+// effect; call Element.Focus() directly instead. isFocusable is the same
+// predicate Document.focus and Tab order already use, so an autofocus
+// attribute on a disabled control, or one made unfocusable some other way,
+// is skipped in favor of the next candidate in document order, matching a
+// real browser's "candidate isn't focusable, move on" behavior rather than
+// giving up entirely.
+//
+// The "focus" event this fires (via Document.focus) is unobservable to
+// every caller: it runs here, inside ParseDocument, before that call has
+// returned the *Document a caller would need in order to call
+// AddEventListener in the first place. FocusedElement() still correctly
+// reports the autofocused element afterward; only the event itself, not
+// the resulting state, is lost. A real browser's script can already be
+// listening by the time its own autofocus processing runs (inline
+// attribute handlers, or a listener attached during parsing), which this
+// package's synchronous, code-only construction model has no equivalent
+// moment for.
+func (d *Document) applyAutofocus() {
+	var walk func(n *html.Node) bool
+	walk = func(n *html.Node) bool {
+		if n.Type == html.ElementNode {
+			if nodeHasAttr(n, "autofocus") && d.isFocusable(n) {
+				d.focus(&Element{node: n, doc: d})
+				return true
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if walk(c) {
+				return true
+			}
+		}
+		return false
+	}
+	walk(d.doc)
 }
 
 func renderOptions(opts Options) render.Options {
@@ -649,9 +696,10 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // no navigation or network concept, so "submit" is all a listener sees: there
 // is no default action for it to prevent.
 //
-// A disabled target, per nodeHasAttr(target, "disabled"), is inert, matching
-// real browsers, which never fire click on a disabled form control at all. No
-// event is dispatched and no default action runs.
+// A disabled target, per nodeHasAttr(target, "disabled") or an ancestor
+// <fieldset disabled> (cssengine.IsFieldsetDisabled), is inert, matching
+// real browsers, which never fire click on a disabled form control at all.
+// No event is dispatched and no default action runs.
 //
 // A click on a focusable text entry also focuses it and positions its caret at
 // the clicked rune (see focusAndPositionCaret), mirroring a real browser's
@@ -663,10 +711,32 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // unconditionally: a listener calling PreventDefault on "click" doesn't
 // un-focus a field any more than it does in a real browser.
 //
+// A click that hits a <label> is redirected to the control the label names
+// (see labelledControl) before anything else below runs, including
+// closeSelectsExcept and the scroll-cap checks, mirroring a real browser's
+// implicit label-click-forwarding: the label itself never receives the
+// "click" event or any default action, its named control does, exactly as
+// if that control had been clicked directly, and every check further down
+// that reads target sees the resolved control, not the label. The one
+// difference from a direct click on a text entry is caret placement: a
+// redirected click has no click position of its own within the control's
+// box to place a caret at, so it focuses without moving the caret (see
+// focusAndPositionCaret's row/col-based placement, used only for a direct
+// click). A label naming no control, such as one with a stale for or no
+// labelable descendant, isn't redirected: it dispatches "click" on itself,
+// same as any other element with no default action of its own.
+//
 // Any open <select> dropdown other than one target is itself inside (see
-// closeSelectsExcept) is closed first, unconditionally. A click anywhere else,
-// including on a disabled element or entirely outside every element's Rect,
-// dismisses it, matching a real dropdown's click-outside behavior.
+// closeSelectsExcept) is closed first, unconditionally, using the
+// label-resolved target: closing it against the original <label> node
+// instead, before resolving its for, would find no relationship between
+// the label and the select it names (nearestSelect walks up from the
+// clicked node, and a for-associated select is a document-order sibling,
+// not an ancestor), incorrectly closing a select the click was actually
+// meant to operate on, which the immediately following applySelectClick
+// would then just reopen. A click anywhere else, including on a disabled
+// element or entirely outside every element's Rect, dismisses it, matching
+// a real dropdown's click-outside behavior.
 //
 // A click landing on a scrollable ancestor's ::scrollbar-cap-start or
 // ::scrollbar-cap-end cell (see tryScrollCapClick), or a
@@ -679,6 +749,16 @@ func (d *Document) elementAt(row, col int) *html.Node {
 // Returns false if no element was hit.
 func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	target := d.elementAt(row, col)
+	viaLabel := false
+	if target != nil && strings.EqualFold(target.Data, "label") {
+		// A label naming no control, a stale for or no labelable
+		// descendant, isn't redirected: it keeps its own "click" dispatch
+		// below, same as any other element with no default action, so a
+		// listener attached directly to it still fires.
+		if control := d.labelledControl(target); control != nil {
+			target, viaLabel = control, true
+		}
+	}
 	d.closeSelectsExcept(target)
 	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
 		return true
@@ -689,11 +769,15 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	if target == nil {
 		return false
 	}
-	if nodeHasAttr(target, "disabled") {
+	if nodeHasAttr(target, "disabled") || cssengine.IsFieldsetDisabled(target) {
 		return true
 	}
 	if isTextEntry(target) && d.isFocusable(target) {
-		d.focusAndPositionCaret(target, row, col, mods.Shift)
+		if viaLabel {
+			d.focus(&Element{node: target, doc: d})
+		} else {
+			d.focusAndPositionCaret(target, row, col, mods.Shift)
+		}
 	}
 	ev := d.dispatch(target, "click", "", mods)
 	if ev.DefaultPrevented() {
@@ -707,6 +791,55 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 		}
 	}
 	return true
+}
+
+// isLabelable reports whether n is an element a <label> can associate with,
+// via its for attribute or by containing it: an <input> other than
+// type="hidden", a <button>, a <textarea>, or a <select>. Unlike
+// isFormFocusable, a disabled n still counts here; DispatchClick applies its
+// own disabled check once the association is resolved, matching how a real
+// browser still associates a label with a disabled control, it just can't be
+// activated through it.
+func isLabelable(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	switch strings.ToLower(n.Data) {
+	case "input":
+		return !strings.EqualFold(nodeAttr(n, "type"), "hidden")
+	case "button", "textarea", "select":
+		return true
+	}
+	return false
+}
+
+// labelledControl returns the control label names: the element its for
+// attribute points at by id, if that element is labelable (see isLabelable),
+// or, lacking a for attribute, the first labelable descendant nested inside
+// label, matching real HTML's explicit-then-implicit label association
+// algorithm. Returns nil if label names no such control. label is assumed to
+// already be a <label> element; callers check that first (DispatchClick's
+// case is the only one today).
+func (d *Document) labelledControl(label *html.Node) *html.Node {
+	if id := nodeAttr(label, "for"); id != "" {
+		if target := d.GetElementByID(id); target != nil && isLabelable(target.node) {
+			return target.node
+		}
+		return nil
+	}
+	var found *html.Node
+	var walk func(n *html.Node)
+	walk = func(n *html.Node) {
+		for c := n.FirstChild; c != nil && found == nil; c = c.NextSibling {
+			if isLabelable(c) {
+				found = c
+				return
+			}
+			walk(c)
+		}
+	}
+	walk(label)
+	return found
 }
 
 // focusAndPositionCaret focuses target, a text entry hit by a click, and
@@ -887,15 +1020,16 @@ func isTextEntry(n *html.Node) bool {
 
 // isEditable reports whether n is a text entry whose value the built-in
 // default actions are allowed to modify: a text entry (isTextEntry) that is
-// neither readonly nor disabled. This is the "user edit" gate only, matching
-// real HTML, where readonly blocks typing, pasting, and cutting but not
-// focus, caret movement, selection, or programmatic assignment through
-// Element.SetValue, and where a readonly control still submits with its
-// form. A disabled control can't normally be focused at all (isFocusable),
-// but a host can disable one that already is, so it's checked here too
-// rather than assumed unreachable.
+// neither readonly nor disabled, directly or via an ancestor
+// <fieldset disabled> (cssengine.IsFieldsetDisabled). This is the "user
+// edit" gate only, matching real HTML, where readonly blocks typing,
+// pasting, and cutting but not focus, caret movement, selection, or
+// programmatic assignment through Element.SetValue, and where a readonly
+// control still submits with its form. A disabled control can't normally be
+// focused at all (isFocusable), but a host can disable one that already is,
+// so it's checked here too rather than assumed unreachable.
 func isEditable(n *html.Node) bool {
-	return isTextEntry(n) && !nodeHasAttr(n, "readonly") && !nodeHasAttr(n, "disabled")
+	return isTextEntry(n) && !nodeHasAttr(n, "readonly") && !nodeHasAttr(n, "disabled") && !cssengine.IsFieldsetDisabled(n)
 }
 
 // snapshotValueAtFocus records n's current value as the baseline a later
@@ -1082,6 +1216,8 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 			}
 			d.scrollOffsets[scrollable] += step
 		}
+	case (key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight") && isRadioGroupMember(target):
+		d.moveRadioGroupSelection(target, key == "ArrowDown" || key == "ArrowRight")
 	case (key == "ArrowUp" || key == "ArrowDown") && isSelectControl(target):
 		d.moveSelectSelection(target, key == "ArrowDown")
 	case key == "ArrowUp" || key == "ArrowDown":
@@ -1425,34 +1561,145 @@ func (d *Document) DispatchCut() (text string, ok bool) {
 // input[type=radio] sharing target's name attribute, scoped to the nearest
 // ancestor <form>, or to the whole document if target has no <form> ancestor.
 func (d *Document) clearRadioSiblings(target *html.Node) {
+	for _, m := range radioGroupMembers(target) {
+		if m != target {
+			removeAttr(m, "checked")
+		}
+	}
+}
+
+// radioGroupMembers returns every input[type=radio] sharing target's own
+// name attribute, in document order, target included, scoped the same way
+// clearRadioSiblings is: to the nearest ancestor <form>, or target's own
+// document root if it has none. Returns nil if target has no name, since an
+// unnamed radio has no group to share a tab stop or arrow-key navigation
+// with (matching real HTML: a name is what makes a set of radio buttons a
+// "radio button group" at all).
+func radioGroupMembers(target *html.Node) []*html.Node {
 	name := nodeAttr(target, "name")
 	if name == "" {
-		return
+		return nil
 	}
-	scope := d.doc
+	scope := target
+	for scope.Parent != nil {
+		scope = scope.Parent
+	}
 	if form := nearestForm(target); form != nil {
 		scope = form
 	}
+	var members []*html.Node
 	var walk func(n *html.Node)
 	walk = func(n *html.Node) {
-		if n != target && n.Type == html.ElementNode && strings.EqualFold(n.Data, "input") &&
+		if n.Type == html.ElementNode && strings.EqualFold(n.Data, "input") &&
 			strings.EqualFold(nodeAttr(n, "type"), "radio") && nodeAttr(n, "name") == name {
-			removeAttr(n, "checked")
+			members = append(members, n)
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			walk(c)
 		}
 	}
 	walk(scope)
+	return members
+}
+
+// isRadioGroupTabStop reports whether n, an input[type=radio] with a name,
+// is the one member of its group (radioGroupMembers) that sequential Tab
+// navigation reaches: the checked member, or, lacking one, the first in
+// document order, considering only members that are themselves enabled
+// (not carrying disabled, and not disabled by an ancestor
+// <fieldset disabled>; see cssengine.IsFieldsetDisabled). A disabled member
+// is skipped when choosing the group's representative the same way it's
+// skipped everywhere else in this engine, so a group whose checked or
+// first member happens to be disabled still gets a reachable Tab stop at
+// its next enabled member, rather than losing its one Tab stop entirely:
+// isFocusable already excludes a disabled member from ever being a target
+// of this function's own n in the first place, but the member it's
+// compared against here has no such guarantee without this check. Every
+// other member drops out of Tab order (see inTabOrder) the same way a
+// negative tabindex does, matching real HTML's radio-group tab-stop rule:
+// the group costs one Tab press, not one per button, and arrow keys move
+// within it instead (see isRadioGroupMember and
+// Document.moveRadioGroupSelection). Every member stays reachable via
+// Element.Focus() or a click regardless, the same "skipped by Tab, not by
+// everything else" split tabindex="-1" already has.
+func isRadioGroupTabStop(n *html.Node) bool {
+	var checked, first *html.Node
+	for _, m := range radioGroupMembers(n) {
+		if nodeHasAttr(m, "disabled") || cssengine.IsFieldsetDisabled(m) {
+			continue
+		}
+		if first == nil {
+			first = m
+		}
+		if checked == nil && nodeHasAttr(m, "checked") {
+			checked = m
+		}
+	}
+	if checked != nil {
+		return checked == n
+	}
+	return first != nil && first == n
+}
+
+// isRadioGroupMember reports whether n is an input[type=radio] with a name,
+// the element DispatchKey's ArrowUp/Down/Left/Right radio-group case
+// (Document.moveRadioGroupSelection) acts on. An unnamed radio has no group
+// to navigate within and falls through to the same generic arrow-key
+// handling any other non-text, non-select target gets.
+func isRadioGroupMember(n *html.Node) bool {
+	return strings.EqualFold(n.Data, "input") && strings.EqualFold(nodeAttr(n, "type"), "radio") && nodeAttr(n, "name") != ""
+}
+
+// moveRadioGroupSelection moves focus and the checked state to the next
+// (forward true) or previous member of target's radio group
+// (radioGroupMembers), wrapping around at either end and skipping any
+// member disabled directly or by an ancestor <fieldset disabled>
+// (cssengine.IsFieldsetDisabled). This is DispatchKey's ArrowUp/Down/Left/Right
+// default action for a focused radio group member, matching real HTML:
+// arrow keys move within a same-name radio group and check the newly
+// focused member, unlike Tab, which only ever reaches one member of the
+// group at all (isRadioGroupTabStop) and never moves the checked state by
+// itself. A group of one, or one where every other member is disabled,
+// leaves focus and the checked state exactly where they were.
+func (d *Document) moveRadioGroupSelection(target *html.Node, forward bool) {
+	members := radioGroupMembers(target)
+	n := len(members)
+	if n < 2 {
+		return
+	}
+	idx := -1
+	for i, m := range members {
+		if m == target {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return
+	}
+	step := 1
+	if !forward {
+		step = -1
+	}
+	for i := 1; i <= n; i++ {
+		next := members[((idx+step*i)%n+n)%n]
+		if nodeHasAttr(next, "disabled") || cssengine.IsFieldsetDisabled(next) {
+			continue
+		}
+		d.applyCheckToggle(next)
+		d.focus(&Element{node: next, doc: d})
+		return
+	}
 }
 
 // isFormFocusable reports whether n is a tab-stoppable form control: an
 // <input> other than type="hidden", a <button>, a <textarea>, or a
-// <select>, and not carrying a disabled attribute. See Document.isFocusable
-// for the additional scroll-container and tabindex cases this alone doesn't
-// cover.
+// <select>, not carrying a disabled attribute directly and not disabled by
+// an ancestor <fieldset disabled> (see cssengine.IsFieldsetDisabled). See
+// Document.isFocusable for the additional scroll-container and tabindex
+// cases this alone doesn't cover.
 func isFormFocusable(n *html.Node) bool {
-	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") {
+	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") || cssengine.IsFieldsetDisabled(n) {
 		return false
 	}
 	switch strings.ToLower(n.Data) {
@@ -1523,12 +1770,23 @@ func (d *Document) isFocusable(n *html.Node) bool {
 }
 
 // inTabOrder reports whether n, already known focusable (isFocusable),
-// participates in sequential Tab navigation. Only a negative tabindex opts
-// an otherwise-focusable element out, matching real DOM's tabindex="-1"
-// semantics: reachable via Focus() or a click, skipped by Tab.
+// participates in sequential Tab navigation. A negative tabindex opts an
+// otherwise-focusable element out, matching real DOM's tabindex="-1"
+// semantics: reachable via Focus() or a click, skipped by Tab. A radio
+// button that is one of several sharing a name is the same kind of
+// exception in the other direction (isRadioGroupTabStop): every member but
+// one drops out of Tab order, reachable by Focus(), a click, or the
+// arrow-key navigation the group gets instead (Document.
+// moveRadioGroupSelection), so the whole group costs one Tab press, not
+// one per button, matching real HTML.
 func inTabOrder(n *html.Node) bool {
-	v, ok := tabIndexOf(n)
-	return !ok || v >= 0
+	if v, ok := tabIndexOf(n); ok && v < 0 {
+		return false
+	}
+	if strings.EqualFold(n.Data, "input") && strings.EqualFold(nodeAttr(n, "type"), "radio") && nodeAttr(n, "name") != "" {
+		return isRadioGroupTabStop(n)
+	}
+	return true
 }
 
 // hasFocusableDescendant reports whether n has any descendant, excluding n
@@ -1768,13 +2026,7 @@ func (d *Document) FocusNext() *Element {
 	if len(list) == 0 {
 		return nil
 	}
-	idx := -1
-	for i, n := range list {
-		if n == d.focused {
-			idx = i
-			break
-		}
-	}
+	idx := d.focusedListIndex(list, -1)
 	next := &Element{node: list[(idx+1)%len(list)], doc: d}
 	d.focus(next)
 	return next
@@ -1788,16 +2040,52 @@ func (d *Document) FocusPrev() *Element {
 	if len(list) == 0 {
 		return nil
 	}
-	idx := 0
-	for i, n := range list {
-		if n == d.focused {
-			idx = i
-			break
-		}
-	}
+	idx := d.focusedListIndex(list, 0)
 	prev := &Element{node: list[(idx-1+len(list))%len(list)], doc: d}
 	d.focus(prev)
 	return prev
+}
+
+// focusedListIndex returns d.focused's own index in list (focusableList's
+// result), the position FocusNext and FocusPrev advance from. notFound is
+// each caller's own pre-existing fallback for "nothing to advance from":
+// -1 for FocusNext, so (idx+1)%len lands on list[0]; 0 for FocusPrev, so
+// (idx-1+len)%len wraps to list[len-1].
+//
+// d.focused not appearing in list at all is normally that fallback case,
+// but one situation makes it common rather than exceptional: d.focused is
+// a member of a radio group (isRadioGroupMember) other than the group's
+// own Tab stop (isRadioGroupTabStop), reached via Element.Focus() or a
+// click rather than Tab, exactly what
+// TestRadioGroupMemberStillReachableByFocusAndClickDespiteTabSkip exercises.
+// Real HTML's Tab key moves relative to wherever the whole group sits in
+// Tab order in that case, not to some unrelated fallback position, so this
+// looks for the group's own Tab-stop member in list and answers with its
+// index instead. Every other way d.focused could end up outside list, such
+// as focusing a tabindex="-1" element directly, still falls back to
+// notFound: generalizing this beyond the radio-group case would need
+// comparing arbitrary document positions against list's own tabindex-first
+// ordering, which nothing else in this package does either.
+func (d *Document) focusedListIndex(list []*html.Node, notFound int) int {
+	if d.focused == nil {
+		return notFound
+	}
+	for i, n := range list {
+		if n == d.focused {
+			return i
+		}
+	}
+	if isRadioGroupMember(d.focused) {
+		group := radioGroupMembers(d.focused)
+		for i, n := range list {
+			for _, m := range group {
+				if n == m {
+					return i
+				}
+			}
+		}
+	}
+	return notFound
 }
 
 // setInnerHTML is Element.SetInnerHTML's implementation: it parses htmlStr as

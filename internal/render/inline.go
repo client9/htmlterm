@@ -363,7 +363,8 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 				}
 				tokens = append(tokens, childTokens...)
 			default:
-				if display == "inline-block" || display == "inline-flex" || c.Data == "a" {
+				switch {
+				case display == "inline-block" || display == "inline-flex" || c.Data == "a":
 					// inline-block, which includes <input>, always inline-block
 					// per the UA stylesheet, along with inline-flex and <a>,
 					// stay string-based. An inline-block or inline-flex's
@@ -422,19 +423,61 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 					default:
 						tokens = append(tokens, wrapToken{text: inner})
 					}
-				} else {
-					// Plain inline, meaning span, em, strong, label, and the
-					// like. Splice the child's own tokens directly into this
+				case c.Data == "label":
+					// <label> needs its own trackable position so
+					// DispatchClick can resolve a click on the label's own
+					// text, not just on a control nested inside it, to the
+					// label element and forward it to the control the label
+					// names (see COMPATIBILITY.md's <label> click-redirect
+					// deviation, in the HTML "Deviations from Spec" section).
+					// Unlike the <a>/inline-block case above, a nested
+					// trackable descendant, such as the checkbox in
+					// <label><input type="checkbox"> Remember me</label>,
+					// must keep its own position too: DispatchClick still
+					// needs to hit-test it directly for its own default
+					// actions (toggle, caret placement). Calling
+					// wordWrapTokens directly, rather than flattening
+					// through tokensToString the way the branch above does,
+					// is what keeps that position map instead of discarding
+					// it. The cost is that a label becomes an atomic unit
+					// like inline-block: its content no longer reflows
+					// across the label's own boundary with text before or
+					// after it on the same line. See CSS.md's `label` entry
+					// and COMPATIBILITY.md's matching deviation.
+					childAcc := mergeInlineStyle(acc, childDecls)
+					savedDepth := r.quoteDepth
+					childToks := r.renderInlineAccTokens(c, childAcc, availWidth)
+					if len(childToks) > 0 && childToks[len(childToks)-1].brk {
+						childToks = childToks[:len(childToks)-1]
+					}
+					childToks = restyleTrailingWhitespaceOnlyToken(childToks, acc, r.profile)
+					if isHiddenVisibility(childDecls["visibility"]) {
+						r.quoteDepth = savedDepth
+						childToks = blankVisibleContentTokens(childToks)
+					}
+					breakMode := childDecls["overflow-wrap"]
+					if breakMode == "" {
+						breakMode = childDecls["word-break"]
+					}
+					bx, subPositions := wordWrapTokens(childToks, availWidth, breakMode, 0, false)
+					if !(len(bx.lines) <= 1 && bx.width == 0) {
+						tokens = append(tokens, wrapToken{box: &bx, node: c, subPositions: subPositions})
+					}
+				default:
+					// Plain inline, meaning span, em, strong, and the like.
+					// Splice the child's own tokens directly into this
 					// level's stream instead of flattening to a string first.
 					// That is the only way a trackable descendant, such as an
-					// <input> inside a <label>, keeps its box-token identity,
+					// <input> inside a <span>, keeps its box-token identity,
 					// and so its position, through to whichever ancestor's
 					// wordWrapTokens call ultimately places it. It also
 					// preserves word-wrap-ability across this element's own
 					// boundary, matching docs/RENDERING.md's original
 					// token-splicing intent for plain inline content
 					// (findings #3 and #4) more closely than the
-					// flatten-then-rebox approach the other branch uses.
+					// flatten-then-rebox approach the first branch above
+					// uses. <label> is the one plain-inline element that
+					// opts out of this path; see its own case above.
 					childAcc := mergeInlineStyle(acc, childDecls)
 					savedDepth := r.quoteDepth
 					childSeedLR, childSeedOK := effectiveSeed()
