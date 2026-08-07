@@ -258,9 +258,9 @@ func parseFlexShrink(decls map[string]string) float64 {
 //
 // The two opt-outs are flexMainAxisFloor's, read on the vertical axis:
 //
-//   - An explicitly declared min-height wins outright, plus the item's own
-//     vertical chrome, since flex sizes are outer while min-height is
-//     content-box here. See clampFlexMainHeight.
+//   - An explicitly declared min-height wins outright, converted to an
+//     outer size the same way clampFlexMainHeight converts one, since flex
+//     sizes are always outer.
 //   - A non-visible overflow-y computes it to 0, since such an item clips or
 //     scrolls itself. Unlike the row axis, this is also exactly when block.go
 //     will truncate the item to the height flex hands it, so it is the one
@@ -289,9 +289,8 @@ func parseFlexShrink(decls map[string]string) float64 {
 // its content actually is, which is why this can cost a trial render and is only
 // called for a container that's actually overflowing.
 func (r *Engine) flexMainAxisHeightFloor(it, renderIt flexItem, width, contentHeight, renderH, axisSize int) int {
-	chrome := blockVerticalChrome(it.decls)
 	if v, ok := resolveFlexCSSSize(it.decls["min-height"], axisSize); ok {
-		return max(1, v+chrome)
+		return max(1, mainAxisHeightBound(it.decls, v))
 	}
 	if !isVisibleOverflow(it.decls["overflow-y"]) {
 		return 1
@@ -300,11 +299,15 @@ func (r *Engine) flexMainAxisHeightFloor(it, renderIt flexItem, width, contentHe
 	if renderH > 0 {
 		floor = r.measureContentHeight(renderIt, width)
 	}
-	if h, ok := resolveFlexCSSSize(it.decls["height"], axisSize); ok && h+chrome < floor {
-		floor = h + chrome
+	if h, ok := resolveFlexCSSSize(it.decls["height"], axisSize); ok {
+		if bound := mainAxisHeightBound(it.decls, h); bound < floor {
+			floor = bound
+		}
 	}
-	if m, ok := resolveFlexCSSSize(it.decls["max-height"], axisSize); ok && m+chrome < floor {
-		floor = m + chrome
+	if m, ok := resolveFlexCSSSize(it.decls["max-height"], axisSize); ok {
+		if bound := mainAxisHeightBound(it.decls, m); bound < floor {
+			floor = bound
+		}
 	}
 	return max(1, floor)
 }
@@ -489,18 +492,18 @@ func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
 }
 
 // flexGrowHeightCeiling is flexGrowCeiling on the vertical axis, where the
-// ceiling and the size it caps are not measured in the same box. Flex layout
-// resolves outer sizes, border rules and padding rows included, while
-// max-height is content-box in this engine, so the item's own vertical chrome
-// is added back before the ceiling is compared against a main size. That is the
-// same conversion clampFlexMainHeight, flexMainAxisHeightFloor, and
-// layoutFlexLine's stretch cap all make. Without it here, a bordered item
+// ceiling and the size it caps are not measured in the same box under a
+// content-box max-height. Flex layout resolves outer sizes, border rules
+// and padding rows included, so mainAxisHeightBound converts a content-box
+// max-height by adding the item's own vertical chrome back before the
+// ceiling is compared against a main size; a border-box max-height already
+// is that outer size. Without this conversion, a bordered content-box item
 // stopped growing exactly its own border and padding rows short of its
-// max-height. Row direction needs no counterpart, since width is a border-box
-// size already.
+// max-height. Row direction needs no counterpart, since width is a
+// border-box size already.
 func flexGrowHeightCeiling(decls map[string]string, axisSize int) int {
 	if v, ok := resolveFlexCSSSize(decls["max-height"], axisSize); ok {
-		return max(1, v+blockVerticalChrome(decls))
+		return max(1, mainAxisHeightBound(decls, v))
 	}
 	return 0
 }
@@ -937,6 +940,14 @@ func (r *Engine) resolveFlexContainerHeight(decls map[string]string) (int, bool)
 	if !ok || h <= 0 {
 		return 0, false
 	}
+	// A flex container's own outer box follows the same box-sizing rule
+	// renderBlockContentBox's height does: border-box means this declared
+	// value is the whole outer height, with the container's own border rows
+	// and padding rows coming out of it rather than adding on top. See
+	// borderBoxContentHeight and docs/proposals/BOX_SIZING.md.
+	if isBorderBox(decls) {
+		h = borderBoxContentHeight(decls, h)
+	}
 	return h, true
 }
 
@@ -964,6 +975,9 @@ func (r *Engine) resolveFlexContainerHeightFloor(decls map[string]string) (h int
 	mh, ok := resolveCSSHeight(decls["min-height"], r.cbHeight)
 	if !ok || mh <= 0 {
 		return 0, false, false
+	}
+	if isBorderBox(decls) {
+		mh = borderBoxContentHeight(decls, mh)
 	}
 	return mh, true, true
 }
@@ -1210,11 +1224,52 @@ func (r *Engine) renderFlexItemBoxHeight(it flexItem, width, heightOverride int)
 // stale mutation in it.decls for the second render, or any later reader, to
 // pick up. Row direction's layoutFlexLine renders every item exactly once,
 // so this is defensive there, not required by the row path itself.
+// contentBoxAdjustedOverride adjusts a flex-resolved outer-size override
+// (widthOverride or heightOverride) for injection into decls["width"]/
+// ["height"]. A border-box item needs no adjustment: the override already
+// is the outer size block.go's border-box formula expects, and chrome is
+// never even resolved for that case, since chrome is lazy and the common
+// default box-sizing:border-box case has no reason to pay for a
+// resolveBoxBorders call it doesn't need. A content-box item's formula does
+// not subtract chrome on its own, so the override is pre-reduced by the
+// item's own chrome on that axis, floored at 1, to still land on the same
+// outer size once block.go adds that chrome back on top. Shared by
+// renderFlexItemBoxSized's width and height override sites; see
+// docs/proposals/BOX_SIZING.md's "Flex items" section for why the main axis
+// is exempt from box-sizing in the first place.
+func contentBoxAdjustedOverride(decls map[string]string, override int, chrome func() int) int {
+	if isBorderBox(decls) {
+		return override
+	}
+	return max(1, override-chrome())
+}
+
 func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, heightOverride int) (box, map[*html.Node]Rect) {
 	width := availWidth
 	decls := maps.Clone(it.decls)
 	if widthOverride > 0 {
-		decls["width"] = strconv.Itoa(widthOverride)
+		// Both overrides are outer box sizes, main-axis sizing being exempt
+		// from box-sizing entirely (see docs/proposals/BOX_SIZING.md): flex
+		// distribution, wrapping, and the anti-corruption clip below all
+		// depend on flex-basis/width sizing the item's whole outer box, the
+		// same convention this engine's width already has everywhere else,
+		// regardless of what this item's own box-sizing resolves to.
+		//
+		// block.go's width resolution reproduces that outer size correctly
+		// on its own only when it reads this decls["width"] as border-box:
+		// its border-box formula subtracts border and padding out of the
+		// value, its content-box formula does not. Border-box is what this
+		// engine's UA stylesheet resolves box-sizing to by default, so the
+		// common case needs no adjustment here. An item that explicitly
+		// opted into content-box would otherwise have its outer target
+		// reinterpreted as a *content* width and grow past its flex
+		// allotment, so contentBoxAdjustedOverride pre-subtracts exactly
+		// what block.go's content-box formula would otherwise add back on
+		// top, reproducing the same outer size either way.
+		target := contentBoxAdjustedOverride(decls, widthOverride, func() int {
+			return blockHorizontalChrome(decls, availWidth)
+		})
+		decls["width"] = strconv.Itoa(target)
 		if isVisibleOverflow(decls["overflow-x"]) {
 			// Clip the item's content to the main size flex resolved for it, by
 			// synthesizing the overflow-x declaration the situation implies
@@ -1253,7 +1308,18 @@ func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, 
 		}
 	}
 	if heightOverride > 0 {
-		decls["height"] = strconv.Itoa(max(1, heightOverride-blockVerticalChrome(decls)))
+		// Same reasoning as the width override above, mirrored for the
+		// vertical axis. block.go's border-box height formula (new; see
+		// docs/proposals/BOX_SIZING.md) already subtracts border and padding
+		// rows out of the value on its own, so the common border-box case
+		// needs no pre-subtraction here. content-box height's formula adds
+		// them back on top instead, so contentBoxAdjustedOverride
+		// pre-subtracts them here for that case, same as this line always
+		// did before border-box height existed to do it internally.
+		target := contentBoxAdjustedOverride(decls, heightOverride, func() int {
+			return blockVerticalChrome(decls)
+		})
+		decls["height"] = strconv.Itoa(target)
 		if ov := decls["overflow-y"]; ov == "scroll" || ov == "auto" {
 			// This height is synthetic. It exists only to drive
 			// flex-basis/flex-grow/flex-shrink sizing, not as a real declared
@@ -1338,19 +1404,36 @@ func (r *Engine) renderFlexItemLeaf(n *html.Node, decls map[string]string, width
 
 // blockVerticalChrome is how many rows of an ordinary block box's height are
 // its own chrome rather than its content: a drawn top/bottom border rule plus
-// padding-top/padding-bottom. Flex layout resolves outer sizes, while the
-// height property is content-box in this engine, so this is the difference
-// between the two. See renderFlexItemBoxSized.
+// padding-top/padding-bottom. Flex layout resolves outer sizes, while a
+// content-box height is a pure content size, so this is the difference
+// between the two under that value specifically; a border-box height is
+// already an outer size and needs no such conversion. See
+// renderFlexItemBoxSized and mainAxisHeightBound. The decls-resolution is
+// this function's own job; verticalChrome (block.go) is the shared
+// arithmetic core, for a caller that already has its own border edges and
+// padding resolved and would rather not pay for resolveBoxBorders again.
 func blockVerticalChrome(decls map[string]string) int {
 	_, _, bt, bb, _, _, _, _ := resolveBoxBorders(decls)
-	rows := parsePaddingLen(decls["padding-top"]) + parsePaddingLen(decls["padding-bottom"])
-	if bt.char != "" {
-		rows++
+	return verticalChrome(bt, bb, parsePaddingLen(decls["padding-top"]), parsePaddingLen(decls["padding-bottom"]))
+}
+
+// mainAxisHeightBound converts a min-height/max-height/height property
+// value v, already resolved to an absolute line count via
+// resolveFlexCSSSize/resolveCSSHeight, into a bound comparable against a
+// column-direction flex item's main-axis size. A flex item's main-axis size
+// is always an outer size, border rules and padding rows included,
+// regardless of the item's own box-sizing (COMPATIBILITY.md's
+// flex-basis/width entry, and docs/proposals/BOX_SIZING.md's flex-item
+// exemption). A border-box v already is that outer size and needs no
+// conversion; a content-box v does not include its own vertical chrome, so
+// it needs blockVerticalChrome added back on to become comparable. This is
+// the conversion flexGrowHeightCeiling, flexMainAxisHeightFloor,
+// clampFlexMainHeight, and layoutFlexLine's stretch cap all share.
+func mainAxisHeightBound(decls map[string]string, v int) int {
+	if isBorderBox(decls) {
+		return v
 	}
-	if bb.char != "" {
-		rows++
-	}
-	return rows
+	return v + blockVerticalChrome(decls)
 }
 
 // blockHorizontalChrome is how many columns of a box's total painted width are
@@ -1399,18 +1482,22 @@ func parseColumnFlexBasis(decls map[string]string, containerHeight int) (int, bo
 // clampFlexMainHeight clamps a column-direction main-axis size to the item's
 // own min-height/max-height, producing the spec's hypothetical main size on the
 // vertical axis. It is clampFlexWidth's counterpart for the one axis where the
-// two sizes aren't measured in the same box. Flex layout resolves *outer*
-// sizes, border rules and padding rows included, while min-height/max-height
-// are content-box in this engine, so each bound gets the item's own vertical
-// chrome added back before it's compared. Maximum first and minimum second, so
-// a minimum larger than a maximum wins, CSS's own min/max resolution order.
+// two sizes aren't always measured in the same box. Flex layout resolves
+// *outer* sizes, border rules and padding rows included; mainAxisHeightBound
+// converts each bound to match, adding the item's own vertical chrome back on
+// when min-height/max-height are content-box, and leaving them alone when
+// they're already border-box. Maximum first and minimum second, so a minimum
+// larger than a maximum wins, CSS's own min/max resolution order.
 func clampFlexMainHeight(decls map[string]string, size, containerHeight int) int {
-	chrome := blockVerticalChrome(decls)
-	if v, ok := resolveFlexCSSSize(decls["max-height"], containerHeight); ok && size > v+chrome {
-		size = v + chrome
+	if v, ok := resolveFlexCSSSize(decls["max-height"], containerHeight); ok {
+		if bound := mainAxisHeightBound(decls, v); size > bound {
+			size = bound
+		}
 	}
-	if v, ok := resolveFlexCSSSize(decls["min-height"], containerHeight); ok && size < v+chrome {
-		size = v + chrome
+	if v, ok := resolveFlexCSSSize(decls["min-height"], containerHeight); ok {
+		if bound := mainAxisHeightBound(decls, v); size < bound {
+			size = bound
+		}
 	}
 	return max(1, size)
 }
@@ -2168,12 +2255,13 @@ func (r *Engine) layoutFlexLine(items []flexItem, bases, widths []int, margins [
 		// renderFlexItemBoxSized overrode max-height, since block.go's height
 		// takes priority over max-height by design, and a max-height:1 item on
 		// a five-row line grew to all five. The cap is an outer size like want
-		// itself, while max-height is content-box in this engine, so the item's
-		// own border and padding rows are added back on. A percentage resolves
-		// against the container's own height, r.cbHeight here, and is dropped
-		// when that basis is indefinite.
+		// itself; mainAxisHeightBound converts a content-box max-height by
+		// adding the item's own border and padding rows back on, and leaves a
+		// border-box one alone. A percentage resolves against the container's
+		// own height, r.cbHeight here, and is dropped when that basis is
+		// indefinite.
 		if m, ok := resolveCSSHeight(it.decls["max-height"], r.cbHeight); ok && m > 0 {
-			want = min(want, m+blockVerticalChrome(it.decls))
+			want = min(want, mainAxisHeightBound(it.decls, m))
 		}
 		if want <= len(itemBoxes[i].lines) {
 			continue
@@ -2945,7 +3033,19 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
-		inner := max(1, totalW-ml-textcell.Width(bl.char)-pl-pr-textcell.Width(br.char)-mr)
+		// A flex container's own outer box follows the same box-sizing rule
+		// as any other block box (block.go's identical branch, including
+		// margin-subtraction applying under either value since it predates
+		// box-sizing). Only an item's main-axis sizing is exempt from
+		// box-sizing, not the container's own width; see
+		// docs/proposals/BOX_SIZING.md.
+		var inner int
+		if isBorderBox(decls) {
+			inner = totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
+		} else {
+			inner = totalW - ml - mr
+		}
+		inner = max(1, inner)
 		hBorderWidth = textcell.Width(bl.char) + pl + inner + pr + textcell.Width(br.char)
 		hasExplicitWidth = true
 	}
@@ -3070,11 +3170,18 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	switch ovY {
 	case "hidden", "clip":
 		// An explicit height wins over max-height, matching block.go's own
-		// priority. heightLines already holds the explicit-height case;
-		// max-height is the fallback only when there's no explicit height.
+		// priority. heightLines already holds the explicit-height case, box-sizing
+		// converted the same way resolveFlexContainerHeight converts it;
+		// max-height is the fallback only when there's no explicit height, and
+		// needs the identical border-box conversion (this container's own outer
+		// box, not a flex item's main axis, so it uses borderBoxContentHeight
+		// directly rather than mainAxisHeightBound).
 		limit := heightLines
 		if limit == 0 {
 			if m, ok := resolveCSSHeight(decls["max-height"], r.cbHeight); ok && m > 0 {
+				if isBorderBox(decls) {
+					m = borderBoxContentHeight(decls, m)
+				}
 				limit = m
 			}
 		}

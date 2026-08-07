@@ -24,13 +24,23 @@ actually wrote.
 | `border-top-left-junction` etc. | `<table>` only | Literal junction-glyph overrides (corner-shapes anywhere in the grid) under `border-collapse: collapse` — no cell-level equivalent (redundant with cell-level `border-*-corner`) |
 | `border-color`, `border-*-color` | `<table>`, `<th>`/`<td>` | Whole-box / per-edge color |
 | `margin`, `padding` | `<table>` | Work like any block element — see "Margin and padding" below |
-| `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing |
+| `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing. `box-sizing` isn't read here — see the note right below this table |
 | `white-space`, `text-overflow` | `<th>`/`<td>` | Wrapping vs. truncation |
 | `vertical-align` | `<th>`/`<td>` | Content placement within row height |
 | `caption-side` | `<table>` | Caption above/below the table |
 | `border-collapse: separate` | `<table>` | The real-CSS default, and what unset falls back to. Every `<th>`/`<td>` gets its own independent border box. See "`border-collapse: separate`" below |
 | `border-collapse: collapse` | `<table>` | Adjacent cell and table borders merge into shared lines via conflict resolution. See "`border-collapse: collapse`" below |
 | `border-spacing` | `<table>` | Gap between cell boxes under `border-collapse: separate`. Default `0` |
+
+A `<th>`/`<td>`'s `box-sizing` isn't read at all. This is a compatibility gap
+against spec, not a spec exception: real CSS applies `box-sizing` to table
+cells the same as any other box. The column-width algorithm above resolves
+a declared `width` through its own mechanism instead, one that already
+matches neither real `box-sizing` value on its own. It's border-box-shaped
+for padding, subtracted from the declared width. It's content-box-shaped
+for border characters, added on top as separate overhead, per the border
+unification model described throughout this page. See CSS.md's
+`box-sizing` entry and COMPATIBILITY.md for the full account.
 
 ## Border-style presets
 

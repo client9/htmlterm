@@ -413,7 +413,7 @@ func TestFlexAlignItemsStretchGrowsTheBox(t *testing.T) {
 		// min-height/max-height" (§8.3). The synthetic height flex injects used
 		// to override max-height outright (block.go's height wins over
 		// max-height, by design), so a capped item grew the whole line's height.
-		{name: "max-height caps how far an item stretches", width: 20, html: `<div style="display:flex;width:100%"><div style="max-height:2;border-style:solid">a</div><div>x<br>y<br>z<br>w<br>v</div></div>`, want: "┌─┐x                \n│a│y                \n│ │z                \n└─┘w                \n   v                \n"},
+		{name: "max-height caps how far an item stretches", width: 20, html: `<div style="display:flex;width:100%"><div style="max-height:2;border-style:solid">a</div><div>x<br>y<br>z<br>w<br>v</div></div>`, want: "┌─┐x                \n│a│y                \n└─┘z                \n   w                \n   v                \n"},
 		{name: "a max-height above the line's own height doesn't bite", width: 20, html: `<div style="display:flex;width:100%"><div style="max-height:9;border-style:solid">a</div><div>x<br>y<br>z<br>w<br>v</div></div>`, want: "┌─┐x                \n│a│y                \n│ │z                \n│ │w                \n└─┘v                \n"},
 	})
 }
@@ -428,7 +428,7 @@ func TestFlexBasisContent(t *testing.T) {
 		{name: "row direction sizes from content, ignoring the item's width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:content;width:2;border-style:solid">abcdefgh</div><div>r</div></div>`, want: "┌────────┐r         \n│abcdefgh│          \n└────────┘          \n"},
 		{name: "flex-basis:auto still defers to that width", width: 20, html: `<div style="display:flex;width:100%"><div style="flex-basis:auto;width:4;border-style:solid">abcdefgh</div><div>r</div></div>`, want: "┌──┐r               \n│ab│                \n└──┘                \n"},
 		{name: "column direction sizes from content, ignoring the item's height", width: 16, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:content;height:4;border-style:solid">a</div><div>z</div></div>`, want: "┌──────────────┐\n│a             │\n└──────────────┘\nz               \n"},
-		{name: "without flex-basis that height still applies", width: 16, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="height:4;border-style:solid">a</div><div>z</div></div>`, want: "┌──────────────┐\n│a             │\n│              │\n│              │\n│              │\n└──────────────┘\nz               \n"},
+		{name: "without flex-basis that height still applies", width: 16, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="height:4;border-style:solid">a</div><div>z</div></div>`, want: "┌──────────────┐\n│a             │\n│              │\n└──────────────┘\nz               \n"},
 	})
 }
 
@@ -503,16 +503,19 @@ func TestFlexColumnOuterHeight(t *testing.T) {
 // main size as a synthetic `height`, which block.go deliberately ranks above
 // max-height, so `flex-basis: 6; max-height: 1` rendered six rows tall.
 //
-// Both bounds are content-box here while flex sizes are outer, so each is
-// compared with the item's own border/padding rows added back on — a
-// max-height:1 bordered item is three rows, not one.
+// Both bounds are converted to an outer size via mainAxisHeightBound before
+// comparison, since flex sizes are always outer: under the UA default
+// box-sizing:border-box a bound is already outer and needs no conversion;
+// under an explicit content-box it needs the item's own border/padding rows
+// added back on. Either way, a max-height:1 bordered item is three rows,
+// not one, once the floor that keeps content at least one line kicks in.
 func TestFlexColumnBasisClampedByMinMaxHeight(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "max-height clamps a taller flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:6;max-height:1;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
-		{name: "min-height raises a shorter flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nz         \n"},
+		{name: "min-height raises a shorter flex-basis", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
 		// The minimum applies after the maximum, so a minimum larger than a
 		// maximum wins — CSS's own min/max resolution order.
-		{name: "a min-height larger than max-height wins", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;max-height:2;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nz         \n"},
+		{name: "a min-height larger than max-height wins", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%"><div style="flex-basis:1;min-height:3;max-height:2;border-style:solid">a</div><div>z</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nz         \n"},
 		// A content-sized item is deliberately left alone by the maximum:
 		// block.go only clips to max-height under an explicit overflow-y, and
 		// reserving fewer rows than the item paints would desynchronize the
@@ -523,17 +526,22 @@ func TestFlexColumnBasisClampedByMinMaxHeight(t *testing.T) {
 }
 
 // TestFlexColumnGrowCeilingIncludesChrome pins that a column item's max-height
-// caps its *outer* grown height, its own border rules and padding rows added
-// back on. max-height is content-box in this engine while every main size flex
-// resolves is an outer one, a conversion clampFlexMainHeight and the
-// align-items:stretch cap both make. The flex-grow ceiling used to compare the
-// two directly, so a bordered item stopped growing exactly its own chrome short
-// of what it asked for: max-height:3 came out three rows in total, one of them
-// content, rather than three content rows inside its border.
+// caps its *outer* grown height. Under the UA default box-sizing:border-box,
+// a declared max-height already is that outer size, so flex-grow:1;
+// max-height:3;border-style:solid grows to exactly three rows in total, one
+// of them content, its own border rows already counted against the 3. Under
+// an explicit box-sizing:content-box, max-height is a pure content size
+// instead, so mainAxisHeightBound adds the item's own border rules and
+// padding rows back on before comparing, the same conversion
+// clampFlexMainHeight and the align-items:stretch cap both make. The
+// flex-grow ceiling used to compare a content-box-shaped bound against an
+// outer size unconditionally, so a bordered item stopped growing exactly its
+// own chrome short of what it asked for even under the (now default)
+// border-box value.
 func TestFlexColumnGrowCeilingIncludesChrome(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "a bordered item grows to max-height plus its border rows", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:10"><div style="flex-grow:1;max-height:3;border-style:solid">a</div><div>b</div></div>`, want: "┌────────┐\n│a       │\n│        │\n│        │\n└────────┘\nb         \n          \n          \n          \n          \n"},
-		{name: "padding rows count toward the ceiling the same way", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:2;padding-top:1">a</div><div>b</div></div>`, want: "          \na         \n          \nb         \n          \n          \n          \n          \n"},
+		{name: "a bordered item's max-height caps its whole outer box, border rows included", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:10"><div style="flex-grow:1;max-height:3;border-style:solid">a</div><div>b</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\nb         \n          \n          \n          \n          \n          \n          \n"},
+		{name: "padding rows count toward the ceiling the same way", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:2;padding-top:1">a</div><div>b</div></div>`, want: "          \na         \nb         \n          \n          \n          \n          \n          \n"},
 		// An unbordered item is the case that already worked, kept as the
 		// control that the chrome conversion isn't being applied twice.
 		{name: "an item with no chrome is capped at max-height itself", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:8"><div style="flex-grow:1;max-height:3">a</div><div>b</div></div>`, want: "a         \n          \n          \nb         \n          \n          \n          \n          \n"},
@@ -939,7 +947,7 @@ func TestFlexContainerOverflowY(t *testing.T) {
 		{name: "overflow-y:clip clips to max-height when no height is set", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;max-height:2;overflow-y:clip"><div>a</div><div>b</div><div>c</div></div>`, want: "a         \nb         \n"},
 		{name: "height wins over max-height, matching an ordinary block box", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:3;max-height:1;overflow-y:hidden"><div>a</div><div>b</div><div>c</div><div>d</div></div>`, want: "a         \nb         \nc         \n"},
 		{name: "max-height without an overflow declaration does not clip", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;max-height:2"><div>a</div><div>b</div><div>c</div></div>`, want: "a         \nb         \nc         \n"},
-		{name: "a clipped container's border still closes below its last visible row", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:2;overflow-y:hidden;border-style:solid"><div>a</div><div>b</div><div>c</div></div>`, want: "┌────────┐\n│a       │\n│b       │\n└────────┘\n"},
+		{name: "a clipped container's border still closes below its last visible row", width: 10, html: `<div style="display:flex;flex-direction:column;width:100%;height:2;overflow-y:hidden;border-style:solid"><div>a</div><div>b</div><div>c</div></div>`, want: "┌────────┐\n│a       │\n└────────┘\n"},
 		{name: "a row container clips to its height too", width: 10, html: `<div style="display:flex;width:100%;height:1;overflow-y:hidden"><div>a<br>b<br>c</div></div>`, want: "a         \n"},
 	})
 }
@@ -1153,15 +1161,15 @@ func TestFlexIntrinsicMainSize(t *testing.T) {
 // follows for a column container's main axis.
 func TestPercentageHeight(t *testing.T) {
 	runCases(t, []renderCase{
-		{name: "a percentage height resolves against the viewport", width: 4, height: 8, html: `<div style="height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n│  │\n│  │\n└──┘\n\n\n"},
-		{name: "a percentage height resolves against a definite parent, not the viewport", width: 4, height: 12, html: `<div style="height:6"><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n│  │\n│  │\n└──┘\n    \n\n\n\n\n\n\n"},
+		{name: "a percentage height resolves against the viewport", width: 4, height: 8, html: `<div style="height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n└──┘\n\n\n\n\n"},
+		{name: "a percentage height resolves against a definite parent, not the viewport", width: 4, height: 12, html: `<div style="height:6"><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n└──┘\n    \n    \n    \n\n\n\n\n\n\n"},
 		// The spec's indefinite-basis rule. The parent is auto-height, so the
 		// child's 50% is not a length at all and it falls back to auto, rather
 		// than resolving against the viewport further up or against zero.
 		{name: "a percentage height against an auto-height parent falls back to auto", width: 4, height: 8, html: `<div><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n└──┘\n\n\n\n\n\n"},
 		{name: "a min-height parent is not a definite basis", width: 4, height: 8, html: `<div style="min-height:6"><div style="height:50%;border-style:solid">x</div></div>`, want: "┌──┐\n│x │\n└──┘\n    \n    \n    \n\n\n"},
 		{name: "with no viewport height a root percentage is inert", width: 4, html: `<div style="height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n└──┘\n"},
-		{name: "a percentage min-height resolves as a floor", width: 4, height: 8, html: `<div style="min-height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n│  │\n│  │\n└──┘\n\n\n"},
+		{name: "a percentage min-height resolves as a floor", width: 4, height: 8, html: `<div style="min-height:50%;border-style:solid">x</div>`, want: "┌──┐\n│x │\n│  │\n└──┘\n\n\n\n\n"},
 		// The pattern this whole chain exists for: a column flex container
 		// sized from the viewport, its middle item taking the slack. Without a
 		// definite main size flex-grow has nothing to distribute, so this is

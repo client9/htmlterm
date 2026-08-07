@@ -167,7 +167,7 @@ func TestEmptyBoxHasNoContentRow(t *testing.T) {
 		// A declared height or min-height is precisely the request to reserve
 		// rows, so neither is dropped - including a min-height of exactly one,
 		// which is what an empty box would otherwise look like.
-		{name: "an explicit height still reserves its rows", width: 12, css: `.x{border-style:solid;height:2;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n│   │\n└───┘\n"},
+		{name: "an explicit height still reserves its rows", width: 12, css: `.x{border-style:solid;height:2;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n└───┘\n"},
 		{name: "min-height:1 still reserves its row", width: 12, css: `.x{border-style:solid;min-height:1;width:5}`, html: `<div class="x"></div>`, want: "┌───┐\n│   │\n└───┘\n"},
 		// With nothing drawn around it, an empty box keeps its blank line rather
 		// than collapsing to nothing - a zero-line box has no way to separate
@@ -198,8 +198,8 @@ func TestEmptyFlexContainerBox(t *testing.T) {
 		{name: "a container of only loose text holds an anonymous item", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f">loose</div>`, want: "┌────┐\n│loose│\n└────┘\n"},
 		{name: "a container of only whitespace is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: "<div class=\"f\">\n  \n</div>", want: "┌────┐\n└────┘\n"},
 		{name: "a container whose only item is display:none is empty", width: 12, css: `.f{display:flex;border-style:solid;width:6}`, html: `<div class="f"><span style="display:none">x</span></div>`, want: "┌────┐\n└────┘\n"},
-		{name: "an empty container still reserves its declared height", width: 12, css: `.f{display:flex;border-style:solid;height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},
-		{name: "and its min-height", width: 12, css: `.f{display:flex;border-style:solid;min-height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n│    │\n└────┘\n"},
+		{name: "an empty container still reserves its declared height", width: 12, css: `.f{display:flex;border-style:solid;height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n└────┘\n"},
+		{name: "and its min-height", width: 12, css: `.f{display:flex;border-style:solid;min-height:2;width:6}`, html: `<div class="f"></div>`, want: "┌────┐\n│    │\n└────┘\n"},
 		{name: "an empty flex item is a two-row box on its line", width: 14, css: `.f{display:flex;border-style:solid;width:12}.i{display:flex;border-style:solid}`, html: `<div class="f"><div class="i"></div><span>x</span></div>`, want: "┌──────────┐\n│┌─┐x      │\n│└─┘       │\n└──────────┘\n"},
 	})
 }
@@ -218,11 +218,11 @@ func TestViewportUnits(t *testing.T) {
 	runCases(t, []renderCase{
 		{name: "vw resolves against Options.Width", width: 20, html: `<div style="width:50vw;border-style:solid">x</div>`, want: "┌────────┐\n│x       │\n└────────┘\n"},
 		{name: "100vw is the full terminal width", width: 12, html: `<div style="width:100vw;border-style:solid">x</div>`, want: "┌──────────┐\n│x         │\n└──────────┘\n"},
-		{name: "vh resolves against Options.Height", width: 8, height: 8, html: `<div style="height:50vh;border-style:solid">x</div>`, want: "┌──────┐\n│x     │\n│      │\n│      │\n│      │\n└──────┘\n\n\n"},
+		{name: "vh resolves against Options.Height", width: 8, height: 8, html: `<div style="height:50vh;border-style:solid">x</div>`, want: "┌──────┐\n│x     │\n│      │\n└──────┘\n\n\n\n\n"},
 		{name: "vh with no Options.Height is ignored", width: 8, html: `<div style="height:50vh;border-style:solid">x</div>`, want: "┌──────┐\n│x     │\n└──────┘\n"},
 		// Fractions of a cell truncate, as every percentage here does: 33% of
 		// 24 rows is 7.92, and the box gets 7 content rows rather than 8.
-		{name: "a fractional vh truncates rather than rounding", width: 6, height: 24, html: `<div style="height:33vh;border-style:solid">x</div>`, want: "┌────┐\n│x   │\n│    │\n│    │\n│    │\n│    │\n│    │\n│    │\n└────┘\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"},
+		{name: "a fractional vh truncates rather than rounding", width: 6, height: 24, html: `<div style="height:33vh;border-style:solid">x</div>`, want: "┌────┐\n│x   │\n│    │\n│    │\n│    │\n│    │\n└────┘\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"},
 		{name: "zero is dimensionless, so 0vh needs no viewport", width: 8, html: `<div style="margin-left:0vh">x</div>`, want: "x\n"},
 		{name: "a shorthand converts each component independently", width: 16, html: `<div style="margin:0 25vw">x</div>`, want: "    x    \n"},
 		// The pattern this was added for. 100vh reaches flex layout as a

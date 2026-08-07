@@ -119,8 +119,12 @@ These span files, so no single file's own comments will tell you about them.
   `margin-left | border-left | padding-left | content | padding-right | border-right | margin-right`.
   `width: 100%` subtracts margins and border chars, so the total visual line
   equals exactly the specified width.
-- **`width` is a border-box size, `height` is a content-box one.** The
-  asymmetry is deliberate; see `COMPATIBILITY.md`.
+- **`box-sizing` defaults to `border-box`, via the UA stylesheet, not a
+  hardcoded default.** `width` and `height` both read it and both behave
+  like `border-box` unless a selector overrides it to `content-box`, real
+  CSS's own initial value. A flex item's main-axis size is the one
+  exception: it always behaves like `border-box`, regardless of what the
+  item's own `box-sizing` resolves to. See `COMPATIBILITY.md`.
 - **Whitespace at line starts:** leading space produced by collapsing a
   source newline is trimmed when the builder is empty or the previous char
   was `\n`, matching browser `white-space: normal` behavior.

@@ -548,8 +548,13 @@ Not inherited.
 
 **`auto` margins:** When an element has an explicit `width` set, `margin-left: auto` and/or `margin-right: auto` distribute the remaining space. Both `auto` centers the element; only `margin-left: auto` right-aligns it; only `margin-right: auto` left-aligns it (fills trailing space). Without an explicit `width` the element already fills the available width and auto margins have no visible effect.
 
+#### `box-sizing`
+`content-box` | `border-box`. Controls whether a declared `width`/`height` includes border and padding or excludes them. The UA stylesheet sets `*, ::before, ::after { box-sizing: border-box; }`, the same reset Bootstrap's Reboot and `sindresorhus/modern-normalize` both ship, so every element is `border-box` unless something overrides it. Override on any selector to opt back into `content-box`, real CSS's own initial value, the same way you would in a browser with no reset loaded. See [`width`](#width) and [`height`](#height) for exactly what each value means, and `COMPATIBILITY.md`/`docs/proposals/BOX_SIZING.md` for the design history. Not inherited.
+
+Three elements sit outside this. A flex item's main-axis size is exempt and always behaves like `border-box`, regardless of what the item's own `box-sizing` resolves to (see [Flexbox](#flexbox)). An `inline-block` element's width ignores this property entirely, since its border and padding are never drawn at all, leaving nothing for either value to subtract or add (see [`width`](#width) above). Table cell (`th`/`td`) width doesn't yet observe this property at all, a compatibility gap rather than anything spec calls for, since real CSS applies `box-sizing` to table cells like any other box (see [Cell Sizing](#css-properties--cell-sizing-th-td-and-table-borders-table)).
+
 #### `width`
-`40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For block elements, `width: 100%` fills the renderer width; margins and border characters are subtracted so the total visual line equals the specified width. Not inherited.
+`40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For a **block** element: under the default `box-sizing: border-box`, a declared width is the box's whole outer size, margins, border characters, and padding all coming out of it, so `width: 100%` fills the renderer width exactly; under `box-sizing: content-box`, a declared width is a pure content size instead, with border and padding adding on top, so `width: 100%` combined with either can overflow the containing block, same as in a browser with no `border-box` reset; margins still come out of it either way, which is not what real CSS's own box-sizing values mean (margin is never part of either) but predates `box-sizing` and is layered on top of it. For an **`inline-block`** element, `box-sizing` doesn't apply: its own border and padding are never drawn at all (see `COMPATIBILITY.md`), so the declared width becomes the rendered width directly, with nothing for either box-sizing value to subtract or add. Not inherited.
 
 #### `min-width`
 `40` or `50%`. Minimum width for block and `inline-block` elements, using
@@ -602,7 +607,7 @@ Values use the same formats as the corresponding physical longhand properties.
 Not inherited.
 
 #### `height`
-Integer line count (e.g. `5`) or `<N%>`. Content-box height in lines. If the rendered content has fewer lines it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated. Without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.
+Integer line count (e.g. `5`) or `<N%>`. Under the default `box-sizing: border-box`, a declared height is the box's whole outer size: its own top/bottom border rules and vertical padding come out of it, floored at 1 content line if there isn't room for both (never 0 — the same floor a too-small `width` already has). Under `box-sizing: content-box`, a declared height is a pure content-box line count instead, with border rows and padding rows adding on top. Either way, if the resolved content has fewer lines than that it is padded with blank lines; if it has more and `overflow: hidden`/`clip` is set it is truncated; without an overflow setting, extra content is visible. Takes priority over `min-height` and `max-height` when set. Not inherited.
 
 A **percentage** height resolves against the containing block's height, and
 only when that height is itself **definite**. Against an indefinite one it is
@@ -651,10 +656,10 @@ this sense: its box is a field to type into, so it keeps a row even with no
 value.
 
 #### `min-height`
-Integer line count (e.g. `3`) or `<N%>`. Minimum content-box height in lines. The element is always padded to at least this many lines regardless of `overflow`. Has no effect when `height` is also set. Not inherited. A percentage resolves against the containing block on exactly the terms described under [`height`](#height). Note the asymmetry: a percentage `min-height` *resolves* against its parent's definite height, but a `min-height` never *provides* a definite height to its own children.
+Integer line count (e.g. `3`) or `<N%>`. Minimum height in lines, converted to a content-box floor the same way [`height`](#height) is under whichever `box-sizing` applies. The element is always padded to at least this many content lines regardless of `overflow`. Has no effect when `height` is also set. Not inherited. A percentage resolves against the containing block on exactly the terms described under [`height`](#height). Note the asymmetry: a percentage `min-height` *resolves* against its parent's definite height, but a `min-height` never *provides* a definite height to its own children.
 
 #### `max-height`
-Integer line count (e.g. `10`) or `<N%>`. Maximum content-box height in lines. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited. A percentage resolves as under [`height`](#height); against an indefinite basis it is `none` rather than a maximum of zero.
+Integer line count (e.g. `10`) or `<N%>`. Maximum height in lines, converted to a content-box ceiling the same way [`height`](#height) is under whichever `box-sizing` applies. Content beyond this limit is truncated only when `overflow: hidden` or `overflow: clip` is also set; without overflow the content is still visible. Has no effect when `height` is also set. Not inherited. A percentage resolves as under [`height`](#height); against an indefinite basis it is `none` rather than a maximum of zero.
 
 #### `white-space`
 `normal` | `nowrap` | `pre` | `pre-wrap` | `pre-line`. How text-node whitespace is handled. Inherited. Default `normal` for block/inline elements, including `td` and `th`. Block elements with `normal` word-wrap long lines at the available content width, breaking at word boundaries. `nowrap` disables word wrapping; set it on a cell or ancestor to get single-line truncation (see `text-overflow`) instead of multi-line wrapping. `pre` preserves all whitespace and disables wrapping. `pre-wrap` and `pre-line` preserve newlines but still allow wrapping. Content that is already multi-line (lists, `<br>` tags, nested block elements) is not re-wrapped.
@@ -1709,7 +1714,11 @@ box, so its margins come out of that size rather than adding to it —
 `flex-basis: 6; margin-right: 4` occupies 6 columns of the line here and 10 in
 a browser. That's the same convention `width` has everywhere else in this
 engine (see the [`width`](#width) entry: a declared width is the box's total
-visual width, margins and border characters included).
+visual width, margins and border characters included). It also means an
+item's main-axis size is exempt from [`box-sizing`](#box-sizing): it always
+behaves like `border-box`, regardless of what the item's own `box-sizing`
+resolves to for anything else about it. A flex *container's* own outer box
+is not exempt and follows `box-sizing` the same as any other block box.
 
 A `flex-basis` that *resolves* to zero stays zero as an arithmetic input to
 `flex-grow`, so grow ratios are exact — `flex: 1` against `flex: 2` in a
@@ -1824,6 +1833,16 @@ The legacy `width` HTML attribute on `<th>`/`<td>` is ignored — in real-world
 markup (especially HTML email) it's almost always a pixel value, and there's
 no reliable way to convert pixels to terminal columns. Use CSS `width`
 instead (`width: 14` for a fixed character count, or `width: 25%`).
+
+A cell's [`box-sizing`](#box-sizing) isn't read yet. This is a compatibility
+gap, not spec behavior — real CSS applies `box-sizing` to table cells the
+same as any other box, and real browsers honor it on `<td>`/`<th>` exactly
+like on a `<div>`. Cell width resolution here goes through the table
+renderer's own column-sizing algorithm rather than `width`'s ordinary
+block-element path, and that algorithm already behaves like neither real
+`box-sizing` value on its own: `border-box`-shaped for padding (subtracted
+from the declared width) but `content-box`-shaped for border characters
+(added on top as separate overhead). See `COMPATIBILITY.md`.
 
 | Property | Applies to | Notes |
 |----------|------------|-------|

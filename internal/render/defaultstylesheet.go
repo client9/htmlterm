@@ -23,6 +23,13 @@ package render
 //     the parts a stylesheet owns, such as a control's outer display type or
 //     a button's bracket affixes.
 const DefaultStylesheet = `
+/* border-box everywhere, the same reset Bootstrap's Reboot and
+   sindresorhus/modern-normalize both ship, moved down into this engine's own
+   UA layer. box-sizing's real spec initial value is content-box; this rule
+   just means nothing sees it without asking, matching how those resets
+   behave in a browser. Override on any selector to opt back into content-box
+   for that element. See docs/proposals/BOX_SIZING.md. */
+*, ::before, ::after   { box-sizing: border-box; }
 table                   { display: table; }
 [hidden], [aria-hidden=true] { display: none; }
 p, blockquote, pre, h1, h2, h3, h4, h5, h6, div, section, article, header, footer, main, nav, aside, hgroup, search { display: block; }

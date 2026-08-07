@@ -165,6 +165,64 @@ func resolveCSSHeight(s string, cbHeight int) (int, bool) {
 	return abs, true
 }
 
+// isBorderBox reports whether decls resolves box-sizing to border-box. Any
+// other value, including unset, is content-box, matching real CSS's own
+// initial value. border-box is not a Go-level default anywhere in this
+// package; it only ever comes from the cascade, typically the UA
+// stylesheet's own `*, ::before, ::after { box-sizing: border-box; }` rule
+// (defaultstylesheet.go), the same reset Bootstrap's Reboot and
+// modern-normalize ship, moved down a cascade layer. See
+// docs/proposals/BOX_SIZING.md.
+func isBorderBox(decls map[string]string) bool {
+	return decls["box-sizing"] == "border-box"
+}
+
+// verticalChrome is how many rows of a box's total painted height are its
+// own chrome rather than its content: a drawn top/bottom border rule plus
+// top/bottom padding. It is blockVerticalChrome's arithmetic core, taking
+// the caller's already-resolved border edges and padding directly rather
+// than resolving them from decls itself. blockVerticalChrome (flex.go) is
+// the decls-based convenience wrapper most callers use; this version exists
+// for a caller like renderBlockContentBox that already has bt/bb/pt/pb in
+// scope from resolving its own borders and padding, and would otherwise pay
+// for resolveBoxBorders again for every height/min-height/max-height
+// conversion in a single render.
+func verticalChrome(bt, bb blockBorder, pt, pb int) int {
+	rows := pt + pb
+	if bt.char != "" {
+		rows++
+	}
+	if bb.char != "" {
+		rows++
+	}
+	return rows
+}
+
+// borderBoxContentHeight converts a border-box height total to a content-box
+// line count, by subtracting decls' own vertical chrome (blockVerticalChrome:
+// top/bottom border rows and vertical padding), floored at 1 content line for
+// the same reason resolveWidthConstraints floors a too-small border-box
+// width: CSS never lets border and padding shrink content below 0, so "too
+// small to fit" isn't a reason to fall back to auto sizing. Callers only need
+// this when isBorderBox(decls) is true; a content-box height needs no
+// conversion at all, since the declared value already is the content height.
+//
+// Shared by renderBlockContentBox (block.go) and resolveFlexContainerHeight/
+// resolveFlexContainerHeightFloor (flex.go), so a flex container's own
+// height, not just an ordinary block's, converts the same way. Without that
+// second use, a grown nested flex container would overshoot its allotment by
+// its own chrome: flex.go's renderFlexItemBoxSized already injects a
+// container's synthesized height as a raw border-box total for the common
+// border-box-by-default case (see its own doc comment), trusting whichever
+// renderer reads decls["height"] next to subtract that chrome itself.
+func borderBoxContentHeight(decls map[string]string, h int) int {
+	h -= blockVerticalChrome(decls)
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth int) (width int, constrained bool) {
 	width = naturalWidth
 	if w, ok := resolveCSSSize(decls["width"], availWidth); ok {
@@ -379,10 +437,33 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// the gutter reservation.
 	ovX := decls["overflow-x"]
 	ovY := decls["overflow-y"]
+	// toContentLines converts a resolved height/min-height/max-height value
+	// to a content-box line count. content-box (real CSS's initial value)
+	// needs no conversion: the declared value already is the content height,
+	// with border rows and vertical padding added on top further down.
+	// border-box does, subtracting the same vertical chrome
+	// borderBoxContentHeight computes, floored at 1 for the same reason a
+	// too-small border-box width floors. Computed directly from bt/bb/pt/pb,
+	// already resolved above, rather than through borderBoxContentHeight's
+	// own decls-based lookup: height, min-height, and max-height can each
+	// call this, and re-resolving this box's own borders up to three times
+	// in one render for a value that never changes would be wasted work.
+	vChrome := verticalChrome(bt, bb, pt, pb)
+	borderBox := isBorderBox(decls)
+	toContentLines := func(h int) int {
+		if !borderBox {
+			return h
+		}
+		h -= vChrome
+		if h < 1 {
+			h = 1
+		}
+		return h
+	}
 	heightLines := 0
 	if v := decls["height"]; v != "" {
 		if h, ok := resolveCSSHeight(v, r.cbHeight); ok && h > 0 {
-			heightLines = h
+			heightLines = toContentLines(h)
 		}
 	}
 	// This box's own content box is the containing block its descendants
@@ -401,7 +482,25 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
-		inner := totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
+		var inner int
+		if isBorderBox(decls) {
+			// border-box (the UA default): totalW is the box's whole outer
+			// width, margins included, so border and padding come out of it.
+			inner = totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
+		} else {
+			// content-box (real CSS's initial value, reached only by an
+			// explicit override): totalW is the margin box, same as border-box,
+			// since margin-subtraction predates box-sizing and is independent of
+			// it (see COMPATIBILITY.md and ARCHITECTURE.md's "width: 100%" block
+			// border box model invariant); only border and padding are excluded
+			// from totalW here rather than subtracted out of it. So this box's
+			// outer width, border and padding included, can legitimately exceed
+			// availWidth once margins are accounted for. That overflow is left
+			// alone here, the same as any other box whose unbreakable content
+			// exceeds its width: it paints past its own border rather than being
+			// clipped implicitly. See docs/proposals/BOX_SIZING.md.
+			inner = totalW - ml - mr
+		}
 		// A width too small to fit this element's own border and padding is
 		// clamped to a 1-column minimum rather than discarded. CSS itself
 		// never lets border and padding shrink content below 0, so "too small
@@ -654,13 +753,13 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	minH := 0
 	if v := decls["min-height"]; v != "" {
 		if h, ok := resolveCSSHeight(v, outerCBHeight); ok && h > 0 {
-			minH = h
+			minH = toContentLines(h)
 		}
 	}
 	maxH := 0
 	if v := decls["max-height"]; v != "" {
 		if h, ok := resolveCSSHeight(v, outerCBHeight); ok && h > 0 {
-			maxH = h
+			maxH = toContentLines(h)
 		}
 	}
 	if heightLines > 0 || minH > 0 || maxH > 0 {

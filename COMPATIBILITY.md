@@ -295,17 +295,74 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `devanagari`, `disclosure-open`/`disclosure-closed`, and so on; see "Not
   Supported" below). `symbols()` itself is a real CSS Counter Styles
   function, just without its `<symbols-type>` keyword or image arguments.
-- **`width` is a border-box size but `height` is a content-box one.** A
-  declared `width` is the box's total visual width, with margins, border
-  characters, and padding all coming out of it, while a declared `height` is
-  the number of *content* lines, with the box's own top/bottom border rules
-  and vertical padding added on top. `width: 10; height: 3; padding: 1;
-  border-style: solid` is 10 columns wide and 7 rows tall. The asymmetry is
-  deliberate (a width that didn't include its border characters wouldn't let
-  `width: 100%` line up with the terminal's own width), but it does mean the
-  two properties can't be reasoned about interchangeably. Flex layout resolves
-  main-axis sizes as outer sizes on *both* axes and converts at the boundary,
-  so a flex item is exempt; see the next entry.
+- **`box-sizing` defaults to `border-box` everywhere, via the UA
+  stylesheet's own `*, ::before, ::after { box-sizing: border-box; }` rule**
+  (`internal/render/defaultstylesheet.go`), the same reset Bootstrap's
+  Reboot and `sindresorhus/modern-normalize` both ship, moved down one
+  cascade layer. Real CSS's own initial value is `content-box`; that value
+  is fully supported too, reachable by overriding the UA rule on any
+  selector, the same way it's reachable in a browser with no reset loaded.
+  Both `width` and `height` read it, and read it the same way, unlike
+  before this existed (see the next paragraph for what changed). See
+  `docs/proposals/BOX_SIZING.md` for the design history, including why the
+  default landed on `border-box` rather than spec's own `content-box`.
+
+  Under the default `border-box`, both `width` and `height` are a box's
+  whole outer size: border characters and padding come out of a declared
+  value rather than adding to it. `width: 10; height: 6; border-style:
+  solid` is 10 columns wide and 6 rows tall in total, 2 of which (top and
+  bottom) are its own border rules. Under an explicit `box-sizing:
+  content-box`, both axes instead read as a pure content size, with border
+  and padding adding on top: the same box is 10 + 2 = 12 columns wide and
+  6 + 2 = 8 rows tall. A height too small to fit its own border and padding
+  floors at 1 content line rather than disappearing, the same floor a
+  too-small `width` already has (CSS never lets border and padding shrink
+  content below 0): `height: 1; border-style: solid` is 3 rows tall, not 2,
+  its one content line intact. `width: 100%` under `content-box` combined
+  with padding or a border can produce a box wider than its container, the
+  classic browser box-model gotcha the `border-box` default exists to
+  avoid; an ordinary block in that state paints past its own right edge,
+  the same as any other box whose unbreakable content exceeds its `width`
+  (see that entry below).
+
+  Before `box-sizing` existed, `width` unconditionally behaved like
+  `border-box` and `height` unconditionally behaved like `content-box`, an
+  asymmetric mix neither real value produces on its own. Implementing
+  `box-sizing` for real, defaulting to `border-box`, reproduces the old
+  `width` behavior exactly (it already was border-box-shaped) but changes
+  the old `height` behavior for anyone combining an explicit `height` with
+  padding or a border (it was always content-box-shaped, and now needs an
+  explicit `box-sizing: content-box` to get that back). This is a real,
+  visible output change on upgrade for that combination, matching what
+  adopting a Bootstrap-style reset changes on a real page too, not an
+  oversight.
+
+  `width`'s own margin-subtraction behavior predates `box-sizing` and is
+  independent of it: a declared `width`, under either value, still has
+  horizontal margin subtracted out of it before border and padding are
+  considered, so that `width: 100%` lines up exactly with the terminal's
+  width. That is not what real CSS's own `border-box`/`content-box`
+  distinction means (both real modes exclude margin from the box entirely);
+  it is layered on top of it, the same way it always has been. `height` was
+  never adjusted for margin this way and still isn't.
+
+  **Table cells (`<th>`/`<td>`) are a compatibility gap here, not a spec
+  exception.** Real CSS applies `box-sizing` to table cells exactly like any
+  other box (CSS Box Sizing Module Level 3 states it applies to "all
+  elements that accept width or height," internal table elements included,
+  and every mainstream browser honors `box-sizing: border-box` on a `<td>`
+  the same way it does on a `<div>`); nothing in spec singles tables out.
+  htmlterm's cells simply don't read the property yet. Their column-width
+  algorithm resolves a declared `width` through a different, older
+  mechanism than `renderBlockContentBox`'s, one that predates this section
+  and already behaves like neither real value on its own: it subtracts a
+  cell's padding from its declared width, `border-box`-shaped, but adds
+  border characters on top as separate overhead reserved outside that width
+  entirely, `content-box`-shaped. Implementing real `box-sizing` there needs
+  that existing mixed model replaced with an actual `content-box`/
+  `border-box` pair first, which is a rewrite of `sizeColumns`'s fixed-column
+  branch and the border-overhead accounting around it, not a small
+  extension of the general-box work above. See `docs/TABLES.md`.
 - **A percentage height needs `Options.Height` to resolve at the root.** CSS
   resolves a percentage `height`/`min-height`/`max-height` against the
   containing block's height only when that height is definite, and to `auto`
@@ -329,7 +386,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
   what makes `width: 100%` line up exactly with the renderer's width. Every
   main-axis size flex layout resolves is an outer size in the same sense,
   including `column` direction's heights: a `flex-basis: 4` bordered column
-  item is 4 rows tall in total, two of which are its own border rules.
+  item is 4 rows tall in total, two of which are its own border rules. This
+  makes a flex item's main-axis size exempt from `box-sizing`: it always
+  behaves like `border-box` there, regardless of what the item's own
+  `box-sizing` resolves to for anything else about it (a real declared
+  height on a `row`-direction item, say, still honors its own `box-sizing`
+  normally, only the synthesized main-axis size is exempt). Distribution,
+  wrapping, and the anti-corruption clip below all depend on the main-axis
+  size meaning the item's whole outer box; a flex container's own outer box
+  is not exempt and follows `box-sizing` the same as any other block box.
 - **An atomic inline box taller than one line breaks the line it sits in.**
   `inline-block` and `inline-flex` elements are rendered as one indivisible
   unit and spliced into the surrounding inline flow; when that unit is more
@@ -552,10 +617,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   etc.) that let a non-`<table>` element opt into table layout; only a
   literal `<table>`/`<tr>`/`<td>`/`<th>` element tree gets table treatment
   here; `float`/`clear`.
-- **`box-sizing`.** Parses without error but is always a no-op; there's no
-  `content-box`/`border-box` distinction because htmlterm's box model
-  always behaves like `border-box` (padding/border are subtracted from a
-  declared `width`/`height`, not added on top of it).
 - **`outline`/`outline-offset`.** No separate box-decoration layer outside
   the border exists to draw one on; use `border`/`border-style` directly
   (including on `:focus`) for a terminal-native focus ring instead.
