@@ -114,19 +114,19 @@ func padLinesToWidth(content string, width int) string {
 	return result
 }
 
+// drawBlockHBorder draws a block box's own top or bottom border rule: an
+// optional corner glyph at each end, and fill tiled across whatever width
+// remains. An unset corner stays empty rather than falling back to fill: for
+// a single-character fill the two look identical (the fill glyph reaches the
+// very end either way), but falling back would print fill's *entire* string
+// as a second corner for a multi-character fill like `border-top: "=-"`,
+// double-counting it at both ends instead of tiling it seamlessly through.
 func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int, p colorprofile.Profile) string {
 	if fill == "" || fill == "none" || width <= 0 {
 		return ""
 	}
-	lc := leftCorner
-	if lc == "" {
-		lc = fill
-	}
-	rc := rightCorner
-	if rc == "" {
-		rc = fill
-	}
-	return drawHRule([]int{max(0, width-textcell.Width(lc)-textcell.Width(rc))}, fill, color, lc, "", rc, p)
+	segWidth := width - textcell.Width(leftCorner) - textcell.Width(rightCorner)
+	return drawHRule([]int{max(0, segWidth)}, fill, color, leftCorner, "", rightCorner, p)
 }
 
 func resolveCSSSize(s string, availWidth int) (int, bool) {
@@ -666,6 +666,15 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	if heightLines > 0 || minH > 0 || maxH > 0 {
 		lines := b.lines
 		blank := strings.Repeat(" ", innerW)
+		// An empty box's one line is "", not innerW spaces, unless needsAlign
+		// already padded it above. Every row this block appends below is a
+		// full-width blank, so the pre-existing row needs the same width or
+		// the box comes out with one short line among otherwise-full ones
+		// (visible as a ragged left edge under a solid background or a
+		// closing border rule two rows down).
+		if contentEmpty {
+			lines = []string{blank}
+		}
 		if heightLines > 0 {
 			// Fixed height takes priority over min/max.
 			switch ovY {

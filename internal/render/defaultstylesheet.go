@@ -56,7 +56,13 @@ q::before               { content: open-quote; }
 q::after                { content: close-quote; }
 img::before             { content: attr(alt); }
 abbr[title]::after      { content: " (" attr(title) ")"; }
-hr                      { display: block; border-top: "─"; }
+/* The three explicit "none"s keep hr a single rule under an author's own
+   border-style preset. Without them, a preset's unclaimed bottom/left/right
+   edges would fill in around this rule's own border-top, turning what
+   should stay one line into a lopsided two-line box. Style hr's line with
+   border-top (a literal glyph, or the per-edge preset form, e.g.
+   border-top: double), not border-style; see CSS.md's hr entry. */
+hr                      { display: block; border-top: "─"; border-right: none; border-bottom: none; border-left: none; }
 form                    { display: block; }
 fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
 legend                  { display: block; font-weight: bold; }

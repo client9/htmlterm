@@ -84,6 +84,22 @@ th { color: #ffffff; background-color: #005f87; }
 		Width: 22,
 	},
 	{
+		Slug:        "hr-styles",
+		Title:       "Styling the hr rule",
+		Description: "hr is an ordinary bordered block box with only border-top set (CSS.md): a quoted character, a multi-character pattern tiled to the box's exact width, and border-top's per-edge preset form for a themed line. border-style itself only reaches hr's corners here, not its default character, since the UA stylesheet already claims border-top.",
+		HTML: `<div>default</div>
+<hr>
+<div>custom character</div>
+<hr style="border-top: '='">
+<div>tiled pattern</div>
+<hr style="border-top: '=-'">
+<div>double preset, colored</div>
+<hr style="border-top: double; border-top-color: #5fafff">
+<div>heavy preset</div>
+<hr style="border-top: heavy">`,
+		Width: 24,
+	},
+	{
 		Slug:        "hyperlink-and-overflow",
 		Title:       "OSC 8 hyperlinks and text-overflow",
 		Description: "a link renders as a real OSC 8 terminal hyperlink, clickable in a supporting terminal, and text-overflow:ellipsis truncates a fixed-width cell instead of wrapping it.",

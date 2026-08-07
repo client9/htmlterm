@@ -107,6 +107,34 @@ output, not a screenshot or a hand-styled approximation.</p>
 </pre>
 </section>
 <section>
+<h2>Styling the hr rule</h2>
+<p>hr is an ordinary bordered block box with only border-top set (CSS.md): a quoted character, a multi-character pattern tiled to the box&#39;s exact width, and border-top&#39;s per-edge preset form for a themed line. border-style itself only reaches hr&#39;s corners here, not its default character, since the UA stylesheet already claims border-top.</p>
+<h3>Input</h3>
+<pre class="input">&lt;div&gt;default&lt;/div&gt;
+&lt;hr&gt;
+&lt;div&gt;custom character&lt;/div&gt;
+&lt;hr style=&#34;border-top: &#39;=&#39;&#34;&gt;
+&lt;div&gt;tiled pattern&lt;/div&gt;
+&lt;hr style=&#34;border-top: &#39;=-&#39;&#34;&gt;
+&lt;div&gt;double preset, colored&lt;/div&gt;
+&lt;hr style=&#34;border-top: double; border-top-color: #5fafff&#34;&gt;
+&lt;div&gt;heavy preset&lt;/div&gt;
+&lt;hr style=&#34;border-top: heavy&#34;&gt;</pre>
+<h3>Output</h3>
+<pre style="background-color:#1e1e1e;color:#d4d4d4;margin:0">
+default
+────────────────────────
+custom character
+========================
+tiled pattern
+=-=-=-=-=-=-=-=-=-=-=-=-
+double preset, colored
+<span style="color:#5fafff;">════════════════════════</span>
+heavy preset
+━━━━━━━━━━━━━━━━━━━━━━━━
+</pre>
+</section>
+<section>
 <h2>OSC 8 hyperlinks and text-overflow</h2>
 <p>a link renders as a real OSC 8 terminal hyperlink, clickable in a supporting terminal, and text-overflow:ellipsis truncates a fixed-width cell instead of wrapping it.</p>
 <h3>Input</h3>

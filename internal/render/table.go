@@ -6,6 +6,8 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/client9/htmlterm/internal/textcell"
 )
 
 // hBorder describes one horizontal outer-edge rule (top or bottom) for a
@@ -305,9 +307,10 @@ func effectiveMinMax(c colConstraints, contentWidth int) (minW, maxW int) {
 	return
 }
 
-// drawHRule builds a horizontal line: left + (fill×segments[0]) + junction +
-// (fill×segments[1]) + ... + right, all colored with color. Returns "" when
-// fill is empty or "none". No trailing newline is added.
+// drawHRule builds a horizontal line: left + (fill tiled to segments[0]
+// columns) + junction + (fill tiled to segments[1] columns) + ... + right,
+// all colored with color. Returns "" when fill is empty or "none". No
+// trailing newline is added.
 func drawHRule(segments []int, fill, color, left, junction, right string, p colorprofile.Profile) string {
 	if fill == "" || fill == "none" || len(segments) == 0 {
 		return ""
@@ -316,13 +319,43 @@ func drawHRule(segments []int, fill, color, left, junction, right string, p colo
 	var sb strings.Builder
 	sb.WriteString(paint(left))
 	for i, w := range segments {
-		sb.WriteString(paint(strings.Repeat(fill, w)))
+		sb.WriteString(paint(tileFillToWidth(fill, w)))
 		if i < len(segments)-1 {
 			sb.WriteString(paint(junction))
 		}
 	}
 	sb.WriteString(paint(right))
 	return sb.String()
+}
+
+// tileFillToWidth repeats fill until it reaches exactly width columns. fill
+// is usually a single character, and `strings.Repeat(fill, width)` would be
+// enough on its own, but border-top and border-bottom also accept a
+// multi-character literal (`border-top: "=-"`), documented in CSS.md as
+// repeating to make a patterned rule. Repeating a multi-column fill by count
+// rather than by column overshoots the box's own width, since a segment's
+// column budget and its rune count are different numbers for anything wider
+// than one column. The last, partial repetition is truncated to the exact
+// column that remains and padded with spaces if the fill's own grapheme
+// boundaries don't land on it, matching the "pad plain text to fixed width
+// first" rule every other fixed-width row in this package follows.
+func tileFillToWidth(fill string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	unit := textcell.Width(fill)
+	if unit <= 0 {
+		return strings.Repeat(" ", width)
+	}
+	full := width / unit
+	var b strings.Builder
+	b.WriteString(strings.Repeat(fill, full))
+	if remaining := width - full*unit; remaining > 0 {
+		prefix := textcell.VisiblePrefix(fill, remaining)
+		b.WriteString(prefix)
+		b.WriteString(strings.Repeat(" ", remaining-textcell.Width(prefix)))
+	}
+	return b.String()
 }
 
 // makePainter returns a function that applies a border color if set.

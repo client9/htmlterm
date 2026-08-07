@@ -8,6 +8,7 @@ Regenerate after any rendering change; nothing here is hand-edited.
 - [Named border-style presets](table-border-styles.md) — border-style is a terminal-native extension (CSS.md), not a real CSS keyword set: solid, rounded, heavy, and double each pick a different box-drawing character set.
 - [Lists](ordered-and-unordered-lists.md) — list-style-type on an ordered and an unordered list, including a custom start value.
 - [A flex row with gap and colored items](flex-row-with-gap.md) — display:flex, gap, and per-item background-color, the shape of a tag list or status strip.
+- [Styling the hr rule](hr-styles.md) — hr is an ordinary bordered block box with only border-top set (CSS.md): a quoted character, a multi-character pattern tiled to the box's exact width, and border-top's per-edge preset form for a themed line. border-style itself only reaches hr's corners here, not its default character, since the UA stylesheet already claims border-top.
 - [OSC 8 hyperlinks and text-overflow](hyperlink-and-overflow.md) — a link renders as a real OSC 8 terminal hyperlink, clickable in a supporting terminal, and text-overflow:ellipsis truncates a fixed-width cell instead of wrapping it.
 
 See also [gallery.html](gallery.html), the same examples as a single

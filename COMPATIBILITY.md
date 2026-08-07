@@ -437,7 +437,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **Literal-glyph border values.** In `border-left: "▌"` or
   `border-top: "═"`, a quoted string sets that exact character directly. This
   is the engine's original, and still primary, way to use arbitrary
-  box-drawing characters that have no named-preset equivalent.
+  box-drawing characters that have no named-preset equivalent. More than one
+  character (`border-top: "=-"`) tiles as a repeating pattern across the
+  box's exact width rather than repeating by character count, real CSS having
+  no equivalent to a literal repeating border glyph at all. `<hr>` is the
+  most direct use of this: its UA default is `border-top: "─"`, so this is
+  also the property that changes the rule's own character (see CSS.md's `hr`
+  entry).
 - **`border-*-corner`** supplies literal corner-glyph overrides for any bordered
   box; real CSS has no per-corner styling concept at all. **`border-style`**
   naming a *complete glyph-set preset* (`solid`/`rounded`/`heavy`/`double`/

@@ -1308,6 +1308,10 @@ func TestNewHTMLElements(t *testing.T) {
 		{name: "hr between paragraphs", html: `<p>above</p><hr><p>below</p>`, width: 5, want: "above\n\n─────\nbelow\n\n"},
 		{name: "hr character override via CSS", css: `hr { border-top: "="; }`, html: `<hr>`, width: 5, want: "=====\n"},
 		{name: "hr color override via CSS", css: `hr { border-top-color: #ff0000; }`, html: `<hr>`, width: 5, want: "─────\n"},
+		{name: "hr multi-character fill tiles to exact width, not repeat-by-count", css: `hr { border-top: "=-"; }`, html: `<hr>`, width: 5, want: "=-=-=\n"},
+		{name: "hr preset via border-top shorthand keeps a single rule", css: `hr { border-top: double; }`, html: `<hr>`, width: 5, want: "═════\n"},
+		{name: "hr stays a single rule under border-style (regression: used to add a phantom bottom edge)", css: `hr { border-style: double; }`, html: `<hr>`, width: 5, want: "╔───╗\n"},
+		{name: "hr with explicit height pads every content row to full width (regression: first row used to be 0-width)", css: `hr { height: 2; }`, html: `<hr>`, width: 5, want: "─────\n     \n     \n"},
 
 		// noscript
 		{name: "noscript content renders (no JS in terminal)", html: `<noscript><p>no js</p></noscript>`, want: "no js\n\n"},
