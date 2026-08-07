@@ -223,6 +223,39 @@ func borderBoxContentHeight(decls map[string]string, h int) int {
 	return h
 }
 
+// horizontalBorderPadding is how many columns of a box's total painted width
+// are its own left and right border characters and padding. Margin is
+// deliberately excluded, unlike flex.go's blockHorizontalChrome, which folds
+// margin in for the different job of narrowing an available width down to a
+// content budget. It is verticalChrome's horizontal counterpart, taking the
+// caller's already-resolved border edges and padding directly for the same
+// reason: a caller resolving a width alongside min-width and max-width would
+// otherwise pay for resolveBoxBorders three times over for a value that
+// never changes.
+func horizontalBorderPadding(bl, br blockBorder, pl, pr int) int {
+	return textcell.Width(bl.char) + textcell.Width(br.char) + pl + pr
+}
+
+// borderBoxContentWidth converts a resolved width/min-width/max-width total
+// (totalW, the box's margin box per this engine's convention: see
+// ARCHITECTURE.md's block border box model invariant) to a content width, in
+// whichever units box-sizing calls for. border-box subtracts margin, border,
+// and padding; content-box (real CSS's own initial value) subtracts margin
+// only, leaving border and padding to be added back on top by the caller,
+// same as `hBorderWidth = chrome + inner` does below. Floored at 1 for the
+// same reason a too-small border-box height floors: CSS never lets border
+// and padding shrink content below 0. Shared by renderBlockContentBox
+// (block.go) and renderFlexContentBox (flex.go), so a flex container's own
+// width, not just an ordinary block's, converts the same way. See
+// docs/proposals/BOX_SIZING.md.
+func borderBoxContentWidth(borderBox bool, totalW, ml, mr, chrome int) int {
+	inner := totalW - ml - mr
+	if borderBox {
+		inner -= chrome
+	}
+	return max(1, inner)
+}
+
 func resolveWidthConstraints(decls map[string]string, availWidth, naturalWidth int) (width int, constrained bool) {
 	width = naturalWidth
 	if w, ok := resolveCSSSize(decls["width"], availWidth); ok {
@@ -482,34 +515,30 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
-		var inner int
-		if isBorderBox(decls) {
-			// border-box (the UA default): totalW is the box's whole outer
-			// width, margins included, so border and padding come out of it.
-			inner = totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
-		} else {
-			// content-box (real CSS's initial value, reached only by an
-			// explicit override): totalW is the margin box, same as border-box,
-			// since margin-subtraction predates box-sizing and is independent of
-			// it (see COMPATIBILITY.md and ARCHITECTURE.md's "width: 100%" block
-			// border box model invariant); only border and padding are excluded
-			// from totalW here rather than subtracted out of it. So this box's
-			// outer width, border and padding included, can legitimately exceed
-			// availWidth once margins are accounted for. That overflow is left
-			// alone here, the same as any other box whose unbreakable content
-			// exceeds its width: it paints past its own border rather than being
-			// clipped implicitly. See docs/proposals/BOX_SIZING.md.
-			inner = totalW - ml - mr
-		}
+		// border-box (the UA default): totalW is the box's whole outer width,
+		// margins included, so border and padding come out of it too.
+		//
+		// content-box (real CSS's initial value, reached only by an explicit
+		// override): totalW is the margin box, same as border-box, since
+		// margin-subtraction predates box-sizing and is independent of it (see
+		// COMPATIBILITY.md and ARCHITECTURE.md's "width: 100%" block border
+		// box model invariant); only border and padding are excluded from
+		// totalW here rather than subtracted out of it. So this box's outer
+		// width, border and padding included, can legitimately exceed
+		// availWidth once margins are accounted for. That overflow is left
+		// alone here, the same as any other box whose unbreakable content
+		// exceeds its width: it paints past its own border rather than being
+		// clipped implicitly. See docs/proposals/BOX_SIZING.md.
+		//
 		// A width too small to fit this element's own border and padding is
-		// clamped to a 1-column minimum rather than discarded. CSS itself
-		// never lets border and padding shrink content below 0, so "too small
-		// to fit" isn't a reason to fall back to full auto or shrink-wrap
-		// sizing, which silently ignored the width declaration entirely.
-		if inner < 1 {
-			inner = 1
-		}
-		hBorderWidth = textcell.Width(bl.char) + pl + inner + pr + textcell.Width(br.char)
+		// clamped to a 1-column minimum rather than discarded
+		// (borderBoxContentWidth's own floor). CSS itself never lets border
+		// and padding shrink content below 0, so "too small to fit" isn't a
+		// reason to fall back to full auto or shrink-wrap sizing, which
+		// silently ignored the width declaration entirely.
+		chrome := horizontalBorderPadding(bl, br, pl, pr)
+		inner := borderBoxContentWidth(borderBox, totalW, ml, mr, chrome)
+		hBorderWidth = chrome + inner
 		hasExplicitWidth = true
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {

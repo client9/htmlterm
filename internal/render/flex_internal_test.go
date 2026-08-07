@@ -378,3 +378,84 @@ func TestParseFlexSizeValZeroIsUnitless(t *testing.T) {
 		})
 	}
 }
+
+// TestMainAxisWidthBoundMirrorsHeightAxis is a regression test for a bug
+// caught during code review: mainAxisHeightBound converts a content-box
+// min-height/max-height to the outer size flex layout compares it against,
+// but its row-direction counterpart didn't exist at all, so
+// flexGrowCeiling, clampFlexWidth, flexMainAxisFloor, and resolveMainBasis
+// all compared a raw content-box min-width/max-width value directly against
+// an outer main-axis size. A bordered content-box item stopped growing (or
+// floored while shrinking) its own chrome short of the declared bound. See
+// mainAxisWidthBound and mainAxisHeightBound.
+//
+// Unlike mainAxisHeightBound, mainAxisWidthBound's content-box conversion
+// adds margin as well as border and padding: a flex item's width-axis size
+// bakes in horizontal margin the way every other width does in this engine
+// (ARCHITECTURE.md's block border box model invariant), where a
+// column-direction item's height never bakes in vertical margin.
+func TestMainAxisWidthBoundMirrorsHeightAxis(t *testing.T) {
+	tests := []struct {
+		name  string
+		decls map[string]string
+		v     int
+		want  int
+	}{
+		{
+			name:  "border-box needs no conversion, v is already the outer size",
+			decls: map[string]string{"box-sizing": "border-box", "border-style": "solid"},
+			v:     4,
+			want:  4,
+		},
+		{
+			name:  "content-box adds border and padding back on",
+			decls: map[string]string{"box-sizing": "content-box", "border-style": "solid", "padding-left": "1", "padding-right": "1"},
+			v:     4,
+			want:  4 + 2 + 2, // 2 border chars + 2 padding columns
+		},
+		{
+			name:  "content-box also adds horizontal margin, unlike the height axis",
+			decls: map[string]string{"box-sizing": "content-box", "margin-left": "2", "margin-right": "3"},
+			v:     4,
+			want:  4 + 2 + 3,
+		},
+		{
+			name:  "unset box-sizing is content-box, real CSS's own initial value",
+			decls: map[string]string{"border-style": "solid"},
+			v:     4,
+			want:  4 + 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mainAxisWidthBound(tt.decls, tt.v, 20); got != tt.want {
+				t.Errorf("mainAxisWidthBound(%v, %d) = %d, want %d", tt.decls, tt.v, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFlexGrowCeilingConvertsContentBoxMaxWidth is a regression test for the
+// same bug TestMainAxisWidthBoundMirrorsHeightAxis pins, at flexGrowCeiling's
+// own call site: growFlexLine used this ceiling uncapped by the item's own
+// chrome, so a content-box item with a border grew past its declared
+// max-width by exactly that border.
+func TestFlexGrowCeilingConvertsContentBoxMaxWidth(t *testing.T) {
+	decls := map[string]string{"box-sizing": "content-box", "border-style": "solid", "max-width": "4"}
+	if got := flexGrowCeiling(decls, "max-width", 20); got != 6 {
+		t.Errorf("flexGrowCeiling = %d, want 6 (4 content columns + 2 border columns)", got)
+	}
+}
+
+// TestClampFlexWidthConvertsContentBoxBounds is clampFlexWidth's half of the
+// same regression: min-width and max-width both need mainAxisWidthBound's
+// conversion, not a raw comparison against an outer flex size.
+func TestClampFlexWidthConvertsContentBoxBounds(t *testing.T) {
+	decls := map[string]string{"box-sizing": "content-box", "border-style": "solid", "min-width": "4", "max-width": "8"}
+	if got := clampFlexWidth(decls, 3, 20); got != 6 {
+		t.Errorf("clampFlexWidth(3) = %d, want 6 (min-width 4 content columns + 2 border columns)", got)
+	}
+	if got := clampFlexWidth(decls, 20, 20); got != 10 {
+		t.Errorf("clampFlexWidth(20) = %d, want 10 (max-width 8 content columns + 2 border columns)", got)
+	}
+}

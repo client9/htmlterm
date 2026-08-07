@@ -53,3 +53,33 @@ func TestBoxSizingFlexMaxHeightClamps(t *testing.T) {
 		{name: "align-items:stretch stops at max-height's whole outer box under the border-box default", width: 10, html: `<div style="display:flex"><div style="max-height:3;border-style:solid">a</div><div>1<br>2<br>3<br>4<br>5<br>6<br>7<br>8</div></div>`, want: "┌─┐1      \n│a│2      \n└─┘3      \n   4      \n   5      \n   6      \n   7      \n   8      \n"},
 	})
 }
+
+// TestBoxSizingFlexMaxWidthClamps is flexGrowCeiling's row-direction
+// counterpart to TestBoxSizingFlexMaxHeightClamps, a regression test for a
+// bug caught during code review: flexGrowCeiling and clampFlexWidth compared
+// a declared min-width/max-width directly against an item's outer flex size
+// with no box-sizing conversion, unlike their already-fixed column-direction
+// counterparts (flexGrowHeightCeiling, clampFlexMainHeight). A content-box
+// item's max-width:4 grew to 4 total columns instead of 4 content columns
+// plus its own border; see mainAxisWidthBound.
+func TestBoxSizingFlexMaxWidthClamps(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "flex-grow stops at max-width's whole outer box under content-box", width: 20, html: `<div style="display:flex;width:20"><div style="flex-grow:1;max-width:4;box-sizing:content-box;border-style:solid">a</div></div>`, want: "┌────┐              \n│a   │              \n└────┘              \n"},
+	})
+}
+
+// TestBoxSizingFlexItemMarginNotDoubleSubtracted is a regression test for a
+// bug caught during code review: renderFlexItemBoxSized's width override
+// pre-subtracted blockHorizontalChrome, which folds in horizontal margin, to
+// convert a content-box item's flex-resolved outer size into the content
+// width block.go's own formula expects. But block.go's content-box width
+// formula already subtracts margin from the declared width on its own
+// (margin-subtraction predates box-sizing), so a margined content-box flex
+// item lost its margin's width twice, painting margin-left + margin-right
+// columns narrower than its flex-basis. See
+// contentBoxAdjustedOverride and blockHorizontalBorderPadding.
+func TestBoxSizingFlexItemMarginNotDoubleSubtracted(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "a content-box flex item with margin still paints its whole flex-basis, margin included", width: 20, html: `<div style="display:flex"><div style="flex-basis:12;margin-left:2;box-sizing:content-box;border-style:solid">a</div></div>`, want: "  ┌────────┐        \n  │a       │        \n  └────────┘        \n"},
+	})
+}

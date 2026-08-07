@@ -299,14 +299,18 @@ func (r *Engine) flexMainAxisHeightFloor(it, renderIt flexItem, width, contentHe
 	if renderH > 0 {
 		floor = r.measureContentHeight(renderIt, width)
 	}
+	// height and max-height share one chrome resolution via
+	// mainAxisHeightBoundFunc rather than each paying for their own
+	// resolveBoxBorders call when both are declared.
+	bound := mainAxisHeightBoundFunc(it.decls)
 	if h, ok := resolveFlexCSSSize(it.decls["height"], axisSize); ok {
-		if bound := mainAxisHeightBound(it.decls, h); bound < floor {
-			floor = bound
+		if b := bound(h); b < floor {
+			floor = b
 		}
 	}
 	if m, ok := resolveFlexCSSSize(it.decls["max-height"], axisSize); ok {
-		if bound := mainAxisHeightBound(it.decls, m); bound < floor {
-			floor = bound
+		if b := bound(m); b < floor {
+			floor = b
 		}
 	}
 	return max(1, floor)
@@ -362,7 +366,7 @@ func (r *Engine) measureContentHeight(it flexItem, width int) int {
 // the min-content measurement is a second trial render per item.
 func (r *Engine) flexMainAxisFloor(it flexItem, innerW int) int {
 	if v, ok := resolveFlexCSSSize(it.decls["min-width"], innerW); ok {
-		return max(1, v)
+		return max(1, mainAxisWidthBound(it.decls, v, innerW))
 	}
 	if !isVisibleOverflow(it.decls["overflow-x"]) {
 		return 1
@@ -372,13 +376,23 @@ func (r *Engine) flexMainAxisFloor(it flexItem, innerW int) int {
 	// does: `width: 0` is a specified size suggestion of nothing and
 	// `max-width: 0` a definite maximum of nothing, and treating either as
 	// absent would leave the item floored at its content after the author
-	// asked for the opposite.
+	// asked for the opposite. Both are also converted through
+	// mainAxisWidthBoundFunc, the same as min-width above: width and
+	// max-width are read here as ordinary CSS lengths in whatever box model
+	// the item's own box-sizing calls for, floor is compared in outer,
+	// main-axis terms, and the two share one chrome resolution rather than
+	// each paying for their own resolveBoxBorders call.
 	floor := r.measureMinContentWidth(it)
-	if w, ok := resolveFlexCSSSize(it.decls["width"], innerW); ok && w < floor {
-		floor = w
+	bound := mainAxisWidthBoundFunc(it.decls, innerW)
+	if w, ok := resolveFlexCSSSize(it.decls["width"], innerW); ok {
+		if b := bound(w); b < floor {
+			floor = b
+		}
 	}
-	if m, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok && m < floor {
-		floor = m
+	if m, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok {
+		if b := bound(m); b < floor {
+			floor = b
+		}
 	}
 	return max(1, floor)
 }
@@ -472,26 +486,32 @@ func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
 	return abs, true
 }
 
-// flexGrowCeiling resolves how far flex-grow may increase an item's main-axis
-// size: an explicit max-width in row direction or max-height in column
-// direction, including a percentage resolved against axisSize, if set. It
-// returns 0 to mean uncapped.
+// flexGrowCeiling resolves how far flex-grow may increase a row-direction
+// item's main-axis size: an explicit max-width, including a percentage
+// resolved against axisSize, if set. It returns 0 to mean uncapped.
 //
 // Resolved through resolveFlexCSSSize, so a declared zero is a real maximum
 // rather than an absent one. That is the same distinction min-width already
 // needs (see parseFlexSizeVal), read from the other end. `max-width: 0` asks
 // for an item that doesn't grow at all; reading it as "no ceiling" let such an
-// item absorb the whole line. The ceiling is still floored at one cell, since
-// no box here renders in zero columns, which is also what keeps 0 usable as
-// this function's "uncapped" sentinel.
+// item absorb the whole line.
+//
+// mainAxisWidthBound converts a content-box max-width by adding the item's
+// own horizontal chrome, margin included, back before the ceiling is
+// compared against a main size; a border-box max-width already is that outer
+// size. Without this conversion, a bordered content-box item stopped growing
+// exactly its own chrome short of its max-width, and a margined one stopped
+// short by its margin too. The ceiling is still floored at one cell, since no
+// box here renders in zero columns, which is also what keeps 0 usable as this
+// function's "uncapped" sentinel.
 func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
 	if v, ok := resolveFlexCSSSize(decls[key], axisSize); ok {
-		return max(1, v)
+		return max(1, mainAxisWidthBound(decls, v, axisSize))
 	}
 	return 0
 }
 
-// flexGrowHeightCeiling is flexGrowCeiling on the vertical axis, where the
+// flexGrowHeightCeiling is flexGrowCeiling's vertical counterpart, where the
 // ceiling and the size it caps are not measured in the same box under a
 // content-box max-height. Flex layout resolves outer sizes, border rules
 // and padding rows included, so mainAxisHeightBound converts a content-box
@@ -499,8 +519,10 @@ func flexGrowCeiling(decls map[string]string, key string, axisSize int) int {
 // ceiling is compared against a main size; a border-box max-height already
 // is that outer size. Without this conversion, a bordered content-box item
 // stopped growing exactly its own border and padding rows short of its
-// max-height. Row direction needs no counterpart, since width is a
-// border-box size already.
+// max-height. mainAxisHeightBound, unlike flexGrowCeiling's
+// mainAxisWidthBound, adds no margin term: vertical margin is never baked
+// into a flex item's height-axis size the way horizontal margin is baked
+// into its width.
 func flexGrowHeightCeiling(decls map[string]string, axisSize int) int {
 	if v, ok := resolveFlexCSSSize(decls["max-height"], axisSize); ok {
 		return max(1, mainAxisHeightBound(decls, v))
@@ -509,13 +531,15 @@ func flexGrowHeightCeiling(decls map[string]string, axisSize int) int {
 }
 
 // clampFlexWidth clamps a resolved horizontal flex size to the item's own
-// min-width and max-width. In row direction that produces the spec's
-// "hypothetical main size", the size line-breaking and grow/shrink both start
-// from. In column direction it bounds the cross size. The maximum is applied
-// first and the minimum second, so a minimum larger than the maximum wins,
-// matching CSS's own min/max resolution order. clampFlexMainHeight is the
-// vertical counterpart, kept separate because min-height/max-height are
-// content-box here while flex sizes are outer.
+// min-width and max-width, both converted to the item's outer, margin-
+// inclusive width via mainAxisWidthBound. In row direction that produces the
+// spec's "hypothetical main size", the size line-breaking and grow/shrink
+// both start from. In column direction it bounds the cross size. The maximum
+// is applied first and the minimum second, so a minimum larger than the
+// maximum wins, matching CSS's own min/max resolution order.
+// clampFlexMainHeight is the vertical counterpart, kept separate because
+// mainAxisHeightBound's conversion has no margin term where
+// mainAxisWidthBound's does; see mainAxisWidthBound.
 //
 // Without this, an item's declared min/max still reached the item's *own*
 // render, since renderBlockContentBox resolves them in
@@ -530,11 +554,19 @@ func flexGrowHeightCeiling(decls map[string]string, axisSize int) int {
 // The result is still floored at one cell, since no box here renders in zero
 // columns.
 func clampFlexWidth(decls map[string]string, size, axisSize int) int {
-	if v, ok := resolveFlexCSSSize(decls["max-width"], axisSize); ok && size > v {
-		size = v
+	// max-width and min-width share one chrome resolution via
+	// mainAxisWidthBoundFunc rather than each paying for their own
+	// resolveBoxBorders call when both are declared.
+	bound := mainAxisWidthBoundFunc(decls, axisSize)
+	if v, ok := resolveFlexCSSSize(decls["max-width"], axisSize); ok {
+		if b := bound(v); size > b {
+			size = b
+		}
 	}
-	if v, ok := resolveFlexCSSSize(decls["min-width"], axisSize); ok && size < v {
-		size = v
+	if v, ok := resolveFlexCSSSize(decls["min-width"], axisSize); ok {
+		if b := bound(v); size < b {
+			size = b
+		}
 	}
 	return max(1, size)
 }
@@ -1266,8 +1298,17 @@ func (r *Engine) renderFlexItemBoxSized(it flexItem, availWidth, widthOverride, 
 		// allotment, so contentBoxAdjustedOverride pre-subtracts exactly
 		// what block.go's content-box formula would otherwise add back on
 		// top, reproducing the same outer size either way.
+		//
+		// The chrome here is border and padding only, via
+		// blockHorizontalBorderPadding, not blockHorizontalChrome's margin-
+		// inclusive total. block.go's content-box formula already subtracts
+		// margin from decls["width"] on its own (margin-subtraction predates
+		// box-sizing and is independent of it); folding margin into this
+		// pre-subtraction as well would remove it a second time and land a
+		// margined content-box item short by exactly its own horizontal
+		// margin.
 		target := contentBoxAdjustedOverride(decls, widthOverride, func() int {
-			return blockHorizontalChrome(decls, availWidth)
+			return blockHorizontalBorderPadding(decls)
 		})
 		decls["width"] = strconv.Itoa(target)
 		if isVisibleOverflow(decls["overflow-x"]) {
@@ -1429,11 +1470,56 @@ func blockVerticalChrome(decls map[string]string) int {
 // it needs blockVerticalChrome added back on to become comparable. This is
 // the conversion flexGrowHeightCeiling, flexMainAxisHeightFloor,
 // clampFlexMainHeight, and layoutFlexLine's stretch cap all share.
+//
+// A single conversion is mainAxisHeightBoundFunc(decls)(v): resolving
+// decls's own box-sizing and chrome once and reusing it turns whichever of
+// those callers converts two or three bounds for the same item, min-height,
+// height, and max-height among them, into one resolveBoxBorders call
+// instead of that many.
 func mainAxisHeightBound(decls map[string]string, v int) int {
+	return mainAxisHeightBoundFunc(decls)(v)
+}
+
+// mainAxisHeightBoundFunc is mainAxisHeightBound bound to decls, for a
+// caller converting more than one bound for the same item in one call. A
+// border-box item's chrome is never resolved at all, the returned closure
+// being the identity function, since chrome is lazy and the common default
+// box-sizing:border-box case has no reason to pay for a resolveBoxBorders
+// call it doesn't need.
+func mainAxisHeightBoundFunc(decls map[string]string) func(v int) int {
 	if isBorderBox(decls) {
-		return v
+		return func(v int) int { return v }
 	}
-	return v + blockVerticalChrome(decls)
+	chrome := blockVerticalChrome(decls)
+	return func(v int) int { return v + chrome }
+}
+
+// mainAxisWidthBound is mainAxisHeightBound's row-direction counterpart,
+// converting a min-width/max-width property value v into a bound comparable
+// against a flex item's own width-axis size. It adds blockHorizontalChrome,
+// not blockVerticalChrome: a flex item's width-axis size bakes in horizontal
+// margin the way every other width in this engine does (ARCHITECTURE.md's
+// block border box model invariant), where a column-direction item's height
+// never bakes in vertical margin, so the two conversions differ by exactly
+// that term. availWidth is the percentage basis for both max-width/min-width
+// itself and the margin blockHorizontalChrome resolves, the same basis a
+// margin percentage always resolves against: the containing block's width.
+// This is the conversion flexGrowCeiling, clampFlexWidth, and
+// flexMainAxisFloor share. mainAxisWidthBoundFunc is this function bound to
+// decls and availWidth, resolving chrome at most once for a caller like
+// clampFlexWidth or flexMainAxisFloor that converts more than one bound for
+// the same item in a single call, the same way mainAxisHeightBoundFunc does
+// on the vertical axis.
+func mainAxisWidthBound(decls map[string]string, v, availWidth int) int {
+	return mainAxisWidthBoundFunc(decls, availWidth)(v)
+}
+
+func mainAxisWidthBoundFunc(decls map[string]string, availWidth int) func(v int) int {
+	if isBorderBox(decls) {
+		return func(v int) int { return v }
+	}
+	chrome := blockHorizontalChrome(decls, availWidth)
+	return func(v int) int { return v + chrome }
 }
 
 // blockHorizontalChrome is how many columns of a box's total painted width are
@@ -1453,6 +1539,19 @@ func blockHorizontalChrome(decls map[string]string, availWidth int) int {
 	mr, _ := resolveMarginSide(decls["margin-right"], availWidth)
 	return ml + mr + textcell.Width(bl.char) + textcell.Width(br.char) +
 		parsePaddingLen(decls["padding-left"]) + parsePaddingLen(decls["padding-right"])
+}
+
+// blockHorizontalBorderPadding is horizontalBorderPadding's (block.go)
+// decls-based convenience wrapper, for a caller like
+// contentBoxAdjustedOverride's width call site that only has decls in scope.
+// It is not blockHorizontalChrome: that function folds horizontal margin in,
+// which is right for narrowing an available width down to a content budget
+// but wrong for a content-box override's own pre-subtraction, since block.go's
+// content-box width formula already subtracts margin out of the declared
+// width on its own.
+func blockHorizontalBorderPadding(decls map[string]string) int {
+	bl, br, _, _, _, _, _, _ := resolveBoxBorders(decls)
+	return horizontalBorderPadding(bl, br, parsePaddingLen(decls["padding-left"]), parsePaddingLen(decls["padding-right"]))
 }
 
 // parseColumnFlexBasis resolves a column-direction flex item's flex-basis to
@@ -1489,14 +1588,18 @@ func parseColumnFlexBasis(decls map[string]string, containerHeight int) (int, bo
 // they're already border-box. Maximum first and minimum second, so a minimum
 // larger than a maximum wins, CSS's own min/max resolution order.
 func clampFlexMainHeight(decls map[string]string, size, containerHeight int) int {
+	// max-height and min-height share one chrome resolution via
+	// mainAxisHeightBoundFunc rather than each paying for their own
+	// resolveBoxBorders call when both are declared.
+	bound := mainAxisHeightBoundFunc(decls)
 	if v, ok := resolveFlexCSSSize(decls["max-height"], containerHeight); ok {
-		if bound := mainAxisHeightBound(decls, v); size > bound {
-			size = bound
+		if b := bound(v); size > b {
+			size = b
 		}
 	}
 	if v, ok := resolveFlexCSSSize(decls["min-height"], containerHeight); ok {
-		if bound := mainAxisHeightBound(decls, v); size < bound {
-			size = bound
+		if b := bound(v); size < b {
+			size = b
 		}
 	}
 	return max(1, size)
@@ -1599,8 +1702,10 @@ func (r *Engine) resolveMainBasis(it flexItem, innerW int) (base, hypo int) {
 	// one, else the automatic minimum size, itself already clamped by any
 	// definite maximum, per CSS Sizing 3 §5.1.
 	hypo = base
-	if v, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok && hypo > v {
-		hypo = v
+	if v, ok := resolveFlexCSSSize(it.decls["max-width"], innerW); ok {
+		if bound := mainAxisWidthBound(it.decls, v, innerW); hypo > bound {
+			hypo = bound
+		}
 	}
 	if floor := r.flexMainAxisFloor(it, innerW); hypo < floor {
 		hypo = floor
@@ -3034,19 +3139,15 @@ func (r *Engine) renderFlexContentBox(n *html.Node, decls map[string]string, ava
 	hasExplicitWidth := false
 	if totalW, constrained := resolveWidthConstraints(decls, availWidth, availWidth); constrained {
 		// A flex container's own outer box follows the same box-sizing rule
-		// as any other block box (block.go's identical branch, including
+		// as any other block box, through the same borderBoxContentWidth
+		// formula renderBlockContentBox (block.go) uses, including
 		// margin-subtraction applying under either value since it predates
-		// box-sizing). Only an item's main-axis sizing is exempt from
+		// box-sizing. Only an item's main-axis sizing is exempt from
 		// box-sizing, not the container's own width; see
 		// docs/proposals/BOX_SIZING.md.
-		var inner int
-		if isBorderBox(decls) {
-			inner = totalW - ml - textcell.Width(bl.char) - pl - pr - textcell.Width(br.char) - mr
-		} else {
-			inner = totalW - ml - mr
-		}
-		inner = max(1, inner)
-		hBorderWidth = textcell.Width(bl.char) + pl + inner + pr + textcell.Width(br.char)
+		chrome := horizontalBorderPadding(bl, br, pl, pr)
+		inner := borderBoxContentWidth(isBorderBox(decls), totalW, ml, mr, chrome)
+		hBorderWidth = chrome + inner
 		hasExplicitWidth = true
 	}
 	if (mlAuto || mrAuto) && hasExplicitWidth {
