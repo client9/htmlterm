@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 183.60 200.40" width="183.60" height="200.40" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+<rect x="0" y="0" width="183.60" height="200.40" fill="#1e1e1e"/>
+<text x="12.00" y="27.29" xml:space="preserve" fill="#888888">┌</text>
+<text x="20.40" y="27.29" xml:space="preserve" fill="#888888">───────</text>
+<text x="79.20" y="27.29" xml:space="preserve" fill="#888888">┬</text>
+<text x="87.60" y="27.29" xml:space="preserve" fill="#888888">─────────</text>
+<text x="163.20" y="27.29" xml:space="preserve" fill="#888888">┐</text>
+<text x="12.00" y="46.89" xml:space="preserve" fill="#888888">│</text>
+<text x="20.40" y="46.89" xml:space="preserve" fill="#d4d4d4"> </text>
+<rect x="28.80" y="31.60" width="42.00" height="19.60" fill="#005f87"/>
+<text x="28.80" y="46.89" xml:space="preserve" fill="#ffffff" font-weight="bold">Check</text>
+<text x="70.80" y="46.89" xml:space="preserve" fill="#d4d4d4"> </text>
+<text x="79.20" y="46.89" xml:space="preserve" fill="#888888">│</text>
+<text x="87.60" y="46.89" xml:space="preserve" fill="#d4d4d4"> </text>
+<rect x="96.00" y="31.60" width="67.20" height="19.60" fill="#005f87"/>
+<text x="96.00" y="46.89" xml:space="preserve" fill="#ffffff" font-weight="bold">Status  </text>
+<text x="163.20" y="46.89" xml:space="preserve" fill="#888888">│</text>
+<text x="12.00" y="66.49" xml:space="preserve" fill="#888888">├</text>
+<text x="20.40" y="66.49" xml:space="preserve" fill="#888888">───────</text>
+<text x="79.20" y="66.49" xml:space="preserve" fill="#888888">┼</text>
+<text x="87.60" y="66.49" xml:space="preserve" fill="#888888">─────────</text>
+<text x="163.20" y="66.49" xml:space="preserve" fill="#888888">┤</text>
+<text x="12.00" y="86.09" xml:space="preserve" fill="#888888">│</text>
+<text x="20.40" y="86.09" xml:space="preserve" fill="#d4d4d4"> build </text>
+<text x="79.20" y="86.09" xml:space="preserve" fill="#888888">│</text>
+<text x="87.60" y="86.09" xml:space="preserve" fill="#d4d4d4"> </text>
+<text x="96.00" y="86.09" xml:space="preserve" fill="#00d700" font-weight="bold">passing </text>
+<text x="163.20" y="86.09" xml:space="preserve" fill="#888888">│</text>
+<text x="12.00" y="105.69" xml:space="preserve" fill="#888888">├</text>
+<text x="20.40" y="105.69" xml:space="preserve" fill="#888888">───────</text>
+<text x="79.20" y="105.69" xml:space="preserve" fill="#888888">┼</text>
+<text x="87.60" y="105.69" xml:space="preserve" fill="#888888">─────────</text>
+<text x="163.20" y="105.69" xml:space="preserve" fill="#888888">┤</text>
+<text x="12.00" y="125.29" xml:space="preserve" fill="#888888">│</text>
+<text x="20.40" y="125.29" xml:space="preserve" fill="#d4d4d4"> lint  </text>
+<text x="79.20" y="125.29" xml:space="preserve" fill="#888888">│</text>
+<text x="87.60" y="125.29" xml:space="preserve" fill="#d4d4d4"> </text>
+<text x="96.00" y="125.29" xml:space="preserve" fill="#ff0000" font-weight="bold">failing </text>
+<text x="163.20" y="125.29" xml:space="preserve" fill="#888888">│</text>
+<text x="12.00" y="144.89" xml:space="preserve" fill="#888888">├</text>
+<text x="20.40" y="144.89" xml:space="preserve" fill="#888888">───────</text>
+<text x="79.20" y="144.89" xml:space="preserve" fill="#888888">┼</text>
+<text x="87.60" y="144.89" xml:space="preserve" fill="#888888">─────────</text>
+<text x="163.20" y="144.89" xml:space="preserve" fill="#888888">┤</text>
+<text x="12.00" y="164.49" xml:space="preserve" fill="#888888">│</text>
+<text x="20.40" y="164.49" xml:space="preserve" fill="#d4d4d4"> docs  </text>
+<text x="79.20" y="164.49" xml:space="preserve" fill="#888888">│</text>
+<text x="87.60" y="164.49" xml:space="preserve" fill="#d4d4d4"> </text>
+<text x="96.00" y="164.49" xml:space="preserve" fill="#d4d4d4" font-style="italic">pending </text>
+<text x="163.20" y="164.49" xml:space="preserve" fill="#888888">│</text>
+<text x="12.00" y="184.09" xml:space="preserve" fill="#888888">└</text>
+<text x="20.40" y="184.09" xml:space="preserve" fill="#888888">───────</text>
+<text x="79.20" y="184.09" xml:space="preserve" fill="#888888">┴</text>
+<text x="87.60" y="184.09" xml:space="preserve" fill="#888888">─────────</text>
+<text x="163.20" y="184.09" xml:space="preserve" fill="#888888">┘</text>
+</svg>

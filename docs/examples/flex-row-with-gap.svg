@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 208.80 43.60" width="208.80" height="43.60" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+<rect x="0" y="0" width="208.80" height="43.60" fill="#1e1e1e"/>
+<text x="12.00" y="27.29" xml:space="preserve" fill="#d4d4d4"> </text>
+<rect x="20.40" y="12.00" width="33.60" height="19.60" fill="#005f87"/>
+<text x="20.40" y="27.29" xml:space="preserve" fill="#ffffff">core</text>
+<text x="54.00" y="27.29" xml:space="preserve" fill="#d4d4d4">   </text>
+<rect x="79.20" y="12.00" width="50.40" height="19.60" fill="#5f8700"/>
+<text x="79.20" y="27.29" xml:space="preserve" fill="#ffffff">stable</text>
+<text x="129.60" y="27.29" xml:space="preserve" fill="#d4d4d4">   </text>
+<rect x="154.80" y="12.00" width="16.80" height="19.60" fill="#af5f00"/>
+<text x="154.80" y="27.29" xml:space="preserve" fill="#ffffff">v2</text>
+<text x="171.60" y="27.29" xml:space="preserve" fill="#d4d4d4">   </text>
+</svg>

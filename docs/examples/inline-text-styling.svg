@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 368.40 82.80" width="368.40" height="82.80" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+<rect x="0" y="0" width="368.40" height="82.80" fill="#1e1e1e"/>
+<text x="12.00" y="27.29" xml:space="preserve" fill="#ff5f5f">colored</text>
+<text x="70.80" y="27.29" xml:space="preserve" fill="#d4d4d4">, </text>
+<text x="87.60" y="27.29" xml:space="preserve" fill="#d4d4d4" font-weight="bold">bold</text>
+<text x="121.20" y="27.29" xml:space="preserve" fill="#d4d4d4">, </text>
+<text x="138.00" y="27.29" xml:space="preserve" fill="#d4d4d4" font-style="italic">italic</text>
+<text x="188.40" y="27.29" xml:space="preserve" fill="#d4d4d4">, </text>
+<text x="205.20" y="27.29" xml:space="preserve" fill="#d4d4d4" text-decoration="underline">underlined</text>
+<text x="289.20" y="27.29" xml:space="preserve" fill="#d4d4d4">, </text>
+<text x="306.00" y="27.29" xml:space="preserve" fill="#d4d4d4" text-decoration="line-through">struck</text>
+<text x="12.00" y="46.89" xml:space="preserve" fill="#d4d4d4" text-decoration="line-through">through</text>
+<text x="70.80" y="46.89" xml:space="preserve" fill="#d4d4d4">, and </text>
+<rect x="121.20" y="31.60" width="92.40" height="19.60" fill="#ffd700"/>
+<text x="121.20" y="46.89" xml:space="preserve" fill="#1e1e1e">highlighted</text>
+<text x="213.60" y="46.89" xml:space="preserve" fill="#d4d4d4">.</text>
+</svg>

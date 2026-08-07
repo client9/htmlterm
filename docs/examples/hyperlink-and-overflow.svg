@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 276.00 82.80" width="276.00" height="82.80" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14">
+<rect x="0" y="0" width="276.00" height="82.80" fill="#1e1e1e"/>
+<text x="12.00" y="27.29" xml:space="preserve" fill="#d4d4d4">See </text>
+<a xlink:href="https://example.com/ci/run/482"><text x="45.60" y="27.29" xml:space="preserve" fill="#d4d4d4" text-decoration="underline">the build log</text>
+</a>
+<text x="154.80" y="27.29" xml:space="preserve" fill="#d4d4d4"> for details.</text>
+<text x="12.00" y="66.49" xml:space="preserve" fill="#d4d4d4">A very long sta…</text>
+</svg>
