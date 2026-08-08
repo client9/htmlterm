@@ -184,6 +184,32 @@ For the design rationale behind the DOM/Events/rendering internals, see
   it is an exact number of cells. They quantize coarsely at terminal sizes
   (every value from `1vh` to `4vh` is one row on a 24-row screen), and `vh`
   needs `Options.Height` set, being ignored without one.
+- **`box-sizing` defaults to `border-box` everywhere**, via the UA
+  stylesheet's `*, ::before, ::after { box-sizing: border-box; }` rule, the
+  same reset Bootstrap's Reboot and `modern-normalize` both ship. Real
+  CSS's own initial value, `content-box`, is fully supported too, reachable
+  by overriding the UA rule on any selector. `width` and `height` both read
+  it the same way: under `border-box`, a declared value is the box's whole
+  outer size, border and padding coming out of it (`width: 10; height: 6;
+  border-style: solid` is 10×6 total, 2 of the 6 rows its own border);
+  under `content-box`, it's a pure content size with border and padding
+  adding on top (the same box becomes 12×8). A height too small for its own
+  chrome floors at 1 content line rather than disappearing, the same floor
+  `width` already has. `width: 100%` under `content-box` plus padding or a
+  border can overflow its container, same as any box whose content exceeds
+  its `width` (see that entry below); avoiding that is what the
+  `border-box` default is for. A declared `width`, under either value,
+  also has horizontal margin subtracted out of it so `width: 100%` lines up
+  with the terminal's width, unlike real CSS's own `border-box`/
+  `content-box` distinction, which never touches margin in either mode;
+  `height` gets no equivalent adjustment. See `docs/proposals/BOX_SIZING.md`
+  for why the default landed on `border-box`.
+
+  **Table cells (`<th>`/`<td>`) read `box-sizing` under
+  `border-collapse: separate`; under `collapse`, `border-box` accounts for
+  padding only, not border**, since a collapsed border is shared,
+  table-wide grid-line state with no single cell to charge it to. See
+  `docs/TABLES.md` for the full account.
 - **An empty box keeps one line when nothing is drawn around it.** A box with
   no content has zero content height, and that is honored where it shows: an
   empty bordered box's two rules meet, `<hr>` is a single rule, and vertical
@@ -199,10 +225,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   channels toward black instead; `opacity: 0` blanks content to spaces
   (still occupying its layout box, matching spec) rather than true
   transparency.
-- **`border-width`/`border-*-width`** parse without error but are always a
-  no-op, since a box-drawing character has no notion of line thickness separate
-  from the glyph itself. Use `border-style: heavy` or a custom glyph
-  instead.
 - **`border-style` values don't match real CSS's keyword set.** Real CSS
   has `solid`/`dashed`/`dotted`/`double`/`groove`/`ridge`/`inset`/`outset`/
   `none`/`hidden`. htmlterm's are named ASCII-art presets instead:
@@ -233,10 +255,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `repeat`, `attachment`, `position`, `size`, `origin`, and `clip` tokens
   are recognized as present (so they don't break parsing) but otherwise
   ignored.
-- **Bare ANSI color index numbers** (e.g. a raw `"214"`) are not accepted
-  as a color value, even though they'd be meaningful to this renderer
-  specifically. Use `#rrggbb` or a named color and let automatic
-  downsampling handle the terminal's actual palette.
 - **`list-style-type`/`symbols()` implement only a small slice of the real
   spec's predefined counter styles.** `disc`/`circle`/`square`/`decimal`/
   `lower-alpha`/`upper-alpha`/`lower-roman`/`upper-roman`/a quoted
@@ -246,32 +264,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `devanagari`, `disclosure-open`/`disclosure-closed`, and so on; see "Not
   Supported" below). `symbols()` itself is a real CSS Counter Styles
   function, just without its `<symbols-type>` keyword or image arguments.
-- **`box-sizing` defaults to `border-box` everywhere**, via the UA
-  stylesheet's `*, ::before, ::after { box-sizing: border-box; }` rule, the
-  same reset Bootstrap's Reboot and `modern-normalize` both ship. Real
-  CSS's own initial value, `content-box`, is fully supported too, reachable
-  by overriding the UA rule on any selector. `width` and `height` both read
-  it the same way: under `border-box`, a declared value is the box's whole
-  outer size, border and padding coming out of it (`width: 10; height: 6;
-  border-style: solid` is 10×6 total, 2 of the 6 rows its own border);
-  under `content-box`, it's a pure content size with border and padding
-  adding on top (the same box becomes 12×8). A height too small for its own
-  chrome floors at 1 content line rather than disappearing, the same floor
-  `width` already has. `width: 100%` under `content-box` plus padding or a
-  border can overflow its container, same as any box whose content exceeds
-  its `width` (see that entry below); avoiding that is what the
-  `border-box` default is for. A declared `width`, under either value,
-  also has horizontal margin subtracted out of it so `width: 100%` lines up
-  with the terminal's width, unlike real CSS's own `border-box`/
-  `content-box` distinction, which never touches margin in either mode;
-  `height` gets no equivalent adjustment. See `docs/proposals/BOX_SIZING.md`
-  for why the default landed on `border-box`.
-
-  **Table cells (`<th>`/`<td>`) read `box-sizing` under
-  `border-collapse: separate`; under `collapse`, `border-box` accounts for
-  padding only, not border**, since a collapsed border is shared,
-  table-wide grid-line state with no single cell to charge it to. See
-  `docs/TABLES.md` for the full account.
 - **A percentage height needs `Options.Height` to resolve at the root.** CSS
   resolves a percentage `height`/`min-height`/`max-height` against the
   containing block's height only when that height is definite, and to `auto`
@@ -418,7 +410,11 @@ For the design rationale behind the DOM/Events/rendering internals, see
 
 ### Not Implemented
 
-- `display: grid` is not implemented.
+- **Bare ANSI color index numbers** (e.g. a raw `"214"`) are not accepted
+  as a color value, even though they'd be meaningful to this renderer
+  specifically. Use `#rrggbb` or a named color and let automatic
+  downsampling handle the terminal's actual palette.
+- **`display: grid`** is not implemented.
 - **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
   `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
   (Variables)" section.)
@@ -453,6 +449,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
   spacing or extra inter-character/inter-word spacing concept exists; a
   terminal cell grid has no sub-line leading to adjust and no fractional
   character-width budget to insert gaps into.
+- **`border-width`/`border-*-width`** parse without error but are always a
+  no-op, since a box-drawing character has no notion of line thickness separate
+  from the glyph itself. Use `border-style: heavy` or a custom glyph
+  instead.
 - **At-rules:** `@media`, `@font-face`, `@keyframes`, `@import`,
   `@charset`, `@supports`, `@page`, `@counter-style` (no custom counter
   styles), and the rest. The parser recognizes any `@`-rule and skips it as a unit
