@@ -202,6 +202,21 @@ func (e *Element) SetChecked(v bool) {
 	}
 }
 
+// Open reports whether the element's open attribute is present, e.g. for a
+// <details> element.
+func (e *Element) Open() bool {
+	return e.HasAttribute("open")
+}
+
+// SetOpen sets or clears the element's open attribute.
+func (e *Element) SetOpen(v bool) {
+	if v {
+		e.SetAttribute("open", "")
+	} else {
+		e.RemoveAttribute("open")
+	}
+}
+
 // Hidden reports whether the element's hidden attribute is present,
 // mirroring the DOM's HTMLElement.hidden. See COMPATIBILITY.md: the UA
 // stylesheet already maps a present hidden attribute (and

@@ -37,6 +37,17 @@ dl, dt, dd, figure, figcaption  { display: block; }
 address, details, summary, caption, noscript { display: block; }
 address  { font-style: italic; }
 summary  { font-weight: bold; }
+/* Disclosure marker and collapse. summary::before is the marker glyph, an
+   ordinary generated-content rule like button's own bracket affixes below,
+   overridden to the open glyph only for the summary that's a direct child
+   of an [open] details. The third rule is the actual collapse: a closed
+   details with a summary to click on hides every other direct child, using
+   the same [hidden]-driven display:none path any other element already
+   gets. A details with no summary child is left alone, fully expanded,
+   since there would be no way to reopen it. See COMPATIBILITY.md. */
+summary::before                                     { content: "▶ "; }
+details[open] > summary::before                     { content: "▼ "; }
+details:has(> summary):not([open]) > :not(summary)  { display: none; }
 caption  { text-align: center; }
 p                       { margin-bottom: 1; }
 h1, h2, h3, h4, h5, h6 { font-weight: bold; }

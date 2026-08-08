@@ -269,6 +269,44 @@ added to `document.go`.
   the node it detaches, so the map never leaks a stale baseline for a focus
   that's cleared silently (no `"blur"` fires there either, by existing
   design — see its doc comment).
+- **`<details>`/`<summary>` disclosure toggle (added after `submit`/
+  `input`/`change`, closing the gap `COMPATIBILITY.md` had flagged: always
+  rendered fully expanded, no interactivity):** `open` is a real HTML
+  attribute, not a synthetic marker like `<select>`'s popup state, so it
+  follows `Checked`/`SetChecked`'s attribute-presence shape directly:
+  `Element.Open()`/`SetOpen(v)`. `nearestSummary` (document.go) resolves a
+  click target, which can land on inline content nested inside `<summary>`
+  the same way `<label>`'s click resolution already has to handle, up to
+  the enclosing `<summary>`, walking ancestor-or-self rather than
+  `nearestForm`'s parent-only walk. `isSummaryControl` is the exact,
+  non-walking check `isFormFocusable` and `DispatchKey`'s Enter/space-bar
+  case guard both use instead of `nearestSummary`: a keyboard target is
+  always exactly the focused element, and only `<summary>` itself, never a
+  descendant of it such as a nested `<textarea>`, is ever a tab stop, so
+  using `nearestSummary`'s ancestor walk there too (an early version did)
+  let the disclosure toggle shadow a focused nested control's own Enter
+  default action. `applyDetailsToggle` flips the `open` attribute and
+  dispatches `"toggle"`, wired into `DispatchClick` alongside
+  `applyCheckToggle`/`applySelectClick` and into `DispatchKey`. The
+  collapse and the `▶`/`▼` marker are mostly plain UA-stylesheet rules in
+  `internal/render/defaultstylesheet.go` (`display: none` via
+  `:has()`/`:not()`/`[open]`, the marker via ordinary `::before content`,
+  the same mechanism `button::before`'s bracket affixes already use), but a
+  code review caught two gaps a selector alone can't close. `display: none`
+  can only ever target an element, never a bare text node, so a `<details>`
+  with unwrapped text right after its `<summary>` needed
+  `renderInlineAccTokensSeeded` (inline.go) to skip that text directly,
+  alongside the stylesheet rule that already handles element children. And
+  Tab/`Element.Focus` walk the DOM tree rather than going through
+  `DispatchClick`'s hit-testing, so `hiddenByClosedDetails` (document.go)
+  gates `isFocusable` itself, keeping keyboard traversal out of a closed
+  `<details>`'s hidden content the same way a click already can't reach it
+  (a hidden element gets no `Rect`). `"toggle"` also became the first
+  built-in event type to opt out of `newEvent`'s previously-unconditional
+  `Bubbles: true` (via a new `defaultBubbles(typ)`, mirroring
+  `defaultCancelable`'s shape), since real `HTMLDetailsElement.toggle` never
+  bubbles and, unlike `"focus"`/`"blur"`, nothing here already depended on
+  the simpler bubbling behavior.
 
 ## Done, then replaced: terminal I/O (`Loop`)
 

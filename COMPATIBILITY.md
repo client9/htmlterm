@@ -88,6 +88,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
   hit-testing, unlike a plain `inline` element — visible only when a label
   is mixed into running prose rather than sitting on its own line. See
   CSS.md's `label` entry.
+- **`<details>` with no `<summary>` child always renders expanded and can't
+  be collapsed**, unlike a browser, which starts it closed behind a
+  synthesized default "Details" label. See CSS.md's `details`/`summary`
+  entries.
 - **`autofocus` applies once, synchronously, at `ParseDocument`, not through
   HTML's live algorithm.** It focuses the first focusable `autofocus`
   element in document order and has no effect on one added later
@@ -114,9 +118,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
 
 ### Not Implemented
 
-- **`<details>`/`<summary>` always render fully expanded.** No collapse/
-  expand interactivity exists; a real browser's native disclosure widget
-  has no terminal equivalent here.
 - **An indeterminate `<progress>` (no `value` attribute) renders statically,
   not animated.** Real browsers show an animated barber-pole; this renderer
   has no `animation` support at all, so `:indeterminate` instead shows
@@ -589,8 +590,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `Element.SetValue` restriction, since spec's own `readonly` only ever
   constrained *user* edits.
 - **Tab order defaults to a document-order walk** over form controls
-  (`input`/`button`/`textarea`/`select`, skipping `disabled`) plus
-  focusable scroll containers, reorderable via `tabindex` (see
+  (`input`/`button`/`textarea`/`select`, skipping `disabled`), a `<summary>`
+  that's a `<details>`'s disclosure control, plus focusable scroll
+  containers, reorderable via `tabindex` (see
   `docs/DOM_API.md`), but **plain `<a>` links are never tab stops** unless
   given explicit `tabindex` (real browsers make links focusable by default
   with no attribute needed; htmlterm requires opting in, since link-dense
@@ -616,12 +618,14 @@ For the design rationale behind the DOM/Events/rendering internals, see
   because shorthand expansion happens at parse time with no record that a
   shorthand was used, the same limitation the cascade itself has.
 - **`"focus"`/`"blur"` bubble here, unlike spec.** Every dispatched event
-  runs the same capture/target/bubble chain (`runDispatch` in `event.go`
-  has no per-type bubbling suppression). Real DOM's `focus` and `blur` never
-  bubble (only their `focusin`/`focusout` counterparts do, which htmlterm
-  doesn't have separately-named events for). An ancestor listener can
-  observe a descendant's `"focus"`/`"blur"` directly here; no
-  `focusin`/`focusout` equivalent is needed or provided.
+  runs the same capture/target/bubble chain (`runDispatch` in `event.go`);
+  `"toggle"` (`<details>`'s own event) is the only built-in type
+  special-cased non-bubbling, not every type real spec itself excludes.
+  Real DOM's `focus` and `blur` never bubble (only their `focusin`/
+  `focusout` counterparts do, which htmlterm doesn't have separately-named
+  events for). An ancestor listener can observe a descendant's
+  `"focus"`/`"blur"` directly here; no `focusin`/`focusout` equivalent is
+  needed or provided.
 - **`Element.DispatchEvent` runs no default action for a built-in-named
   event type.** Dispatching e.g. `NewCustomEvent("click", ...)` through
   `DispatchEvent` runs any registered listeners normally, but skips

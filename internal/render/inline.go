@@ -100,6 +100,24 @@ func restyleTrailingWhitespaceOnlyToken(tokens []wrapToken, outerAcc inlineStyle
 	return tokens
 }
 
+// detailsHidesDirectText reports whether n is a closed <details> with a
+// <summary> child, the same condition the UA stylesheet's collapse rule
+// (details:has(> summary):not([open]) > :not(summary), defaultstylesheet.go)
+// targets for element children. See renderInlineAccTokensSeeded's
+// hideDirectText for why n's own direct text and RawNode children need this
+// separate, explicit check.
+func detailsHidesDirectText(n *html.Node) bool {
+	if n.Type != html.ElementNode || !strings.EqualFold(n.Data, "details") || nodeHasAttr(n, "open") {
+		return false
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "summary") {
+			return true
+		}
+	}
+	return false
+}
+
 // renderInlineAccTokens is renderInlineAcc's token-collecting core. It walks
 // n's children, accumulating a []wrapToken instead of writing into a
 // cappedWriter. Text runs become text tokens. <br> becomes a brk token.
@@ -199,9 +217,23 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 		tokens = append(tokens, wrapToken{brk: true})
 	}
 
+	// hideDirectText mirrors the UA stylesheet's details collapse rule
+	// (details:has(> summary):not([open]) > :not(summary)) for the one case
+	// that selector can't itself reach: display:none only ever applies to
+	// elements, never to a bare text or RawNode child, so a closed <details>
+	// with a <summary> needs an explicit check here to keep its own direct
+	// text content from leaking through. A nested element sitting directly
+	// inside such a details needs no equivalent check, since it's already
+	// skipped by the ordinary childDecls["display"] == "none" case below,
+	// before its own children, text included, are ever walked.
+	hideDirectText := detailsHidesDirectText(n)
+
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		switch c.Type {
 		case html.TextNode:
+			if hideDirectText {
+				continue
+			}
 			normalized := applyTextTransform(normalizeWhiteSpace(sanitizeTerminalText(c.Data, true), ws, tabSize), tt)
 			if normalized != "" {
 				lr, ok := lastRune(tokens)
@@ -216,6 +248,9 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 				tokens = appendText(tokens, acc, normalized, r.profile)
 			}
 		case html.RawNode:
+			if hideDirectText {
+				continue
+			}
 			// c.Data is inserted verbatim: no sanitizeTerminalText, no
 			// whitespace normalization, and no inline styling, with acc
 			// deliberately ignored unlike the TextNode case above. See

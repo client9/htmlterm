@@ -875,6 +875,7 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 	}
 	d.applyCheckToggle(target)
 	d.applySelectClick(target)
+	d.applyDetailsToggle(target)
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
 			d.dispatch(form, "submit", "", Modifiers{})
@@ -1090,6 +1091,105 @@ func isCheckable(n *html.Node) bool {
 	}
 	typ := strings.ToLower(nodeAttr(n, "type"))
 	return typ == "checkbox" || typ == "radio"
+}
+
+// isSummaryControl reports whether n is a <summary> that's a <details>'s
+// disclosure control: a direct child of <details>, the one condition
+// isFormFocusable, nearestSummary, and DispatchKey's Enter/space-bar case
+// guard all check. DispatchKey uses this exact, non-walking form rather than
+// nearestSummary: a keyboard target is always exactly the focused element
+// itself (only <summary>, never a descendant of it, is ever a tab stop; see
+// isFormFocusable), so a focused control nested inside <summary>, such as a
+// <textarea> or <select>, must run its own Enter/Space default action
+// instead of being shadowed by the disclosure toggle nearestSummary's
+// ancestor walk would otherwise trigger for it too.
+func isSummaryControl(n *html.Node) bool {
+	return n.Type == html.ElementNode && strings.EqualFold(n.Data, "summary") &&
+		n.Parent != nil && strings.EqualFold(n.Parent.Data, "details")
+}
+
+// nearestSummary returns n's nearest ancestor-or-self <summary> that's a
+// disclosure control (see isSummaryControl), the element a click resolves to
+// for the disclosure-toggle default action. Ancestor-or-self, unlike
+// nearestForm's parent-only walk, because a click can hit-test nested inline
+// content inside <summary> (e.g. <summary><strong>Title</strong></summary>),
+// not just <summary> itself.
+func nearestSummary(n *html.Node) *html.Node {
+	for p := n; p != nil; p = p.Parent {
+		if isSummaryControl(p) {
+			return p
+		}
+	}
+	return nil
+}
+
+// closedDetailsHidingContent reports whether n is a <details> that's closed
+// but has a <summary> child, the same condition
+// internal/render/inline.go's detailsHidesDirectText and the UA
+// stylesheet's collapse rule (details:has(> summary):not([open]) >
+// :not(summary), defaultstylesheet.go) both check for hiding n's other
+// children. The two packages don't share code (see docs/ARCHITECTURE.md's
+// package-split rationale, and document/select.go's selectOptionNodes for
+// the same kind of duplication), so this copy must be kept in lockstep with
+// those.
+func closedDetailsHidingContent(n *html.Node) bool {
+	if n.Type != html.ElementNode || !strings.EqualFold(n.Data, "details") || nodeHasAttr(n, "open") {
+		return false
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode && strings.EqualFold(c.Data, "summary") {
+			return true
+		}
+	}
+	return false
+}
+
+// hiddenByClosedDetails reports whether n sits inside a closed <details>'s
+// hidden non-summary content (see closedDetailsHidingContent), the subtree
+// the UA stylesheet makes display:none. isFocusable gates on this so Tab
+// and Element.Focus can't reach content a closed details has hidden; a
+// click already can't, since a display:none element never gets a Rect for
+// elementAt to hit-test against. n's own <summary> ancestor, and anything
+// nested inside it, is exempt at every step, since that's the visible
+// control itself, not hidden content.
+func hiddenByClosedDetails(n *html.Node) bool {
+	for p := n; p != nil; p = p.Parent {
+		if strings.EqualFold(p.Data, "summary") {
+			continue
+		}
+		if parent := p.Parent; parent != nil && closedDetailsHidingContent(parent) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDetailsToggle runs the <details>/<summary> disclosure default action
+// for target: if target is, or is nested inside, a <summary> belonging to a
+// <details> (see nearestSummary), it flips that <details>'s open attribute
+// and dispatches a non-bubbling "toggle" event on it, mirroring
+// HTMLDetailsElement's own "toggle" event. Shared by DispatchClick and
+// DispatchKey's Enter/space-bar default action. A no-op for any other
+// element.
+func (d *Document) applyDetailsToggle(target *html.Node) {
+	summary := nearestSummary(target)
+	if summary == nil {
+		return
+	}
+	// nearestSummary's own isSummaryControl check already guarantees this
+	// at the moment it returns summary, but re-checked here directly rather
+	// than trusted blindly, so this function stays correct on its own if
+	// nearestSummary's contract or callers ever change.
+	details := summary.Parent
+	if details == nil || !strings.EqualFold(details.Data, "details") {
+		return
+	}
+	if nodeHasAttr(details, "open") {
+		removeAttr(details, "open")
+	} else {
+		setAttr(details, "open", "")
+	}
+	d.dispatch(details, "toggle", "", Modifiers{})
 }
 
 // isTextEntry reports whether n is a <textarea> or a text-like <input>, one
@@ -1367,6 +1467,8 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		d.setSelection(target, 0, utf8.RuneCountInString(v), "forward")
 	case key == " " && isCheckable(target):
 		d.applyCheckToggle(target)
+	case (key == "Enter" || key == " ") && isSummaryControl(target):
+		d.applyDetailsToggle(target)
 	case (key == "Enter" || key == " ") && isSelectControl(target):
 		if nodeHasAttr(target, selectOpenAttr) {
 			if opt := selectHighlightedOption(target); opt != nil {
@@ -1887,11 +1989,12 @@ func (d *Document) moveRadioGroupSelection(target *html.Node, forward bool) {
 }
 
 // isFormFocusable reports whether n is a tab-stoppable form control: an
-// <input> other than type="hidden", a <button>, a <textarea>, or a
-// <select>, not carrying a disabled attribute directly and not disabled by
-// an ancestor <fieldset disabled> (see cssengine.IsFieldsetDisabled). See
-// Document.isFocusable for the additional scroll-container and tabindex
-// cases this alone doesn't cover.
+// <input> other than type="hidden", a <button>, a <textarea>, a <select>,
+// or a <summary> that's a <details>'s disclosure control (see
+// nearestSummary), not carrying a disabled attribute directly and not
+// disabled by an ancestor <fieldset disabled> (see
+// cssengine.IsFieldsetDisabled). See Document.isFocusable for the
+// additional scroll-container and tabindex cases this alone doesn't cover.
 func isFormFocusable(n *html.Node) bool {
 	if n.Type != html.ElementNode || nodeHasAttr(n, "disabled") || cssengine.IsFieldsetDisabled(n) {
 		return false
@@ -1901,6 +2004,8 @@ func isFormFocusable(n *html.Node) bool {
 		return !strings.EqualFold(nodeAttr(n, "type"), "hidden")
 	case "button", "textarea", "select":
 		return true
+	case "summary":
+		return isSummaryControl(n)
 	}
 	return false
 }
@@ -1945,7 +2050,17 @@ func tabIndexOf(n *html.Node) (int, bool) {
 // Note this only decides focusability, not sequential Tab-key order. A
 // negative tabindex is focusable here but excluded from focusableList's
 // output; see inTabOrder.
+//
+// Checked before any of the cases below, unlike the scroll-container case
+// just described: content hidden inside a closed <details> (see
+// hiddenByClosedDetails) is excluded regardless of which of the other three
+// paths would otherwise have made it focusable, form control, tabindex, or
+// scroll container alike, the same way a real browser's tab order skips
+// display:none content no matter how it became focusable.
 func (d *Document) isFocusable(n *html.Node) bool {
+	if hiddenByClosedDetails(n) {
+		return false
+	}
 	if isFormFocusable(n) {
 		return true
 	}

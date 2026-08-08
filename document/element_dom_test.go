@@ -530,6 +530,25 @@ func TestElementHidden(t *testing.T) {
 	}
 }
 
+func TestElementOpen(t *testing.T) {
+	doc := mustParseDoc(t, `<details id="d"><summary>s</summary>x</details>`)
+	el := doc.GetElementByID("d")
+	if el.Open() {
+		t.Error("Open() = true before SetOpen")
+	}
+	el.SetOpen(true)
+	if !el.Open() {
+		t.Error("Open() = false after SetOpen(true)")
+	}
+	if !el.HasAttribute("open") {
+		t.Error("SetOpen(true) did not set the open attribute")
+	}
+	el.SetOpen(false)
+	if el.Open() || el.HasAttribute("open") {
+		t.Error("SetOpen(false) did not clear the open attribute")
+	}
+}
+
 func TestElementInsertAdjacentElement(t *testing.T) {
 	doc := mustParseDoc(t, `<div id="parent"><span id="mid">mid</span></div>`)
 	parent := doc.GetElementByID("parent")

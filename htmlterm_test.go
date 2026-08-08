@@ -1339,8 +1339,11 @@ func TestNewHTMLElements(t *testing.T) {
 		{name: "ol without start defaults to 1", html: `<ol><li>x</li></ol>`, want: "    1. x\n"},
 
 		// details / summary — p's margin-bottom is absorbed by the outer details block
-		{name: "details renders expanded with summary as bold block", html: `<details><summary>Title</summary><p>body</p></details>`, want: "Title\nbody\n\n"},
-		{name: "details without summary renders children", html: `<details><p>text</p></details>`, want: "text\n\n"},
+		{name: "details with summary renders closed by default, marker and summary only", html: `<details><summary>Title</summary><p>body</p></details>`, want: "▶ Title\n"},
+		{name: "details[open] renders expanded, with the open marker", html: `<details open><summary>Title</summary><p>body</p></details>`, want: "▼ Title\nbody\n\n"},
+		{name: "details without summary renders children (no way to reopen, so left expanded)", html: `<details><p>text</p></details>`, want: "text\n\n"},
+		{name: "details hides a bare text sibling of summary when closed (regression: CSS collapse rule can't target text nodes)", html: `<details><summary>Title</summary>hidden text</details>`, want: "▶ Title\n"},
+		{name: "details[open] shows a bare text sibling of summary", html: `<details open><summary>Title</summary>shown text</details>`, want: "▼ Title\nshown text\n"},
 
 		// caption — appears before the table; centered when table is wider than caption
 		{

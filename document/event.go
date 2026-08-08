@@ -101,12 +101,13 @@ type Event struct {
 	// built-in event type.
 	Detail any
 	// Bubbles reports whether this event's dispatch runs the bubble phase
-	// after target, mirroring Event.bubbles. Always true for built-in event
-	// types (see newEvent). Real spec's own per-type table isn't uniform,
-	// since focus, blur, and resize don't bubble there, but this package
-	// has no per-type bubbling suppression, so Bubbles reflects actual
-	// behavior rather than spec's table. For custom events it is set via
-	// CustomEventInit.Bubbles, defaulting to false per spec.
+	// after target, mirroring Event.bubbles. For a built-in event type, set
+	// by defaultBubbles (see newEvent): true for every type except
+	// "toggle". Real spec's own per-type table isn't uniform either, since
+	// focus, blur, and resize don't bubble there, but defaultBubbles only
+	// special-cases "toggle" today, so focus/blur/resize still bubble here,
+	// unlike spec (see COMPATIBILITY.md). For custom events Bubbles is set
+	// via CustomEventInit.Bubbles, defaulting to false per spec.
 	Bubbles bool
 	// Cancelable reports whether PreventDefault has any effect on this
 	// event, mirroring Event.cancelable. Set per type for built-in events
@@ -262,10 +263,22 @@ func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) 
 		CtrlKey:    mods.Ctrl,
 		AltKey:     mods.Alt,
 		MetaKey:    mods.Meta,
-		Bubbles:    true,
+		Bubbles:    defaultBubbles(typ),
 		Cancelable: defaultCancelable(typ),
 		doc:        d,
 	}
+}
+
+// defaultBubbles reports whether a built-in event type typ's dispatch runs
+// the bubble phase after target. True for every type but "toggle": real
+// spec's own per-type table isn't uniform either, since focus, blur, and
+// resize don't bubble there, but this package has no general per-type
+// bubbling suppression (see COMPATIBILITY.md's "focus"/"blur" deviation),
+// so those three bubble here anyway. "toggle" is the one exception, kept
+// spec-accurate because HTMLDetailsElement's own "toggle" event never
+// bubbles and nothing here depended on the simpler, bubbling behavior.
+func defaultBubbles(typ string) bool {
+	return typ != "toggle"
 }
 
 // defaultCancelable reports whether a built-in event type typ's own

@@ -281,6 +281,154 @@ func TestDispatchClickTogglesCheckbox(t *testing.T) {
 	}
 }
 
+func TestDispatchClickTogglesDetailsOpen(t *testing.T) {
+	doc := mustParseDoc(t, `<details id="d"><summary id="s">Title</summary><p>body</p></details>`)
+	d := doc.GetElementByID("d")
+	s := doc.GetElementByID("s")
+	rect, _ := s.Rect()
+
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if !d.Open() {
+		t.Fatal("details not open after clicking summary")
+	}
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if d.Open() {
+		t.Fatal("details still open after second click on summary")
+	}
+}
+
+// TestDispatchClickOnNestedSummaryContentTogglesDetails pins the same
+// click-target-resolution problem <label> already solves: a click landing
+// on inline content nested inside <summary> (its own hit-tested node) still
+// resolves to the enclosing <summary> for the disclosure toggle, via
+// nearestSummary's ancestor walk.
+func TestDispatchClickOnNestedSummaryContentTogglesDetails(t *testing.T) {
+	doc := mustParseDoc(t, `<details id="d"><summary><strong id="strong">Title</strong></summary><p>body</p></details>`)
+	d := doc.GetElementByID("d")
+	strong := doc.GetElementByID("strong")
+	rect, _ := strong.Rect()
+
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+	if !d.Open() {
+		t.Fatal("details not open after clicking nested content inside summary")
+	}
+}
+
+func TestDispatchClickTogglesDetailsFiresNonBubblingToggle(t *testing.T) {
+	doc := mustParseDoc(t, `<div id="outer"><details id="d"><summary id="s">Title</summary><p>body</p></details></div>`)
+	outer := doc.GetElementByID("outer")
+	d := doc.GetElementByID("d")
+	s := doc.GetElementByID("s")
+
+	var targetCalled, bubbleCalled bool
+	doc.AddEventListener(d, "toggle", false, func(e *document.Event) { targetCalled = true })
+	doc.AddEventListener(outer, "toggle", false, func(e *document.Event) { bubbleCalled = true })
+
+	rect, _ := s.Rect()
+	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
+
+	if !targetCalled {
+		t.Error("\"toggle\" listener on the details itself did not run")
+	}
+	if bubbleCalled {
+		t.Error("\"toggle\" bubbled to an ancestor listener, want non-bubbling (matches HTMLDetailsElement's real toggle event)")
+	}
+}
+
+func TestDispatchKeyEnterAndSpaceToggleFocusedSummary(t *testing.T) {
+	for _, key := range []string{"Enter", " "} {
+		doc := mustParseDoc(t, `<details id="d"><summary id="s">Title</summary><p>body</p></details>`)
+		d := doc.GetElementByID("d")
+		s := doc.GetElementByID("s")
+		s.Focus()
+
+		doc.DispatchKey(key, document.Modifiers{})
+		if !d.Open() {
+			t.Errorf("details not open after key %q on focused summary", key)
+		}
+	}
+}
+
+// TestDispatchKeyEnterOnControlNestedInSummaryDoesNotToggleDetails pins a
+// regression: DispatchKey's disclosure-toggle case used to key off
+// nearestSummary, which walks ancestors and so also matched a focused
+// control nested inside <summary>, shadowing that control's own Enter
+// default action (a <textarea>'s newline, here) with the details toggle
+// instead. Only <summary> itself is ever a tab stop (isFormFocusable), so
+// the case now checks isSummaryControl(target) directly.
+func TestDispatchKeyEnterOnControlNestedInSummaryDoesNotToggleDetails(t *testing.T) {
+	doc := mustParseDoc(t, `<details id="d"><summary>Notes: <textarea id="ta"></textarea></summary><p>body</p></details>`)
+	d := doc.GetElementByID("d")
+	ta := doc.GetElementByID("ta")
+	ta.Focus()
+
+	doc.DispatchKey("Enter", document.Modifiers{})
+	if d.Open() {
+		t.Error("details opened by Enter on a nested textarea, want the textarea's own newline action to run instead")
+	}
+	if got := ta.Value(); got != "\n" {
+		t.Errorf("textarea value after Enter = %q, want %q (newline inserted, not shadowed)", got, "\n")
+	}
+}
+
+func TestSummaryFocusableOnlyInsideDetails(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="before"><details><summary id="s">Title</summary></details><summary id="stray">stray</summary><input id="after">`)
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "before" {
+		t.Fatalf("first FocusNext() = %v, want \"before\"", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "s" {
+		t.Errorf("second FocusNext() = %v, want \"s\" (summary inside details is a tab stop)", second)
+	}
+	third := doc.FocusNext()
+	if third == nil || third.ID() != "after" {
+		t.Errorf("third FocusNext() = %v, want \"after\" (stray summary outside details skipped)", third)
+	}
+}
+
+// TestFocusSkipsContentHiddenByClosedDetails pins a regression: Tab
+// traversal and Element.Focus both walk the DOM tree directly, unlike a
+// click, which can never hit-test into hidden content because it has no
+// Rect (see hiddenByClosedDetails). Content nested arbitrarily deep inside
+// a closed details' non-summary body used to stay reachable and operable by
+// keyboard even though it's invisible.
+func TestFocusSkipsContentHiddenByClosedDetails(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="before"><details id="d"><summary id="s">More</summary><div><button id="hidden">Delete account</button></div></details><input id="after">`)
+	hidden := doc.GetElementByID("hidden")
+
+	if hidden.Focus() {
+		t.Error("Focus() on a button hidden by a closed details returned true, want false")
+	}
+	if got := doc.FocusedElement(); got != nil {
+		t.Errorf("FocusedElement() after failed Focus() = %v, want nil", got)
+	}
+
+	first := doc.FocusNext()
+	if first == nil || first.ID() != "before" {
+		t.Fatalf("first FocusNext() = %v, want \"before\"", first)
+	}
+	second := doc.FocusNext()
+	if second == nil || second.ID() != "s" {
+		t.Fatalf("second FocusNext() = %v, want \"s\"", second)
+	}
+	third := doc.FocusNext()
+	if third == nil || third.ID() != "after" {
+		t.Errorf("third FocusNext() = %v, want \"after\" (button hidden by the closed details skipped)", third)
+	}
+
+	// Once open, the same button becomes focusable again.
+	d := doc.GetElementByID("d")
+	d.SetOpen(true)
+	if !hidden.Focus() {
+		t.Error("Focus() on the button failed after opening its details, want it reachable once visible")
+	}
+	if got := doc.FocusedElement(); got == nil || got.ID() != "hidden" {
+		t.Errorf("FocusedElement() after open+Focus() = %v, want \"hidden\"", got)
+	}
+}
+
 func TestDispatchClickPreventDefaultSuppressesToggle(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
 	cb := doc.GetElementByID("cb")
@@ -2045,22 +2193,30 @@ func TestDispatchEventSequentialRedispatchResetsStateButKeepsDefaultPrevented(t 
 }
 
 func TestBuiltinEventsPopulateBubblesAndCancelable(t *testing.T) {
-	doc := mustParseDoc(t, `<input type="checkbox" id="cb">`)
+	doc := mustParseDoc(t, `<input type="checkbox" id="cb"><details id="d"><summary id="s">Title</summary></details>`)
 	cb := doc.GetElementByID("cb")
+	d := doc.GetElementByID("d")
+	s := doc.GetElementByID("s")
 
-	var click, focus *document.Event
+	var click, focus, toggle *document.Event
 	doc.AddEventListener(cb, "click", false, func(e *document.Event) { click = e })
 	doc.AddEventListener(cb, "focus", false, func(e *document.Event) { focus = e })
+	doc.AddEventListener(d, "toggle", false, func(e *document.Event) { toggle = e })
 
 	rect, _ := cb.Rect()
 	doc.DispatchClick(rect.Row, rect.Col, document.Modifiers{})
 	cb.Focus()
+	sRect, _ := s.Rect()
+	doc.DispatchClick(sRect.Row, sRect.Col, document.Modifiers{})
 
 	if click == nil || !click.Bubbles || !click.Cancelable {
 		t.Errorf("click event Bubbles/Cancelable = %v/%v, want true/true", click.Bubbles, click.Cancelable)
 	}
 	if focus == nil || !focus.Bubbles || focus.Cancelable {
 		t.Errorf("focus event Bubbles/Cancelable = %v/%v, want true/false", focus.Bubbles, focus.Cancelable)
+	}
+	if toggle == nil || toggle.Bubbles || toggle.Cancelable {
+		t.Errorf("toggle event Bubbles/Cancelable = %v/%v, want false/false", toggle.Bubbles, toggle.Cancelable)
 	}
 
 	focus.PreventDefault()
