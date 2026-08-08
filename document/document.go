@@ -1547,6 +1547,26 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 	return true
 }
 
+// DispatchKeyUp dispatches a "keyup" event, with Event.Key set to key, to the
+// currently focused element. Unlike DispatchKey's "keydown", it runs no
+// default action: nothing in this package is gated on a key release, so
+// there's nothing to skip when PreventDefault is called.
+//
+// A host can only call this when its own key source distinguishes a release
+// from a press in the first place. tui.Loop does so only when the terminal
+// negotiated the Kitty or Win32 keyboard protocol; under plain legacy or
+// xterm reporting, no release ever reaches it, so this method simply never
+// gets called. See COMPATIBILITY.md's "keyup"/"keypress" entry.
+//
+// Returns false if nothing is focused, matching DispatchKey.
+func (d *Document) DispatchKeyUp(key string, mods Modifiers) bool {
+	if d.focused == nil || key == "" {
+		return false
+	}
+	d.dispatch(d.focused, "keyup", key, mods)
+	return true
+}
+
 // deleteAt implements the default action for Backspace, with forward=false,
 // and Delete, with forward=true, on a focused text entry. It deletes the
 // current selection if non-collapsed, via deleteSelectionRange, and otherwise

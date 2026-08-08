@@ -1448,6 +1448,46 @@ func TestDispatchKeyTypesAndBackspace(t *testing.T) {
 	}
 }
 
+// TestDispatchKeyUpFiresEventWithNoDefaultAction checks that DispatchKeyUp
+// dispatches a "keyup" Event carrying the same Key and modifier fields
+// DispatchKey's "keydown" would, but runs no default action of its own: a
+// key name that would type a character or move a caret under DispatchKey
+// does neither here.
+func TestDispatchKeyUpFiresEventWithNoDefaultAction(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a" value="ab">`)
+	a := doc.GetElementByID("a")
+	a.Focus()
+
+	var got document.Event
+	var fired bool
+	doc.AddEventListener(a, "keyup", false, func(e *document.Event) {
+		fired = true
+		got = *e
+	})
+
+	if ok := doc.DispatchKeyUp("x", document.Modifiers{Shift: true}); !ok {
+		t.Fatalf("DispatchKeyUp returned false with a focused element")
+	}
+	if !fired {
+		t.Fatalf("keyup listener never ran")
+	}
+	if got.Type != "keyup" || got.Key != "x" || !got.ShiftKey {
+		t.Errorf("keyup event = %+v, want Type=keyup Key=x ShiftKey=true", got)
+	}
+	if v := a.Value(); v != "ab" {
+		t.Errorf("value after DispatchKeyUp(%q) = %q, want unchanged %q", "x", v, "ab")
+	}
+}
+
+// TestDispatchKeyUpNoFocusReturnsFalse mirrors DispatchKey's own
+// nothing-focused behavior.
+func TestDispatchKeyUpNoFocusReturnsFalse(t *testing.T) {
+	doc := mustParseDoc(t, `<input id="a">`)
+	if doc.DispatchKeyUp("x", document.Modifiers{}) {
+		t.Errorf("DispatchKeyUp with nothing focused = true, want false")
+	}
+}
+
 // TestSelectionRendersHighlightEndToEnd exercises the full path from
 // Document.DispatchKey through Document.Render: a Shift+Arrow-extended
 // selection on a focused <input> renders under a reverse-video highlight —

@@ -18,13 +18,13 @@ import (
 // Loop drives a Document interactively against a real terminal via
 // tcell.Screen. Screen.Init and EventQ own raw mode, resize, and keyboard,
 // mouse, and paste decoding. Run translates the resulting events into
-// Document's public dispatch API — DispatchKey, DispatchClick, DispatchWheel,
-// SetSize — and repaints after each one. It also repaints after a SetInterval
-// or SetTimeout timer fires (timer.go, delivered as an event sent on the same
-// EventQ channel), so periodic, non-input-driven updates such as a spinner or
-// a live clock repaint too. It depends only on Document's public API, the
-// same layer any other caller uses, plus tcell.Screen for everything
-// terminal-facing.
+// Document's public dispatch API — DispatchKey, DispatchKeyUp, DispatchClick,
+// DispatchWheel, SetSize — and repaints after each one. It also repaints
+// after a SetInterval or SetTimeout timer fires (timer.go, delivered as an
+// event sent on the same EventQ channel), so periodic, non-input-driven
+// updates such as a spinner or a live clock repaint too. It depends only on
+// Document's public API, the same layer any other caller uses, plus
+// tcell.Screen for everything terminal-facing.
 type Loop struct {
 	doc    *document.Document
 	screen tcell.Screen
@@ -104,7 +104,19 @@ func (l *Loop) Run() error {
 		switch ev := ev.(type) {
 		case *tcell.EventKey:
 			if !ev.Pressed() {
-				continue // ignore key-release events (see keyName's press-only vocabulary)
+				// Only reaches here at all under a terminal that negotiated
+				// the Kitty or Win32 keyboard protocol (tcell.KittyKeyboard/
+				// Win32Keyboard); legacy and xterm reporting have no wire
+				// representation for a release, so ev is always Pressed()
+				// there. A release mid-paste carries nothing pasteKeyText
+				// wants, since paste playback only consumes the press half of
+				// each synthesized keystroke.
+				if !l.pasting {
+					if key, ok := keyName(ev); ok {
+						l.doc.DispatchKeyUp(key, keyModifiers(ev))
+					}
+				}
+				break
 			}
 			if l.pasting {
 				// Accumulate rather than dispatch; see pasteBuf's doc
@@ -212,10 +224,12 @@ func (l *Loop) Quit() {
 	l.quit = true
 }
 
-// keyName maps a tcell.EventKey to htmlterm's existing DispatchKey
-// vocabulary (docs/INTERACTIVE.md): a single printable rune as a UTF-8 string,
-// or a named key from a fixed set — "Enter", "Backspace", "Delete", "Tab",
-// "Escape", "Home", "End", "ArrowUp"/"Down"/"Left"/"Right", and
+// keyName maps a tcell.EventKey to htmlterm's existing DispatchKey and
+// DispatchKeyUp vocabulary (docs/INTERACTIVE.md), shared by both since a
+// release reports the same Key()/Str() a press would: a single printable
+// rune as a UTF-8 string, or a named key from a fixed set — "Enter",
+// "Backspace", "Delete", "Tab", "Escape", "Home", "End",
+// "ArrowUp"/"Down"/"Left"/"Right", and
 // "PageUp"/"PageDown". ok is false for anything outside that vocabulary,
 // such as function keys and modifier-only events, which the caller ignores.
 // That is the same restricted-subset stance the previous hand-rolled decoder

@@ -65,6 +65,12 @@ See `COMPATIBILITY.md` for the narrative, and `docs/SCROLLING.md` and
   synthesize
   the one fixed built-in event of each kind and run its default action; see
   `COMPATIBILITY.md`'s "Only one click kind exists" deviation.
+  `DispatchKeyUp` is `DispatchKey`'s counterpart for a key release: it
+  synthesizes `"keyup"` but runs no default action of its own, since nothing
+  in this package is gated on a release. A host can only call it when its own
+  key source distinguishes a release from a press; `tui.Loop` does, but only
+  under a terminal that negotiated the Kitty or Win32 keyboard protocol. See
+  `COMPATIBILITY.md`'s `keyup`/`keypress` entry.
   `DispatchClick` on a focusable text entry also focuses it and positions
   its caret at the clicked rune (Shift held extends the existing selection
   instead), folded into "click" for the same "only one click kind" reason,

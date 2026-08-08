@@ -72,9 +72,9 @@ type Event struct {
 	// hit-tested or focused element. It is constant throughout all three
 	// phases.
 	Target *Element
-	// Key is set for "keydown" and "input" events: either a single printable
-	// rune as a UTF-8 string, or a named key such as "Enter", "Backspace",
-	// "Tab".
+	// Key is set for "keydown", "keyup", and "input" events: either a single
+	// printable rune as a UTF-8 string, or a named key such as "Enter",
+	// "Backspace", "Tab".
 	Key string
 	// ShiftKey, CtrlKey, AltKey, MetaKey mirror the modifier keys held when
 	// the event was dispatched, set from the Modifiers passed to
@@ -285,11 +285,12 @@ func defaultBubbles(typ string) bool {
 // Dispatch* method already gates its default action on DefaultPrevented().
 // click, keydown, paste, cut, submit, and reset do, since each already has
 // default-action code it skips when prevented ("reset" via triggerReset,
-// which skips its own restore walk). input, change, focus, blur, and resize don't,
-// since nothing gates on them today, matching real spec for input, change,
-// focus, and blur, and simply having nothing to skip for resize. Any other,
-// custom type is false here: custom events get their Cancelable from
-// CustomEventInit instead.
+// which skips its own restore walk). input, change, focus, blur, resize, and
+// keyup don't, since nothing gates on them today, matching real spec for
+// input, change, focus, and blur, and simply having nothing to skip for
+// resize and keyup (DispatchKeyUp runs no default action at all; see its own
+// doc comment). Any other, custom type is false here: custom events get
+// their Cancelable from CustomEventInit instead.
 func defaultCancelable(typ string) bool {
 	switch typ {
 	case "click", "keydown", "paste", "cut", "submit", "reset":

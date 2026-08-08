@@ -307,6 +307,26 @@ added to `document.go`.
   `defaultCancelable`'s shape), since real `HTMLDetailsElement.toggle` never
   bubbles and, unlike `"focus"`/`"blur"`, nothing here already depended on
   the simpler bubbling behavior.
+- **`"keyup"` (added after `"toggle"`, closing a gap `COMPATIBILITY.md` had
+  flagged: only `"keydown"` existed, with no way to observe a key being
+  released):** `Document.DispatchKeyUp(key string, mods Modifiers)` mirrors
+  `DispatchKey`'s shape but dispatches `"keyup"` and runs no default action,
+  since nothing here is gated on a release. What made this worth doing at
+  all is that the vendored `tcell` already carries the transport-level
+  plumbing: `EventKey.Pressed()` and a `KeyProtocol` type
+  (`LegacyKeyboard`/`KittyKeyboard`/`Win32Keyboard`/`XTermKeyboard`), and
+  `tscreen.go` auto-negotiates the Kitty keyboard protocol at startup
+  (querying `\x1b[?u`, enabling `\x1b[=15u` on a terminal that answers). Under
+  `KittyKeyboard` or `Win32Keyboard`, a real release arrives with
+  `Pressed()` false; under `LegacyKeyboard`/`XTermKeyboard`, the terminal's
+  own wire protocol has no release representation at all, so `Pressed()` is
+  always true there and `"keyup"` simply never fires, same as before this
+  change. `tui/tcell_loop.go`'s `Run` used to discard every non-`Pressed()`
+  `EventKey` unconditionally; it now runs the existing `keyName`/
+  `keyModifiers` translation (shared with `DispatchKey`, since a release
+  reports the same `Key()`/`Str()` a press would) and calls `DispatchKeyUp`
+  instead, except mid-paste, where a release carries nothing
+  `pasteKeyText` wants.
 
 ## Done, then replaced: terminal I/O (`Loop`)
 

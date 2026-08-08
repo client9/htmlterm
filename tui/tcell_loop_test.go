@@ -218,6 +218,64 @@ func TestLoopRunHandlesCtrlXCut(t *testing.T) {
 	}
 }
 
+// TestLoopRunDispatchesKeyUp checks the wiring added for keyup support: an
+// EventKey with Pressed() false reaches Document.DispatchKeyUp, not
+// DispatchKey, and still triggers a repaint. vt.MockTerm has no terminal-side
+// Kitty-protocol encoder (see the vt package's emulate.go, "legacy protocol
+// does not support key release"), so a release can't be produced by typing
+// through it the way the other tests in this file drive input; a real
+// terminal that negotiated the Kitty or Win32 keyboard protocol is what
+// would deliver one in production (see COMPATIBILITY.md's "keyup" entry).
+// This test instead posts a hand-built release EventKey directly to the
+// Screen's own EventQ channel, the same channel tcell's real decoder
+// delivers every event on, to exercise Loop.Run's translation in isolation
+// from that terminal-side gap.
+func TestLoopRunDispatchesKeyUp(t *testing.T) {
+	doc, err := document.ParseDocument(`<input type="text" id="name">`, htmlterm.Options{Width: 40})
+	if err != nil {
+		t.Fatalf("ParseDocument: %v", err)
+	}
+	name := doc.GetElementByID("name")
+	name.Focus()
+
+	var gotType, gotKey string
+	doc.AddEventListener(name, "keyup", false, func(e *document.Event) {
+		gotType, gotKey = e.Type, e.Key
+	})
+	doc.AddEventListener(name, "keydown", false, func(e *document.Event) {
+		t.Errorf("keydown fired for a release EventKey, want keyup only")
+	})
+
+	scr, _ := newUninitScreen(t, 40, 5)
+	loop := newLoopWithScreen(doc, scr)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	var runErr error
+	go func() {
+		defer wg.Done()
+		runErr = loop.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+
+	scr.EventQ() <- tcell.NewEventKeyEx(tcell.KeyRune, "a", tcell.ModNone, false, tcell.KeyA, 0)
+	time.Sleep(25 * time.Millisecond)
+
+	scr.EventQ() <- tcell.NewEventKeyEx(tcell.KeyCtrlC, "", tcell.ModCtrl, true, tcell.KeyCtrlC, 0)
+	wg.Wait()
+
+	if runErr != nil {
+		t.Errorf("Run returned error: %v", runErr)
+	}
+	if gotType != "keyup" || gotKey != "a" {
+		t.Errorf("keyup listener saw Type=%q Key=%q, want Type=keyup Key=a", gotType, gotKey)
+	}
+	if got := name.Value(); got != "" {
+		t.Errorf("name value after a release-only EventKey = %q, want empty (no typing default action)", got)
+	}
+}
+
 // TestFocusCursorPosMultiLineTextarea is a regression test for a bug where
 // focusCursorPos computed a focused <textarea>'s cursor row/column from its
 // whole value's total rune count with no awareness of embedded newlines,

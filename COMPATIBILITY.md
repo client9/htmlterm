@@ -556,6 +556,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
   host translates raw terminal input into these strings, and raw terminal
   modifier bits into `document.Modifiers`, itself; htmlterm never reads a
   terminal directly outside of `Loop`.
+- **`"keyup"` only fires on a terminal that supports the Kitty or Win32
+  keyboard protocol.** Otherwise only `"keydown"` is dispatched: a held key
+  just resends it at the terminal's own repeat rate, with no release event
+  at all.
 - **Only one click "kind" exists.** There's no `mousedown`/`mouseup`/
   `dblclick`/`contextmenu`/drag events, just a single synthesized
   `"click"` that hit-tests and runs default actions atomically, including
@@ -672,9 +676,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`mousemove`, `mouseover`/`mouseout`, `dblclick`, `contextmenu`,
   drag-and-drop events.** No continuous hover tracking exists in a
   terminal, and none of these are wired up.
-- **`keyup`/`keypress`.** Only `"keydown"` is dispatched; there's no
-  key-release event, so a host can't detect a key being held or released
-  (only that a key was pressed once).
+- **`keypress`.** Not dispatched. `"keydown"` and, where the terminal
+  supports it, `"keyup"` are the only key events; see the `"keyup"` entry
+  under "Deviations from Spec" above.
 - **Constraint validation.** `required`, `pattern`, `min`, `max`, `step`,
   `minlength`, and `maxlength` sit on the element as ordinary attributes
   and are never given effect beyond that. `required`'s bare presence is
