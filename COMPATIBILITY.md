@@ -48,16 +48,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   here, unlike a browser, which ignores it.
 
   Form reset (`<input type="reset">`, `<button type="reset">`, Enter on a
-  focused reset control) works despite that, but through a narrower
-  mechanism than a real dirty-value flag: `ParseDocument` walks the tree once
-  and snapshots every control's parse-time value, checkedness, or selected
-  option, the same one-time approximation `autofocus` already uses elsewhere
-  in this list. Activating a reset control fires `"reset"` on the nearest
-  `<form>` and, unless a listener calls `PreventDefault`, restores every
-  descendant control to its snapshot, mirroring HTML's own event-then-reset
-  order. A control added to the tree after `ParseDocument` (`AppendChild`,
-  `SetInnerHTML`) has no snapshot and is left untouched by reset, the same
-  gap `autofocus` has for a control inserted after parse.
+  focused reset control) does not restore a control added to the tree after
+  `ParseDocument` (`AppendChild`, `SetInnerHTML`) — the same gap `autofocus`
+  has for a control inserted after parse.
 - **Text-field selection is a single flat range, not real DOM's
   `Selection`/`Range` model.** `Element.SelectionStart()`/`SelectionEnd()`/
   `SelectionDirection()`/`SetSelectionRange()` mirror
@@ -298,13 +291,11 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`box-sizing` defaults to `border-box` everywhere, via the UA
   stylesheet's own `*, ::before, ::after { box-sizing: border-box; }` rule**
   (`internal/render/defaultstylesheet.go`), the same reset Bootstrap's
-  Reboot and `sindresorhus/modern-normalize` both ship, moved down one
-  cascade layer. Real CSS's own initial value is `content-box`; that value
-  is fully supported too, reachable by overriding the UA rule on any
-  selector, the same way it's reachable in a browser with no reset loaded.
-  Both `width` and `height` read it, and read it the same way, unlike
-  before this existed (see the next paragraph for what changed). See
-  `docs/proposals/BOX_SIZING.md` for the design history, including why the
+  Reboot and `sindresorhus/modern-normalize` both ship. Real CSS's own
+  initial value is `content-box`; that value is fully supported too,
+  reachable by overriding the UA rule on any selector, the same way it's
+  reachable in a browser with no reset loaded. `width` and `height` both
+  read it the same way. See `docs/proposals/BOX_SIZING.md` for why the
   default landed on `border-box` rather than spec's own `content-box`.
 
   Under the default `border-box`, both `width` and `height` are a box's
@@ -325,26 +316,11 @@ For the design rationale behind the DOM/Events/rendering internals, see
   the same as any other box whose unbreakable content exceeds its `width`
   (see that entry below).
 
-  Before `box-sizing` existed, `width` unconditionally behaved like
-  `border-box` and `height` unconditionally behaved like `content-box`, an
-  asymmetric mix neither real value produces on its own. Implementing
-  `box-sizing` for real, defaulting to `border-box`, reproduces the old
-  `width` behavior exactly (it already was border-box-shaped) but changes
-  the old `height` behavior for anyone combining an explicit `height` with
-  padding or a border (it was always content-box-shaped, and now needs an
-  explicit `box-sizing: content-box` to get that back). This is a real,
-  visible output change on upgrade for that combination, matching what
-  adopting a Bootstrap-style reset changes on a real page too, not an
-  oversight.
-
-  `width`'s own margin-subtraction behavior predates `box-sizing` and is
-  independent of it: a declared `width`, under either value, still has
-  horizontal margin subtracted out of it before border and padding are
-  considered, so that `width: 100%` lines up exactly with the terminal's
-  width. That is not what real CSS's own `border-box`/`content-box`
-  distinction means (both real modes exclude margin from the box entirely);
-  it is layered on top of it, the same way it always has been. `height` was
-  never adjusted for margin this way and still isn't.
+  A declared `width`, under either value, also has horizontal margin
+  subtracted out of it, so `width: 100%` lines up exactly with the
+  terminal's width. Real CSS's `border-box`/`content-box` distinction
+  never includes margin in either mode; this engine subtracts it anyway,
+  under both. `height` gets no such adjustment for vertical margin.
 
   **Table cells (`<th>`/`<td>`) read `box-sizing` under
   `border-collapse: separate`; under `collapse`, `border-box` accounts for
