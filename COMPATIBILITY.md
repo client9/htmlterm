@@ -726,10 +726,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **Concurrent access.** A `Document` has no internal locking. `Loop.Run`'s
   own goroutine is the only place that may ever mutate a `Document` or
   trigger a repaint; timer callbacks and dispatched event handlers all run
-  there too. There's no DOM-level concurrency model to compare this against
-  (browsers are single-threaded per document too), but it's worth stating
-  plainly for Go callers: calling `Document` methods from multiple
-  goroutines is not safe.
+  there too. Calling `Document` methods from multiple goroutines is not
+  safe. There's no DOM-level concurrency model to compare this against
+  (browsers are single-threaded per document too).
 
 ---
 
