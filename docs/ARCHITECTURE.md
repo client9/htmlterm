@@ -168,7 +168,7 @@ These are the entry points worth knowing:
 |---|---|
 | What CSS is supported, property by property | `CSS.md` |
 | The default (user-agent) stylesheet itself | `internal/render/defaultstylesheet.go` |
-| How it differs from a browser, and why | `COMPATIBILITY.md` |
+| What differs from a browser (not how it's implemented) | `COMPATIBILITY.md` |
 | DOM/Element API against the real spec | `docs/DOM_API.md` |
 | A package's internals and layering | that package's `README.md` |
 | Layout, box composition, wrapping | `internal/render/` |

@@ -11,11 +11,15 @@ feature list. For what's supported, see **[CSS.md](./CSS.md)**
 **[docs/DOM_API.md](./docs/DOM_API.md)** (a method-by-method table against
 the real `Document`/`Element`/`Node` interfaces). Duplicating "what's
 supported" here as prose would just drift out of sync with those as features
-land, so each surface below gets three sections instead:
+land, so each surface below gets four sections instead. **Every entry states
+what differs, in a sentence or two.** Implementation mechanism (function and
+file names, code paths) and the reasoning behind a design choice belong in
+code comments or the design docs linked at the bottom, not here.
 
 - **Deviations from Spec.** Real features that exist here but behave
-  differently than in a browser, and why (text cells, not pixels; no
-  scripting engine; no real pointer/window).
+  differently than in a browser, with at most one clause of why when it
+  isn't obvious (text cells, not pixels; no scripting engine; no real
+  pointer/window).
 - **Terminal-Native Additions.** Things invented for this renderer with no
   browser equivalent at all.
 - **Not Implemented.** Features that are not currently implemented.
