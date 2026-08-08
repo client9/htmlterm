@@ -66,30 +66,35 @@ func forceHeight(lines []string, height int) []string {
 }
 
 // parsePaddingLen parses a CSS padding-<side> value as an absolute character
-// count. Percentages are not supported for padding (parseSizeVal's pct return
-// is discarded), matching prior behavior in both the block and table-cell box
-// models.
+// count. Percentages are not supported for padding, matching prior behavior
+// in both the block and table-cell box models: passing basisOK=false to
+// resolveLength means a bare "50%" fails to resolve exactly as it always
+// did, and a calc() with a "%" literal anywhere in it fails closed the same
+// way, with no separate case needed for it. A calc() with no percentage in
+// it, e.g. `padding-left: calc(2 * 2)`, still resolves normally, since it
+// never needed a basis to begin with. A negative result clamps to 0,
+// matching real CSS's own "negative padding is invalid" rule; this couldn't
+// arise before calc() existed.
 func parsePaddingLen(v string) int {
-	abs, _, ok := parseSizeVal(v)
-	if !ok {
+	n, ok := resolveLength(v, 0, false)
+	if !ok || n < 0 {
 		return 0
 	}
-	return abs
+	return n
 }
 
 // resolveMarginSide resolves a CSS margin-left/margin-right value against
 // availWidth. isAuto reports whether the value is the literal "auto" keyword,
 // in which case val is 0 and the caller resolves the actual value later (once
-// the box's final rendered width is known) via splitAutoMargins.
+// the box's final rendered width is known) via splitAutoMargins. Unlike
+// padding, a negative result is left alone rather than clamped: negative
+// margins are valid CSS.
 func resolveMarginSide(v string, availWidth int) (val int, isAuto bool) {
 	if strings.TrimSpace(v) == "auto" {
 		return 0, true
 	}
-	if abs, pct, ok := parseSizeVal(v); ok {
-		if pct > 0 {
-			return int(pct * float64(availWidth)), false
-		}
-		return abs, false
+	if n, ok := resolveLength(v, availWidth, true); ok {
+		return n, false
 	}
 	return 0, false
 }

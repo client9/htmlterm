@@ -305,20 +305,39 @@ func (r *Engine) mergedCellDecls(td *html.Node, colDecls []map[string]string, ci
 	return tdDecls
 }
 
-// mergeColConstraints folds dc into dst, keeping the first fixed or percent
-// value seen and the tightest min and max. It is the same merge rule whether
-// the source is a single unconstrained pass or many rows' worth of cells.
+// mergeColConstraints folds dc into dst, keeping the first calc, fixed, or
+// percent value seen and the tightest min and max. It is the same merge rule
+// whether the source is a single unconstrained pass or many rows' worth of
+// cells.
 //
 // fixed/minWidth/maxWidth are already box-sizing-adjusted absolute values by
 // the time they reach here (cellConstraints applies their delta immediately),
 // so comparing and keeping them needs no special handling. A percent-based
-// value's delta, by contrast, travels in its own percentDelta/
-// minPercentDelta/maxPercentDelta field until sizeColumns or effectiveMinMax
-// resolves the percentage; whichever cell's percent value wins the merge
-// below, its delta has to move with it; a percent inherited from one cell
-// paired with a delta computed for a different cell's own padding and border
-// would misattribute one cell's box-sizing chrome to another's.
+// or calc()-based value's delta, by contrast, travels in its own
+// percentDelta/calcDelta (and the min/max equivalents) field until
+// sizeColumns or effectiveMinMax resolves it; whichever cell's percent or
+// calc value wins the merge below, its delta has to move with it; a value
+// inherited from one cell paired with a delta computed for a different
+// cell's own padding and border would misattribute one cell's box-sizing
+// chrome to another's.
+//
+// calc's own "first non-empty wins" is independent of, not compared
+// against, the fixed/percent (and minWidth/minPercent, maxWidth/maxPercent)
+// fields: a calc() value isn't a plain number until sizeColumns/
+// effectiveMinMax resolve it against contentWidth, which isn't known yet
+// here, so there's no way to tell at merge time whether one cell's `width:
+// calc(50% - 4)` is more or less restrictive than another's `width: 10ch`.
+// Two cells in the same column declaring genuinely conflicting width kinds
+// is already an edge case with no single correct answer (real CSS's own
+// table layout algorithm is far more involved than this engine
+// approximates); this keeps the same "first cell's declaration wins, for
+// its own kind" policy the fixed/percent split already had, just extended
+// to a third kind rather than trying to cross-compare all three.
 func mergeColConstraints(dst *colConstraints, dc colConstraints) {
+	if dst.calc == "" && dc.calc != "" {
+		dst.calc = dc.calc
+		dst.calcDelta = dc.calcDelta
+	}
 	if dst.fixed == 0 && dc.fixed > 0 {
 		dst.fixed = dc.fixed
 	}
@@ -326,12 +345,20 @@ func mergeColConstraints(dst *colConstraints, dc colConstraints) {
 		dst.percent = dc.percent
 		dst.percentDelta = dc.percentDelta
 	}
+	if dst.minCalc == "" && dc.minCalc != "" {
+		dst.minCalc = dc.minCalc
+		dst.minCalcDelta = dc.minCalcDelta
+	}
 	if dc.minWidth > dst.minWidth {
 		dst.minWidth = dc.minWidth
 	}
 	if dc.minPercent > dst.minPercent {
 		dst.minPercent = dc.minPercent
 		dst.minPercentDelta = dc.minPercentDelta
+	}
+	if dst.maxCalc == "" && dc.maxCalc != "" {
+		dst.maxCalc = dc.maxCalc
+		dst.maxCalcDelta = dc.maxCalcDelta
 	}
 	if dc.maxWidth > 0 && (dst.maxWidth == 0 || dc.maxWidth < dst.maxWidth) {
 		dst.maxWidth = dc.maxWidth
@@ -551,7 +578,7 @@ func (r *Engine) measureGridNaturalWidths(g tableGrid, colDecls []map[string]str
 func estimateColumnWidths(cols []colConstraints, contentWidth int, fullWidth bool) []int {
 	flexCount := 0
 	for _, c := range cols {
-		if c.fixed == 0 && c.percent == 0 {
+		if c.calc == "" && c.fixed == 0 && c.percent == 0 {
 			flexCount++
 		}
 	}

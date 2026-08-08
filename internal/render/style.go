@@ -2,7 +2,6 @@ package render
 
 import (
 	"image/color"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/colorprofile"
@@ -140,7 +139,7 @@ func mergeInlineStyle(base inlineStyle, decls map[string]string) inlineStyle {
 				s.bg = c
 			}
 		case "opacity":
-			if f, err := strconv.ParseFloat(strings.TrimSpace(val), 64); err == nil {
+			if f, ok := resolveNumber(val); ok {
 				s.opacity = max(0.0, min(1.0, f))
 			}
 		case "font-weight":

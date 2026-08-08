@@ -223,15 +223,17 @@ func (r *Engine) layoutFlex(n *html.Node, decls map[string]string, innerW int) (
 	return r.layoutFlexRow(n, decls, innerW, reverse)
 }
 
-// parseFlexGrow parses flex-grow. The default is 0, and negative values are
-// invalid per spec and treated as unset. Parsing goes through
-// cssengine.ParseNumber rather than strconv, so only real CSS <number> syntax
-// is accepted. A non-finite value like "NaN" would otherwise sail through the
-// `f < 0` check, since NaN compares false against everything, and then poison
-// the total weight every share is computed against, silently zeroing out
+// parseFlexGrow parses flex-grow, including a calc()/min()/max()/clamp()
+// value now that resolveNumber handles those. The default is 0, and
+// negative values are invalid per spec and treated as unset. Parsing goes
+// through resolveNumber's cssengine.ParseNumber fast path rather than
+// strconv for the plain case, so only real CSS <number> syntax is accepted.
+// A non-finite value like "NaN" would otherwise sail through the `f < 0`
+// check, since NaN compares false against everything, and then poison the
+// total weight every share is computed against, silently zeroing out
 // well-formed siblings.
 func parseFlexGrow(decls map[string]string) float64 {
-	f, ok := cssengine.ParseNumber(decls["flex-grow"])
+	f, ok := resolveNumber(decls["flex-grow"])
 	if !ok || f < 0 {
 		return 0
 	}
@@ -242,7 +244,7 @@ func parseFlexGrow(decls map[string]string) float64 {
 // values are invalid per spec and treated as unset, falling back to that same
 // default. See parseFlexGrow on the parser choice.
 func parseFlexShrink(decls map[string]string) float64 {
-	f, ok := cssengine.ParseNumber(decls["flex-shrink"])
+	f, ok := resolveNumber(decls["flex-shrink"])
 	if !ok || f < 0 {
 		return 1
 	}
@@ -462,28 +464,28 @@ func isVisibleOverflow(v string) bool {
 // row instead of leaving it unbounded. See layoutFlexColumn's pctBasis.
 const indefiniteMainSize = -1
 
-// resolveFlexCSSSize is resolveCSSSize (block.go) over parseFlexSizeVal, so a
-// declared zero reads as a real length rather than as an absent one. See
-// parseFlexSizeVal. Used where the difference between "0" and unset carries
-// meaning, which in flex layout is min-width's opt-out from the automatic
-// minimum size.
+// resolveFlexCSSSize is resolveCSSSize (block.go) over resolveLength, with
+// isFlexZeroLiteral checked first so a declared zero reads as a real length
+// rather than as an absent one. See isFlexZeroLiteral. Used where the
+// difference between "0" and unset carries meaning, which in flex layout is
+// min-width's opt-out from the automatic minimum size.
 //
 // A percentage against indefiniteMainSize is not a length. CSS resolves a
 // percentage size against an indefinite basis to `auto` (for a preferred size)
 // or `none` (for a maximum), so reporting false, and leaving every caller to
 // fall through to whatever it does for an unset value, is exactly that rule.
+// A negative result clamps to 0: a negative flex-basis, calc()-derived or
+// not, is invalid per spec, and this engine never had a way to produce one
+// before calc() existed.
 func resolveFlexCSSSize(s string, axisSize int) (int, bool) {
-	abs, pct, ok := parseFlexSizeVal(s)
-	if !ok {
-		return 0, false
+	if isFlexZeroLiteral(s) {
+		return 0, true
 	}
-	if pct > 0 {
-		if axisSize < 0 {
-			return 0, false
-		}
-		return int(pct * float64(axisSize)), true
+	v, ok := resolveLength(s, axisSize, axisSize >= 0)
+	if !ok || v < 0 {
+		return 0, ok
 	}
-	return abs, true
+	return v, true
 }
 
 // flexGrowCeiling resolves how far flex-grow may increase a row-direction
@@ -864,16 +866,19 @@ func parseOrder(decls map[string]string) int {
 // a container with no declared height and for either axis is a container being
 // measured rather than laid out. A percentage against an indefinite size
 // resolves to zero, matching both the spec and what a browser paints. An
-// absolute gap is unaffected either way.
+// absolute gap is unaffected either way. basisOK is unconditionally true for
+// exactly that reason: unlike resolveCSSHeight's family, gap has no
+// "percentage against an indefinite basis is not a length" guard at all —
+// basis=0 already produces the spec's own zero result through plain
+// multiplication, with nothing extra required to special-case. A negative
+// result clamps to 0, matching real CSS's "negative gap is invalid" rule;
+// this couldn't arise before calc() existed.
 func parseGapLen(v string, basis int) int {
-	abs, pct, ok := parseSizeVal(v)
-	if !ok {
+	n, ok := resolveLength(v, basis, true)
+	if !ok || n < 0 {
 		return 0
 	}
-	if pct > 0 {
-		return int(pct * float64(basis))
-	}
-	return abs
+	return n
 }
 
 // parseFlexWrap parses flex-wrap into two independent facts: whether the
@@ -1788,27 +1793,35 @@ func itemIgnoringSizeDecl(it flexItem, key string) flexItem {
 // here, in resolveCrossWidth. The main-axis basis path goes through
 // resolveFlexCSSSize, which deliberately does not floor, so flex-basis:0 stays
 // a true zero as an arithmetic input to flex-grow. See resolveMainBasis.
+//
+// basisOK is unconditionally true here, matching this function's behavior
+// before resolveLength existed: unlike resolveFlexCSSSize's main-axis path,
+// the cross axis never had an indefinite-basis guard to begin with.
 func resolveFlexAxisSize(v string, axisSize int) int {
-	abs, pct, ok := parseFlexSizeVal(v)
+	if isFlexZeroLiteral(v) {
+		return 1
+	}
+	n, ok := resolveLength(v, axisSize, true)
 	if !ok {
 		return 0
 	}
-	if pct > 0 {
-		return max(1, int(pct*float64(axisSize)))
-	}
-	return max(1, abs)
+	return max(1, n)
 }
 
-// parseFlexSizeVal is parseSizeVal (table.go) extended to accept a *zero*
-// length. parseSizeVal reports only n > 0 as a length, since everywhere else in
-// this engine a zero size and an absent one mean the same thing. Not here:
-// flex-basis distinguishes "0", a definite base size of nothing, which is what
-// makes flex-grow split the container's whole main size by weight, from unset
-// or auto, which fall back to width and then to the item's natural content
-// size. Reading a declared 0 as "not a length" sent resolveMainBasis and
-// parseColumnFlexBasis down the auto path, so `flex: 1`, whose shorthand
-// expansion is `1 1 0`, laid out as `1 1 auto`: two items with different
-// content got content-proportional widths rather than equal ones.
+// isFlexZeroLiteral reports whether s is a zero length in any unit at all,
+// including ones this engine otherwise ignores (0px, 0em, ...) or doesn't
+// resolve for this property (a bare 0%). resolveFlexCSSSize and
+// resolveFlexAxisSize check this before calling resolveLength, since
+// resolveLength reports only n > 0 or a genuine percentage as a length,
+// same as everywhere else in this engine a zero size and an absent one mean
+// the same thing. Not here: flex-basis distinguishes "0", a definite base
+// size of nothing, which is what makes flex-grow split the container's
+// whole main size by weight, from unset or auto, which fall back to width
+// and then to the item's natural content size. Reading a declared 0 as "not
+// a length" sent resolveMainBasis and parseColumnFlexBasis down the auto
+// path, so `flex: 1`, whose shorthand expansion is `1 1 0`, laid out as
+// `1 1 auto`: two items with different content got content-proportional
+// widths rather than equal ones.
 //
 // The unit is trimmed off before the zero check rather than matched against
 // this engine's own vocabulary of "ch" and "%". This is the one place unit
@@ -1824,17 +1837,18 @@ func resolveFlexAxisSize(v string, axisSize int) int {
 // step with cssengine's isCSSFlexBasisToken, which already accepted `0px` as
 // the shorthand's <'flex-basis'> component and so expanded `flex: 1 1 0px`
 // into a longhand this function then dropped.
-func parseFlexSizeVal(s string) (abs int, pct float64, ok bool) {
-	if abs, pct, ok := parseSizeVal(s); ok {
-		return abs, pct, true
-	}
+//
+// A calc()/min()/max()/clamp() expression is deliberately not checked for a
+// zero *result* here: it goes through resolveLength like any other value,
+// which is a documented, narrow limitation (docs/proposals/CSS_MATH.md), not
+// a gap this function tries to close. Nobody writes `flex-basis: calc(0px)`
+// wanting a literal zero when plain `0` already says that.
+func isFlexZeroLiteral(s string) bool {
 	t := strings.TrimSpace(s)
 	t = strings.TrimSuffix(t, "%")
 	t = strings.TrimRightFunc(t, unicode.IsLetter)
-	if f, err := strconv.ParseFloat(t, 64); err == nil && f == 0 {
-		return 0, 0, true
-	}
-	return 0, 0, false
+	f, err := strconv.ParseFloat(t, 64)
+	return err == nil && f == 0
 }
 
 // resolveCrossWidth resolves a column-direction flex item's cross-axis

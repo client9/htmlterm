@@ -28,6 +28,15 @@ func TestExpandShorthand(t *testing.T) {
 			"padding-top": "1", "padding-right": "2", "padding-bottom": "3", "padding-left": "4",
 		}},
 		{name: "invalid arity falls back", prop: "margin", val: "1 2 3 4 5", want: map[string]string{"margin": "1 2 3 4 5"}},
+		{name: "margin calc value stays one token despite internal whitespace", prop: "margin", val: "calc(1 + 2) auto", want: map[string]string{
+			"margin-top": "calc(1 + 2)", "margin-right": "auto", "margin-bottom": "calc(1 + 2)", "margin-left": "auto",
+		}},
+		{name: "padding nested min inside calc stays one token", prop: "padding", val: "1 min(calc(2 + 3), 4)", want: map[string]string{
+			"padding-top": "1", "padding-right": "min(calc(2 + 3), 4)", "padding-bottom": "1", "padding-left": "min(calc(2 + 3), 4)",
+		}},
+		{name: "border-spacing calc value stays one token in the two-value form", prop: "border-spacing", val: "calc(1 + 1) 2", want: map[string]string{
+			"border-spacing-x": "calc(1 + 1)", "border-spacing-y": "2",
+		}},
 		{name: "list-style type and position", prop: "list-style", val: "upper-roman inside", want: map[string]string{
 			"list-style-type": "upper-roman", "list-style-position": "inside",
 		}},
@@ -147,6 +156,18 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "gap one value sets both axes", prop: "gap", val: "2", want: map[string]string{"row-gap": "2", "column-gap": "2"}},
 		{name: "gap two values set row then column", prop: "gap", val: "1 2", want: map[string]string{"row-gap": "1", "column-gap": "2"}},
 		{name: "gap invalid arity falls back", prop: "gap", val: "1 2 3", want: map[string]string{"gap": "1 2 3"}},
+		{name: "gap calc value stays one token despite internal whitespace", prop: "gap", val: "calc(1 + 1) 3", want: map[string]string{
+			"row-gap": "calc(1 + 1)", "column-gap": "3",
+		}},
+		{name: "flex basis calc value stays one token in the three-value form", prop: "flex", val: "1 2 calc(50% - 4)", want: map[string]string{
+			"flex-grow": "1", "flex-shrink": "2", "flex-basis": "calc(50% - 4)",
+		}},
+		{name: "flex single calc basis value defaults grow and shrink to 1", prop: "flex", val: "calc(50% - 4)", want: map[string]string{
+			"flex-grow": "1", "flex-shrink": "1", "flex-basis": "calc(50% - 4)",
+		}},
+		{name: "flex bare min basis value defaults grow and shrink to 1", prop: "flex", val: "min(50%, 40)", want: map[string]string{
+			"flex-grow": "1", "flex-shrink": "1", "flex-basis": "min(50%, 40)",
+		}},
 		{name: "flex none sets no grow no shrink auto basis", prop: "flex", val: "none", want: map[string]string{"flex-grow": "0", "flex-shrink": "0", "flex-basis": "auto"}},
 		{name: "flex auto sets grow and shrink to 1 with auto basis", prop: "flex", val: "auto", want: map[string]string{"flex-grow": "1", "flex-shrink": "1", "flex-basis": "auto"}},
 		{name: "flex initial sets no grow, shrink 1, auto basis", prop: "flex", val: "initial", want: map[string]string{"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto"}},
@@ -1773,6 +1794,33 @@ func TestParseNumber(t *testing.T) {
 	for _, in := range invalid {
 		if got, ok := ParseNumber(in); ok {
 			t.Errorf("ParseNumber(%q) = (%v, true), want ok = false", in, got)
+		}
+	}
+}
+
+// TestIsCSSFlexBasisTokenMathFunctions pins the fix that lets a calc()/
+// min()/max()/clamp() token classify as a flex-basis, the same as a plain
+// length or percentage already does. Without it, `flex: 1 1 calc(50% - 4)`
+// falls through to the shorthand's "junk" branch and the whole declaration
+// goes inert instead of setting flex-basis.
+func TestIsCSSFlexBasisTokenMathFunctions(t *testing.T) {
+	valid := []string{
+		"calc(50% - 4)", "CALC(50% - 4)", "min(50%, 40)", "max(10, 20%)",
+		"clamp(10, 50%, 30)", "calc(1 + 2)",
+	}
+	for _, s := range valid {
+		if !isCSSFlexBasisToken(s) {
+			t.Errorf("isCSSFlexBasisToken(%q) = false, want true", s)
+		}
+	}
+	// "min-content"/"max-content" are excluded here even though they start
+	// with a math function's own name: they're valid flex-basis tokens via
+	// the intrinsic-keyword switch above, just not through the math-
+	// function path this test targets.
+	invalid := []string{"fit-content-ish", "foo(1)", "calc(1 + 2"}
+	for _, s := range invalid {
+		if isCSSFlexBasisToken(s) {
+			t.Errorf("isCSSFlexBasisToken(%q) = true, want false", s)
 		}
 	}
 }

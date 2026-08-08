@@ -361,7 +361,11 @@ func expandShorthand(prop, val string) map[string]string {
 	var sides [4]string // top, right, bottom, left
 	switch prop {
 	case "margin", "padding":
-		tokens := strings.Fields(val)
+		// splitCSSComponentValues, not strings.Fields: a calc()/min()/
+		// max()/clamp() value in one of these 1-4 slots has mandatory
+		// internal whitespace around its own "+"/"-" (calc(1 + 2)), which
+		// strings.Fields would split into extra, wrong tokens.
+		tokens := splitCSSComponentValues(val)
 		switch len(tokens) {
 		case 1:
 			sides = [4]string{tokens[0], tokens[0], tokens[0], tokens[0]}
@@ -452,7 +456,9 @@ func expandShorthand(prop, val string) map[string]string {
 	case "background":
 		return expandBackgroundShorthand(val)
 	case "gap":
-		tokens := strings.Fields(val)
+		// See the margin/padding case above for why this is
+		// splitCSSComponentValues rather than strings.Fields.
+		tokens := splitCSSComponentValues(val)
 		switch len(tokens) {
 		case 1:
 			return map[string]string{"row-gap": tokens[0], "column-gap": tokens[0]}
@@ -465,7 +471,10 @@ func expandShorthand(prop, val string) map[string]string {
 		// <length> alone applies to both axes. <length> <length> is
 		// horizontal then vertical, per the real CSS2 grammar, the reverse
 		// order from "gap"'s row-then-column convention above.
-		tokens := strings.Fields(val)
+		//
+		// splitCSSComponentValues, not strings.Fields: see the margin/
+		// padding case above.
+		tokens := splitCSSComponentValues(val)
 		switch len(tokens) {
 		case 1:
 			return map[string]string{"border-spacing-x": tokens[0], "border-spacing-y": tokens[0]}
@@ -551,7 +560,12 @@ func expandFlexShorthand(val string) map[string]string {
 	if kw := cssWideKeyword(val); kw == "inherit" || kw == "unset" || kw == "revert" {
 		return map[string]string{"flex-grow": kw, "flex-shrink": kw, "flex-basis": kw}
 	}
-	tokens := strings.Fields(val)
+	// splitCSSComponentValues, not strings.Fields: flex-basis can be a
+	// calc()/min()/max()/clamp() value (flex: 1 1 calc(50% - 4)), whose
+	// mandatory internal whitespace around "+"/"-" would otherwise split
+	// into extra, wrong tokens. See the margin/padding case in
+	// expandShorthand above.
+	tokens := splitCSSComponentValues(val)
 	switch strings.ToLower(val) {
 	case "none":
 		return map[string]string{"flex-grow": "0", "flex-shrink": "0", "flex-basis": "auto"}
@@ -713,6 +727,9 @@ func isCSSFlexBasisToken(s string) bool {
 	s = strings.TrimSpace(s)
 	switch strings.ToLower(s) {
 	case "auto", "content", "min-content", "max-content", "fit-content":
+		return true
+	}
+	if IsMathFunctionToken(s) {
 		return true
 	}
 	return isCSSLengthLikeToken(s, true)
@@ -1033,6 +1050,16 @@ func consumeCSSQuotedToken(s string, i int) int {
 		}
 	}
 	return i
+}
+
+// ConsumeQuotedToken exports consumeCSSQuotedToken for internal/render's
+// convertViewportLengths (cascade.go), which needs to skip a quoted CSS
+// string span entirely — `content: "3vw wide"` must not have its literal
+// "3vw" mistaken for a length and rewritten — rather than scan into it
+// looking for a vw/vh length the way it does everywhere else in a value.
+// s[i] must be '"' or '\”; the caller checks that before calling.
+func ConsumeQuotedToken(s string, i int) int {
+	return consumeCSSQuotedToken(s, i)
 }
 
 func isCSSWhitespace(c byte) bool {

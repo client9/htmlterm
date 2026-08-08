@@ -17,29 +17,40 @@ import (
 func (r *Engine) renderList(n *html.Node, ordered bool, availWidth int) (string, map[*html.Node]Rect) {
 	decls := r.resolveDecls(n)
 
+	// basisOK is false throughout: padding-left/margin-left percentages
+	// were never supported for a list's hanging indent (only the abs
+	// component was ever read), so resolveLength's "percentage against no
+	// basis is not a length" rule reproduces that exactly, with no
+	// separate percent-discarding branch needed. Both combined totals are
+	// floored at 0: unlike resolveMarginSide's own margin-left handling, a
+	// negative combined indent reaches strings.Repeat below, which panics
+	// on a negative count, so this is a hard safety floor, not just a sign
+	// policy choice.
 	indent := 0
 	if v := decls["padding-left"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok {
-			indent = abs
+		if n, ok := resolveLength(v, 0, false); ok {
+			indent += n
 		}
 	}
 	if v := decls["margin-left"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok {
-			indent += abs
+		if n, ok := resolveLength(v, 0, false); ok {
+			indent += n
 		}
 	}
+	indent = max(0, indent)
 
 	rightIndent := 0
 	if v := decls["padding-right"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok {
-			rightIndent = abs
+		if n, ok := resolveLength(v, 0, false); ok {
+			rightIndent += n
 		}
 	}
 	if v := decls["margin-right"]; v != "" {
-		if abs, _, ok := parseSizeVal(v); ok {
-			rightIndent += abs
+		if n, ok := resolveLength(v, 0, false); ok {
+			rightIndent += n
 		}
 	}
+	rightIndent = max(0, rightIndent)
 	availWidth -= rightIndent
 
 	listStyleType := decls["list-style-type"]

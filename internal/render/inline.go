@@ -156,7 +156,15 @@ func (r *Engine) renderInlineAccTokensSeeded(n *html.Node, acc inlineStyle, avai
 		ws = v
 	}
 	tabSize := 8
-	if abs, _, ok := parseSizeVal(nDecls["tab-size"]); ok && abs > 0 {
+	// A calc()/min()/max()/clamp() value resolves through
+	// resolveCSSMathInteger first, rounded to the nearest integer; a plain
+	// literal keeps going through parseSizeVal exactly as before. See
+	// parseZIndex (outofflow.go) for the same split, applied to the other
+	// <integer>-context property.
+	tsVal := strings.TrimSpace(nDecls["tab-size"])
+	if n, ok := resolveCSSMathInteger(tsVal); ok && n > 0 {
+		tabSize = n
+	} else if abs, _, ok := parseSizeVal(tsVal); ok && abs > 0 {
 		tabSize = abs
 	}
 	tt := effectiveTransform(nDecls)

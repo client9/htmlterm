@@ -466,11 +466,12 @@ renderer. For `absolute`/`fixed`, percentages resolve against the real
 containing block's own width/height. Not inherited.
 
 #### `z-index`
-Integer (default `0`). Only meaningful on a `relative`/`absolute`/`fixed`
-element whose painted content overlaps another positioned element's — the
-higher value paints on top; equal values (including the default, the common
-case of two positioned elements that don't set it) fall back to document
-order. Not inherited.
+Integer (default `0`), or a `calc()`/`min()`/`max()`/`clamp()` expression
+rounded to one (see [CSS Math](#css-math-calc-min-max-clamp)). Only
+meaningful on a `relative`/`absolute`/`fixed` element whose painted content
+overlaps another positioned element's — the higher value paints on top;
+equal values (including the default, the common case of two positioned
+elements that don't set it) fall back to document order. Not inherited.
 
 #### `color`
 Any CSS color value (see [Color Values](#color-values)). Foreground color. Inherited.
@@ -485,7 +486,9 @@ and clip components are ignored. For example, `background: url(bg.png) #003366
 no-repeat` behaves like `background-color: #003366`. Not inherited.
 
 #### `opacity`
-`0.0`–`1.0`. `1` is fully opaque (the default). For `0 < opacity < 1`, scales
+`0.0`–`1.0`, or a `calc()`/`min()`/`max()`/`clamp()` expression (see
+[CSS Math](#css-math-calc-min-max-clamp); no percentage support, matching
+the plain-number form). `1` is fully opaque (the default). For `0 < opacity < 1`, scales
 the foreground and background color channels toward black (terminals can't
 composite against an unknown background, so darkening is the closest
 approximation). `0` renders the element's text as blank spaces of the same
@@ -698,7 +701,8 @@ See `docs/SCROLLING.md` for the scrolling design itself (including why `auto` ne
 `<integer>` or `<N%>`. Indents the first line of a block element's content by the specified number of columns (or percentage of available width). Only applied when the element's own first content is inline text; when the first child is a block-level element, that child applies its own inherited value. Inherited.
 
 #### `tab-size`
-`<integer>`. Tab-stop interval for expanding `\t` characters inside `white-space: pre` or `pre-wrap` content. Tab characters advance to the next multiple of `tab-size` columns. Default: `8`. Has no effect when `white-space` is `normal`, `nowrap`, or `pre-line` (tabs are collapsed to a single space like any other whitespace). Inherited.
+`<integer>`, or a `calc()`/`min()`/`max()`/`clamp()` expression rounded to
+one (see [CSS Math](#css-math-calc-min-max-clamp)). Tab-stop interval for expanding `\t` characters inside `white-space: pre` or `pre-wrap` content. Tab characters advance to the next multiple of `tab-size` columns. Default: `8`. Has no effect when `white-space` is `normal`, `nowrap`, or `pre-line` (tabs are collapsed to a single space like any other whitespace). Inherited.
 
 #### `visibility`
 `visible` | `hidden` | `collapse`. `hidden` hides the element's content while preserving its layout space — blank characters of the same dimensions are emitted instead, measured in terminal columns, so a double-width character (CJK, emoji) is replaced by the two spaces it occupied rather than one. Unlike `display: none`, a hidden element still occupies lines in the output. `hidden` is inherited, so all descendants are also hidden unless they override with `visibility: visible`. For table cells, `visibility: hidden` renders the cell as blank (preserving the column width from other rows). Meaningful distinction from `display: none` in table and fixed-layout contexts.
@@ -1336,7 +1340,9 @@ that height is what the content is still being laid out to determine. Fractions
 of a cell truncate, as every percentage here does. Not inherited.
 
 #### `flex-grow`
-`<number>` (default `0`). In `row` direction, distributes leftover main-axis
+`<number>` (default `0`), or a `calc()`/`min()`/`max()`/`clamp()` expression
+(see [CSS Math](#css-math-calc-min-max-clamp); no percentage support,
+matching the plain-number form). In `row` direction, distributes leftover main-axis
 space proportionally by weight — this leftover is always available (the row's
 width is always definite). Each item grows from its own **flex base size**, not
 from the [automatic minimum size](#automatic-minimum-size-min-widthmin-height-auto) that
@@ -1498,7 +1504,9 @@ than the container, matching CSS's "minimum wins" and matching what the
 item's own render does to itself anyway. Not inherited.
 
 #### `flex-shrink`
-`<number>` (default `1`). When items' resolved `flex-basis` sizes together
+`<number>` (default `1`), or a `calc()`/`min()`/`max()`/`clamp()` expression
+(see [CSS Math](#css-math-calc-min-max-clamp); no percentage support,
+matching the plain-number form). When items' resolved `flex-basis` sizes together
 overflow the container's available main-axis space — row direction's width
 (always definite), or column direction's explicit `height` if one is set —
 the overflow is distributed across items proportionally to each item's
@@ -1831,6 +1839,91 @@ definite basis, so their percentage heights fall back to `auto` rather than
 resolving. See [`height`](#height) for the full rule and for how
 `Options.Height` supplies the viewport at the top of the chain.
 
+### CSS Math: `calc()`, `min()`, `max()`, `clamp()`
+
+Any of the five forms above may be combined and computed with a math
+function, wherever a Size Value is accepted:
+
+| Function | Example | Meaning |
+|------|---------|---------|
+| `calc()` | `calc(50% - 4)` | Arithmetic on any mix of the forms above |
+| `min()` | `min(50%, 40)` | The smallest of two or more comma-separated values |
+| `max()` | `max(10, 20%)` | The largest of two or more comma-separated values |
+| `clamp()` | `clamp(10, 50%, 30)` | `50%`, bounded between `10` and `30`: equivalent to `max(10, min(50%, 30))` |
+
+`calc()` supports `+`, `-`, `*`, and `/`, with the usual precedence (`*`/`/`
+bind tighter than `+`/`-`) and parentheses for grouping. A binary `+` or `-`
+requires whitespace on both sides, matching real CSS's own grammar exactly:
+`calc(50% - 4)` is valid, `calc(50%-4)` is not, since without that rule a `-`
+can't be told apart from the sign on a following number (`calc(4 + -2)` is
+still valid — the `-2` there is a single signed number, not a second binary
+operator). `*` and `/` need no surrounding whitespace. Any of the four
+functions may nest inside any other, including inside `calc()`'s own
+arguments (`calc(min(50%, 40) + 2)`), and `min()`/`max()`/`clamp()` may be
+used directly as a property's whole value with no outer `calc()` needed:
+`flex-basis: min(50%, 40)`. `min()`/`max()` accept one or more
+comma-separated arguments; `clamp()` requires exactly three,
+`clamp(<min>, <value>, <max>)` — a `none` argument for an open-ended bound
+(CSS Values 4) is not supported here.
+
+A math function's own operands are restricted to this same table's
+vocabulary: a bare number, `ch`, `%`, `vw`, `vh` (resolved before the
+expression is evaluated, the same as anywhere else — see above), and nested
+math functions. Any other unit inside a math function, `px` included, fails
+the whole expression, the same as it fails a plain, non-calc length.
+
+**A math function also works on `opacity`, `flex-grow`, `flex-shrink`,
+`z-index`, and `tab-size`** — real CSS's `<number>`/`<integer>` contexts,
+not Size Values, so their operand vocabulary is narrower: a bare number
+only, no `ch`, `%`, `vw`, or `vh`, since none of these five properties is a
+length or a percentage. `opacity: calc(1 - 0.5)` and `flex-grow: min(2, 3)`
+both work; `opacity: calc(50%)` doesn't, the same "a percentage with no
+basis to resolve against is not a length" outcome described below, applied
+here since these properties have no basis at all to offer one. `z-index`
+and `tab-size` are `<integer>` contexts: a math function's result rounds to
+the nearest integer, ties toward positive infinity (`z-index: calc(1.5)` is
+`2`; `calc(-1.5)` is `-1`), matching real CSS. A literal, non-calc value is
+unaffected by any of this: `z-index: 1.5` is still invalid CSS `<integer>`
+syntax and still falls back to the property's default, exactly as before a
+math function existed.
+
+- **A percentage that can't resolve fails the whole expression, not just
+  that term.** `calc(100% - 100% + 1em)` looks like it should simplify to a
+  plain absolute length, and it doesn't: CSS doesn't pre-simplify a
+  percentage away before deciding whether a value depends on its basis, so
+  a percentage anywhere in a math function, against an indefinite basis
+  (see [`height`](#height) for what "indefinite" means), makes the whole
+  expression resolve as unset, matching CSS2.1 §10.5. `min()`/`max()`/
+  `clamp()` follow the identical rule: `max-height: min(50%, 20)` on an
+  auto-height container is unconstrained, not `20` — the non-percentage
+  branch does not rescue the value.
+- **A resolved value below what the property allows clamps to the
+  property's own floor.** `width`, `min-width`, `max-width`, `height`,
+  `min-height`, `max-height`, `flex-basis`, `padding-*`, `gap`/`row-gap`/
+  `column-gap`, and `border-spacing` all clamp a negative result to `0`,
+  matching real CSS's own "negative length is invalid" rule for those
+  properties. Table `<col>`/`<colgroup>`/`th`/`td` widths are the one
+  exception: `width` and `max-width` there floor at `1`, not `0`, the same
+  floor a zero or negative fixed or percent column width already had
+  before calc() existed, since this engine can't render a genuinely
+  zero-width column; `min-width` still floors at `0` there, same as
+  everywhere else. `margin-*` and `top`/`right`/`bottom`/`left` do not
+  clamp: a negative margin or offset, calc()-derived or not, is valid CSS
+  and is used as-is. `text-indent` doesn't clamp either, but doesn't
+  support a negative value regardless of calc(), a pre-existing limitation
+  unrelated to calc() itself.
+- **`calc(4ch * 3ch)` is accepted here**, where real CSS rejects multiplying
+  two lengths together. This engine already treats a bare number and its
+  `ch` spelling as the identical value everywhere else (see above), so a
+  calc() expression can't tell a `<number>` operand apart from a `<length>`
+  one either. Only multiplying or dividing by a value with a `%` in it is
+  rejected, the one restriction with a real footgun: silently discarding a
+  basis-dependent divisor's own basis-dependence.
+- **Table column and cell widths** (`width`/`min-width`/`max-width` on
+  `<col>`, `<colgroup>`, `<th>`, or `<td>`) resolve a math function against
+  the table's own content width, the same basis a plain percentage there
+  already uses.
+
 ---
 
 ## CSS Properties — Cell Sizing (`th`, `td`) and Table Borders (`table`)
@@ -1989,7 +2082,6 @@ unrecognized, the same as any other invalid color.
 ## What Is Not Implemented
 
 - `px`, `em`, `rem`, `pt`, `vmin`, `vmax`, and other CSS units (ignored; use bare integers, `ch`, `%`, `vw`, or `vh`). A **zero** length is accepted in any unit — see [Zero is dimensionless](#zero-is-dimensionless)
-- CSS math functions: `calc()`, `min()`, `max()`, `clamp()`
 - Media queries (`@media`)
 - `@font-face`, `@keyframes`, `@import`, `@charset`, `@supports`, `@page`, or any other at-rule — the parser recognizes any `@`-rule and skips it as a unit (its prelude, and its `{ ... }` body if it has one, including any rules nested inside that body), so an at-rule the renderer doesn't understand is simply ignored rather than corrupting whatever rule follows it in the same stylesheet
 - `:active`, and pseudo-classes beyond those listed under [Selectors](#selectors) — a large set *is* supported there, including `:not()`, `:is()`, `:where()`, `:has()`, the structural `:nth-*` family, and the attribute-driven `:checked`/`:disabled`/`:required`. `:focus` needs a live `Document` rather than one-shot `Render`, and `:hover` matches only `option:hover` in an open `<select>`

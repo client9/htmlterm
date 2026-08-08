@@ -86,9 +86,18 @@ func resolveAbsoluteAxis(startProp, endProp string, decls map[string]string, box
 }
 
 // parseZIndex parses the z-index property, mirroring flex.go's parseOrder
-// exactly: default 0, invalid or missing values also parse as 0.
+// exactly: default 0, invalid or missing values also parse as 0. A calc()/
+// min()/max()/clamp() value resolves through resolveCSSMathInteger first,
+// rounded to the nearest integer per CSS's own rule (see that function's
+// doc comment); a plain literal keeps going through strconv.Atoi exactly
+// as before, so "z-index: 1.5", not valid CSS <integer> syntax, still
+// fails rather than being newly accepted as 1 or 2.
 func parseZIndex(decls map[string]string) int {
-	n, err := strconv.Atoi(strings.TrimSpace(decls["z-index"]))
+	s := strings.TrimSpace(decls["z-index"])
+	if n, ok := resolveCSSMathInteger(s); ok {
+		return n
+	}
+	n, err := strconv.Atoi(s)
 	if err != nil {
 		return 0
 	}

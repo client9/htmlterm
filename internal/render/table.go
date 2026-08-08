@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/client9/htmlterm/internal/cssengine"
 	"github.com/client9/htmlterm/internal/textcell"
 )
 
@@ -113,17 +114,36 @@ func namedTableStyle(name string) (tableStyle, bool) {
 // effectiveMinMax for the min/max pair) multiplies it against contentWidth,
 // so the box-sizing adjustment has to ride along and get added at that same
 // point instead. See cellConstraints and cellBoxSizingDelta.
+//
+// calc/minCalc/maxCalc hold a raw calc()/min()/max()/clamp() declaration
+// verbatim, for the same reason percent can't be resolved immediately: it
+// needs contentWidth, which isn't known until sizeColumns/effectiveMinMax
+// run. They exist as a separate string field rather than folding into
+// fixed or percent because a calc() result isn't decomposable into "exactly
+// one of an absolute count or a fraction" the way this struct's other
+// fields assume — `calc(50% + 4)` is both at once, resolved as a whole
+// against contentWidth via resolveLength, not as independent fixed and
+// percent contributions. See docs/proposals/CSS_MATH.md's table.go caveat
+// for why this couldn't just reuse the fixed/percent split. calcDelta/
+// minCalcDelta/maxCalcDelta are cellBoxSizingDelta's adjustment for a calc
+// value, added after resolveLength resolves it, mirroring percentDelta.
 type colConstraints struct {
 	natural         int     // max content width (runes) across all rows
 	fixed           int     // exact char width from width= attribute or CSS width (0 = not set), already box-sizing-adjusted
 	percent         float64 // CSS width as fraction of contentWidth (0 = not set; overrides fixed)
 	percentDelta    int     // box-sizing adjustment for percent, added after percent resolves to an absolute width
+	calc            string  // raw calc()/min()/max()/clamp() CSS width declaration (empty = not set; overrides fixed and percent)
+	calcDelta       int     // box-sizing adjustment for calc, added after it resolves to an absolute width
 	minWidth        int     // CSS min-width in chars (0 = none), already box-sizing-adjusted
 	minPercent      float64 // CSS min-width as fraction (0 = none)
 	minPercentDelta int     // box-sizing adjustment for minPercent, added after it resolves
+	minCalc         string  // raw calc()/min()/max()/clamp() CSS min-width declaration (empty = none; overrides minWidth and minPercent)
+	minCalcDelta    int     // box-sizing adjustment for minCalc, added after it resolves
 	maxWidth        int     // CSS max-width in chars (0 = none), already box-sizing-adjusted
 	maxPercent      float64 // CSS max-width as fraction (0 = none)
 	maxPercentDelta int     // box-sizing adjustment for maxPercent, added after it resolves
+	maxCalc         string  // raw calc()/min()/max()/clamp() CSS max-width declaration (empty = none; overrides maxWidth and maxPercent)
+	maxCalcDelta    int     // box-sizing adjustment for maxCalc, added after it resolves
 }
 
 // parseSizeVal parses a CSS/HTML size string: bare integer, Nch, or N%.
@@ -208,7 +228,10 @@ func (r *Engine) cellConstraints(decls map[string]string, borderW int) colConstr
 	padding := parsePaddingLen(decls["padding-left"]) + parsePaddingLen(decls["padding-right"])
 	delta := cellBoxSizingDelta(decls, padding, borderW)
 	if v, ok := decls["width"]; ok {
-		if abs, pct, ok := parseSizeVal(v); ok {
+		v = strings.TrimSpace(v)
+		if cssengine.IsMathFunctionToken(v) {
+			c.calc, c.calcDelta = v, delta
+		} else if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.percent = pct
 				c.percentDelta = delta
@@ -218,7 +241,10 @@ func (r *Engine) cellConstraints(decls map[string]string, borderW int) colConstr
 		}
 	}
 	if v, ok := decls["min-width"]; ok {
-		if abs, pct, ok := parseSizeVal(v); ok {
+		v = strings.TrimSpace(v)
+		if cssengine.IsMathFunctionToken(v) {
+			c.minCalc, c.minCalcDelta = v, delta
+		} else if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.minPercent = pct
 				c.minPercentDelta = delta
@@ -228,7 +254,10 @@ func (r *Engine) cellConstraints(decls map[string]string, borderW int) colConstr
 		}
 	}
 	if v, ok := decls["max-width"]; ok {
-		if abs, pct, ok := parseSizeVal(v); ok {
+		v = strings.TrimSpace(v)
+		if cssengine.IsMathFunctionToken(v) {
+			c.maxCalc, c.maxCalcDelta = v, delta
+		} else if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.maxPercent = pct
 				c.maxPercentDelta = delta
@@ -240,36 +269,61 @@ func (r *Engine) cellConstraints(decls map[string]string, borderW int) colConstr
 	return c
 }
 
+// explicitColumnWidth resolves a column's own declared width — calc(),
+// percent, or fixed, tried in that order since they're mutually exclusive
+// by construction (cellConstraints only ever sets one) — against
+// contentWidth. ok is false when no width was declared at all, or a calc()
+// failed to resolve; contentWidth is always definite here, so the only
+// realistic way that happens is a malformed declaration, and the caller's
+// fallback is the same either way: natural-width sizing, as if no width had
+// been declared.
+func explicitColumnWidth(c colConstraints, contentWidth int) (int, bool) {
+	switch {
+	case c.calc != "":
+		if v, ok := resolveLength(c.calc, contentWidth, true); ok {
+			return max(1, v+c.calcDelta), true
+		}
+		return 0, false
+	case c.percent > 0:
+		return max(1, int(c.percent*float64(contentWidth))+c.percentDelta), true
+	case c.fixed > 0:
+		return c.fixed, true
+	default:
+		return 0, false
+	}
+}
+
 // sizeColumns computes final column widths. contentWidth is the space available
 // for cell content (terminal width minus all border/separator overhead).
-// Percentage columns are resolved to absolute widths first; fixed columns are
-// immune to the expand/shrink pass. Flexible columns start at their natural
-// width (clamped by min/max). Extra space is distributed only to flexible
-// columns; overage is reclaimed from flexible and percentage columns.
+// Percentage and calc() columns are resolved to absolute widths first; fixed
+// columns are immune to the expand/shrink pass. Flexible columns start at
+// their natural width (clamped by min/max). Extra space is distributed only
+// to flexible columns; overage is reclaimed from flexible, percentage, and
+// calc() columns.
 func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int {
 	widths := make([]int, len(cols))
 	for i, c := range cols {
-		switch {
-		case c.percent > 0:
-			widths[i] = max(1, int(c.percent*float64(contentWidth))+c.percentDelta)
-		case c.fixed > 0:
-			widths[i] = c.fixed
-		default:
-			w := c.natural
-			minW, maxW := effectiveMinMax(c, contentWidth)
-			if minW > 0 && w < minW {
-				w = minW
-			}
-			if maxW > 0 && w > maxW {
-				w = maxW
-			}
+		if w, ok := explicitColumnWidth(c, contentWidth); ok {
 			widths[i] = w
+			continue
 		}
+		w := c.natural
+		minW, maxW := effectiveMinMax(c, contentWidth)
+		if minW > 0 && w < minW {
+			w = minW
+		}
+		if maxW > 0 && w > maxW {
+			w = maxW
+		}
+		widths[i] = w
 	}
 
 	total := sum(widths)
 
-	isConstrained := func(c colConstraints) bool { return c.fixed > 0 || c.percent > 0 }
+	isConstrained := func(c colConstraints) bool {
+		_, ok := explicitColumnWidth(c, contentWidth)
+		return ok
+	}
 
 	switch {
 	case fullWidth && total < contentWidth:
@@ -355,10 +409,21 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 }
 
 // effectiveMinMax returns the resolved min and max widths for a column,
-// combining absolute and percentage constraints. max=0 means uncapped.
+// combining absolute, percentage, and calc() constraints. max=0 means
+// uncapped. A calc() that fails to resolve (contentWidth is always definite
+// here, so only a malformed declaration triggers this) contributes nothing,
+// the same as an unset min-width/max-width.
 func effectiveMinMax(c colConstraints, contentWidth int) (minW, maxW int) {
 	minW = c.minWidth
-	if c.minPercent > 0 {
+	if c.minCalc != "" {
+		if v, ok := resolveLength(c.minCalc, contentWidth, true); ok {
+			// Floored at 0 for the same reason the minPercent branch below
+			// is: see its own comment.
+			if mp := max(0, v+c.minCalcDelta); mp > minW {
+				minW = mp
+			}
+		}
+	} else if c.minPercent > 0 {
 		// Floored at 0, minWidth's own "no constraint" sentinel: a
 		// box-sizing delta that would push this below 0 asks for a minimum
 		// content-box shrunk past its own chrome, which is already
@@ -369,7 +434,16 @@ func effectiveMinMax(c colConstraints, contentWidth int) (minW, maxW int) {
 		}
 	}
 	maxW = c.maxWidth
-	if c.maxPercent > 0 {
+	if c.maxCalc != "" {
+		if v, ok := resolveLength(c.maxCalc, contentWidth, true); ok {
+			// Floored at 1 for the same reason the maxPercent branch below
+			// is: see its own comment.
+			mp := max(1, v+c.maxCalcDelta)
+			if maxW == 0 || mp < maxW {
+				maxW = mp
+			}
+		}
+	} else if c.maxPercent > 0 {
 		// Floored at 1, not 0: 0 is maxWidth's own "uncapped" sentinel, and
 		// an author who declared a real percent maximum still gets one
 		// clamped as tight as this engine can render, one cell, rather than

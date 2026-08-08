@@ -1052,6 +1052,127 @@ func TestMinMaxHeight(t *testing.T) {
 	})
 }
 
+// TestCSSMath covers calc()/min()/max()/clamp() end to end, through the
+// public Renderer rather than any internal function directly, since that's
+// the level a regression here would actually be caught or missed at (see
+// TestResolveCSSSizePercentStaysSetEvenWhenItResolvesToZero's own comment
+// for a case where an internal-only unit test would not have caught the
+// bug an end-to-end render test did).
+func TestCSSMath(t *testing.T) {
+	runCases(t, []renderCase{
+		{
+			name:  "calc on width, pure arithmetic",
+			css:   `div { width: calc(10 - 4); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi    \n",
+		},
+		{
+			name:  "bare min on width picks the smaller value",
+			css:   `div { width: min(10, 20); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi        \n",
+		},
+		{
+			name:  "bare max on width picks the larger value",
+			css:   `div { width: max(4, 6); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi    \n",
+		},
+		{
+			name:  "clamp on width picks the min bound when the value is below it",
+			css:   `div { width: clamp(4, 3, 10); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi  \n",
+		},
+		{
+			name:  "calc mixes percent and absolute against the container width",
+			css:   `div { width: calc(50% - 2); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi      \n",
+		},
+		{
+			name:  "nested min inside calc",
+			css:   `div { width: calc(min(50%, 4) + 2); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi    \n",
+		},
+		{
+			name:  "calc-derived negative margin-top clamps to zero blank lines",
+			css:   `div#below { margin-top: calc(1 - 5); }`,
+			html:  `<div>above</div><div id="below">below</div>`,
+			width: 10,
+			want:  "above\nbelow\n",
+		},
+		{
+			name:  "calc-derived negative padding-left clamps to zero, unlike margin",
+			css:   `div { padding-left: calc(1 - 5); }`,
+			html:  `<div>hi</div>`,
+			width: 20,
+			want:  "hi\n",
+		},
+		{
+			name:  "text-indent via calc",
+			css:   `p { text-indent: calc(2 + 2); }`,
+			html:  `<p>hi</p>`,
+			width: 40,
+			want:  "    hi\n\n",
+		},
+		{
+			name:  "flex-basis via calc splits the row by the remaining weight",
+			css:   `div { display: flex; width: 10; } span { flex: 1 1 calc(50% - 5); }`,
+			html:  `<div><span>a</span><span>b</span></div>`,
+			width: 20,
+			want:  "a    b    \n",
+		},
+		{
+			name:  "column-gap via calc between two fixed-width flex items",
+			css:   `div { display: flex; width: 10; } span { width: 2; }`,
+			html:  `<div style="gap: calc(1 + 1)"><span>a</span><span>b</span></div>`,
+			width: 20,
+			want:  "a   b     \n",
+		},
+		{
+			// Table column widths are the one caller resolveLength doesn't
+			// serve directly (docs/proposals/CSS_MATH.md's table.go
+			// caveat: colConstraints needed its own calc/minCalc/maxCalc
+			// fields). This exercises that path through the real table
+			// pipeline, not just sizeColumns/effectiveMinMax in isolation
+			// (see helpers_internal_test.go's TestCellConstraintsCalc and
+			// friends for those). Mirrors TestColGroup's "cell style
+			// overrides col style" case exactly, with width:6 replaced by
+			// an equivalent calc(), so the two should render identically.
+			name:  "table cell width via calc",
+			html:  `<table style="border-spacing:0"><tr><th style="width:calc(4 + 2)">Name</th></tr><tr><td>Alice</td></tr></table>`,
+			width: 40,
+			want:  "Name  \nAlice \n",
+		},
+		{
+			// opacity is a <number> context, not a Size Value, but shares
+			// the same calc() machinery via resolveNumber (number.go).
+			name:  "opacity via calc blanks the text at zero",
+			css:   `.x { opacity: calc(1 - 1); }`,
+			html:  `<span class="x">hidden</span> after`,
+			width: 40,
+			want:  "      after",
+		},
+		{
+			// tab-size is an <integer> context; resolveCSSMathInteger
+			// rounds a calc() result to the nearest integer first.
+			name:  "tab-size via calc",
+			css:   `pre { tab-size: calc(2 + 2); }`,
+			html:  `<pre>a&#9;b</pre>`,
+			width: 40,
+			want:  "a   b\n",
+		},
+	})
+}
+
 func TestVisibilityHidden(t *testing.T) {
 	runCases(t, []renderCase{
 		{

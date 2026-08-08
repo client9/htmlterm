@@ -252,3 +252,26 @@ func TestOutOfFlowDescendantPositionsAgainstClampedAncestor(t *testing.T) {
 		t.Errorf("inner Rect.Col = %d, want 2 (the outer's actual clamped column, not its pre-clamp column 15)", rect.Col)
 	}
 }
+
+func TestParseZIndexCalc(t *testing.T) {
+	tests := []struct {
+		val  string
+		want int
+	}{
+		{"3", 3},
+		{"calc(1 + 2)", 3},
+		{"calc(1.5)", 2}, // rounds to the nearest integer, ties toward +Inf
+		{"min(5, 10)", 5},
+		{"1.5", 0},  // not valid <integer> literal syntax; falls back to the default
+		{"junk", 0}, // unrecognized, falls back to the default
+		{"", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.val, func(t *testing.T) {
+			got := parseZIndex(map[string]string{"z-index": tt.val})
+			if got != tt.want {
+				t.Errorf("parseZIndex(%q) = %d, want %d", tt.val, got, tt.want)
+			}
+		})
+	}
+}

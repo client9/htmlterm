@@ -334,46 +334,64 @@ func TestDistributeFlexShrink(t *testing.T) {
 	})
 }
 
-// TestParseFlexSizeValZeroIsUnitless pins the one place this engine reads unit
-// syntax it otherwise ignores: a zero length is dimensionless in CSS, so every
-// spelling of zero has to resolve to a definite base size of nothing rather
-// than falling through to flex-basis's auto path. The non-zero cases pin the
-// other half of that - unit support is not what was granted here.
-func TestParseFlexSizeValZeroIsUnitless(t *testing.T) {
+// TestIsFlexZeroLiteralAcceptsAnyUnit pins the one place this engine reads
+// unit syntax it otherwise ignores: a zero length is dimensionless in CSS,
+// so every spelling of zero has to be recognized as a definite base size of
+// nothing rather than falling through to flex-basis's auto path. The
+// non-zero cases pin the other half of that: unit support beyond "ch" and
+// "%" is not what isFlexZeroLiteral grants — a non-zero "10px" is still not
+// a recognized length, only "0px" gets the special case, since a zero
+// <length> is the one CSS value whose unit can be omitted entirely.
+func TestIsFlexZeroLiteralAcceptsAnyUnit(t *testing.T) {
+	zero := []string{"0", "0%", "0ch", "0px", "0em", "0rem", "0PX", " 0px ", "0.0px"}
+	for _, in := range zero {
+		t.Run(in, func(t *testing.T) {
+			if !isFlexZeroLiteral(in) {
+				t.Errorf("isFlexZeroLiteral(%q) = false, want true", in)
+			}
+		})
+	}
+
+	// Keywords must still fail, not trim to an empty (zero) numeric part,
+	// and a non-zero value in any unit, including this engine's own "ch",
+	// is not this function's concern at all: resolveFlexCSSSize/
+	// resolveFlexAxisSize fall through to resolveLength for those.
+	notZero := []string{"", "auto", "content", "min-content", "px", "10", "10ch", "50%", "10px", "10em"}
+	for _, in := range notZero {
+		t.Run(in, func(t *testing.T) {
+			if isFlexZeroLiteral(in) {
+				t.Errorf("isFlexZeroLiteral(%q) = true, want false", in)
+			}
+		})
+	}
+}
+
+// TestResolveFlexCSSSizeNonZeroUnitVocabulary pins resolveFlexCSSSize's
+// non-zero behavior to this engine's existing "ch"/"%" vocabulary once
+// isFlexZeroLiteral's special case (above) doesn't apply: an unrecognized
+// unit like px still fails to resolve, the same as everywhere else in this
+// engine, even though a *zero* spelled with that same unit is accepted.
+func TestResolveFlexCSSSizeNonZeroUnitVocabulary(t *testing.T) {
 	tests := []struct {
-		in      string
-		wantAbs int
-		wantPct float64
-		wantOK  bool
+		in       string
+		axisSize int
+		wantVal  int
+		wantOK   bool
 	}{
-		{in: "0", wantOK: true},
-		{in: "0%", wantOK: true},
-		{in: "0ch", wantOK: true},
-		{in: "0px", wantOK: true},
-		{in: "0em", wantOK: true},
-		{in: "0rem", wantOK: true},
-		{in: "0PX", wantOK: true},
-		{in: " 0px ", wantOK: true},
-		{in: "0.0px", wantOK: true},
-		// Non-zero keeps this engine's existing unit vocabulary exactly.
-		{in: "10", wantAbs: 10, wantOK: true},
-		{in: "10ch", wantAbs: 10, wantOK: true},
-		{in: "50%", wantPct: 0.5, wantOK: true},
-		{in: "10px", wantOK: false},
-		{in: "10em", wantOK: false},
-		// Keywords must still fail, not trim to an empty (zero) numeric part.
-		{in: "", wantOK: false},
-		{in: "auto", wantOK: false},
-		{in: "content", wantOK: false},
-		{in: "min-content", wantOK: false},
-		{in: "px", wantOK: false},
+		{in: "10", axisSize: 100, wantVal: 10, wantOK: true},
+		{in: "10ch", axisSize: 100, wantVal: 10, wantOK: true},
+		{in: "50%", axisSize: 100, wantVal: 50, wantOK: true},
+		{in: "10px", axisSize: 100, wantOK: false},
+		{in: "10em", axisSize: 100, wantOK: false},
+		{in: "auto", axisSize: 100, wantOK: false},
+		{in: "calc(50% - 10)", axisSize: 100, wantVal: 40, wantOK: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			abs, pct, ok := parseFlexSizeVal(tt.in)
-			if ok != tt.wantOK || abs != tt.wantAbs || pct != tt.wantPct {
-				t.Errorf("parseFlexSizeVal(%q) = (%d, %v, %v), want (%d, %v, %v)",
-					tt.in, abs, pct, ok, tt.wantAbs, tt.wantPct, tt.wantOK)
+			v, ok := resolveFlexCSSSize(tt.in, tt.axisSize)
+			if ok != tt.wantOK || v != tt.wantVal {
+				t.Errorf("resolveFlexCSSSize(%q, %d) = (%d, %v), want (%d, %v)",
+					tt.in, tt.axisSize, v, ok, tt.wantVal, tt.wantOK)
 			}
 		})
 	}
@@ -457,5 +475,43 @@ func TestClampFlexWidthConvertsContentBoxBounds(t *testing.T) {
 	}
 	if got := clampFlexWidth(decls, 20, 20); got != 10 {
 		t.Errorf("clampFlexWidth(20) = %d, want 10 (max-width 8 content columns + 2 border columns)", got)
+	}
+}
+
+func TestParseFlexGrowShrinkCalc(t *testing.T) {
+	growTests := []struct {
+		val  string
+		want float64
+	}{
+		{"", 0}, // default
+		{"2", 2},
+		{"calc(1 + 1)", 2},
+		{"min(3, 5)", 3},
+		{"calc(0 - 1)", 0}, // negative, invalid per spec, falls back to the default
+	}
+	for _, tt := range growTests {
+		t.Run("grow "+tt.val, func(t *testing.T) {
+			if got := parseFlexGrow(map[string]string{"flex-grow": tt.val}); got != tt.want {
+				t.Errorf("parseFlexGrow(%q) = %v, want %v", tt.val, got, tt.want)
+			}
+		})
+	}
+
+	shrinkTests := []struct {
+		val  string
+		want float64
+	}{
+		{"", 1}, // default
+		{"2", 2},
+		{"calc(1 + 1)", 2},
+		{"max(1, 4)", 4},
+		{"calc(0 - 1)", 1}, // negative, invalid per spec, falls back to the default
+	}
+	for _, tt := range shrinkTests {
+		t.Run("shrink "+tt.val, func(t *testing.T) {
+			if got := parseFlexShrink(map[string]string{"flex-shrink": tt.val}); got != tt.want {
+				t.Errorf("parseFlexShrink(%q) = %v, want %v", tt.val, got, tt.want)
+			}
+		})
 	}
 }

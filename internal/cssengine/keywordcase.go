@@ -49,6 +49,20 @@ var caseSensitiveValueProps = map[string]bool{
 	"counter-set":       true,
 }
 
+// IsAuthorTextProp reports whether prop's value is author-supplied text
+// (or a custom identifier) that must survive untouched, not CSS length/
+// keyword syntax to go looking inside for anything — the same
+// caseSensitiveValueProps set foldKeywordValue uses to skip lowercasing.
+// internal/render's convertViewportLengths (cascade.go) uses this to skip
+// scanning these values for a vw/vh length entirely: content's own mini-
+// language can legitimately contain a numeral immediately followed by "vw"
+// or "vh" with no length meaning at all, e.g. the "2vw" in
+// `content: counter(x, 2vw)`, and scanning into it would silently rewrite
+// that author text.
+func IsAuthorTextProp(prop string) bool {
+	return caseSensitiveValueProps[prop]
+}
+
 // foldKeywordValue lowercases a declaration value, unless the value is one this
 // engine must preserve exactly. It is a no-op for values with no uppercase
 // letters, which is nearly all of them.

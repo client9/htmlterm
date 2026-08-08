@@ -129,15 +129,27 @@ func drawBlockHBorder(fill, color, leftCorner, rightCorner string, width int, p 
 	return drawHRule([]int{max(0, segWidth)}, fill, color, leftCorner, "", rightCorner, p)
 }
 
+// resolveCSSSize resolves a width-family CSS length (width, min-width,
+// max-width) against availWidth, which is always definite in this engine
+// (a width's containing block is never indefinite the way a height's can
+// be), so basisOK is unconditionally true.
+//
+// ok tracks whether s was a recognized length at all, not whether the
+// *resolved* number happens to be positive: `width: 1%` on a 10-column
+// container is a real, definite width of 0 columns, not "unset" — the
+// declared percentage itself is what has to be positive for parseSizeVal to
+// accept it, same as before resolveLength existed, and that's already what
+// resolveLength's ok return reflects. A resolved negative — impossible
+// before calc() existed, since neither a bare length nor a percentage can
+// go negative on their own — clamps to 0 while staying ok, matching real
+// CSS's "negative width is invalid, used value clamps to zero" rule rather
+// than being treated as if the declaration were absent.
 func resolveCSSSize(s string, availWidth int) (int, bool) {
-	abs, pct, ok := parseSizeVal(s)
+	v, ok := resolveLength(s, availWidth, true)
 	if !ok {
 		return 0, false
 	}
-	if pct > 0 {
-		return int(pct * float64(availWidth)), true
-	}
-	return abs, true
+	return max(0, v), true
 }
 
 // resolveCSSHeight is resolveCSSSize for a vertical size, whose basis can be
@@ -152,17 +164,15 @@ func resolveCSSSize(s string, availWidth int) (int, bool) {
 // rows, which is a real height and the wrong answer. This is the same
 // distinction resolveFlexCSSSize draws on the flex main axis.
 func resolveCSSHeight(s string, cbHeight int) (int, bool) {
-	abs, pct, ok := parseSizeVal(s)
+	// See resolveCSSSize's own doc comment: ok tracks whether s parsed as a
+	// recognized length, not whether the resolved number is positive, and a
+	// resolved negative (only possible via calc()) clamps to 0 rather than
+	// being treated as absent.
+	v, ok := resolveLength(s, cbHeight, cbHeight > 0)
 	if !ok {
 		return 0, false
 	}
-	if pct > 0 {
-		if cbHeight <= 0 {
-			return 0, false
-		}
-		return int(pct * float64(cbHeight)), true
-	}
-	return abs, true
+	return max(0, v), true
 }
 
 // isBorderBox reports whether decls resolves box-sizing to border-box. Any
@@ -362,15 +372,19 @@ func parseMargin(s string) int {
 // margin-top/margin-bottom's own initial value: outside a flex or grid
 // item, "auto" has no defined resolution on this axis and simply computes to
 // 0, the same fallback parseMargin already gave every invalid value.
+// A calc()-derived negative clamps to 0, unlike resolveMarginSide's
+// horizontal counterpart, which leaves a negative margin-left/margin-right
+// alone: real CSS does allow a negative vertical margin, pulling adjacent
+// boxes together or overlapping them, but this engine represents vertical
+// margin as a literal count of blank lines, which has no way to represent
+// that overlap. 0 is the floor this model already implied before calc()
+// made a negative result reachable at all.
 func resolveVerticalMargin(s string, basis int) int {
-	abs, pct, ok := parseSizeVal(s)
-	if !ok {
+	n, ok := resolveLength(s, basis, true)
+	if !ok || n < 0 {
 		return 0
 	}
-	if pct > 0 {
-		return int(pct * float64(basis))
-	}
-	return abs
+	return n
 }
 
 // resolveBoxBorders resolves the four border edges, as glyph and color, and
@@ -841,14 +855,14 @@ func (r *Engine) renderBlockContentBox(n *html.Node, decls map[string]string, av
 	// text-indent applies only when this element's first rendered content is
 	// direct inline text, not a child block that will apply its own indent.
 	if v := decls["text-indent"]; v != "" && r.firstContentIsInline(n) {
-		indent := 0
-		if abs, pct, ok := parseSizeVal(v); ok {
-			if pct > 0 {
-				indent = int(pct * float64(innerW))
-			} else {
-				indent = abs
-			}
-		}
+		// resolveLength's failure return (0, false) and a resolved-but-
+		// non-positive result both fall through the same "indent > 0"
+		// gate below as before, including a calc()-produced negative
+		// value: real CSS text-indent does accept a negative hanging
+		// indent, but this engine already didn't support one for a plain
+		// literal value, so a calc()-derived negative isn't a new gap,
+		// just the same existing one reached a new way.
+		indent, _ := resolveLength(v, innerW, true)
 		if indent > 0 && len(b.lines) > 0 {
 			lines := b.lines
 			lines[0] = strings.Repeat(" ", indent) + lines[0]
@@ -1091,8 +1105,8 @@ var scrollbarPresets = map[string]scrollbarPreset{
 // ::scrollbar rule.
 func (r *Engine) scrollbarGutterWidth(n *html.Node, elemDecls map[string]string) int {
 	decls := r.pseudoElemDecls(n, "scrollbar", customPropSubset(elemDecls))
-	if abs, pct, ok := parseSizeVal(decls["width"]); ok && pct == 0 && abs > 0 {
-		return abs
+	if n, ok := resolveLength(decls["width"], 0, false); ok && n > 0 {
+		return n
 	}
 	return ScrollbarGutterWidth
 }
@@ -1291,8 +1305,8 @@ func (r *Engine) recordScrollViewportX(n *html.Node, innerW, colShift, rowShift,
 // mirroring scrollbarGutterWidth's own percentage handling.
 func (r *Engine) scrollbarGutterHeight(n *html.Node, elemDecls map[string]string) int {
 	decls := r.pseudoElemDecls(n, "scrollbar-x", customPropSubset(elemDecls))
-	if abs, pct, ok := parseSizeVal(decls["height"]); ok && pct == 0 && abs > 0 {
-		return abs
+	if n, ok := resolveLength(decls["height"], 0, false); ok && n > 0 {
+		return n
 	}
 	return ScrollbarGutterHeight
 }

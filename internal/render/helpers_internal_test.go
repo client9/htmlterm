@@ -149,6 +149,41 @@ func TestSizeColumnsRespectsMaxAndShrinkMin(t *testing.T) {
 	if !reflect.DeepEqual(percentShrunk, []int{14, 15}) {
 		t.Fatalf("sizeColumns percent shrink = %#v, want %#v", percentShrunk, []int{14, 15})
 	}
+
+	// A calc() width behaves like a fixed width in the growth pass: excluded
+	// from extra-space distribution, same as {fixed: 5} in "expanded" above,
+	// which this case is otherwise identical to.
+	calcExpanded := sizeColumns([]colConstraints{
+		{natural: 2},
+		{natural: 3, maxWidth: 4},
+		{calc: "calc(1 + 4)"},
+	}, 15, true)
+	if !reflect.DeepEqual(calcExpanded, []int{6, 4, 5}) {
+		t.Fatalf("sizeColumns calc expand = %#v, want %#v", calcExpanded, []int{6, 4, 5})
+	}
+
+	// A calc() width behaves like a percent width in the shrink pass:
+	// eligible to shrink, same numeric outcome as the percent case just
+	// above, which "calc(100%)" is equivalent to.
+	calcShrunk := sizeColumns([]colConstraints{
+		{natural: 5, calc: "calc(100%)"},
+		{natural: 5, calc: "calc(100%)"},
+	}, 29, false)
+	if !reflect.DeepEqual(calcShrunk, []int{14, 15}) {
+		t.Fatalf("sizeColumns calc shrink = %#v, want %#v", calcShrunk, []int{14, 15})
+	}
+
+	// calc() mixing a percent and an absolute term, which fixed/percent
+	// alone can't represent (see colConstraints' own doc comment on why
+	// calc needs a separate field). No shrink/grow pressure here (natural
+	// widths already sum to contentWidth), so this pins resolution alone.
+	mixed := sizeColumns([]colConstraints{
+		{natural: 8, calc: "calc(50% - 2)"},
+		{natural: 8, fixed: 8},
+	}, 20, false)
+	if !reflect.DeepEqual(mixed, []int{8, 8}) {
+		t.Fatalf("sizeColumns calc(50%%-2) at contentWidth=20 = %#v, want %#v (10-2=8)", mixed, []int{8, 8})
+	}
 }
 
 func TestAlignAndEdgeHelpersPreserveTrailingNewline(t *testing.T) {
@@ -195,6 +230,80 @@ func TestEffectiveMinMaxPercent(t *testing.T) {
 	_, maxW = effectiveMinMax(colConstraints{maxPercent: 0.5, maxWidth: 3}, 20)
 	if maxW != 3 {
 		t.Errorf("maxWidth stricter: maxW = %d, want 3", maxW)
+	}
+}
+
+// TestEffectiveMinMaxCalc mirrors TestEffectiveMinMaxPercent's cases through
+// minCalc/maxCalc instead of minPercent/maxPercent, pinning that calc()
+// resolves through the same min/max combination rules a plain percentage
+// already does (minCalc/maxCalc take priority over minPercent/maxPercent,
+// per cellConstraints' mutual exclusivity, so these use only the calc
+// fields).
+func TestEffectiveMinMaxCalc(t *testing.T) {
+	minW, maxW := effectiveMinMax(colConstraints{minCalc: "min(50%, 90%)"}, 20)
+	if minW != 10 {
+		t.Errorf("minCalc=min(50%%,90%%), contentWidth=20: minW = %d, want 10", minW)
+	}
+	if maxW != 0 {
+		t.Errorf("minCalc only: maxW = %d, want 0", maxW)
+	}
+
+	// minCalc loses to a higher minWidth, same priority rule minPercent has.
+	minW, _ = effectiveMinMax(colConstraints{minCalc: "calc(25% - 1)", minWidth: 8}, 20)
+	if minW != 8 {
+		t.Errorf("minWidth beats minCalc: minW = %d, want 8", minW)
+	}
+
+	// maxCalc, no maxWidth set (maxW == 0 branch).
+	_, maxW = effectiveMinMax(colConstraints{maxCalc: "calc(20% + 1)"}, 20)
+	if maxW != 5 {
+		t.Errorf("maxCalc=calc(20%%+1), contentWidth=20: maxW = %d, want 5", maxW)
+	}
+
+	// maxCalc stricter than maxWidth (mp < maxW branch).
+	_, maxW = effectiveMinMax(colConstraints{maxCalc: "clamp(0, 25%, 100)", maxWidth: 8}, 20)
+	if maxW != 5 {
+		t.Errorf("maxCalc stricter: maxW = %d, want 5", maxW)
+	}
+
+	// A calc() that fails to resolve contributes nothing, same as an unset
+	// min-width/max-width: contentWidth is always definite for a table
+	// column, so this only happens for a malformed declaration.
+	minW, maxW = effectiveMinMax(colConstraints{minCalc: "calc(not a length)", maxCalc: "calc(also not one)"}, 20)
+	if minW != 0 || maxW != 0 {
+		t.Errorf("unresolvable minCalc/maxCalc: (minW, maxW) = (%d, %d), want (0, 0)", minW, maxW)
+	}
+}
+
+// TestCellConstraintsCalc pins that cellConstraints classifies a calc()/
+// min()/max()/clamp() width/min-width/max-width declaration into the calc
+// fields, not fixed or percent, and that cellBoxSizingDelta's box-sizing
+// adjustment still rides along via calcDelta the same way it already does
+// for percentDelta.
+func TestCellConstraintsCalc(t *testing.T) {
+	r := &Engine{}
+	c := r.cellConstraints(map[string]string{
+		"width":        "calc(50% - 2)",
+		"min-width":    "min(10, 20)",
+		"max-width":    "clamp(5, 8, 30)",
+		"box-sizing":   "content-box",
+		"padding-left": "1", "padding-right": "1",
+	}, 0)
+	if c.calc != "calc(50% - 2)" || c.fixed != 0 || c.percent != 0 {
+		t.Errorf("width: calc=%q fixed=%d percent=%v, want calc set and fixed/percent both zero", c.calc, c.fixed, c.percent)
+	}
+	if c.minCalc != "min(10, 20)" || c.minWidth != 0 || c.minPercent != 0 {
+		t.Errorf("min-width: minCalc=%q minWidth=%d minPercent=%v, want minCalc set and the rest zero", c.minCalc, c.minWidth, c.minPercent)
+	}
+	if c.maxCalc != "clamp(5, 8, 30)" || c.maxWidth != 0 || c.maxPercent != 0 {
+		t.Errorf("max-width: maxCalc=%q maxWidth=%d maxPercent=%v, want maxCalc set and the rest zero", c.maxCalc, c.maxWidth, c.maxPercent)
+	}
+	// content-box: the box-sizing delta is the cell's own padding (2),
+	// added back so the later, unconditional padding subtraction nets back
+	// out to exactly the declared content size. Same delta cellBoxSizingDelta
+	// would hand a percent-based constraint via percentDelta.
+	if c.calcDelta != 2 || c.minCalcDelta != 2 || c.maxCalcDelta != 2 {
+		t.Errorf("calcDelta/minCalcDelta/maxCalcDelta = %d/%d/%d, want 2/2/2 (content-box padding)", c.calcDelta, c.minCalcDelta, c.maxCalcDelta)
 	}
 }
 
