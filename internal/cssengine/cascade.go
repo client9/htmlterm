@@ -10,7 +10,19 @@ import (
 
 // Cascade resolves declarations from a parsed rule set against an HTML tree.
 type Cascade struct {
-	Rules        []Rule
+	Rules []Rule
+	// UARules is the subset of Rules that came from the user-agent
+	// stylesheet specifically, rather than from Options.CSS, an
+	// Options.Stylesheets entry, a document <style> element, or an inline
+	// style= attribute. It exists only to give the "revert" cascade-wide
+	// keyword something to revert to: real CSS defines revert as rolling a
+	// property back to the value the cascade origin *before* the one that
+	// set it would have produced, and this engine has only two origins, UA
+	// and author, with no separate user-origin stylesheet of its own. A nil
+	// or empty UARules makes every revert behave as unset, the same
+	// fallback real CSS uses when the UA stylesheet has no matching rule
+	// either.
+	UARules      []Rule
 	IgnoreInline bool
 	FocusAttr    string
 	// HoverAttr is a synthetic marker attribute, matched the same way
@@ -78,31 +90,35 @@ var inheritableProps = map[string]bool{
 	"quotes":              true,
 }
 
-// cssWideKeyword returns the normalized keyword "inherit", "unset", or
-// "initial" if v is exactly one of them, case-insensitively, and otherwise
-// "". These are CSS's own cascade-reset keywords, valid on any property:
+// cssWideKeyword returns the normalized keyword "inherit", "unset",
+// "initial", or "revert" if v is exactly one of them, case-insensitively,
+// and otherwise "". These are CSS's own cascade-reset keywords, valid on any
+// property:
 //   - inherit: always take the parent element's own resolved value.
 //   - unset: inherit if the property is normally inheritable, otherwise
 //     initial.
 //   - initial: revert to the property's own specified default. For nearly
 //     every property in this engine that already means "absent", since every
 //     reader treats a missing key as its own default.
-//
-// "revert" is not implemented: it requires distinguishing UA-stylesheet
-// origin from author origin, which this cascade doesn't model.
+//   - revert: take the value the user-agent stylesheet establishes for this
+//     element, ignoring every author declaration regardless of specificity.
+//     Falls back to unset's own behavior wherever the UA stylesheet doesn't
+//     set the property either. See Cascade.UARules's doc comment for why
+//     this always lands on UA origin specifically, with no separate
+//     user-origin stylesheet to prefer first.
 func cssWideKeyword(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "inherit", "unset", "initial":
+	case "inherit", "unset", "initial", "revert":
 		return strings.ToLower(strings.TrimSpace(v))
 	}
 	return ""
 }
 
 // Resolve returns the winning CSS declarations for node n, merging all
-// matching rules by ascending specificity, resolving any inherit, unset, or
-// initial keyword among n's own direct declarations, then filling missing
-// inheritable properties from the nearest ancestor element's own resolved
-// value.
+// matching rules by ascending specificity, resolving any inherit, unset,
+// initial, or revert keyword among n's own direct declarations, then filling
+// missing inheritable properties from the nearest ancestor element's own
+// resolved value.
 func (c Cascade) Resolve(n *html.Node) map[string]string {
 	// Copy rather than reuse c.Direct(n) directly. When c.Cache is set, that
 	// map is the shared, cached result for n and must not be mutated below,
@@ -134,17 +150,52 @@ func (c Cascade) Resolve(n *html.Node) map[string]string {
 		return parentResolved
 	}
 
+	// n's own declarations from the user-agent stylesheet alone, computed
+	// lazily and once, shared across every property that resolves to
+	// "revert". uaDirect has no ancestor context of its own, which matches
+	// real CSS: revert only rolls back the winning declaration's origin on
+	// this element, it doesn't re-derive the whole ancestor chain under a
+	// UA-only cascade, so a revert that misses falls through to the same
+	// inherited value (possibly author-styled on the parent) that unset
+	// already uses below.
+	var uaVals map[string]string
+	uaComputed := false
+	getUAVals := func() map[string]string {
+		if !uaComputed {
+			uaComputed = true
+			uaVals = c.uaDirect(n)
+		}
+		return uaVals
+	}
+
 	// Resolve n's own direct declarations first, so a literal "inherit",
-	// "unset", or "initial" string never leaks out to a caller. forcedAbsent
-	// tracks properties explicitly resolved to "stay absent" here: initial,
-	// unset on a non-inheritable property, or inherit or unset with no
-	// ancestor value to take. The fill-in pass below must not treat these
-	// as "never declared" and re-inherit them anyway.
+	// "unset", "initial", or "revert" string never leaks out to a caller.
+	// forcedAbsent tracks properties explicitly resolved to "stay absent"
+	// here: initial, unset on a non-inheritable property, or inherit or
+	// unset with no ancestor value to take. The fill-in pass below must not
+	// treat these as "never declared" and re-inherit them anyway.
 	forcedAbsent := make(map[string]bool)
 	for prop, val := range direct {
 		kw := cssWideKeyword(val)
 		if kw == "" {
 			continue
+		}
+		if kw == "revert" {
+			// revert behaves identically for a custom property and an
+			// ordinary one: if the UA stylesheet has a matching declaration,
+			// by name, that wins, custom property or not. In practice this
+			// engine's own UA stylesheet never declares a "--*" name, so a
+			// custom property's revert always falls through to the unset
+			// case below, but that's a fact about DefaultStylesheet's
+			// current contents, not a rule revert itself carves out for
+			// custom properties, so this doesn't special-case isCustomProp.
+			if uv, ok := getUAVals()[prop]; ok {
+				result[prop] = uv
+				continue
+			}
+			// No UA-origin declaration for this property on this element:
+			// revert behaves exactly like unset (CSS Cascade §7.4).
+			kw = "unset"
 		}
 		if kw == "inherit" || (kw == "unset" && (inheritableProps[prop] || isCustomProp(prop))) {
 			if pv, ok := getParentResolved()[prop]; ok {
@@ -306,6 +357,36 @@ func flattenImportant(normal, important map[string]string) map[string]string {
 	return normal
 }
 
+// matchRules matches every rule in rules against n and merges the matches
+// into cascade order, exactly as Direct's own first step does. It's the part
+// of Direct shared with uaDirect, which runs the same match-and-merge
+// against Rules's UA-only subset instead of the full rule set.
+func (c Cascade) matchRules(rules []Rule, n *html.Node) (normal, important map[string]string) {
+	var matches []ruleMatch
+	for _, rl := range rules {
+		if matchSelector(n, rl.parts, c.FocusAttr, c.HoverAttr) {
+			matches = append(matches, ruleMatch{specificity(rl.parts), rl.decls})
+		}
+	}
+	return mergeCascade(matches)
+}
+
+// uaDirect returns n's declarations from c.UARules alone, the fallback value
+// "revert" reads (see Cascade.UARules's doc comment). Unlike Direct, this
+// has no inline style= to layer in, since style= is always author origin,
+// and no var() substitution pass, since the UA stylesheet declares no custom
+// properties for one to resolve against. It also isn't memoized in c.Cache:
+// revert is rare in real stylesheets, so paying the match cost only when
+// Resolve actually hits one is cheaper than growing the per-node cache for
+// every render, including the overwhelming majority that never use revert
+// at all.
+func (c Cascade) uaDirect(n *html.Node) map[string]string {
+	normal, important := c.matchRules(c.UARules, n)
+	result := flattenImportant(normal, important)
+	foldDeclValues(result)
+	return result
+}
+
 // Direct returns CSS declarations for n based only on rules that directly
 // match n, with no ancestor inheritance. Used by Resolve.
 func (c Cascade) Direct(n *html.Node) map[string]string {
@@ -314,13 +395,7 @@ func (c Cascade) Direct(n *html.Node) map[string]string {
 			return cached
 		}
 	}
-	var matches []ruleMatch
-	for _, rl := range c.Rules {
-		if matchSelector(n, rl.parts, c.FocusAttr, c.HoverAttr) {
-			matches = append(matches, ruleMatch{specificity(rl.parts), rl.decls})
-		}
-	}
-	normal, important := mergeCascade(matches)
+	normal, important := c.matchRules(c.Rules, n)
 	// Inline style= attribute: normal declarations win over all stylesheet
 	// normal declarations, and important ones win over all stylesheet
 	// important declarations (see mergeInlineDecls).

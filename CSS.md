@@ -189,7 +189,7 @@ To explicitly cancel an inherited value, set the property to its `normal` (or
 `none`) reset on the child element, or use `unset`/`initial` (below) if the
 property has no such reset keyword of its own.
 
-### CSS-wide keywords: `inherit`, `unset`, `initial`
+### CSS-wide keywords: `inherit`, `unset`, `initial`, `revert`
 
 These are recognized on **any** property, not just the inheritable list
 above:
@@ -209,11 +209,17 @@ above:
   — e.g. `td { border-style: solid; } td.plain { border-style: initial; }`
   leaves `.plain` cells with no border at all, rather than needing to know
   and repeat whatever "no border" looks like.
-
-`revert` (CSS's fourth cascade-reset keyword, which reverts to the
-user-agent stylesheet specifically) is **not implemented** — it requires
-distinguishing UA-stylesheet origin from author-stylesheet origin, which
-this cascade doesn't model.
+- **`revert`** — rolls the property back to the value the user-agent
+  stylesheet (`internal/render/defaultstylesheet.go`) establishes for this
+  element, ignoring every author declaration regardless of specificity, the
+  same way for a custom property (`--foo`) as for any other. This is not
+  the same as `initial`: `box-sizing: revert` on any element resolves to
+  `border-box`, the UA stylesheet's own override, not `content-box`,
+  `box-sizing`'s real spec-defined initial value (see
+  `COMPATIBILITY.md`'s box-sizing entry). Where the UA stylesheet doesn't
+  set the property either, which in practice is every custom property,
+  since this engine's UA stylesheet never declares one, `revert` falls back
+  to `unset`'s own behavior, matching spec.
 
 These keywords resolve against real elements (`Cascade.Resolve`); they are
 **not** currently supported inside `::before`/`::after`/`::marker`/scrollbar

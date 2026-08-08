@@ -20,6 +20,22 @@ func TestBoxSizing(t *testing.T) {
 	})
 }
 
+// TestBoxSizingRevertGoesToTheUAValueNotTheSpecInitialValue is the clearest
+// place to tell revert and initial apart: box-sizing's real CSS initial
+// value is content-box, but this engine's UA stylesheet overrides it to
+// border-box (see defaultstylesheet.go). An author declaration that reverts
+// box-sizing must come back as border-box, the UA stylesheet's own value,
+// not content-box, which is what box-sizing:initial would produce instead.
+// The two box-sizing declarations on the same style= attribute are
+// deliberate: same-origin, same-specificity declarations for one property
+// resolve in source order, so the later revert is what wins, exactly the
+// way two rules for the same selector would.
+func TestBoxSizingRevertGoesToTheUAValueNotTheSpecInitialValue(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "box-sizing:revert paints identically to the UA border-box default, not content-box", width: 10, html: `<div style="width:6;padding-left:1;padding-right:1;border-style:solid;box-sizing:content-box;box-sizing:revert">a</div>`, want: "┌────┐\n│ a  │\n└────┘\n"},
+	})
+}
+
 // TestBoxSizingFlexItemMainAxisExempt confirms flex items stay outer-sized
 // on their main axis regardless of their own box-sizing (see
 // docs/proposals/BOX_SIZING.md's "Flex items" section): an item that

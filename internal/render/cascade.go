@@ -12,6 +12,7 @@ import (
 func (r *Engine) cascade() cssengine.Cascade {
 	return cssengine.Cascade{
 		Rules:        r.rules,
+		UARules:      r.uaRules,
 		IgnoreInline: r.ignoreDocumentCSS,
 		FocusAttr:    r.focusAttr,
 		HoverAttr:    r.selectHighlightAttr,

@@ -466,13 +466,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
   See `docs/proposals/RESPONSIVE.md`.
 - **Pseudo-classes/elements beyond the supported list.** Notably
   `:active`, and any real mouse-hover semantics.
-- **`revert`** (the fourth CSS-wide cascade keyword, alongside `inherit`/
-  `unset`/`initial`, which are supported). Reverting to the user-agent
-  stylesheet's value requires distinguishing UA-stylesheet origin from
-  author-stylesheet origin, which this cascade doesn't model.
-  `inherit`/`unset`/`initial` are also not supported inside
+- **`inherit`/`unset`/`initial`/`revert`** are not supported inside
   `::before`/`::after`/`::marker`/scrollbar pseudo-element declarations,
-  which resolve inheritance through a separate mechanism.
+  which resolve inheritance through a separate mechanism. See `CSS.md`'s
+  cascade-keywords section for what these four otherwise do.
 - **Layout models:** `display: list-item`, any other
   `display` value beyond `block`/`inline`/`inline-block`/`flex`/
   `inline-flex`/`table`/`contents`/`none`, including the standalone

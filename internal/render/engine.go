@@ -31,7 +31,14 @@ type Options struct {
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
 type Engine struct {
-	baseRules           []cssengine.Rule
+	baseRules []cssengine.Rule
+	// uaRules is just the DefaultStylesheet's own parsed rules, the subset
+	// of baseRules that came from the user-agent stylesheet rather than
+	// Options.CSS or Options.Stylesheets. It's constant for the lifetime of
+	// an Engine, unlike rules, since it never depends on the document being
+	// rendered, and exists only to answer "revert" (see
+	// cssengine.Cascade.UARules's doc comment).
+	uaRules             []cssengine.Rule
 	rules               []cssengine.Rule
 	width               int
 	height              int
@@ -208,7 +215,9 @@ type Result struct {
 // mirroring how a page's own stylesheet is followed by however many <link>
 // sheets it loads. Document <style> elements and inline style= attributes
 // are layered on top of all of these at render time (see DocumentRules and
-// cssengine.Cascade).
+// cssengine.Cascade). DefaultStylesheet's own parsed rules are also kept
+// separately, as uaRules, purely to give the "revert" cascade-wide keyword a
+// user-agent-only rule set to fall back to (see cssengine.Cascade.UARules).
 func New(opts Options) (*Engine, error) {
 	var rules []cssengine.Rule
 	addSheet := func(label, src string) error {
@@ -219,9 +228,11 @@ func New(opts Options) (*Engine, error) {
 		rules = append(rules, parsed...)
 		return nil
 	}
-	if err := addSheet("default stylesheet", DefaultStylesheet); err != nil {
-		return nil, err
+	uaRules, err := cssengine.ParseStylesheet(DefaultStylesheet)
+	if err != nil {
+		return nil, fmt.Errorf("htmlterm: default stylesheet: %w", err)
 	}
+	rules = append(rules, uaRules...)
 	if opts.CSS != "" {
 		if err := addSheet("Options.CSS", opts.CSS); err != nil {
 			return nil, err
@@ -258,6 +269,7 @@ func New(opts Options) (*Engine, error) {
 	}
 	return &Engine{
 		baseRules:           rules,
+		uaRules:             uaRules,
 		width:               opts.Width,
 		height:              opts.Height,
 		profile:             profile,
@@ -316,6 +328,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	}
 	rr := &Engine{
 		baseRules:           e.baseRules,
+		uaRules:             e.uaRules,
 		rules:               rules,
 		width:               req.Width,
 		height:              req.Height,

@@ -226,11 +226,18 @@ func TestExpandShorthand(t *testing.T) {
 		{name: "flex unset expands to grow shrink basis", prop: "flex", val: "unset", want: map[string]string{
 			"flex-grow": "unset", "flex-shrink": "unset", "flex-basis": "unset",
 		}},
+		{name: "flex revert expands to grow shrink basis", prop: "flex", val: "revert", want: map[string]string{
+			"flex-grow": "revert", "flex-shrink": "revert", "flex-basis": "revert",
+		}},
 		{name: "flex initial keeps its own real shorthand value, not the CSS-wide keyword", prop: "flex", val: "initial", want: map[string]string{
 			"flex-grow": "0", "flex-shrink": "1", "flex-basis": "auto",
 		}},
+		{name: "margin revert expands to all four sides", prop: "margin", val: "revert", want: map[string]string{
+			"margin-top": "revert", "margin-right": "revert", "margin-bottom": "revert", "margin-left": "revert",
+		}},
 		{name: "plain longhand inherit passes through unchanged", prop: "color", val: "inherit", want: map[string]string{"color": "inherit"}},
 		{name: "plain longhand unset passes through unchanged", prop: "color", val: "unset", want: map[string]string{"color": "unset"}},
+		{name: "plain longhand revert passes through unchanged", prop: "color", val: "revert", want: map[string]string{"color": "revert"}},
 		{name: "keyword case is normalized", prop: "margin", val: "INHERIT", want: map[string]string{
 			"margin-top": "inherit", "margin-right": "inherit", "margin-bottom": "inherit", "margin-left": "inherit",
 		}},
@@ -610,6 +617,165 @@ func TestCascadeInitial(t *testing.T) {
 	}
 	if _, exists := got["border-style"]; exists {
 		t.Fatalf(`Resolve()["border-style"] = %q, want absent`, got["border-style"])
+	}
+}
+
+func TestCascadeRevertFallsBackToUAValue(t *testing.T) {
+	// UARules stands in for the user-agent stylesheet: p { color: black; }.
+	// The author stylesheet overrides color on the more specific p.x, then
+	// reverts it. revert must win back to the UA rule's own value, "black",
+	// not to color's spec-defined initial value (also "black", coincidentally,
+	// which is why border-style, whose initial isn't "solid", is covered by
+	// TestCascadeRevertFallsBackToUAValueForNonInitialColor below).
+	uaRules, err := ParseStylesheet(`p { color: black; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(ua) error = %v", err)
+	}
+	authorRules, err := ParseStylesheet(`p.x { color: blue; } p.x.y { color: revert; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(author) error = %v", err)
+	}
+	all := append(append([]Rule{}, uaRules...), authorRules...)
+	doc, err := html.Parse(strings.NewReader(`<p id="a" class="x y">text</p>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: all, UARules: uaRules}.Resolve(n)
+	if got["color"] != "black" {
+		t.Fatalf(`Resolve()["color"] = %q, want "black" (revert should fall back to the UA stylesheet's own value, not the author override it replaces)`, got["color"])
+	}
+}
+
+func TestCascadeRevertFallsBackToUAValueForNonInitialColor(t *testing.T) {
+	// border-style's real CSS initial value is "none", not "solid" - proof
+	// that revert reads the UA stylesheet's own value rather than the
+	// property's spec-defined default the way initial does.
+	uaRules, err := ParseStylesheet(`td { border-style: solid; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(ua) error = %v", err)
+	}
+	authorRules, err := ParseStylesheet(`td.x { border-style: dashed; } td.x.y { border-style: revert; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(author) error = %v", err)
+	}
+	all := append(append([]Rule{}, uaRules...), authorRules...)
+	doc, err := html.Parse(strings.NewReader(`<table><tr><td id="a" class="x y">x</td></tr></table>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`#a not found`)
+	}
+	got := Cascade{Rules: all, UARules: uaRules}.Resolve(n)
+	if got["border-style"] != "solid" {
+		t.Fatalf(`Resolve()["border-style"] = %q, want "solid" (the UA stylesheet's own value, not the spec-defined initial "none")`, got["border-style"])
+	}
+}
+
+func TestCascadeRevertWithNoUARuleBehavesLikeUnset(t *testing.T) {
+	// No UA rule sets color at all here, so revert on the inheritable
+	// property color must fall back to the same behavior unset already has:
+	// inherit the parent's own resolved value.
+	authorRules, err := ParseStylesheet(`div { color: green; } p { color: revert; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div>outer<p id="a">inner</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: authorRules}.Resolve(n)
+	if got["color"] != "green" {
+		t.Fatalf(`Resolve()["color"] = %q, want "green" (revert with no UA rule should behave like unset: inherit)`, got["color"])
+	}
+}
+
+func TestCascadeRevertWithNoUARuleOnNonInheritableIsAbsent(t *testing.T) {
+	// Mirrors TestCascadeUnsetOnNonInheritableProperty: with no UA rule and
+	// no inheritance to fall back to, revert on a non-inheritable property
+	// resolves to absent, exactly like unset/initial do.
+	authorRules, err := ParseStylesheet(`td { border-style: solid; } td.x { border-style: revert; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<table><tr><td id="a" class="x">x</td></tr></table>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`#a not found`)
+	}
+	got := Cascade{Rules: authorRules}.Resolve(n)
+	if v, exists := got["border-style"]; exists {
+		t.Fatalf(`Resolve()["border-style"] = %q, want absent (revert with no UA rule and nothing to inherit must not fall back to the broader rule's value)`, v)
+	}
+}
+
+func TestCascadeRevertOnCustomPropertyFallsBackToUAValue(t *testing.T) {
+	// revert has no spec-defined exemption for custom properties: if the UA
+	// stylesheet declares --x by name for this element, that's what revert
+	// reverts to, exactly like any other property. (This engine's own
+	// DefaultStylesheet never actually declares a custom property, so this
+	// only matters for a caller supplying its own UARules, but the cascade
+	// itself must not special-case isCustomProp to skip the lookup.)
+	uaRules, err := ParseStylesheet(`p { --x: fromua; }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(ua) error = %v", err)
+	}
+	authorRules, err := ParseStylesheet(`div { --x: fromparent; } p.x { --x: blue; } p.x.y { --x: revert; color: var(--x); }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet(author) error = %v", err)
+	}
+	all := append(append([]Rule{}, uaRules...), authorRules...)
+	doc, err := html.Parse(strings.NewReader(`<div><p id="a" class="x y">text</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: all, UARules: uaRules}.Resolve(n)
+	if got["--x"] != "fromua" {
+		t.Fatalf(`Resolve()["--x"] = %q, want "fromua" (revert on a custom property should pick up the UA stylesheet's own declaration, same as any other property)`, got["--x"])
+	}
+	if got["color"] != "fromua" {
+		t.Fatalf(`Resolve()["color"] = %q, want "fromua" (var(--x) should see the UA value revert reverted to)`, got["color"])
+	}
+}
+
+func TestCascadeRevertOnCustomPropertyWithNoUARuleBehavesLikeUnset(t *testing.T) {
+	// The common case in practice: no UA rule declares --x at all, so
+	// revert falls back to unset's own behavior for a custom property,
+	// unconditional inheritance.
+	authorRules, err := ParseStylesheet(`div { --x: fromparent; } p.x { --x: revert; color: var(--x); }`)
+	if err != nil {
+		t.Fatalf("ParseStylesheet() error = %v", err)
+	}
+	doc, err := html.Parse(strings.NewReader(`<div><p id="a" class="x">text</p></div>`))
+	if err != nil {
+		t.Fatalf("html.Parse: %v", err)
+	}
+	n := findElementByID(doc, "a")
+	if n == nil {
+		t.Fatal(`<p id="a"> not found`)
+	}
+	got := Cascade{Rules: authorRules}.Resolve(n)
+	if got["--x"] != "fromparent" {
+		t.Fatalf(`Resolve()["--x"] = %q, want "fromparent" (revert with no UA rule should behave like unset: inherit)`, got["--x"])
+	}
+	if got["color"] != "fromparent" {
+		t.Fatalf(`Resolve()["color"] = %q, want "fromparent" (var(--x) should see the inherited value revert fell back to)`, got["color"])
 	}
 }
 

@@ -315,14 +315,14 @@ var shorthandLonghands = map[string][]string{
 }
 
 // expandCSSWideKeyword returns the longhand expansion of val when val is
-// exactly "inherit", "unset", or "initial", short-circuiting a shorthand's
-// own normal value grammar. That grammar would otherwise misparse these
-// keywords, as expandFlexShorthand("inherit") would by assigning only
-// flex-basis and dropping flex-grow and flex-shrink, or silently drop them
-// entirely, as expandListStyleShorthand and expandBackgroundShorthand do by
-// returning an empty map for any unrecognized token. ok is false when val
-// isn't a CSS-wide keyword, meaning the caller should fall through to its
-// normal parsing.
+// exactly "inherit", "unset", "initial", or "revert", short-circuiting a
+// shorthand's own normal value grammar. That grammar would otherwise
+// misparse these keywords, as expandFlexShorthand("inherit") would by
+// assigning only flex-basis and dropping flex-grow and flex-shrink, or
+// silently drop them entirely, as expandListStyleShorthand and
+// expandBackgroundShorthand do by returning an empty map for any
+// unrecognized token. ok is false when val isn't a CSS-wide keyword, meaning
+// the caller should fall through to its normal parsing.
 func expandCSSWideKeyword(prop, val string) (result map[string]string, ok bool) {
 	kw := cssWideKeyword(val)
 	if kw == "" {
@@ -542,13 +542,13 @@ func expandBackgroundShorthand(val string) map[string]string {
 // ignored. An invalid declaration must leave every longhand it covers at its
 // initial value, not at part of what was written.
 func expandFlexShorthand(val string) map[string]string {
-	// inherit and unset only. "initial" is deliberately left to the switch
-	// below, because flex's own grammar already treats the literal token
-	// "initial" as a real, spec-correct shorthand value, grow:0 shrink:1
-	// basis:auto, which happens to equal each longhand's own real initial
-	// value. expandCSSWideKeyword's generic "initial" handling must not
-	// shadow that.
-	if kw := cssWideKeyword(val); kw == "inherit" || kw == "unset" {
+	// inherit, unset, and revert only. "initial" is deliberately left to the
+	// switch below, because flex's own grammar already treats the literal
+	// token "initial" as a real, spec-correct shorthand value, grow:0
+	// shrink:1 basis:auto, which happens to equal each longhand's own real
+	// initial value. expandCSSWideKeyword's generic "initial" handling must
+	// not shadow that.
+	if kw := cssWideKeyword(val); kw == "inherit" || kw == "unset" || kw == "revert" {
 		return map[string]string{"flex-grow": kw, "flex-shrink": kw, "flex-basis": kw}
 	}
 	tokens := strings.Fields(val)
