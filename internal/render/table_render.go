@@ -308,24 +308,37 @@ func (r *Engine) mergedCellDecls(td *html.Node, colDecls []map[string]string, ci
 // mergeColConstraints folds dc into dst, keeping the first fixed or percent
 // value seen and the tightest min and max. It is the same merge rule whether
 // the source is a single unconstrained pass or many rows' worth of cells.
+//
+// fixed/minWidth/maxWidth are already box-sizing-adjusted absolute values by
+// the time they reach here (cellConstraints applies their delta immediately),
+// so comparing and keeping them needs no special handling. A percent-based
+// value's delta, by contrast, travels in its own percentDelta/
+// minPercentDelta/maxPercentDelta field until sizeColumns or effectiveMinMax
+// resolves the percentage; whichever cell's percent value wins the merge
+// below, its delta has to move with it; a percent inherited from one cell
+// paired with a delta computed for a different cell's own padding and border
+// would misattribute one cell's box-sizing chrome to another's.
 func mergeColConstraints(dst *colConstraints, dc colConstraints) {
 	if dst.fixed == 0 && dc.fixed > 0 {
 		dst.fixed = dc.fixed
 	}
 	if dst.percent == 0 && dc.percent > 0 {
 		dst.percent = dc.percent
+		dst.percentDelta = dc.percentDelta
 	}
 	if dc.minWidth > dst.minWidth {
 		dst.minWidth = dc.minWidth
 	}
 	if dc.minPercent > dst.minPercent {
 		dst.minPercent = dc.minPercent
+		dst.minPercentDelta = dc.minPercentDelta
 	}
 	if dc.maxWidth > 0 && (dst.maxWidth == 0 || dc.maxWidth < dst.maxWidth) {
 		dst.maxWidth = dc.maxWidth
 	}
 	if dc.maxPercent > 0 && (dst.maxPercent == 0 || dc.maxPercent < dst.maxPercent) {
 		dst.maxPercent = dc.maxPercent
+		dst.maxPercentDelta = dc.maxPercentDelta
 	}
 }
 
@@ -360,20 +373,35 @@ func distributeSpanDeficit(cols []colConstraints, colStart, colSpan, sepW, cellN
 	}
 }
 
+// cellBorderWidth is the borderW cellConstraints wants for a single cell:
+// that cell's own left+right border character width under
+// border-collapse:separate, where each cell owns a real border box, and 0
+// under border-collapse:collapse, where a border segment is shared,
+// table-wide grid-line state with no single cell to charge it to. See
+// cellBoxSizingDelta.
+func cellBorderWidth(decls map[string]string, collapsed bool) int {
+	if collapsed {
+		return 0
+	}
+	bl, br, _, _, _, _, _, _ := resolveBoxBorders(decls)
+	return textcell.Width(bl.char) + textcell.Width(br.char)
+}
+
 // gridColumnConstraints gathers per-column CSS and HTML width constraints —
 // fixed, percent, min, and max — from a resolved grid, without rendering any
 // cell content. It reads only colSpan==1 cells, since a spanning cell's
 // constraints don't map to a single column unambiguously. Such a cell's
 // content instead feeds into distributeSpanDeficit once natural widths are
-// known.
-func (r *Engine) gridColumnConstraints(g tableGrid, colDecls []map[string]string) []colConstraints {
+// known. collapsed selects which border-collapse mode's cellBorderWidth rule
+// applies to each cell's own box-sizing conversion.
+func (r *Engine) gridColumnConstraints(g tableGrid, colDecls []map[string]string, collapsed bool) []colConstraints {
 	cols := make([]colConstraints, g.numCols)
 	for _, cell := range uniqueCells(g) {
 		if cell.colSpan != 1 {
 			continue
 		}
 		tdDecls := r.mergedCellDecls(cell.node, colDecls, cell.colStart)
-		mergeColConstraints(&cols[cell.colStart], r.cellConstraints(tdDecls))
+		mergeColConstraints(&cols[cell.colStart], r.cellConstraints(tdDecls, cellBorderWidth(tdDecls, collapsed)))
 	}
 	return cols
 }
@@ -443,7 +471,8 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 	// avoid.
 	spacingX := parseSpacingLen(tableDecls["border-spacing-x"])
 	overhead := (grid.numCols + 1) * spacingX
-	if tableDecls["border-collapse"] == "collapse" {
+	collapsed := tableDecls["border-collapse"] == "collapse"
+	if collapsed {
 		overhead += r.resolveCollapsedBorders(grid, colDecls, tableDecls).colOverhead()
 	} else {
 		for _, w := range r.separateColumnBorderOverhead(grid, colDecls, grid.numCols) {
@@ -457,7 +486,7 @@ func (r *Engine) measureTableWidth(n *html.Node) int {
 			overhead += textcell.Width(tbr.char)
 		}
 	}
-	colsEst := r.gridColumnConstraints(grid, colDecls)
+	colsEst := r.gridColumnConstraints(grid, colDecls, collapsed)
 	measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, spacingX)
 	widths := sizeColumns(measured, naturalWidthCap, false)
 
@@ -545,8 +574,10 @@ func estimateColumnWidths(cols []colConstraints, contentWidth int, fullWidth boo
 // since no separator is drawn through a spanned cell. Nested content, such as
 // a nested <table>, is therefore only ever rendered at its real final budget,
 // never prematurely committed at a wrong one. This also resolves each cell's
-// other CSS-derived fields, including padding and text-align.
-func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, estWidths []int, sepW, fallbackCellWidth int) {
+// other CSS-derived fields, including padding and text-align. collapsed
+// selects which border-collapse mode's cellBorderWidth rule applies to each
+// cell's own box-sizing conversion (see cell.constraints below).
+func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, estWidths []int, sepW, fallbackCellWidth int, collapsed bool) {
 	for _, cell := range uniqueCells(g) {
 		tdDecls := r.mergedCellDecls(cell.node, colDecls, cell.colStart)
 		pl := parsePaddingLen(tdDecls["padding-left"])
@@ -593,7 +624,7 @@ func (r *Engine) fillGridCellTokens(g tableGrid, colDecls []map[string]string, e
 		cell.tokens = cellTokens
 		cell.textAlign = tdDecls["text-align"]
 		cell.cellStyle = extractInlineStyle(tdDecls)
-		cell.constraints = r.cellConstraints(tdDecls)
+		cell.constraints = r.cellConstraints(tdDecls, cellBorderWidth(tdDecls, collapsed))
 		cell.textOverflow = textOverflowSuffix(tdDecls["text-overflow"])
 		cell.noWrap = tdDecls["white-space"] == "nowrap"
 		cell.paddingLeft = pl

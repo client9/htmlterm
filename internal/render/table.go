@@ -105,14 +105,25 @@ func namedTableStyle(name string) (tableStyle, bool) {
 }
 
 // colConstraints holds horizontal sizing constraints for one table column.
+//
+// The percentDelta/minPercentDelta/maxPercentDelta fields carry
+// cellBoxSizingDelta's adjustment for a percent-based constraint, which
+// can't be applied immediately the way fixed/minWidth/maxWidth's is: a
+// percentage isn't resolved to an absolute char count until sizeColumns (or
+// effectiveMinMax for the min/max pair) multiplies it against contentWidth,
+// so the box-sizing adjustment has to ride along and get added at that same
+// point instead. See cellConstraints and cellBoxSizingDelta.
 type colConstraints struct {
-	natural    int     // max content width (runes) across all rows
-	fixed      int     // exact char width from width= attribute or CSS width (0 = not set)
-	percent    float64 // CSS width as fraction of contentWidth (0 = not set; overrides fixed)
-	minWidth   int     // CSS min-width in chars (0 = none)
-	minPercent float64 // CSS min-width as fraction (0 = none)
-	maxWidth   int     // CSS max-width in chars (0 = none)
-	maxPercent float64 // CSS max-width as fraction (0 = none)
+	natural         int     // max content width (runes) across all rows
+	fixed           int     // exact char width from width= attribute or CSS width (0 = not set), already box-sizing-adjusted
+	percent         float64 // CSS width as fraction of contentWidth (0 = not set; overrides fixed)
+	percentDelta    int     // box-sizing adjustment for percent, added after percent resolves to an absolute width
+	minWidth        int     // CSS min-width in chars (0 = none), already box-sizing-adjusted
+	minPercent      float64 // CSS min-width as fraction (0 = none)
+	minPercentDelta int     // box-sizing adjustment for minPercent, added after it resolves
+	maxWidth        int     // CSS max-width in chars (0 = none), already box-sizing-adjusted
+	maxPercent      float64 // CSS max-width as fraction (0 = none)
+	maxPercentDelta int     // box-sizing adjustment for maxPercent, added after it resolves
 }
 
 // parseSizeVal parses a CSS/HTML size string: bare integer, Nch, or N%.
@@ -133,22 +144,76 @@ func parseSizeVal(s string) (abs int, pct float64, ok bool) {
 	return
 }
 
+// cellBoxSizingDelta returns how much to adjust one of a cell's declared
+// width/min-width/max-width values so that, combined with the padding
+// subtraction fillGridCellTokens and composeSeparateGrid already do
+// unconditionally downstream, the resolved column slot width ends up
+// meaning what the cell's own box-sizing says the declared value means. A
+// `<th>`/`<td>`'s box-sizing was, until this, never read at all
+// (docs/TABLES.md, COMPATIBILITY.md); this is the one place that adds it.
+//
+// content-box (real CSS's own initial value): the declared value is pure
+// content, with padding and border both meant to add on top of it. Padding
+// is added back here so the later, unconditional padding subtraction nets
+// back out to exactly the declared content size; border needs no
+// adjustment, since it was never subtracted from a column's own slot width
+// to begin with (border is tracked as separate "column border overhead",
+// added on top after sizeColumns runs; see separateColumnBorderOverhead and
+// collapsedBorders.colOverhead).
+//
+// border-box (the UA default): the declared value already includes
+// padding, which the unconditional downstream subtraction already assumes
+// with no adjustment needed here. It also includes border, which the
+// downstream "column border overhead" lane assumes is never part of a
+// column's own slot width, so borderW is subtracted here to compensate:
+// once that overhead is added back on top after sizeColumns, the total
+// nets back out to the declared value.
+//
+// borderW must be 0 under border-collapse:collapse. A collapsed border
+// segment is shared, table-wide grid-line state resolved by conflict
+// resolution (table_collapse.go), not any single cell's own border box, so
+// there is no per-cell border width to subtract there; a border-box cell
+// under collapse degrades to "padding only", the same adjustment
+// content-box already gets under separate mode's own border term being
+// zero. Callers pass the cell's own left+right border character width
+// (resolveBoxBorders) under border-collapse:separate, where each cell owns
+// a real border box, and 0 under collapse.
+func cellBoxSizingDelta(decls map[string]string, padding, borderW int) int {
+	if isBorderBox(decls) {
+		return -borderW
+	}
+	return padding
+}
+
 // cellConstraints extracts layout constraints from a <th> or <td> node's
-// already-resolved declarations. The legacy HTML width attribute is
+// already-resolved declarations, adjusted by cellBoxSizingDelta so a
+// declared width/min-width/max-width means what its own box-sizing says
+// regardless of which of this file's two passes, up-front estimation or the
+// final per-cell pass, calls this. The legacy HTML width attribute is
 // deliberately not consulted: in real-world markup (especially HTML email)
 // it's almost always a pixel value, and there's no reliable way to convert
 // pixels to terminal columns. Treating it as a char count, as this engine
 // used to) forces columns to absurd widths. Use CSS width (e.g. "10ch") for
 // an unambiguous fixed character width.
-func (r *Engine) cellConstraints(decls map[string]string) colConstraints {
+//
+// borderW is the cell's own left+right border character width under
+// border-collapse:separate, and must be 0 under border-collapse:collapse;
+// see cellBoxSizingDelta. fixed/minWidth/maxWidth, already absolute at this
+// point, are adjusted immediately. A percent value can't be: it isn't
+// resolved to an absolute char count until sizeColumns or effectiveMinMax
+// multiplies it against contentWidth, so its delta is carried in
+// percentDelta/minPercentDelta/maxPercentDelta and applied there instead.
+func (r *Engine) cellConstraints(decls map[string]string, borderW int) colConstraints {
 	var c colConstraints
+	padding := parsePaddingLen(decls["padding-left"]) + parsePaddingLen(decls["padding-right"])
+	delta := cellBoxSizingDelta(decls, padding, borderW)
 	if v, ok := decls["width"]; ok {
 		if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.percent = pct
-				c.fixed = 0
+				c.percentDelta = delta
 			} else {
-				c.fixed = abs
+				c.fixed = max(1, abs+delta)
 			}
 		}
 	}
@@ -156,8 +221,9 @@ func (r *Engine) cellConstraints(decls map[string]string) colConstraints {
 		if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.minPercent = pct
+				c.minPercentDelta = delta
 			} else {
-				c.minWidth = abs
+				c.minWidth = max(0, abs+delta)
 			}
 		}
 	}
@@ -165,8 +231,9 @@ func (r *Engine) cellConstraints(decls map[string]string) colConstraints {
 		if abs, pct, ok := parseSizeVal(v); ok {
 			if pct > 0 {
 				c.maxPercent = pct
+				c.maxPercentDelta = delta
 			} else {
-				c.maxWidth = abs
+				c.maxWidth = max(1, abs+delta)
 			}
 		}
 	}
@@ -184,7 +251,7 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 	for i, c := range cols {
 		switch {
 		case c.percent > 0:
-			widths[i] = max(1, int(c.percent*float64(contentWidth)))
+			widths[i] = max(1, int(c.percent*float64(contentWidth))+c.percentDelta)
 		case c.fixed > 0:
 			widths[i] = c.fixed
 		default:
@@ -292,14 +359,22 @@ func sizeColumns(cols []colConstraints, contentWidth int, fullWidth bool) []int 
 func effectiveMinMax(c colConstraints, contentWidth int) (minW, maxW int) {
 	minW = c.minWidth
 	if c.minPercent > 0 {
-		mp := int(c.minPercent * float64(contentWidth))
+		// Floored at 0, minWidth's own "no constraint" sentinel: a
+		// box-sizing delta that would push this below 0 asks for a minimum
+		// content-box shrunk past its own chrome, which is already
+		// trivially satisfied by any width, the same as no minimum at all.
+		mp := max(0, int(c.minPercent*float64(contentWidth))+c.minPercentDelta)
 		if mp > minW {
 			minW = mp
 		}
 	}
 	maxW = c.maxWidth
 	if c.maxPercent > 0 {
-		mp := int(c.maxPercent * float64(contentWidth))
+		// Floored at 1, not 0: 0 is maxWidth's own "uncapped" sentinel, and
+		// an author who declared a real percent maximum still gets one
+		// clamped as tight as this engine can render, one cell, rather than
+		// having a box-sizing delta silently erase the cap.
+		mp := max(1, int(c.maxPercent*float64(contentWidth))+c.maxPercentDelta)
 		if maxW == 0 || mp < maxW {
 			maxW = mp
 		}

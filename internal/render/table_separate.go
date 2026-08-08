@@ -79,7 +79,7 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 		overhead += w
 	}
 
-	colsEst := r.gridColumnConstraints(grid, colDecls)
+	colsEst := r.gridColumnConstraints(grid, colDecls, false)
 	estWidths := estimateColumnWidths(colsEst, availWidth-overhead, fullWidth)
 	if estWidths == nil {
 		// CSS constraints alone weren't enough to estimate (two or more
@@ -107,7 +107,7 @@ func (r *Engine) renderTableSeparate(n *html.Node, availWidth int, tableDecls ma
 		}
 	}
 
-	r.fillGridCellTokens(grid, colDecls, estWidths, spacingX, fallbackCellWidth)
+	r.fillGridCellTokens(grid, colDecls, estWidths, spacingX, fallbackCellWidth, false)
 
 	cols := buildGridColumns(grid, numCols, spacingX)
 	widths := sizeColumns(cols, availWidth-overhead, fullWidth)

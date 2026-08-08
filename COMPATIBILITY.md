@@ -346,23 +346,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
   it is layered on top of it, the same way it always has been. `height` was
   never adjusted for margin this way and still isn't.
 
-  **Table cells (`<th>`/`<td>`) are a compatibility gap here, not a spec
-  exception.** Real CSS applies `box-sizing` to table cells exactly like any
-  other box (CSS Box Sizing Module Level 3 states it applies to "all
-  elements that accept width or height," internal table elements included,
-  and every mainstream browser honors `box-sizing: border-box` on a `<td>`
-  the same way it does on a `<div>`); nothing in spec singles tables out.
-  htmlterm's cells simply don't read the property yet. Their column-width
-  algorithm resolves a declared `width` through a different, older
-  mechanism than `renderBlockContentBox`'s, one that predates this section
-  and already behaves like neither real value on its own: it subtracts a
-  cell's padding from its declared width, `border-box`-shaped, but adds
-  border characters on top as separate overhead reserved outside that width
-  entirely, `content-box`-shaped. Implementing real `box-sizing` there needs
-  that existing mixed model replaced with an actual `content-box`/
-  `border-box` pair first, which is a rewrite of `sizeColumns`'s fixed-column
-  branch and the border-overhead accounting around it, not a small
-  extension of the general-box work above. See `docs/TABLES.md`.
+  **Table cells (`<th>`/`<td>`) read `box-sizing` under
+  `border-collapse: separate`; under `collapse`, `border-box` accounts for
+  padding only, not border.** A collapsed border is shared, table-wide
+  grid-line state, not any single cell's own border box, so there's no
+  per-cell border width for `border-box` to subtract there. See
+  `docs/TABLES.md` for the full account.
 - **A percentage height needs `Options.Height` to resolve at the root.** CSS
   resolves a percentage `height`/`min-height`/`max-height` against the
   containing block's height only when that height is definite, and to `auto`

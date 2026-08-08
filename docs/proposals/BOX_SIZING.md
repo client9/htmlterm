@@ -1,14 +1,17 @@
 # box-sizing: real property support, border-box via the UA stylesheet
 
-Status: **implemented**, for ordinary block boxes, flex containers, and a
-flex item's cross axis. Table cell width remains unimplemented; see
-"Table cells" below and `COMPATIBILITY.md`. This document is kept as the
-design record, updated in place to match what shipped and to correct one
-claim ("not a breaking change") that turned out to be wrong for the
+Status: **implemented**, for ordinary block boxes, flex containers, a flex
+item's cross axis, and, as of a later follow-up pass, table cells under
+`border-collapse: separate` fully and `border-collapse: collapse` partially
+(padding only, not border; see "Table cells" below). This document is kept
+as the design record, updated in place to match what shipped and to correct
+one claim ("not a breaking change") that turned out to be wrong for the
 `height` axis specifically, plus two implementation bugs a later code
-review caught on the `width` axis. See "Corrections found during
-implementation" near the end before trusting anything above it about
-breaking-change scope or row-direction box-sizing conversion.
+review caught on the `width` axis, plus "Table cells"'s own original
+"needs a rewrite first" premise, which turned out to be more pessimistic
+than what shipped. See "Corrections found during implementation" near the
+end before trusting anything above it about breaking-change scope,
+row-direction box-sizing conversion, or table cells' implementation cost.
 
 ## Problem
 
@@ -350,6 +353,44 @@ resolve an item's chrome once per call for a caller like `clampFlexWidth` or
 `clampFlexMainHeight` that converts more than one bound for the same item,
 rather than paying for `resolveBoxBorders` again for each one.
 
+**Table cells were implemented in a later pass, and section 4's "needs a
+rewrite first" premise turned out to be avoidable.** Section 4 above assumed
+giving cells real `box-sizing` meant replacing `sizeColumns`'s mixed
+padding/border model with an actual `content-box`/`border-box` pair, since
+that model already didn't match either real value on its own. What actually
+shipped keeps that mixed model completely intact — `sizeColumns` still
+tracks a cell's border as separate overhead outside the width it solves for,
+unconditionally subtracts padding from that solved width, exactly as
+before — and instead adjusts the *declared* width/min-width/max-width
+before it ever reaches that model, via a new `cellBoxSizingDelta`: `content-box`
+adds a cell's own padding back onto its declared value, so the unconditional
+downstream subtraction nets back out to the true content size instead of
+over-subtracting it; `border-box` subtracts a `border-collapse: separate`
+cell's own border characters from its declared value, so the border overhead
+`sizeColumns` adds back on top later nets out to the declared total instead
+of overshooting it. This works because `sizeColumns`'s internal
+representation was never the problem; only the meaning of the *input* to it
+was. A percentage width/min-width/max-width needs the same adjustment, but
+can't get it immediately the way an absolute value can, since a percentage
+doesn't resolve to an absolute char count until `sizeColumns` or
+`effectiveMinMax` multiplies it against `contentWidth` — the delta rides
+along in a parallel `colConstraints` field (`percentDelta` and its min/max
+counterparts) and is added at that later point instead.
+
+**`border-collapse: collapse` only gets the padding half of this,
+correctly, not as a shortcut.** A collapsed border segment is shared,
+table-wide grid-line state resolved by conflict resolution
+(`table_collapse.go`), not any single cell's own border box: there is no
+per-cell border width to subtract from a `border-box` cell's declared value
+there, unlike under `border-collapse: separate`, where each cell owns a
+real border box. `cellBoxSizingDelta` takes the cell's own border width as
+a parameter (0 under collapse, the cell's real left+right border glyph
+width under separate) rather than assuming one, so a collapsed `border-box`
+cell's declared width still only accounts for padding, matching what it did
+before this pass. See `docs/TABLES.md` and `COMPATIBILITY.md` for the
+same caveat recorded where a reader following cell-sizing docs will see it.
+`TestTableCellBoxSizing` covers both modes and both `box-sizing` values.
+
 ## Non-goals
 
 - No change to `border-width`/`border-*-width`; still a no-op. The
@@ -404,7 +445,7 @@ places:
 | Ordinary block-level boxes, both axes | Implemented: width branch in `renderBlockContentBox` (block.go:~440), height/min-height/max-height via `toContentLines`/`borderBoxContentHeight` |
 | Flex containers' own outer box, both axes | Implemented: width branch in `renderFlexContentBox` (flex.go), height via the same `resolveFlexContainerHeight`/`Floor` fix — added during implementation, not in the original scope; see "Corrections" |
 | Flex items' main-axis size | Implemented as exempt: `renderFlexItemBoxSized` neutralizes the item's real `box-sizing` for its synthesized override, always treating it as outer/border-box-shaped; covered by `TestBoxSizingFlexItemMainAxisExempt` |
-| Table cells | **Not implemented — a compatibility gap versus spec, not a spec exception.** Real CSS applies `box-sizing` to table cells like any other box. Cell width resolution here is a separate, older algorithm (`sizeColumns`/`table_separate.go`/`table_collapse.go`) that already matches neither real value on its own: border-box-shaped for padding, content-box-shaped (purely additive) for border characters |
+| Table cells | **Implemented for `border-collapse: separate`; partial for `border-collapse: collapse`.** `cellBoxSizingDelta` adjusts a cell's declared width/min-width/max-width before it reaches `sizeColumns`'s own, unchanged mixed padding/border model, rather than replacing that model. `border-box` under `collapse` still only accounts for padding: a collapsed border segment is shared, table-wide grid-line state with no single cell to charge it to. See "Corrections found during implementation" and `TestTableCellBoxSizing` |
 | `width: 100%` + padding/border overflow | No new code needed: `hBorderWidth` exceeding the caller's available width already flows through existing overflow-painting behavior with no special-casing required |
 | Compatibility impact | **Not breaking on `width`** (border-box formula unchanged from before). **Breaking on `height`** for anyone combining an explicit `height` with padding or a border and no `box-sizing: content-box` override — confirmed as the intended outcome; see "Corrections found during implementation" |
 | Tests | `box_sizing_test.go` (new); 6 pre-existing tests across `flex_test.go`, `htmlterm_test.go`, `layout_test.go` updated to the new `height` default |

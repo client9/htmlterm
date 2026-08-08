@@ -387,7 +387,7 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 	borders := r.resolveCollapsedBorders(grid, colDecls, tableDecls)
 	overhead := borders.colOverhead()
 
-	colsEst := r.gridColumnConstraints(grid, colDecls)
+	colsEst := r.gridColumnConstraints(grid, colDecls, true)
 	estWidths := estimateColumnWidths(colsEst, availWidth-overhead, fullWidth)
 	if estWidths == nil {
 		measured := r.measureGridNaturalWidths(grid, colDecls, colsEst, 0)
@@ -407,7 +407,7 @@ func (r *Engine) renderTableCollapse(n *html.Node, availWidth int, tableDecls ma
 		}
 	}
 
-	r.fillGridCellTokens(grid, colDecls, estWidths, 0, fallbackCellWidth)
+	r.fillGridCellTokens(grid, colDecls, estWidths, 0, fallbackCellWidth, true)
 	cols := buildGridColumns(grid, numCols, 0)
 	widths := sizeColumns(cols, availWidth-overhead, fullWidth)
 	fillGridCellLines(grid, widths, 0)

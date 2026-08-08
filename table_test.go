@@ -505,3 +505,26 @@ func TestTableCellNaturalWidthShrinksToFit(t *testing.T) {
 		{name: "an explicit cell width is still honored", width: 30, css: tbl, html: `<table><tr><td style="width:20">hi</td><td>Z</td></tr></table>`, want: "┌────────────────────┬─┐\n│hi                  │Z│\n└────────────────────┴─┘\n"},
 	})
 }
+
+// TestTableCellBoxSizing is a regression test for a bug caught during code
+// review: a <th>/<td>'s box-sizing was parsed and thrown away, the same gap
+// COMPATIBILITY.md and docs/TABLES.md already documented for the property in
+// general. A cell's declared width/min-width/max-width was always treated as
+// border-box-shaped for padding (subtracted from it) but content-box-shaped
+// for border (added on top, uncounted against the declared value), matching
+// neither real box-sizing value: a border-collapse:separate cell's own
+// border was silently added on top of its declared width instead of coming
+// out of it under the border-box default, and an author who explicitly
+// opted into content-box still had padding subtracted from their declared
+// content size. See cellBoxSizingDelta.
+func TestTableCellBoxSizing(t *testing.T) {
+	runCases(t, []renderCase{
+		{name: "border-box (the default) subtracts the cell's own border from a declared width", width: 40, html: `<table><tr><td style="width:10;border-style:solid">a</td></tr></table>`, want: "┌────────┐\n│a       │\n└────────┘\n"},
+		{name: "content-box adds padding on top of a declared width instead of subtracting it", width: 40, html: `<table><tr><td style="width:6;box-sizing:content-box;padding-left:1;padding-right:1;border-style:solid">a</td></tr></table>`, want: "┌────────┐\n│ a      │\n└────────┘\n"},
+		{name: "border-box subtracts border from a declared min-width too", width: 40, html: `<table><tr><td style="min-width:10;border-style:solid">a</td></tr></table>`, want: "┌────────┐\n│a       │\n└────────┘\n"},
+		{name: "border-box subtracts border from a declared max-width too", width: 40, html: `<table style="border-spacing:0;width:100%"><tr><td style="max-width:10;border-style:solid">a</td><td>x</td></tr></table>`, want: "┌────────┐x                             \n│a       │                              \n└────────┘                              \n"},
+		{name: "content-box adds padding back for a percent width the same as a fixed one", width: 20, html: `<table style="border-spacing:0;width:100%"><tr><td style="width:50%;box-sizing:content-box;padding-left:1;padding-right:1">a</td><td>b</td></tr></table>`, want: " a          b       \n"},
+		{name: "border-collapse:collapse: border-box only subtracts padding, since no single cell owns a shared grid-line border", width: 40, html: `<table style="border-collapse:collapse"><tr><td style="width:8;padding-left:1;padding-right:1;border-style:solid">a</td></tr></table>`, want: "┌────────┐\n│ a      │\n└────────┘\n"},
+		{name: "border-collapse:collapse: content-box still adds padding back on, same as separate mode", width: 40, html: `<table style="border-collapse:collapse"><tr><td style="width:6;box-sizing:content-box;padding-left:1;padding-right:1;border-style:solid">a</td></tr></table>`, want: "┌────────┐\n│ a      │\n└────────┘\n"},
+	})
+}

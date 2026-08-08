@@ -551,7 +551,7 @@ Not inherited.
 #### `box-sizing`
 `content-box` | `border-box`. Controls whether a declared `width`/`height` includes border and padding or excludes them. The UA stylesheet sets `*, ::before, ::after { box-sizing: border-box; }`, the same reset Bootstrap's Reboot and `sindresorhus/modern-normalize` both ship, so every element is `border-box` unless something overrides it. Override on any selector to opt back into `content-box`, real CSS's own initial value, the same way you would in a browser with no reset loaded. See [`width`](#width) and [`height`](#height) for exactly what each value means, and `COMPATIBILITY.md`/`docs/proposals/BOX_SIZING.md` for the design history. Not inherited.
 
-Three elements sit outside this. A flex item's main-axis size is exempt and always behaves like `border-box`, regardless of what the item's own `box-sizing` resolves to (see [Flexbox](#flexbox)). An `inline-block` element's width ignores this property entirely, since its border and padding are never drawn at all, leaving nothing for either value to subtract or add (see [`width`](#width) above). Table cell (`th`/`td`) width doesn't yet observe this property at all, a compatibility gap rather than anything spec calls for, since real CSS applies `box-sizing` to table cells like any other box (see [Cell Sizing](#css-properties--cell-sizing-th-td-and-table-borders-table)).
+Two elements sit outside this, and one partially does. A flex item's main-axis size is exempt and always behaves like `border-box`, regardless of what the item's own `box-sizing` resolves to (see [Flexbox](#flexbox)). An `inline-block` element's width ignores this property entirely, since its border and padding are never drawn at all, leaving nothing for either value to subtract or add (see [`width`](#width) above). Table cell (`th`/`td`) width does observe this property, but only fully under `border-collapse: separate`; under `border-collapse: collapse`, `border-box` only ever subtracts a cell's padding, never its border, since a collapsed border segment is shared, table-wide grid-line state with no single cell to charge it to (see [Cell Sizing](#css-properties--cell-sizing-th-td-and-table-borders-table)).
 
 #### `width`
 `40` or `50%`. Fixed or percentage width for block and `inline-block` elements. For a **block** element: under the default `box-sizing: border-box`, a declared width is the box's whole outer size, margins, border characters, and padding all coming out of it, so `width: 100%` fills the renderer width exactly; under `box-sizing: content-box`, a declared width is a pure content size instead, with border and padding adding on top, so `width: 100%` combined with either can overflow the containing block, same as in a browser with no `border-box` reset; margins still come out of it either way, which is not what real CSS's own box-sizing values mean (margin is never part of either) but predates `box-sizing` and is layered on top of it. For an **`inline-block`** element, `box-sizing` doesn't apply: its own border and padding are never drawn at all (see `COMPATIBILITY.md`), so the declared width becomes the rendered width directly, with nothing for either box-sizing value to subtract or add. Not inherited.
@@ -1834,15 +1834,18 @@ markup (especially HTML email) it's almost always a pixel value, and there's
 no reliable way to convert pixels to terminal columns. Use CSS `width`
 instead (`width: 14` for a fixed character count, or `width: 25%`).
 
-A cell's [`box-sizing`](#box-sizing) isn't read yet. This is a compatibility
-gap, not spec behavior — real CSS applies `box-sizing` to table cells the
-same as any other box, and real browsers honor it on `<td>`/`<th>` exactly
-like on a `<div>`. Cell width resolution here goes through the table
+A cell's [`box-sizing`](#box-sizing) is read: `content-box` adds a cell's own
+padding on top of its declared width/min-width/max-width, and `border-box`
+(the UA default) subtracts a `border-collapse: separate` cell's own border
+characters from it. Cell width resolution still goes through the table
 renderer's own column-sizing algorithm rather than `width`'s ordinary
-block-element path, and that algorithm already behaves like neither real
-`box-sizing` value on its own: `border-box`-shaped for padding (subtracted
-from the declared width) but `content-box`-shaped for border characters
-(added on top as separate overhead). See `COMPATIBILITY.md`.
+block-element path, tracking a cell's border as overhead outside the width
+that algorithm solves for, same as before; `box-sizing` changes what the
+declared value itself means, not that internal representation. Under
+`border-collapse: collapse`, a `border-box` cell's declared width still only
+accounts for padding, since a collapsed border segment is shared,
+table-wide grid-line state with no single cell to charge it to. See
+`COMPATIBILITY.md`.
 
 | Property | Applies to | Notes |
 |----------|------------|-------|

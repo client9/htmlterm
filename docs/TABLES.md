@@ -24,7 +24,7 @@ actually wrote.
 | `border-top-left-junction` etc. | `<table>` only | Literal junction-glyph overrides (corner-shapes anywhere in the grid) under `border-collapse: collapse` — no cell-level equivalent (redundant with cell-level `border-*-corner`) |
 | `border-color`, `border-*-color` | `<table>`, `<th>`/`<td>` | Whole-box / per-edge color |
 | `margin`, `padding` | `<table>` | Work like any block element — see "Margin and padding" below |
-| `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing. `box-sizing` isn't read here — see the note right below this table |
+| `width`/`min-width`/`max-width` | `<th>`/`<td>` | Column sizing, `box-sizing`-aware. See the note right below this table for `border-collapse: collapse`'s one remaining gap |
 | `white-space`, `text-overflow` | `<th>`/`<td>` | Wrapping vs. truncation |
 | `vertical-align` | `<th>`/`<td>` | Content placement within row height |
 | `caption-side` | `<table>` | Caption above/below the table |
@@ -32,15 +32,26 @@ actually wrote.
 | `border-collapse: collapse` | `<table>` | Adjacent cell and table borders merge into shared lines via conflict resolution. See "`border-collapse: collapse`" below |
 | `border-spacing` | `<table>` | Gap between cell boxes under `border-collapse: separate`. Default `0` |
 
-A `<th>`/`<td>`'s `box-sizing` isn't read at all. This is a compatibility gap
-against spec, not a spec exception: real CSS applies `box-sizing` to table
-cells the same as any other box. The column-width algorithm above resolves
-a declared `width` through its own mechanism instead, one that already
-matches neither real `box-sizing` value on its own. It's border-box-shaped
-for padding, subtracted from the declared width. It's content-box-shaped
-for border characters, added on top as separate overhead, per the border
-unification model described throughout this page. See CSS.md's
-`box-sizing` entry and COMPATIBILITY.md for the full account.
+A `<th>`/`<td>`'s `box-sizing` is read, adjusting what a declared width/
+min-width/max-width means, without changing the column-width algorithm's own
+internal representation: it still tracks a cell's border as separate
+overhead outside the width `sizeColumns` solves for, per the border
+unification model described throughout this page, and still subtracts
+padding out of that solved width unconditionally. `box-sizing: content-box`
+adds a cell's own padding back onto its declared value up front, so that
+unconditional subtraction nets back out to the declared content size instead
+of shrinking it further. `box-sizing: border-box` (the UA default) subtracts
+a `border-collapse: separate` cell's own border characters from its declared
+value up front, so the border overhead added back on top later nets out to
+the declared total instead of overshooting it.
+
+**`border-collapse: collapse` cells only get the padding half of this.** A
+collapsed border segment is shared, table-wide grid-line state resolved by
+conflict resolution (see "`border-collapse: collapse`" below), not any
+single cell's own border box, so there is no per-cell border width to
+subtract for `border-box`. A collapsed cell's `border-box` declared width
+still only accounts for padding, the same as before this was implemented.
+See CSS.md's `box-sizing` entry and COMPATIBILITY.md for the full account.
 
 ## Border-style presets
 
