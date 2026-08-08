@@ -54,24 +54,19 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **Text-field selection is a single flat range, not real DOM's
   `Selection`/`Range` model.** `Element.SelectionStart()`/`SelectionEnd()`/
   `SelectionDirection()`/`SetSelectionRange()` mirror
-  `HTMLInputElement`/`HTMLTextAreaElement`'s own selection API (rune offsets,
-  not UTF-16 code units), and `DispatchKey`'s
-  ArrowLeft/Right/Home/End/Backspace/Delete/Ctrl+A default actions, plus
-  `DispatchClick`'s click-to-position-caret default action (Shift extends),
-  all operate on it. But there's no `window.getSelection()` or `Range`
-  object, no cross-element selection, and no `contenteditable` selection at
-  all (see "`contenteditable`" below). See `docs/proposals/CARET_SELECTION.md`.
+  `HTMLInputElement`/`HTMLTextAreaElement`'s own selection API, in rune
+  offsets, not UTF-16 code units (an emoji costs 2 in real DOM, 1 here).
+  `DispatchKey`'s arrow/Home/End/Backspace/Delete/Ctrl+A and
+  `DispatchClick`'s click-to-position-caret default actions operate on it.
+  There's no `window.getSelection()`/`Range`, no cross-element selection,
+  and no `contenteditable` selection (see "`contenteditable`" below). See
+  `docs/proposals/CARET_SELECTION.md`.
 
-  Those offsets are **runes, not UTF-16 code units and not terminal
-  columns**. The first half is the deviation from spec (real DOM counts
-  UTF-16 code units, so an emoji costs 2 there and 1 here). The second half
-  is not a deviation but a distinction worth stating, because this renderer
-  makes it tempting to conflate them: a caret at offset 3 in `"日本語ab"`
-  sits at screen column 6, and only the cursor-placement and click
-  hit-testing paths ever convert between the two
-  (`internal/textcell`'s `ColumnForRuneIndex`/`RuneIndexForColumn`).
-  `SelectionStart`/`SelectionEnd` always answer in runes, whether or not the
-  document has ever been rendered.
+  Rune offsets are also not terminal columns: a caret at offset 3 in
+  `"日本語ab"` sits at screen column 6. Only cursor-placement and click
+  hit-testing convert between the two (`internal/textcell`'s
+  `ColumnForRuneIndex`/`RuneIndexForColumn`); `SelectionStart`/
+  `SelectionEnd` always answer in runes.
 - **A `<textarea>`'s caret/selection placement doesn't account for
   word-wrapping.** Both the terminal cursor (`focusCursorPos`) and the
   `::selection` highlight locate a rune offset by its `"\n"`-delimited
@@ -82,62 +77,25 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`<noscript>` content always renders.** There's no scripting engine to
   disable it for, so (unlike a browser, which only shows `noscript` content
   when JavaScript is off) it's unconditionally treated as regular markup.
-- **A `<label>` click redirects to its named control as one event, not two.**
-  Both association forms work: an explicit `for` pointing at an id anywhere
-  in the document, and, lacking that, the first labelable descendant nested
-  inside the label (an `<input>` other than `type="hidden"`, a `<button>`,
-  a `<textarea>`, or a `<select>`). A real browser fires `"click"` on the
-  label itself first, then, as the label's own default action, synthesizes
-  a *second*, separate `"click"` at the named control. `DispatchClick`
-  instead resolves the control before dispatching anything and fires one
-  `"click"` targeted at the control directly; a listener on the label never
-  sees the event at all. This is the same "one click kind, atomic" model
-  `DispatchClick`'s own doc comment already uses for
-  mousedown-plus-click-plus-default-action, applied to label forwarding too,
-  and it means a label with no resolvable control (a stale `for`, or no
-  labelable descendant) keeps its own `"click"` dispatch rather than being
-  left with nothing to fire at all. A click that lands directly on a nested
-  control's own glyph, rather than the label's surrounding text, was
-  already going straight to that control before this existed and is
-  unaffected. See `docs/DOM_API.md`'s `dispatchEvent` row for the general
-  shape of what a `Dispatch*` default action does and doesn't replicate from
-  spec.
-
-  Getting a `<label>` a click target of its own at all is also a rendering
-  deviation, not just an event-dispatch one: `<label>` is `display: inline`
-  by default, and a plain inline element normally has no `Rect` of its own
-  here (see the "trackable element" invariant in `docs/ARCHITECTURE.md`) so
-  there'd be nothing for `DispatchClick` to hit-test a click on the label's
-  surrounding text against. Giving it one means rendering a label's content
-  as one atomic unit, the same way `display: inline-block` already is,
-  rather than letting it reflow across its own boundary with text before or
-  after it on the same line. In the overwhelmingly common case, a label on
-  its own line in a form, that's not a visible difference; it only matters
-  for a `<label>` deliberately mixed into running prose. See CSS.md's
-  `label` entry.
-- **`autofocus` applies once, at `ParseDocument`, not through HTML's live
-  algorithm.** Real HTML tracks a per-document "autofocus candidates" list
-  and can focus a later-inserted autofocus element asynchronously, after
-  the element with the attribute is inserted, provided nothing else already
-  claimed focus by then. `ParseDocument` instead walks the freshly parsed
-  tree once, synchronously, and focuses the first element, in document
-  order, that carries `autofocus` and is currently focusable
-  (`Document.isFocusable`, the same predicate `Element.Focus()` and Tab
-  order use); an `autofocus` candidate that isn't focusable, disabled, say,
-  is skipped in favor of the next one, rather than leaving nothing
-  focused. Since there's no later "element inserted" moment this renderer
-  reacts to, `autofocus` set through `SetAttribute` or present on an
-  element added after `ParseDocument` (`AppendChild`, `SetInnerHTML`, and
-  the like) has no effect; call `Element.Focus()` directly for that.
-
-  The `"focus"` event this fires is unobservable, for a related reason: it
-  dispatches inside `ParseDocument`, before that call has returned the
-  `*Document` a caller needs in order to register a listener for it at
-  all. `FocusedElement()` still correctly reports the autofocused element
-  afterward; only the event itself is lost, not the resulting state. A
-  real browser's own script can already be listening by the time its
-  autofocus processing runs; this package's synchronous, code-only
-  construction model has no equivalent moment.
+- **A `<label>` click resolves to its named control (`for`, or the first
+  labelable nested descendant) as one `"click"` event, not two.** A browser
+  fires `"click"` on the label, then synthesizes a second, separate one on
+  the control; here only the second happens, targeted directly at the
+  control, so a label-only listener never sees anything. A label with no
+  resolvable control fires its own `"click"` instead. A click landing
+  directly on the nested control's own glyph is unaffected either way.
+  `<label>` also renders as one atomic unit with its own `Rect` for
+  hit-testing, unlike a plain `inline` element — visible only when a label
+  is mixed into running prose rather than sitting on its own line. See
+  CSS.md's `label` entry.
+- **`autofocus` applies once, synchronously, at `ParseDocument`, not through
+  HTML's live algorithm.** It focuses the first focusable `autofocus`
+  element in document order and has no effect on one added later
+  (`SetAttribute`, `AppendChild`, `SetInnerHTML`) — call `Element.Focus()`
+  directly for that. The `"focus"` event it fires is unobservable, since it
+  dispatches before `ParseDocument` returns the `*Document` a listener
+  would need to be registered on; `FocusedElement()` still reports the
+  result correctly afterward.
 
 ### Terminal-Native Additions
 
@@ -288,45 +246,31 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `devanagari`, `disclosure-open`/`disclosure-closed`, and so on; see "Not
   Supported" below). `symbols()` itself is a real CSS Counter Styles
   function, just without its `<symbols-type>` keyword or image arguments.
-- **`box-sizing` defaults to `border-box` everywhere, via the UA
-  stylesheet's own `*, ::before, ::after { box-sizing: border-box; }` rule**
-  (`internal/render/defaultstylesheet.go`), the same reset Bootstrap's
-  Reboot and `sindresorhus/modern-normalize` both ship. Real CSS's own
-  initial value is `content-box`; that value is fully supported too,
-  reachable by overriding the UA rule on any selector, the same way it's
-  reachable in a browser with no reset loaded. `width` and `height` both
-  read it the same way. See `docs/proposals/BOX_SIZING.md` for why the
-  default landed on `border-box` rather than spec's own `content-box`.
-
-  Under the default `border-box`, both `width` and `height` are a box's
-  whole outer size: border characters and padding come out of a declared
-  value rather than adding to it. `width: 10; height: 6; border-style:
-  solid` is 10 columns wide and 6 rows tall in total, 2 of which (top and
-  bottom) are its own border rules. Under an explicit `box-sizing:
-  content-box`, both axes instead read as a pure content size, with border
-  and padding adding on top: the same box is 10 + 2 = 12 columns wide and
-  6 + 2 = 8 rows tall. A height too small to fit its own border and padding
-  floors at 1 content line rather than disappearing, the same floor a
-  too-small `width` already has (CSS never lets border and padding shrink
-  content below 0): `height: 1; border-style: solid` is 3 rows tall, not 2,
-  its one content line intact. `width: 100%` under `content-box` combined
-  with padding or a border can produce a box wider than its container, the
-  classic browser box-model gotcha the `border-box` default exists to
-  avoid; an ordinary block in that state paints past its own right edge,
-  the same as any other box whose unbreakable content exceeds its `width`
-  (see that entry below).
-
-  A declared `width`, under either value, also has horizontal margin
-  subtracted out of it, so `width: 100%` lines up exactly with the
-  terminal's width. Real CSS's `border-box`/`content-box` distinction
-  never includes margin in either mode; this engine subtracts it anyway,
-  under both. `height` gets no such adjustment for vertical margin.
+- **`box-sizing` defaults to `border-box` everywhere**, via the UA
+  stylesheet's `*, ::before, ::after { box-sizing: border-box; }` rule, the
+  same reset Bootstrap's Reboot and `modern-normalize` both ship. Real
+  CSS's own initial value, `content-box`, is fully supported too, reachable
+  by overriding the UA rule on any selector. `width` and `height` both read
+  it the same way: under `border-box`, a declared value is the box's whole
+  outer size, border and padding coming out of it (`width: 10; height: 6;
+  border-style: solid` is 10×6 total, 2 of the 6 rows its own border);
+  under `content-box`, it's a pure content size with border and padding
+  adding on top (the same box becomes 12×8). A height too small for its own
+  chrome floors at 1 content line rather than disappearing, the same floor
+  `width` already has. `width: 100%` under `content-box` plus padding or a
+  border can overflow its container, same as any box whose content exceeds
+  its `width` (see that entry below); avoiding that is what the
+  `border-box` default is for. A declared `width`, under either value,
+  also has horizontal margin subtracted out of it so `width: 100%` lines up
+  with the terminal's width, unlike real CSS's own `border-box`/
+  `content-box` distinction, which never touches margin in either mode;
+  `height` gets no equivalent adjustment. See `docs/proposals/BOX_SIZING.md`
+  for why the default landed on `border-box`.
 
   **Table cells (`<th>`/`<td>`) read `box-sizing` under
   `border-collapse: separate`; under `collapse`, `border-box` accounts for
-  padding only, not border.** A collapsed border is shared, table-wide
-  grid-line state, not any single cell's own border box, so there's no
-  per-cell border width for `border-box` to subtract there. See
+  padding only, not border**, since a collapsed border is shared,
+  table-wide grid-line state with no single cell to charge it to. See
   `docs/TABLES.md` for the full account.
 - **A percentage height needs `Options.Height` to resolve at the root.** CSS
   resolves a percentage `height`/`min-height`/`max-height` against the
@@ -342,24 +286,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   A browser always has a viewport and so never shows that second behavior.
   `height: 100vh` is the same thing without the chain of definite ancestors,
   and is under the same `Options.Height` condition.
-- **`flex-basis`/`width` on a flex item size the item's whole outer box**, not
-  its content box, so an item's margins come out of that size rather than
-  adding to it: `flex-basis: 6; margin-right: 4` occupies 6 columns of the
-  line here and 10 in a browser. This follows the same convention `width`
-  already has everywhere else in this engine (a declared width is the total
-  visual width of the box, margins and border characters included), which is
-  what makes `width: 100%` line up exactly with the renderer's width. Every
-  main-axis size flex layout resolves is an outer size in the same sense,
+- **`flex-basis`/`width` on a flex item size the item's whole outer box,
+  margins included**, not its content box: `flex-basis: 6; margin-right: 4`
+  occupies 6 columns here, 10 in a browser. This applies on both axes,
   including `column` direction's heights: a `flex-basis: 4` bordered column
-  item is 4 rows tall in total, two of which are its own border rules. This
-  makes a flex item's main-axis size exempt from `box-sizing`: it always
-  behaves like `border-box` there, regardless of what the item's own
-  `box-sizing` resolves to for anything else about it (a real declared
-  height on a `row`-direction item, say, still honors its own `box-sizing`
-  normally, only the synthesized main-axis size is exempt). Distribution,
-  wrapping, and the anti-corruption clip below all depend on the main-axis
-  size meaning the item's whole outer box; a flex container's own outer box
-  is not exempt and follows `box-sizing` the same as any other block box.
+  item is 4 rows tall total. It also makes a flex item's main-axis size
+  exempt from `box-sizing`, always outer/`border-box`-shaped regardless of
+  what the item's own `box-sizing` resolves to elsewhere (a real declared
+  height on a `row`-direction item still honors its own `box-sizing`
+  normally). A flex container's own outer box is not exempt, and follows
+  `box-sizing` like any other block box.
 - **An atomic inline box taller than one line breaks the line it sits in.**
   `inline-block` and `inline-flex` elements are rendered as one indivisible
   unit and spliced into the surrounding inline flow; when that unit is more
@@ -378,20 +314,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
   container uses, so its border, padding, margin, and overflow clipping all
   apply.
 - **Flex alignment is `safe`, not `unsafe`, when content overflows.** With
-  negative free space, `justify-content`/`align-content` and
-  `align-items`/`align-self` all pack against the start edge, as if the value
-  carried CSS Box Alignment's `safe` keyword. Browsers default to `unsafe`
-  there: `center` overflows equally off both edges, `flex-end` off the start
-  edge. Aligning that way means placing content at a negative offset from the
-  container's own content origin, meaning columns to the left of it or rows
-  above it,
-  and on a character grid those cells belong to the container's border/padding
-  or to a sibling, so the content wouldn't overflow, it would be lost. Safe
-  alignment is what CSS itself defines for exactly that case. (This also
-  matches, incidentally, the spec's own negative-free-space fallbacks for the
-  `space-*` values: §8.2 makes `space-between` behave as `flex-start`, and
-  `space-around`/`space-evenly` as `center`, which needs the same
-  unrepresentable negative shift.)
+  negative free space, `justify-content`/`align-content`/`align-items`/
+  `align-self` all pack against the start edge instead of a browser's
+  default `unsafe` behavior (`center` overflowing both edges, `flex-end`
+  off the start edge): the negative offset `unsafe` needs would place
+  content in cells that belong to the container's border/padding or a
+  sibling on a character grid, losing it instead of merely overflowing.
 - **A flex item is never narrower or shorter than one cell.** No box can render
   in zero columns or lines, so every resolved main size floors at one, which is
   visible where CSS would produce a genuinely empty box: `max-width: 0` caps an
@@ -402,38 +330,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   axes, so equal factors give exactly equal shares and unequal ones split in
   exactly their ratio.
 - **An over-shrunk flex item is clipped, where CSS would let it overflow.**
-  This one is unusual, so it's worth stating why. CSS keeps it from arising in
-  the first place: `min-width`'s initial value on a flex item's main axis is
-  `auto`, the *automatic minimum size*, which stops `flex-shrink` at the item's
-  min-content width, and that is implemented here (see CSS.md's Flexbox
-  section, including both of the spec's opt-outs). But the automatic minimum is
-  clamped by a definite `width`, and either opt-out (`min-width: 0`, a
-  non-`visible` `overflow-x`) removes it, so an item can still end up narrower
-  than its content. A browser then paints the overflow *over* its neighbors,
-  leaving their positions untouched. This engine assembles a flex line by
-  concatenating each item's rendered strings, so an item painting wider than
-  its allotment doesn't overlay its siblings. It **displaces** them into
-  columns that belong to somebody else, and only on the rows that actually
-  overflow, so the item's own border no longer lines up with its own content
-  and the container's border lands mid-text. That's not visible overflow, it's
-  a desynchronized frame, and a character grid has no way to express the
-  former. The item is therefore clipped to the main size flex resolved for it,
-  honoring `text-overflow` as the marker if one is set (CSS paints no marker
-  for `overflow: visible`, so that part is a pure opt-in).
-
-  The clip is deliberately narrow, and it is *not* a general "flex clips" rule:
-  a flex **line** that overflows its container is left alone, exactly like
-  every other overflowing box in this engine: a plain bordered block whose
-  unbreakable content exceeds its `width` also paints past its own border. Only
-  the item-vs-allotment case is clipped, because only that case corrupts the
-  positions of *other* elements.
-
-  Nor does it have a `column`-direction counterpart. An item that ends up
-  shorter than its content overflows *downward*, and a taller row stack pushes
-  nothing sideways, so there's nothing to desynchronize and the item simply
-  paints in full past its resolved height, as it would in a browser. The
-  vertical automatic minimum keeps `flex-shrink` from producing that situation
-  in the first place, same as the horizontal one.
+  `min-width: 0` or a non-`visible` `overflow-x` can opt an item out of the
+  automatic minimum size (implemented; see CSS.md's Flexbox section) and
+  leave it narrower than its content. A browser paints that overflow over
+  its neighbors; here the item is clipped to its allotted size instead,
+  honoring `text-overflow` as the marker if set, since painting past it
+  would displace *other* items' columns rather than merely overlay them.
+  This is item-vs-allotment only, not a general "flex clips" rule: a flex
+  line that overflows its own container is left alone, like any other
+  overflowing box. No `column`-direction counterpart exists either — an
+  over-shrunk column item just overflows downward, same as a browser.
 - **`flex-basis: auto` measures `fit-content`, not `max-content`.** An item
   with no `flex-basis`/`width` gets a shrink-to-fit measurement of its own
   content, but the measurement is taken at the container's content width, so
@@ -444,23 +350,16 @@ For the design rationale behind the DOM/Events/rendering internals, see
   among items that are individually wider than their container. `flex-basis:
   max-content` asks for the real thing and gets it: the measurement there is
   taken at an effectively unbounded budget.
-- **A `flex: 1` container measures narrower than a browser's when something
-  asks how wide it is.** Sizing a flex container from its own content, rather
-  than laying it out at a width it was handed, happens when it is a flex item
-  of another container, an `inline-flex` box, or the content of an auto-width
-  table cell. This engine answers with the sum of its items' hypothetical main
-  sizes. That is exact for items whose flex base size comes from their content,
-  meaning `flex-basis: auto` and width-sized items. It is too narrow for
-  `flex-basis: 0` items, the expansion of the common `flex: 1`, whose
-  hypothetical main size is the automatic minimum size, meaning min-content.
-  Flexbox §9.9 instead runs each item's max-content contribution through a
-  *chosen flex fraction*, applying the largest item's fraction to every item,
-  which makes such a container **wider** than the same items carry with no flex
-  factors at all. Nothing here implements that step, so `flex: 1` children of
-  an intrinsically sized container wrap text a browser would keep on one line.
-  This and the `flex-basis: auto` entry above are the same missing machinery:
-  Flexbox §9.9's chosen-flex-fraction step, which nothing in this engine
-  implements yet.
+- **A `flex: 1` container measures narrower than a browser's when sizing
+  from its own content** (as a flex item of another container, an
+  `inline-flex` box, or an auto-width table cell's content): this engine
+  sums its items' hypothetical main sizes, exact for content-sized items
+  but too narrow for `flex: 1` items, whose hypothetical main size is
+  min-content. Flexbox §9.9's *chosen flex fraction* step, which would
+  widen the container to fit each item's max-content contribution, isn't
+  implemented, so `flex: 1` children of such a container can wrap text a
+  browser would keep on one line. Same missing machinery as `flex-basis:
+  auto` measuring `fit-content` above.
 
 ### Terminal-Native Additions
 
@@ -704,24 +603,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
   rendered content, such as documentation pages and HTML email, would otherwise
   flood Tab order with every inline link ahead of a page's actual
   controls).
-- **A radio-button group is one Tab stop, and its own members ignore an
-  explicit `tabindex`.** Every `<input type="radio">` sharing a `name`
-  (scoped to the nearest `<form>`, or the whole document without one, the
-  same scope `clearRadioSiblings` already used for click-driven
-  exclusivity) is one stop in sequential Tab navigation: the checked
-  member if one exists, otherwise the first in document order. The rest of
-  the group drops out of Tab order the same way a negative `tabindex`
-  already does (`inTabOrder`), reachable by `Element.Focus()` or a click
-  regardless, same as any other `tabindex="-1"` element. Once a group
-  member is focused, ArrowUp/Down/Left/Right move to the next or previous
-  member, wrapping at either end and skipping a disabled one, and check
-  the newly focused member (unlike Tab, which never changes the checked
-  state by itself), matching real HTML's radio-group keyboard model. Real
-  HTML lets an individual group member's own `tabindex` override its
-  group-derived position in this computation; that refinement isn't
-  implemented here, so an explicit `tabindex` on one radio in a group is
-  silently ignored for Tab-order purposes, though it still takes effect
-  for every other element type.
+- **A radio-button group (`<input type="radio">`s sharing a `name`) is one
+  Tab stop, and its own members ignore an explicit `tabindex`.** The
+  checked member gets it, or the first in document order if none is
+  checked; the rest drop out of Tab order (still reachable via
+  `Element.Focus()` or a click). Once focused, arrow keys move to and check
+  the next/previous member, wrapping at either end and skipping disabled
+  ones, matching real HTML's radio-group keyboard model. Unlike real HTML,
+  an individual member's own `tabindex` can't override its group-derived
+  position.
 - **`Element.Style()` doesn't round-trip shorthand properties or preserve
   declaration order.** It mirrors `CSSStyleDeclaration` for the inline
   `style=""` attribute only (there's no `getComputedStyle`; see
