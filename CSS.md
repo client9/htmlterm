@@ -1943,6 +1943,7 @@ Color strings are parsed using CSS Color Level 4 syntax. The following formats a
 | `hsla()` | `hsla(24, 100%, 50%, 0.5)` | With alpha |
 | `hwb()` | `hwb(24 0% 0%)` | CSS Color Level 4 |
 | `transparent` | `transparent` | Fully transparent (renders as black) |
+| `ansi()` | `ansi(214)` | Terminal-native, not real CSS. See below. |
 
 Color values are downsampled to the terminal's color capability at render time:
 - **TrueColor terminals** (`COLORTERM=truecolor`): full 24-bit RGB
@@ -1950,7 +1951,32 @@ Color values are downsampled to the terminal's color capability at render time:
 - **16-color terminals**: quantized to the nearest ANSI basic color
 - **No color** (`NO_COLOR=1` or non-TTY): color is stripped
 
-Bare ANSI index numbers (e.g. `"214"`) are not supported; use `#rrggbb` or a named color instead.
+### `ansi()`: raw ANSI color indices
+
+`ansi(N)`, `N` an integer 0–255, is a terminal-native function with no real
+CSS equivalent. It names a color by its ANSI index directly, bypassing the
+RGB-based downsampling above. Real CSS has no way to spell this, so it's
+deliberately not a bare number (`color: 214`): a bare number is ambiguous
+with the unitless lengths used elsewhere in this engine's grammar, while
+`ansi()` is unambiguous and greppable.
+
+The two halves of the range behave differently:
+
+- **`ansi(0)`–`ansi(15)`** name the 16 basic ANSI colors. These render as
+  plain SGR codes (`30`–`37`, `90`–`97`) and are never downsampled or
+  converted to RGB, on any color-capable terminal. That means the actual
+  color shown is whatever the user's terminal theme has configured for that
+  slot, the one thing no hex or named color can do here, since those always
+  start from a fixed RGB value. `ansi(1)` is "this terminal's red," not any
+  particular shade of red.
+- **`ansi(16)`–`ansi(255)`** name the fixed xterm 256-color palette (a 6×6×6
+  color cube plus a 24-step greyscale ramp). These render as `38;5;N`/
+  `48;5;N` and keep their exact index on a 256-color or truecolor terminal,
+  falling back to the nearest of the 16 basic colors (by the same quantizing
+  used for `#rrggbb` and named colors) only on a plain 16-color terminal.
+
+An out-of-range (outside 0–255) or malformed `ansi(...)` value is
+unrecognized, the same as any other invalid color.
 
 ---
 

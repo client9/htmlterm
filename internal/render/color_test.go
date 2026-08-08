@@ -3,6 +3,8 @@ package render
 import (
 	"image/color"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // rgba255 extracts non-premultiplied 0–255 channel values from any color.Color.
@@ -88,6 +90,13 @@ func TestParseCSSColor(t *testing.T) {
 		{in: "#12345", wantNil: true},   // wrong hex length (5 digits)
 		{in: "#1234567", wantNil: true}, // wrong hex length (7 digits)
 
+		// ansi() out of range or malformed → nil
+		{in: "ansi(-1)", wantNil: true},
+		{in: "ansi(256)", wantNil: true},
+		{in: "ansi()", wantNil: true},
+		{in: "ansi(abc)", wantNil: true},
+		{in: "ansi(214", wantNil: true},
+
 		// fully transparent → nil (a terminal cell has no compositing
 		// model, so treat as unset rather than opaque black)
 		{in: "transparent", wantNil: true},
@@ -114,6 +123,36 @@ func TestParseCSSColor(t *testing.T) {
 			if gr != tc.r || gg != tc.g || gb != tc.b || ga != tc.a {
 				t.Fatalf("parseCSSColor(%q) = rgba(%d,%d,%d,%d), want rgba(%d,%d,%d,%d)",
 					tc.in, gr, gg, gb, ga, tc.r, tc.g, tc.b, tc.a)
+			}
+		})
+	}
+}
+
+// TestParseCSSColorAnsi checks ansi()'s concrete return type, not just its
+// RGBA() estimate: parseCSSColor must hand back an ansi.BasicColor for
+// indices 0-15 and an ansi.IndexedColor for 16-255, since it's the concrete
+// type, not the color it happens to carry, that colorprofile.Profile.Convert
+// switches on to decide whether to preserve it or downsample it (see
+// parseAnsiFunc's doc comment).
+func TestParseCSSColorAnsi(t *testing.T) {
+	tests := []struct {
+		in   string
+		want color.Color
+	}{
+		{"ansi(0)", ansi.BasicColor(0)},
+		{"ansi(1)", ansi.BasicColor(1)},
+		{"ansi(15)", ansi.BasicColor(15)},
+		{"ansi(16)", ansi.IndexedColor(16)},
+		{"ansi(214)", ansi.IndexedColor(214)},
+		{"ansi(255)", ansi.IndexedColor(255)},
+		{"ANSI(214)", ansi.IndexedColor(214)}, // case-insensitive
+		{" ansi( 214 ) ", ansi.IndexedColor(214)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			got := parseCSSColor(tc.in)
+			if got != tc.want {
+				t.Fatalf("parseCSSColor(%q) = %#v, want %#v", tc.in, got, tc.want)
 			}
 		})
 	}

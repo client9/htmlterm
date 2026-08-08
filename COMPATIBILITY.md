@@ -407,13 +407,12 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`font-variant: small-caps`**
   uppercases everything, since terminals can't render true small
   caps.
+- **`ansi(N)`**, `N` an integer 0-255, names a raw ANSI color index
+  directly, real CSS having no equivalent to this at all. See CSS.md's
+  Color Values section.
 
 ### Not Implemented
 
-- **Bare ANSI color index numbers** (e.g. a raw `"214"`) are not accepted
-  as a color value, even though they'd be meaningful to this renderer
-  specifically. Use `#rrggbb` or a named color and let automatic
-  downsampling handle the terminal's actual palette.
 - **`display: grid`** is not implemented.
 - **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
   `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
