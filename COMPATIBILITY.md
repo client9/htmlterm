@@ -414,9 +414,7 @@ For the design rationale behind the DOM/Events/rendering internals, see
 ### Not Implemented
 
 - **`display: grid`** is not implemented.
-- **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. (Custom properties,
-  `--foo` and `var()`, *are* supported; see CSS.md's "Custom Properties
-  (Variables)" section.)
+- **CSS math:** `calc()`, `min()`, `max()`, `clamp()`. 
 - **Table gaps:** `border-collapse: collapse`'s conflict resolution doesn't
   consult `tr`/`thead`/`tbody`/`tfoot` `border` (`col`/`colgroup` are
   consulted, via real conflict resolution against their column's cells). The
