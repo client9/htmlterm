@@ -230,6 +230,25 @@ func TestLoopRunHandlesCtrlXCut(t *testing.T) {
 // Screen's own EventQ channel, the same channel tcell's real decoder
 // delivers every event on, to exercise Loop.Run's translation in isolation
 // from that terminal-side gap.
+// initSignalScreen closes ready once the wrapped Screen's Init has
+// returned. tcell.Screen's Init and EventQ touch the same internal field
+// with no lock of their own (tscreen.go), so a goroutine that wants to post
+// straight to the channel, as TestLoopRunDispatchesKeyUp does below, needs a
+// real happens-before edge showing Init has finished, not a sleep-based
+// guess: the race detector flags the guess as a data race even when the
+// timing happens to work out, since a sleep establishes no synchronization
+// the Go memory model recognizes.
+type initSignalScreen struct {
+	tcell.Screen
+	ready chan struct{}
+}
+
+func (s *initSignalScreen) Init() error {
+	err := s.Screen.Init()
+	close(s.ready)
+	return err
+}
+
 func TestLoopRunDispatchesKeyUp(t *testing.T) {
 	doc, err := document.ParseDocument(`<input type="text" id="name">`, htmlterm.Options{Width: 40})
 	if err != nil {
@@ -247,7 +266,8 @@ func TestLoopRunDispatchesKeyUp(t *testing.T) {
 	})
 
 	scr, _ := newUninitScreen(t, 40, 5)
-	loop := newLoopWithScreen(doc, scr)
+	ready := make(chan struct{})
+	loop := newLoopWithScreen(doc, &initSignalScreen{Screen: scr, ready: ready})
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -257,7 +277,8 @@ func TestLoopRunDispatchesKeyUp(t *testing.T) {
 		runErr = loop.Run()
 	}()
 
-	time.Sleep(50 * time.Millisecond) // let Run's Init + first paint land
+	<-ready                           // Init has returned; safe to post to scr's EventQ from here
+	time.Sleep(50 * time.Millisecond) // let the first paint land
 
 	scr.EventQ() <- tcell.NewEventKeyEx(tcell.KeyRune, "a", tcell.ModNone, false, tcell.KeyA, 0)
 	time.Sleep(25 * time.Millisecond)
