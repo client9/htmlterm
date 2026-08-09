@@ -676,9 +676,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **`mousemove`, `mouseover`/`mouseout`, `dblclick`, `contextmenu`,
   drag-and-drop events.** No continuous hover tracking exists in a
   terminal, and none of these are wired up.
-- **`keypress`.** Not dispatched. `"keydown"` and, where the terminal
-  supports it, `"keyup"` are the only key events; see the `"keyup"` entry
-  under "Deviations from Spec" above.
 - **Constraint validation.** `required`, `pattern`, `min`, `max`, `step`,
   `minlength`, and `maxlength` sit on the element as ordinary attributes
   and are never given effect beyond that. `required`'s bare presence is
@@ -694,6 +691,10 @@ For the design rationale behind the DOM/Events/rendering internals, see
 
 ### Not Supported
 
+- **`keypress`.** Deprecated in the real DOM spec in favor of `beforeinput`/
+  `input`, so not worth adding here either. `"keydown"` and, on a terminal
+  that supports it, `"keyup"` (see "Deviations from Spec" above) are the
+  only key events.
 - **`compositionstart`/`compositionupdate`/`compositionend`, and
   `beforeinput`.** No IME composition model exists. A terminal's own
   input path delivers text after composition has already happened,
