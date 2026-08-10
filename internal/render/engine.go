@@ -27,6 +27,7 @@ type Options struct {
 	SelectHighlightAttr string
 	SelectionStartAttr  string
 	SelectionEndAttr    string
+	DialogModalAttr     string
 }
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
@@ -52,6 +53,7 @@ type Engine struct {
 	selectHighlightAttr string
 	selectionStartAttr  string
 	selectionEndAttr    string
+	dialogModalAttr     string
 	counterMap          map[*html.Node]counterSnapshot
 	directCache         map[*html.Node]map[string]string
 	// minContentCache memoizes measureMinContentWidth (flex.go) per node. A
@@ -112,6 +114,11 @@ type Engine struct {
 	// content too, or the item measures as wide as its widest filling
 	// descendant.
 	// Only ever set around a trial render whose output is thrown away.
+	// outofflow.go's renderOutOfFlowBox is a second consumer, reached
+	// through measureNaturalWidth the same way: it measures, then renders
+	// the real box at the measured width with this flag back off, so an
+	// out-of-flow box shrinks to fit while blocks inside it still fill that
+	// result, as CSS's own shrink-to-fit specifies.
 	shrinkToFit bool
 	// outOfFlow is the set of elements with position: absolute/fixed,
 	// collected once up front by collectOutOfFlow (outofflow.go) before
@@ -267,6 +274,10 @@ func New(opts Options) (*Engine, error) {
 	if selectionEndAttr == "" {
 		selectionEndAttr = defaultSelectionEndAttr
 	}
+	dialogModalAttr := opts.DialogModalAttr
+	if dialogModalAttr == "" {
+		dialogModalAttr = defaultDialogModalAttr
+	}
 	return &Engine{
 		baseRules:           rules,
 		uaRules:             uaRules,
@@ -282,6 +293,7 @@ func New(opts Options) (*Engine, error) {
 		selectHighlightAttr: selectHighlightAttr,
 		selectionStartAttr:  selectionStartAttr,
 		selectionEndAttr:    selectionEndAttr,
+		dialogModalAttr:     dialogModalAttr,
 	}, nil
 }
 
@@ -342,6 +354,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		selectHighlightAttr: e.selectHighlightAttr,
 		selectionStartAttr:  e.selectionStartAttr,
 		selectionEndAttr:    e.selectionEndAttr,
+		dialogModalAttr:     e.dialogModalAttr,
 		scrollOffsets:       req.ScrollOffsets,
 		scrollOffsetsX:      req.ScrollOffsetsX,
 	}

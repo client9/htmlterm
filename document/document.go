@@ -43,6 +43,24 @@ type Document struct {
 	nextListenerID listenerID
 	focused        *html.Node
 
+	// openModals counts <dialog>s currently open as modals, and modalCache
+	// memoizes topmostModal's answer. Both are maintained by ShowModal and
+	// closeDialog, and both are fast paths rather than the source of truth:
+	// which dialog is topmost, and whether one is open at all, is always
+	// decided by walking the tree for the reserved marker attribute, and
+	// modalCache is re-validated against that attribute before it is trusted.
+	// See topmostModal for why they are worth having.
+	openModals int
+	modalCache *html.Node
+
+	// modalPrevFocus records, per modal <dialog>, the element that held focus
+	// when ShowModal opened it, so closeDialog can put focus back rather than
+	// stranding it inside a dialog that is now display:none. Keyed by dialog
+	// rather than kept as a stack so that closing modals out of order still
+	// restores the right element. Entries are consumed on close and swept by
+	// pruneDetachedState, same as selections and valueAtFocus.
+	modalPrevFocus map[*html.Node]*html.Node
+
 	// selections holds the current caret/selection state for any text-entry
 	// element that has one explicitly recorded. See selectionState and the
 	// selection/setSelection accessors below, and
@@ -343,6 +361,7 @@ func renderOptions(opts Options) render.Options {
 		SelectHighlightAttr: selectHighlightAttr,
 		SelectionStartAttr:  selectionStartAttr,
 		SelectionEndAttr:    selectionEndAttr,
+		DialogModalAttr:     dialogModalAttr,
 	}
 }
 
@@ -849,6 +868,17 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 			target, viaLabel = control, true
 		}
 	}
+	// While a modal <dialog> is open, everything outside it is inert: the
+	// click is swallowed rather than dispatched, focusing anything, or
+	// running any default action. Checked before every other step below,
+	// including the select-dismissal and scrollbar-cap ones, so nothing
+	// outside the modal reacts at all. A click landing on no element at all,
+	// the backdrop area, is outside too, and is likewise ignored: HTML's own
+	// default is that a backdrop click does nothing, light dismissal being
+	// opt-in via closedby, which isn't implemented (see COMPATIBILITY.md).
+	if d.hiddenByModal(target) {
+		return false
+	}
 	d.closeSelectsExcept(target)
 	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
 		return true
@@ -869,23 +899,56 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 			d.focusAndPositionCaret(target, row, col, mods.Shift)
 		}
 	}
+	d.activate(target, mods)
+	return true
+}
+
+// activate dispatches "click" on target and, unless a listener prevents it,
+// runs every default action activation implies: checkbox and radio toggle,
+// <select> popup, <details> disclosure, and form submit or reset.
+//
+// Shared by DispatchClick and by DispatchKey's Enter and space-bar handling
+// for buttons, so that activating a control from the keyboard is the same
+// event sequence as clicking it, which is what HTML specifies: Enter or
+// space on a focused button fires a click, and the click is what submits the
+// form. Before this was shared, a <button type="button"> was inert from the
+// keyboard entirely, having neither a submit nor a reset default action of
+// its own to be matched by a DispatchKey case.
+func (d *Document) activate(target *html.Node, mods Modifiers) {
 	ev := d.dispatch(target, "click", "", mods)
 	if ev.DefaultPrevented() {
-		return true
+		return
 	}
 	d.applyCheckToggle(target)
 	d.applySelectClick(target)
 	d.applyDetailsToggle(target)
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
-			d.dispatch(form, "submit", "", Modifiers{})
+			d.triggerSubmit(form, target)
 		}
 	} else if isResetControl(target) {
 		if form := nearestForm(target); form != nil {
 			d.triggerReset(form)
 		}
 	}
-	return true
+}
+
+// isButtonControl reports whether n is a control that Enter or the space bar
+// activates the way a click does: any <button>, whatever its type, or an
+// <input> of type submit, reset, or button. Checkboxes and radios are
+// deliberately excluded, having their own space-bar toggle case, as are
+// <summary> and <select>, which are not buttons and have their own cases.
+func isButtonControl(n *html.Node) bool {
+	switch strings.ToLower(n.Data) {
+	case "button":
+		return true
+	case "input":
+		switch strings.ToLower(nodeAttr(n, "type")) {
+		case "submit", "reset", "button":
+			return true
+		}
+	}
+	return false
 }
 
 // isLabelable reports whether n is an element a <label> can associate with,
@@ -1018,6 +1081,11 @@ const wheelScrollLines = 3
 func (d *Document) DispatchWheel(row, col, deltaX, deltaY int) bool {
 	target := d.elementAt(row, col)
 	if target == nil {
+		return false
+	}
+	// Inert while a modal <dialog> is open, same as DispatchClick: a wheel
+	// notch over a scroll container behind the modal must not move it.
+	if d.hiddenByModal(target) {
 		return false
 	}
 	scrolled := false
@@ -1436,12 +1504,19 @@ func nearestForm(n *html.Node) *html.Node {
 // for select-all. The host owns all translation from raw terminal bytes to
 // key names and modifiers; htmlterm never reads a terminal itself.
 //
-// Returns false if nothing is focused.
+// Returns false if nothing is focused, with one exception: while a modal
+// <dialog> is open, the dialog itself stands in as the key target when
+// nothing inside it is focused. A modal with no focusable content at all
+// (see focusFirstInModal) would otherwise be unclosable, since it swallows
+// every click outside itself and Escape would never reach the switch below.
 func (d *Document) DispatchKey(key string, mods Modifiers) bool {
-	if d.focused == nil || key == "" {
+	target := d.focused
+	if target == nil {
+		target = d.topmostModal()
+	}
+	if target == nil || key == "" {
 		return false
 	}
-	target := d.focused
 	ev := d.dispatch(target, "keydown", key, mods)
 	if ev.DefaultPrevented() {
 		return true
@@ -1479,8 +1554,21 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		} else {
 			d.openSelectPopup(target)
 		}
-	case key == "Escape" && isSelectControl(target):
+	case key == "Escape" && isSelectControl(target) && nodeHasAttr(target, selectOpenAttr):
+		// Gated on the popup actually being open, not just on the focused
+		// element being a <select>. Closing an already-closed popup is a
+		// no-op, but matching this case would swallow the key press and stop
+		// Escape from reaching the modal-dismissal case below.
 		d.closeSelectPopup(target)
+	case key == "Escape" && d.dismissTopmostModal():
+		// Deliberately after the <select> case above, so Escape closes a
+		// popup open inside a modal before it closes the modal itself, one
+		// layer per press. This case's own condition does the work, since
+		// whether a modal was open is only knowable by looking; a false
+		// return falls through to the cases below unchanged. Unlike every
+		// other branch here it ignores target entirely: focus is trapped
+		// inside the dialog anyway, and Escape must work wherever inside it
+		// the focus happens to sit, including nowhere (see focusFirstInModal).
 	case key == "Enter" && strings.ToLower(target.Data) == "textarea":
 		// A <textarea> is multi-line, so Enter inserts a newline instead of
 		// submitting. HTML's implicit-submit-on-Enter behavior only applies
@@ -1492,14 +1580,21 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		if isEditable(target) {
 			d.replaceSelection(target, key, "\n", mods)
 		}
-	case key == "Enter" && isResetControl(target):
-		if form := nearestForm(target); form != nil {
-			d.triggerReset(form)
-		}
-	case key == "Enter" && (isSubmitControl(target) || isTextEntry(target)):
+	case (key == "Enter" || key == " ") && isButtonControl(target):
+		// One case for every button, whatever its type, and for the space bar
+		// as well as Enter, matching HTML: activating a focused button from
+		// the keyboard fires a click, and the click's own default action is
+		// what submits or resets the form. Routing through activate is what
+		// makes that true here, and is why a <button type="button"> now
+		// responds to the keyboard at all. See activate and isButtonControl.
+		d.activate(target, mods)
+	case key == "Enter" && isTextEntry(target):
+		// A single-line text field's implicit submit. Unlike a button this
+		// isn't an activation, so it dispatches no "click": it commits any
+		// pending value change first, then submits directly.
 		d.commitChange(target, false)
 		if form := nearestForm(target); form != nil {
-			d.dispatch(form, "submit", "", Modifiers{})
+			d.triggerSubmit(form, target)
 		}
 	case key == "PageUp" || key == "PageDown":
 		if scrollable := d.nearestScrollable(target); scrollable != nil {
@@ -2071,14 +2166,17 @@ func tabIndexOf(n *html.Node) (int, bool) {
 // negative tabindex is focusable here but excluded from focusableList's
 // output; see inTabOrder.
 //
-// Checked before any of the cases below, unlike the scroll-container case
-// just described: content hidden inside a closed <details> (see
-// hiddenByClosedDetails) is excluded regardless of which of the other three
-// paths would otherwise have made it focusable, form control, tabindex, or
-// scroll container alike, the same way a real browser's tab order skips
-// display:none content no matter how it became focusable.
+// Three exclusions are checked before any of the cases below, unlike the
+// scroll-container case just described: content hidden inside a closed
+// <details> (hiddenByClosedDetails), content inside a <dialog> that isn't
+// open (hiddenByClosedDialog), and anything outside the topmost open modal
+// <dialog> (hiddenByModal). All three are excluded regardless of which of the
+// other three paths would otherwise have made them focusable, form control,
+// tabindex, or scroll container alike, the same way a real browser's tab
+// order skips display:none and inert content no matter how it became
+// focusable.
 func (d *Document) isFocusable(n *html.Node) bool {
-	if hiddenByClosedDetails(n) {
+	if hiddenByClosedDetails(n) || hiddenByClosedDialog(n) || d.hiddenByModal(n) {
 		return false
 	}
 	if isFormFocusable(n) {
@@ -2568,6 +2666,11 @@ func (d *Document) pruneDetachedState() {
 			delete(d.defaults, n)
 		}
 	}
+	for dialog, prev := range d.modalPrevFocus {
+		if !isDescendant(d.doc, dialog) || !isDescendant(d.doc, prev) {
+			delete(d.modalPrevFocus, dialog)
+		}
+	}
 }
 
 // isDescendant reports whether n is root or a descendant of root, by walking
@@ -2679,7 +2782,7 @@ func walkMatchingSubtree(root *html.Node, sel string, includeSelf bool, visit fu
 	var walk func(n *html.Node, testSelf bool) bool
 	walk = func(n *html.Node, testSelf bool) bool {
 		if testSelf && n.Type == html.ElementNode {
-			if group.Match(n, focusAttr, "") {
+			if group.Match(n, selectorMarkers()) {
 				if !visit(n) {
 					return false
 				}

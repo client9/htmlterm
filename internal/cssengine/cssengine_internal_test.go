@@ -1042,10 +1042,10 @@ func TestAttrSelectorBracketInsideQuotedValue(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector(`[title="a]b"]`)
-	if !matchSelector(findElementByID(doc, "a"), parts, "", "") {
+	if !matchSelector(findElementByID(doc, "a"), parts, Markers{}) {
 		t.Errorf(`[title="a]b"] should match #a`)
 	}
-	if matchSelector(findElementByID(doc, "b"), parts, "", "") {
+	if matchSelector(findElementByID(doc, "b"), parts, Markers{}) {
 		t.Errorf(`[title="a]b"] should not match #b`)
 	}
 }
@@ -1070,10 +1070,10 @@ func TestAttrSelectorValueUnescapesBackslashEscapedQuote(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector(`[name="a\"b"]`)
-	if !matchSelector(findElementByID(doc, "a"), parts, "", "") {
+	if !matchSelector(findElementByID(doc, "a"), parts, Markers{}) {
 		t.Errorf(`[name="a\"b"] should match #a`)
 	}
-	if matchSelector(findElementByID(doc, "b"), parts, "", "") {
+	if matchSelector(findElementByID(doc, "b"), parts, Markers{}) {
 		t.Errorf(`[name="a\"b"] should not match #b`)
 	}
 }
@@ -1113,7 +1113,7 @@ func TestPseudoClassNestedArgumentIsCachedNotReparsed(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, "", ""); got != tc.want {
+		if got := matchSelector(n, parts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "p:not(.a):is(.b, .c)", tc.id, got, tc.want)
 		}
 	}
@@ -1152,7 +1152,7 @@ func TestNotWithSelectorList(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, "", ""); got != tc.want {
+		if got := matchSelector(n, parts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "a:not(.a, .b)", tc.id, got, tc.want)
 		}
 	}
@@ -1195,7 +1195,7 @@ func TestNotPreservesArgumentCase(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, "", ""); got != tc.want {
+		if got := matchSelector(n, parts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:not(.Foo)", tc.id, got, tc.want)
 		}
 	}
@@ -1221,10 +1221,10 @@ func TestIsPreservesIDCase(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector("div:is(#MyId)")
-	if !matchSelector(findElementByID(doc, "MyId"), parts, "", "") {
+	if !matchSelector(findElementByID(doc, "MyId"), parts, Markers{}) {
 		t.Errorf(`div:is(#MyId) should match id="MyId"`)
 	}
-	if matchSelector(findElementByID(doc, "myid"), parts, "", "") {
+	if matchSelector(findElementByID(doc, "myid"), parts, Markers{}) {
 		t.Errorf(`div:is(#MyId) should not match id="myid"`)
 	}
 }
@@ -1260,7 +1260,7 @@ func TestHasDescendantRelativeSelector(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", tc.id)
 		}
-		if got := matchSelector(n, parts, "", ""); got != tc.want {
+		if got := matchSelector(n, parts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:has(img)", tc.id, got, tc.want)
 		}
 	}
@@ -1277,10 +1277,10 @@ func TestHasWithLeadingCombinators(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	childParts := parseSelector("div:has(> p)")
-	if got := matchSelector(findElementByID(doc, "d1"), childParts, "", ""); !got {
+	if got := matchSelector(findElementByID(doc, "d1"), childParts, Markers{}); !got {
 		t.Errorf(`div:has(> p) should match a div with a direct <p> child`)
 	}
-	if got := matchSelector(findElementByID(doc, "d2"), childParts, "", ""); got {
+	if got := matchSelector(findElementByID(doc, "d2"), childParts, Markers{}); got {
 		t.Errorf(`div:has(> p) should not match a div whose <p> is nested inside <section>`)
 	}
 
@@ -1294,14 +1294,14 @@ func TestHasWithLeadingCombinators(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	adjacentParts := parseSelector("h2:has(+ p)")
-	if got := matchSelector(findElementByID(doc2, "h1"), adjacentParts, "", ""); got {
+	if got := matchSelector(findElementByID(doc2, "h1"), adjacentParts, Markers{}); got {
 		t.Errorf(`h2:has(+ p) should not match when a <div> sits between the h2 and the p`)
 	}
-	if got := matchSelector(findElementByID(doc2, "h2"), adjacentParts, "", ""); !got {
+	if got := matchSelector(findElementByID(doc2, "h2"), adjacentParts, Markers{}); !got {
 		t.Errorf(`h2:has(+ p) should match when p immediately follows the h2`)
 	}
 	generalParts := parseSelector("h2:has(~ p)")
-	if got := matchSelector(findElementByID(doc2, "h1"), generalParts, "", ""); !got {
+	if got := matchSelector(findElementByID(doc2, "h1"), generalParts, Markers{}); !got {
 		t.Errorf(`h2:has(~ p) should match a later sibling p even with a <div> in between`)
 	}
 }
@@ -1327,7 +1327,7 @@ func TestHasWithSelectorListAndNestedChain(t *testing.T) {
 		{"d3", false},
 	}
 	for _, tc := range tests {
-		if got := matchSelector(findElementByID(doc, tc.id), listParts, "", ""); got != tc.want {
+		if got := matchSelector(findElementByID(doc, tc.id), listParts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "div:has(.x, .y)", tc.id, got, tc.want)
 		}
 	}
@@ -1343,10 +1343,10 @@ func TestHasWithSelectorListAndNestedChain(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	chainParts := parseSelector("section:has(div > p)")
-	if got := matchSelector(findElementByID(doc2, "s1"), chainParts, "", ""); !got {
+	if got := matchSelector(findElementByID(doc2, "s1"), chainParts, Markers{}); !got {
 		t.Errorf(`section:has(div > p) should match when p is a direct child of a descendant div`)
 	}
-	if got := matchSelector(findElementByID(doc2, "s2"), chainParts, "", ""); got {
+	if got := matchSelector(findElementByID(doc2, "s2"), chainParts, Markers{}); got {
 		t.Errorf(`section:has(div > p) should not match when p is nested inside <span>, not a direct child of div`)
 	}
 
@@ -1375,7 +1375,7 @@ func TestNthChildArgumentStillMatchesRegardlessOfCase(t *testing.T) {
 		{"l3", true},
 	}
 	for _, tc := range tests {
-		if got := matchSelector(findElementByID(doc, tc.id), parts, "", ""); got != tc.want {
+		if got := matchSelector(findElementByID(doc, tc.id), parts, Markers{}); got != tc.want {
 			t.Errorf("matchSelector(%q, #%s) = %v, want %v", "li:NTH-CHILD(2N+1)", tc.id, got, tc.want)
 		}
 	}
@@ -1406,7 +1406,7 @@ func TestAttrSelectorNameIsCaseInsensitive(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector("div[DATA-FOO]")
-	if !matchSelector(findElementByID(doc, "d1"), parts, "", "") {
+	if !matchSelector(findElementByID(doc, "d1"), parts, Markers{}) {
 		t.Errorf(`div[DATA-FOO] should match data-foo attribute`)
 	}
 }
@@ -1562,7 +1562,7 @@ func TestStructuralPseudoClasses(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, "", ""); got != tc.want {
+			if got := matchSelector(n, parts, Markers{}); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -1613,7 +1613,7 @@ func TestGeneralSiblingCombinator(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, "", ""); got != tc.want {
+			if got := matchSelector(n, parts, Markers{}); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -1708,7 +1708,7 @@ func TestIsWherePseudoClasses(t *testing.T) {
 				t.Fatalf("element #%s not found", tc.id)
 			}
 			parts := parseSelector(tc.sel)
-			if got := matchSelector(n, parts, "", ""); got != tc.want {
+			if got := matchSelector(n, parts, Markers{}); got != tc.want {
 				t.Errorf("matchSelector(%q, #%s) = %v, want %v", tc.sel, tc.id, got, tc.want)
 			}
 		})
@@ -1739,15 +1739,15 @@ func TestHoverPseudoMatchesSyntheticAttr(t *testing.T) {
 		t.Fatalf("html.Parse: %v", err)
 	}
 	parts := parseSelector("p:hover")
-	if !matchSelector(findElementByID(doc, "a"), parts, "", "data-hl") {
+	if !matchSelector(findElementByID(doc, "a"), parts, Markers{Hover: "data-hl"}) {
 		t.Errorf("p:hover should match #a, which carries the hover attr")
 	}
-	if matchSelector(findElementByID(doc, "b"), parts, "", "data-hl") {
+	if matchSelector(findElementByID(doc, "b"), parts, Markers{Hover: "data-hl"}) {
 		t.Errorf("p:hover should not match #b, which lacks the hover attr")
 	}
 	// With no hoverAttr configured (the default zero value), :hover never
 	// matches anything — same convention :focus already has via focusAttr.
-	if matchSelector(findElementByID(doc, "a"), parts, "", "") {
+	if matchSelector(findElementByID(doc, "a"), parts, Markers{}) {
 		t.Errorf("p:hover should not match #a when no hoverAttr is configured")
 	}
 

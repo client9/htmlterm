@@ -253,6 +253,106 @@ func TestOutOfFlowDescendantPositionsAgainstClampedAncestor(t *testing.T) {
 	}
 }
 
+// outOfFlowRect returns the Rect recorded for the one out-of-flow <div> in
+// src, identified by its id. The existing tests above scan Positions by
+// width, which the shrink-to-fit tests below can't do, the measured width
+// being the thing under test.
+func outOfFlowRect(t *testing.T, opts Options, src, id string) Rect {
+	t.Helper()
+	e, err := New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	result, err := e.RenderHTML(src)
+	if err != nil {
+		t.Fatalf("RenderHTML: %v", err)
+	}
+	for n, r := range result.Positions {
+		for _, a := range n.Attr {
+			if a.Key == "id" && a.Val == id {
+				return r
+			}
+		}
+	}
+	t.Fatalf("no Rect recorded for id=%q", id)
+	return Rect{}
+}
+
+// The width tests below all carry a border deliberately. A plain block only
+// materializes its containing-block fill as real columns when something needs
+// a rectangle, a border, text-align, or a closed box (see Engine.shrinkToFit),
+// so a borderless <div> measures at its content width either way and would
+// pass these vacuously.
+
+func TestOutOfFlowAutoWidthShrinksToFitContent(t *testing.T) {
+	// Without a declared width the box sizes to its own content, not to the
+	// containing block. Before shrink-to-fit landed this reported Width 40.
+	rect := outOfFlowRect(t,
+		Options{Width: 40},
+		`<div id="a" style="position:fixed;top:0;left:0;border-style:solid">hi</div>`,
+		"a")
+	if rect.Width != 4 {
+		t.Errorf("Rect.Width = %d, want 4 (its own content plus two border columns, not the 40-wide viewport)", rect.Width)
+	}
+}
+
+func TestOutOfFlowAutoWidthWithBothOffsetsStillFills(t *testing.T) {
+	// Both inline-axis offsets set is the exception: CSS stretches such a box
+	// between its edges, and filling the containing block is the closer of
+	// the two answers available here. See renderOutOfFlowBox.
+	rect := outOfFlowRect(t,
+		Options{Width: 40},
+		`<div id="a" style="position:fixed;top:0;left:0;right:0;border-style:solid">hi</div>`,
+		"a")
+	if rect.Width != 40 {
+		t.Errorf("Rect.Width = %d, want 40 (both offsets set opts out of shrink-to-fit)", rect.Width)
+	}
+}
+
+func TestOutOfFlowAutoMarginCentersOnBothAxes(t *testing.T) {
+	rect := outOfFlowRect(t,
+		Options{Width: 20, Height: 9},
+		`<div id="a" style="position:fixed;margin:auto">hi</div>`,
+		"a")
+	// A 2-wide, 1-tall box: (20-2)/2 = 9, (9-1)/2 = 4.
+	if rect.Col != 9 {
+		t.Errorf("Rect.Col = %d, want 9 (centered horizontally in a 20-wide viewport)", rect.Col)
+	}
+	if rect.Row != 4 {
+		t.Errorf("Rect.Row = %d, want 4 (centered vertically in a 9-row viewport)", rect.Row)
+	}
+}
+
+func TestOutOfFlowExplicitWidthAutoMarginCentersExactlyOnce(t *testing.T) {
+	// renderBlockContentBox splits auto margins itself for an explicit-width
+	// box and bakes them into its lines. renderOutOfFlowBox drops them before
+	// rendering so that centering happens here and only here; without that
+	// the box would be offset twice, and its Rect would span the whole
+	// containing block rather than the box actually painted.
+	rect := outOfFlowRect(t,
+		Options{Width: 20, Height: 5},
+		`<div id="a" style="position:fixed;width:8;margin:auto">hi</div>`,
+		"a")
+	if rect.Width != 8 {
+		t.Errorf("Rect.Width = %d, want 8 (the box itself, not a viewport-wide band with the box padded inside)", rect.Width)
+	}
+	if rect.Col != 6 {
+		t.Errorf("Rect.Col = %d, want 6 (centered once: (20-8)/2)", rect.Col)
+	}
+}
+
+func TestOutOfFlowAutoMarginWithOffsetSetDoesNotCenter(t *testing.T) {
+	// An explicit offset wins over auto-margin centering, matching CSS's own
+	// precedence and resolveAbsoluteAxis's case order.
+	rect := outOfFlowRect(t,
+		Options{Width: 20, Height: 5},
+		`<div id="a" style="position:fixed;left:3;margin:auto">hi</div>`,
+		"a")
+	if rect.Col != 3 {
+		t.Errorf("Rect.Col = %d, want 3 (an explicit left beats auto-margin centering)", rect.Col)
+	}
+}
+
 func TestParseZIndexCalc(t *testing.T) {
 	tests := []struct {
 		val  string

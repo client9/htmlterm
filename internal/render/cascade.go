@@ -16,6 +16,7 @@ func (r *Engine) cascade() cssengine.Cascade {
 		IgnoreInline: r.ignoreDocumentCSS,
 		FocusAttr:    r.focusAttr,
 		HoverAttr:    r.selectHighlightAttr,
+		ModalAttr:    r.dialogModalAttr,
 		Cache:        r.directCache,
 	}
 }

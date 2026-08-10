@@ -81,7 +81,8 @@ styles.
 `:nth-child(<An+B>)`, `:nth-last-child(<An+B>)`, `:nth-of-type(<An+B>)`,
 `:nth-last-of-type(<An+B>)`, `:not(<simple-selector>)`,
 `:is(<selector-list>)`, `:where(<selector-list>)`, `:has(<relative-selector-list>)`,
-`:checked`, `:disabled`, `:required`, `:indeterminate`, `:focus`, `:hover`. `:root` matches the document element
+`:checked`, `:disabled`, `:required`, `:indeterminate`, `:focus`, `:hover`,
+`:modal`. `:root` matches the document element
 (`html` for parsed HTML documents/fragments). The `:nth-*` family accepts the
 full CSS `An+B` micro-syntax (`odd`, `even`, `3`, `2n`, `2n+1`, `-n+3`, etc.),
 matched against sibling position (`:nth-child`/`:nth-last-child`) or position
@@ -127,8 +128,14 @@ section) most recently marked focused; it has no meaning against
 `:hover` has no meaning for real pointer movement in a terminal; the only
 place it matches anything is `option:hover` inside an open `<select>` popup
 — see `docs/SELECT.md`.
+`:modal` matches a `<dialog>` opened by `Element.ShowModal()`, and nothing
+else: real CSS also matches fullscreen elements, a concept with no terminal
+equivalent. Like `:focus`, it needs a live `Document`. The UA stylesheet uses
+it itself, to give a modal dialog its top-layer position — see
+`docs/DIALOG.md`.
 
 **Supported pseudo-elements:** `::before`, `::after`, `::marker`, `::selection`,
+`::backdrop`,
 `::scrollbar`, `::scrollbar-track`, `::scrollbar-thumb`, `::scrollbar-cap-start`,
 `::scrollbar-cap-end`, and their horizontal-scrollbar counterparts
 `::scrollbar-x`, `::scrollbar-track-x`, `::scrollbar-thumb-x`,
@@ -147,6 +154,9 @@ with a non-collapsed caret selection; supported properties are `color`,
 every terminal editor already uses), since there's no terminal-neutral
 equivalent of a browser's platform selection color to default to instead.
 See `docs/proposals/CARET_SELECTION.md`.
+`::backdrop` styles the layer painted behind a modal `<dialog>`; the only
+supported property is `background-color`, and there is no UA default, so a
+modal has no backdrop at all unless one is asked for. See `docs/DIALOG.md`.
 `::scrollbar`/`::scrollbar-track`/`::scrollbar-thumb`/`::scrollbar-cap-start`/
 `::scrollbar-cap-end` style the vertical scrollbar gutter drawn by
 `overflow-y: scroll`; the `-x`-suffixed names style the horizontal
@@ -327,6 +337,7 @@ notes live in `docs/proposals/VARIABLES.md`.
 | `address` | Contact/attribution block (default: `display: block; font-style: italic`). |
 | `details` | Disclosure container (default: `display: block`). On a live `Document`, closed by default and expanded only while its `open` attribute is present, matching real `HTMLDetailsElement`; a click or Enter/Space on its `<summary>` toggles `open` and fires a non-bubbling, non-cancelable `"toggle"` event (see `docs/DOM_API.md`'s `Element.Open`/`SetOpen`). One-shot `Renderer.Render()` has no interactivity to toggle `open` with, so it renders whatever `open` state the markup already specifies. A `<details>` with no `<summary>` child has no way to be reopened once closed, so it's left permanently expanded instead, a documented simplification (see `COMPATIBILITY.md`). |
 | `summary` | Disclosure summary; the visible heading of a `<details>` block (default: `display: block; font-weight: bold`). The UA stylesheet prepends its `▶`/`▼` marker as ordinary `::before` content, overridden to `"▼ "` for the direct `<summary>` child of an `[open]` `<details>`, so it's author-overridable like any other `::before` rule. Only a direct-child `<summary>` is recognized as the disclosure control; a browser's "first `<summary>` child only" rule isn't specially enforced. |
+| `dialog` | Modal or non-modal dialog box (default: `display: block` with a solid border and one column of horizontal padding, hidden entirely unless its `open` attribute is present). On a live `Document`, `Element.Show()` opens it in normal flow and `Element.ShowModal()` opens it in the top layer: centered, out of normal flow, painted above everything, with focus and clicks trapped inside it and Escape closing it. `Element.Close()`/`CloseWith()` fire a non-bubbling `"close"` event, and `<form method="dialog">` closes the surrounding dialog on submit. One-shot `Renderer.Render()` has no interactivity, so it renders whatever `open` state the markup specifies, always non-modal. **See `docs/DIALOG.md`** for the full reference (modal layout, `:modal`, `::backdrop`, keybindings, and what isn't supported). |
 | `noscript` | Content is always rendered (no JavaScript in terminal). The HTML5 parser may deliver noscript content as raw text; it is re-parsed and rendered as HTML automatically. |
 | `template` | Inert template content. The element and all descendants are skipped; styles and counters inside it do not affect the document. |
 | `menu` | Semantic list of commands; treated identically to `<ul>` (default `list-style-type: disc`, `padding-left: 4`). |

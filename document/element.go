@@ -405,7 +405,7 @@ func (e *Element) GetElementsByTagName(tag string) []*Element {
 // Document.QuerySelector (see CSS.md), including comma-separated selector
 // groups.
 func (e *Element) Matches(sel string) bool {
-	return cssengine.ParseSelectorGroup(sel).Match(e.node, focusAttr, "")
+	return cssengine.ParseSelectorGroup(sel).Match(e.node, selectorMarkers())
 }
 
 // Closest returns the nearest element in e's own inclusive ancestor chain,
@@ -418,7 +418,7 @@ func (e *Element) Matches(sel string) bool {
 func (e *Element) Closest(sel string) *Element {
 	group := cssengine.ParseSelectorGroup(sel)
 	for n := e.node; n != nil; n = n.Parent {
-		if n.Type == html.ElementNode && group.Match(n, focusAttr, "") {
+		if n.Type == html.ElementNode && group.Match(n, selectorMarkers()) {
 			return &Element{node: n, doc: e.doc}
 		}
 	}
@@ -627,7 +627,8 @@ func cloneHTMLNode(n *html.Node, deep bool) *html.Node {
 		Namespace: n.Namespace,
 	}
 	for _, a := range n.Attr {
-		if a.Key == focusAttr || a.Key == selectOpenAttr || a.Key == selectHighlightAttr {
+		if a.Key == focusAttr || a.Key == selectOpenAttr || a.Key == selectHighlightAttr ||
+			a.Key == dialogReturnAttr || a.Key == dialogModalAttr {
 			continue
 		}
 		clone.Attr = append(clone.Attr, a)

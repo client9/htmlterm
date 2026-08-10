@@ -431,12 +431,27 @@ out-of-flow descendant of a clamped ancestor compute its own position against
 stale, never-painted coordinates, visibly detached from where its container
 actually ended up.
 
-**Deliberate simplifications, not oversights**: with no explicit `width`, the
-element stretches to the containing block's width rather than true
-shrink-to-fit sizing, since that would need a new natural-width measurement
-pass. With neither `top`/`bottom` nor `left`/`right` set on an axis, the
-element defaults to the containing block's top-left corner, not spec's
-"static position", roughly where the element would have flowed.
+**Shrink-to-fit and centering** landed later, in `renderOutOfFlowBox`. With no
+declared `width`, and not both offsets on the inline axis set, the box is
+measured at its own content width via flex.go's existing `measureNaturalWidth`
+and then rendered for real at that width. Two passes rather than one recursive
+shrink-to-fit render, so blocks *inside* the box still fill the result instead
+of each shrinking independently, which is what CSS's own shrink-to-fit
+specifies. On top of that, auto margins on both sides of an axis, with no
+offset set, center the box (`resolveAbsoluteAxis`). `renderBlockContentBox`
+splits auto margins itself for an explicit-width box and bakes them into its
+lines, so `renderOutOfFlowBox` drops them before rendering; otherwise the box
+would be offset twice, and its recorded `Rect` would span the whole containing
+block rather than the box actually painted. This is what a modal `<dialog>`
+rides on: it is an ordinary `position: fixed` box, given that position by the
+UA stylesheet's own `dialog:modal` rule, with no compositing code of its own.
+See `docs/DIALOG.md`.
+
+**Deliberate simplifications, not oversights**: with neither `top`/`bottom` nor
+`left`/`right` nor an auto-margin pair set on an axis, the element defaults to
+the containing block's top-left corner, not spec's "static position", roughly
+where the element would have flowed. With *both* offsets on an axis set, it
+stretches to the containing block rather than between those two edges.
 
 **Phase B — paint, z-index order.** The Phase A results, each already
 carrying its final clamped `Rect`, are sorted by `(zIndex, original preorder

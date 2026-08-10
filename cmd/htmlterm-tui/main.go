@@ -16,6 +16,19 @@
 // control, on top of whatever content follows it. See docs/RENDERING.md's
 // "Popups / z-order" section.
 //
+// The "Delete…" button opens a modal <dialog>: it centers itself over the
+// page, paints above whatever it covers, and while it's open Tab cycles only
+// within it and clicks, wheel notches, and every key but Escape anywhere else
+// are ignored. Escape closes it (firing "cancel" then "close"), and so does
+// either of its own buttons, via <form method="dialog">, which hands the
+// clicked button's value to Element.ReturnValue with no click handler of its
+// own. Closing puts focus back on "Delete…".
+//
+// The stylesheet gives it a ::backdrop, which is opt-in and opaque here (see
+// docs/DIALOG.md): without one the dialog would paint into the middle of the
+// paragraph below, bordered but easy to lose among the text. It also restyles
+// the border via :modal, which matches only while the dialog is modal.
+//
 // Width is SizeAutomatic and Height is SizeNatural: resize the terminal
 // window and the long paragraph below the form reflows live at the new
 // width, via Loop's SIGWINCH handling (see loop.go's applyTerminalSize),
@@ -65,6 +78,8 @@ const formHTML = `
   #spinner::before { content: attr(data-frame); }
   #clock::before { content: attr(data-time); }
   #lorem { margin-top: 1; }
+  dialog:modal { border-style: double; }
+  dialog::backdrop { background-color: #000033; }
 </style>
 <form id="myform">
   <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
@@ -75,9 +90,18 @@ const formHTML = `
     <option value="blue">Blue</option>
   </select></label><br>
   <button type="submit">Submit</button>
+  <button type="button" id="del">Delete…</button>
 </form>
+<dialog id="confirm">
+  <p>Delete this file?</p>
+  <form method="dialog">
+    <button type="submit" value="cancel">Cancel</button>
+    <button type="submit" value="delete">Delete</button>
+  </form>
+</dialog>
 <div id="result"></div>
 <div id="status"><span id="spinner" data-frame="⠋"></span> <span id="clock" data-time="00:00:00"></span></div>
+<div id="dialog-status">Press "Delete…" to open a modal dialog</div>
 <div id="clipboard-status">Paste or Ctrl-X-cut into Name to test clipboard events</div>
 <p id="lorem">Resize this terminal window to see this paragraph reflow live
 at the new width. Width tracks the terminal automatically (SizeAutomatic),
@@ -125,6 +149,25 @@ func run() int {
 	subscribe := doc.GetElementByID("subscribe")
 	color := doc.GetElementByID("color")
 	result := doc.GetElementByID("result")
+
+	// The modal <dialog>: opening it centers it over the page, traps Tab
+	// inside it, and swallows clicks on everything behind it. Its own
+	// <form method="dialog"> closes it with the clicked button's value as
+	// the return value, so no click handler is needed for the two buttons.
+	// See docs/DIALOG.md.
+	confirm := doc.GetElementByID("confirm")
+	dialogStatus := doc.GetElementByID("dialog-status")
+	doc.AddEventListener(doc.GetElementByID("del"), "click", false, func(e *document.Event) {
+		confirm.ShowModal()
+	})
+	doc.AddEventListener(confirm, "close", false, func(e *document.Event) {
+		switch confirm.ReturnValue() {
+		case "":
+			dialogStatus.SetTextContent("Dialog dismissed with Escape (returnValue empty)")
+		default:
+			dialogStatus.SetTextContent(fmt.Sprintf("Dialog closed, returnValue = %q", confirm.ReturnValue()))
+		}
+	})
 
 	clipboardStatus := doc.GetElementByID("clipboard-status")
 	doc.AddEventListener(name, "paste", false, func(e *document.Event) {

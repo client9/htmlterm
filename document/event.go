@@ -270,30 +270,41 @@ func (d *Document) newEvent(target *html.Node, typ, key string, mods Modifiers) 
 }
 
 // defaultBubbles reports whether a built-in event type typ's dispatch runs
-// the bubble phase after target. True for every type but "toggle": real
-// spec's own per-type table isn't uniform either, since focus, blur, and
-// resize don't bubble there, but this package has no general per-type
+// the bubble phase after target. True for every type but the three below:
+// real spec's own per-type table isn't uniform either, since focus, blur,
+// and resize don't bubble there, but this package has no general per-type
 // bubbling suppression (see COMPATIBILITY.md's "focus"/"blur" deviation),
-// so those three bubble here anyway. "toggle" is the one exception, kept
-// spec-accurate because HTMLDetailsElement's own "toggle" event never
-// bubbles and nothing here depended on the simpler, bubbling behavior.
+// so those three bubble here anyway.
+//
+// The exceptions are the ones kept spec-accurate because nothing here ever
+// depended on the simpler, bubbling behavior: HTMLDetailsElement's "toggle",
+// and HTMLDialogElement's "close" and "cancel". A dialog's two events not
+// bubbling matters more than a details' does, since dialogs nest: a "close"
+// that bubbled would reach an outer dialog's own listener.
 func defaultBubbles(typ string) bool {
-	return typ != "toggle"
+	switch typ {
+	case "toggle", "close", "cancel":
+		return false
+	default:
+		return true
+	}
 }
 
 // defaultCancelable reports whether a built-in event type typ's own
 // Dispatch* method already gates its default action on DefaultPrevented().
-// click, keydown, paste, cut, submit, and reset do, since each already has
-// default-action code it skips when prevented ("reset" via triggerReset,
-// which skips its own restore walk). input, change, focus, blur, resize, and
+// click, keydown, paste, cut, submit, reset, and cancel do, since each
+// already has default-action code it skips when prevented ("reset" via
+// triggerReset, which skips its own restore walk; "cancel" via DispatchKey's
+// Escape handling, which skips the close that would otherwise follow).
+// input, change, close, focus, blur, resize, and
 // keyup don't, since nothing gates on them today, matching real spec for
-// input, change, focus, and blur, and simply having nothing to skip for
-// resize and keyup (DispatchKeyUp runs no default action at all; see its own
-// doc comment). Any other, custom type is false here: custom events get
+// input, change, close, focus, and blur, and simply having nothing to skip
+// for resize and keyup (DispatchKeyUp runs no default action at all; see its
+// own doc comment). Any other, custom type is false here: custom events get
 // their Cancelable from CustomEventInit instead.
 func defaultCancelable(typ string) bool {
 	switch typ {
-	case "click", "keydown", "paste", "cut", "submit", "reset":
+	case "click", "keydown", "paste", "cut", "submit", "reset", "cancel":
 		return true
 	default:
 		return false

@@ -29,7 +29,7 @@ func TestDisabledSelectorCascadesFromFieldset(t *testing.T) {
 	if direct == nil {
 		t.Fatal(`input#direct not found`)
 	}
-	if !group.Match(direct, "", "") {
+	if !group.Match(direct, Markers{}) {
 		t.Error(":disabled did not match a control inside a disabled <fieldset>")
 	}
 
@@ -37,7 +37,7 @@ func TestDisabledSelectorCascadesFromFieldset(t *testing.T) {
 	if inLegend == nil {
 		t.Fatal(`input#in-legend not found`)
 	}
-	if group.Match(inLegend, "", "") {
+	if group.Match(inLegend, Markers{}) {
 		t.Error(":disabled matched a control inside the fieldset's first <legend>, want the legend exemption to apply")
 	}
 
@@ -45,7 +45,7 @@ func TestDisabledSelectorCascadesFromFieldset(t *testing.T) {
 	if outside == nil {
 		t.Fatal(`input#outside not found`)
 	}
-	if group.Match(outside, "", "") {
+	if group.Match(outside, Markers{}) {
 		t.Error(":disabled matched a control outside the disabled <fieldset> entirely")
 	}
 }
@@ -66,7 +66,7 @@ func TestDisabledSelectorFieldsetLegendExemptionIsPerFieldset(t *testing.T) {
 	if n == nil {
 		t.Fatal(`input#in not found`)
 	}
-	if !ParseSelectorGroup(":disabled").Match(n, "", "") {
+	if !ParseSelectorGroup(":disabled").Match(n, Markers{}) {
 		t.Error(":disabled did not match a control inside the inner fieldset's legend but still inside an outer disabled fieldset")
 	}
 }
@@ -90,7 +90,7 @@ func TestDisabledSelectorDoesNotMatchNonFormContentInFieldset(t *testing.T) {
 		if n == nil {
 			t.Fatalf("element #%s not found", id)
 		}
-		if group.Match(n, "", "") {
+		if group.Match(n, Markers{}) {
 			t.Errorf(":disabled matched #%s (a %s), which isn't a form-associated element and should be unaffected by the fieldset's disabled attribute", id, n.Data)
 		}
 	}

@@ -48,6 +48,23 @@ summary  { font-weight: bold; }
 summary::before                                     { content: "▶ "; }
 details[open] > summary::before                     { content: "▼ "; }
 details:has(> summary):not([open]) > :not(summary)  { display: none; }
+/* dialog rides the same attribute-gated display:none path details does, one
+   rule for the box and one for the closed state. The border and padding are
+   this engine's translation of a browser UA sheet's own
+   "border: solid; padding: 1em", using the cell counts textarea already
+   settled on rather than inventing a second convention. A modal dialog picks
+   up position/z-index/centering from the :modal rule further down; an open
+   non-modal one is an ordinary in-flow block. See docs/DIALOG.md. */
+dialog                  { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
+dialog:not([open])      { display: none; }
+/* The top layer, expressed entirely in properties this engine already has.
+   position:fixed hands the dialog to outofflow.go, which takes it out of
+   normal flow and anchors it to the viewport; the maximum z-index puts it
+   above every other positioned element; margin:auto centers it on both axes
+   (see resolveAbsoluteAxis). Nothing composites a modal specially, unlike
+   <select>'s popup. :modal matches via the reserved marker attribute
+   ShowModal sets; see cssengine.Cascade's ModalAttr. */
+dialog:modal            { position: fixed; z-index: 2147483647; margin: auto; }
 caption  { text-align: center; }
 p                       { margin-bottom: 1; }
 h1, h2, h3, h4, h5, h6 { font-weight: bold; }

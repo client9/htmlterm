@@ -32,6 +32,13 @@ type Cascade struct {
 	// <option> in an open <select> popup" (see render.Engine's
 	// selectHighlightAttr) rather than true mouse hover.
 	HoverAttr string
+	// ModalAttr is a synthetic marker attribute, matched the same way
+	// FocusAttr drives :focus: a node carrying ModalAttr matches :modal.
+	// The render engine sets it on a <dialog> opened as a modal (see
+	// render.Engine's dialogModalAttr), which is what lets the UA
+	// stylesheet's own `dialog:modal` rule give such a dialog the
+	// position/z-index/centering that puts it in the top layer.
+	ModalAttr string
 
 	// Cache, if non-nil, memoizes Direct's per-node result across every
 	// Resolve and Direct call sharing this map. Resolve's ancestor walk calls
@@ -46,6 +53,12 @@ type Cascade struct {
 	// the reuse. A zero-value Cascade{Rules: ...} is safe, since Direct and
 	// Resolve both nil-check before touching it.
 	Cache map[*html.Node]map[string]string
+}
+
+// markers bundles this Cascade's three synthetic marker attributes into the
+// form every selector-matching call takes. See Markers (selector.go).
+func (c Cascade) markers() Markers {
+	return Markers{Focus: c.FocusAttr, Hover: c.HoverAttr, Modal: c.ModalAttr}
 }
 
 // ExtractStyleRules walks doc and parses CSS text from every active <style> element.
@@ -364,7 +377,7 @@ func flattenImportant(normal, important map[string]string) map[string]string {
 func (c Cascade) matchRules(rules []Rule, n *html.Node) (normal, important map[string]string) {
 	var matches []ruleMatch
 	for _, rl := range rules {
-		if matchSelector(n, rl.parts, c.FocusAttr, c.HoverAttr) {
+		if matchSelector(n, rl.parts, c.markers()) {
 			matches = append(matches, ruleMatch{specificity(rl.parts), rl.decls})
 		}
 	}
@@ -492,7 +505,7 @@ func (c Cascade) PseudoElement(n *html.Node, which string, env map[string]string
 		// code used to.
 		parts := append([]selectorPart(nil), rl.parts...)
 		parts[len(parts)-1].pseudoElem = ""
-		if matchSelector(n, parts, c.FocusAttr, c.HoverAttr) {
+		if matchSelector(n, parts, c.markers()) {
 			matches = append(matches, ruleMatch{specificity(parts), rl.decls})
 		}
 	}

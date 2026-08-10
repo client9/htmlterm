@@ -153,14 +153,30 @@ func ParseSelectorGroup(sel string) SelectorGroup {
 	return group
 }
 
-// Match reports whether n matches any selector in the group. hoverAttr, like
-// focusAttr, is a synthetic marker attribute a caller sets on a node to make
-// it match :hover. Real terminal output has no pointer to hover with, so
-// :hover is repurposed (see Cascade.HoverAttr's doc comment) to mean "carries
-// this attribute", the same trick :focus already uses via focusAttr.
-func (g SelectorGroup) Match(n *html.Node, focusAttr, hoverAttr string) bool {
+// Markers carries the synthetic marker attributes that stand in for state a
+// terminal renderer has no other way to observe. Each names an attribute a
+// caller sets on a node to make it match the corresponding pseudo-class; an
+// empty name disables that pseudo-class entirely, which is what a one-shot
+// render with no live Document gets.
+//
+// They are bundled rather than passed as separate parameters because every
+// selector-matching function has to forward all of them down the whole
+// recursive walk, and a growing list of same-typed positional strings is
+// exactly the kind that gets silently transposed at a call site.
+//
+// See Cascade's own FocusAttr, HoverAttr, and ModalAttr fields for what each
+// one is repurposed to mean here.
+type Markers struct {
+	Focus string
+	Hover string
+	Modal string
+}
+
+// Match reports whether n matches any selector in the group. See Markers for
+// how :focus, :hover, and :modal are resolved.
+func (g SelectorGroup) Match(n *html.Node, m Markers) bool {
 	for _, parts := range g.groups {
-		if matchSelector(n, parts, focusAttr, hoverAttr) {
+		if matchSelector(n, parts, m) {
 			return true
 		}
 	}
@@ -313,7 +329,7 @@ func parseSimpleSelector(tok string) selectorPart {
 			if raw := tok[i:j]; raw != "" {
 				ps := lowerPseudoName(raw)
 				switch ps {
-				case "before", "after", "marker", "selection",
+				case "before", "after", "marker", "selection", "backdrop",
 					"scrollbar", "scrollbar-track", "scrollbar-thumb", "scrollbar-cap-start", "scrollbar-cap-end",
 					"scrollbar-x", "scrollbar-track-x", "scrollbar-thumb-x", "scrollbar-cap-start-x", "scrollbar-cap-end-x",
 					"progress-bar", "progress-value",
@@ -502,9 +518,9 @@ func specificity(parts []selectorPart) specificityScore {
 
 // matchesAnyCompoundParts reports whether n matches any compound selector in
 // a pre-parsed selector list, as used by :is()/:where().
-func matchesAnyCompoundParts(n *html.Node, parts []selectorPart, focusAttr, hoverAttr string) bool {
+func matchesAnyCompoundParts(n *html.Node, parts []selectorPart, m Markers) bool {
 	for _, p := range parts {
-		if matchPart(n, p, focusAttr, hoverAttr) {
+		if matchPart(n, p, m) {
 			return true
 		}
 	}
@@ -514,9 +530,9 @@ func matchesAnyCompoundParts(n *html.Node, parts []selectorPart, focusAttr, hove
 // matchesHas reports whether n satisfies :has(<relative-selector-list>): true
 // if it matches at least one of the pre-parsed relative-selector chains in
 // chains (one per comma-separated argument item).
-func matchesHas(n *html.Node, chains [][]selectorPart, focusAttr, hoverAttr string) bool {
+func matchesHas(n *html.Node, chains [][]selectorPart, m Markers) bool {
 	for _, chain := range chains {
-		if matchesHasChain(n, chain, focusAttr, hoverAttr) {
+		if matchesHasChain(n, chain, m) {
 			return true
 		}
 	}
@@ -533,16 +549,16 @@ func matchesHas(n *html.Node, chains [][]selectorPart, focusAttr, hoverAttr stri
 // recursively: ":has(div p)" requires p to be a descendant of some div that
 // is itself a descendant of anchor, not a descendant of anchor directly, so
 // the search space for p must be rooted at the matched div, not at anchor.
-func matchesHasChain(anchor *html.Node, chain []selectorPart, focusAttr, hoverAttr string) bool {
+func matchesHasChain(anchor *html.Node, chain []selectorPart, m Markers) bool {
 	if len(chain) == 0 {
 		return false
 	}
 	head, rest := chain[0], chain[1:]
 	for _, cand := range hasCandidates(anchor, head.combo) {
-		if !matchPart(cand, head, focusAttr, hoverAttr) {
+		if !matchPart(cand, head, m) {
 			continue
 		}
-		if len(rest) == 0 || matchesHasChain(cand, rest, focusAttr, hoverAttr) {
+		if len(rest) == 0 || matchesHasChain(cand, rest, m) {
 			return true
 		}
 	}
@@ -653,7 +669,7 @@ func maxSpecificityOfChains(chains [][]selectorPart) specificityScore {
 }
 
 // matchPart reports whether node n satisfies all simple-selector conditions in p.
-func matchPart(n *html.Node, p selectorPart, focusAttr, hoverAttr string) bool {
+func matchPart(n *html.Node, p selectorPart, m Markers) bool {
 	if n.Type != html.ElementNode {
 		return false
 	}
@@ -679,7 +695,7 @@ func matchPart(n *html.Node, p selectorPart, focusAttr, hoverAttr string) bool {
 		}
 	}
 	for _, pc := range p.pseudos {
-		if !matchPseudo(n, pc, focusAttr, hoverAttr) {
+		if !matchPseudo(n, pc, m) {
 			return false
 		}
 	}
@@ -695,11 +711,11 @@ func matchPart(n *html.Node, p selectorPart, focusAttr, hoverAttr string) bool {
 // :not(), :is(), and :where() were pre-parsed into pc.notParts and
 // pc.isParts by parsePseudoClass at selectorPart-construction time, so
 // matching them here never re-parses their nested selector argument.
-func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool {
+func matchPseudo(n *html.Node, pc pseudoClass, m Markers) bool {
 	// :not(<selector-list>) matches n if it matches none of the compound
 	// selectors in the comma-separated argument list.
 	if pc.notParts != nil {
-		return !matchesAnyCompoundParts(n, pc.notParts, focusAttr, hoverAttr)
+		return !matchesAnyCompoundParts(n, pc.notParts, m)
 	}
 	// :is(<selector-list>) and :where(<selector-list>) match n if it
 	// matches any compound selector in a comma-separated list. The two are
@@ -708,13 +724,13 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 	// each list item is a single compound selector; nested combinators are
 	// not supported.
 	if pc.isParts != nil {
-		return matchesAnyCompoundParts(n, pc.isParts, focusAttr, hoverAttr)
+		return matchesAnyCompoundParts(n, pc.isParts, m)
 	}
 	// :has(<relative-selector-list>) matches n if n satisfies at least one
 	// of the pre-parsed relative-selector chains. Comma is a logical OR,
 	// same as in :is() and :where().
 	if pc.hasParts != nil {
-		return matchesHas(n, pc.hasParts, focusAttr, hoverAttr)
+		return matchesHas(n, pc.hasParts, m)
 	}
 
 	pseudo := pc.raw
@@ -788,9 +804,14 @@ func matchPseudo(n *html.Node, pc pseudoClass, focusAttr, hoverAttr string) bool
 		// "value absent is the only indeterminate trigger" comment).
 		return strings.EqualFold(n.Data, "progress") && !nodeHasAttr(n, "value")
 	case "focus":
-		return focusAttr != "" && nodeHasAttr(n, focusAttr)
+		return m.Focus != "" && nodeHasAttr(n, m.Focus)
 	case "hover":
-		return hoverAttr != "" && nodeHasAttr(n, hoverAttr)
+		return m.Hover != "" && nodeHasAttr(n, m.Hover)
+	case "modal":
+		// Real :modal matches any element in the top layer, which is
+		// <dialog>s opened by showModal() plus fullscreen elements. There is
+		// no fullscreen concept here, so a modal <dialog> is the whole set.
+		return m.Modal != "" && nodeHasAttr(n, m.Modal)
 	}
 	return false
 }
@@ -973,11 +994,11 @@ func matchAttr(n *html.Node, a attrSel) bool {
 }
 
 // matchSelector matches n against a parsed selector.
-func matchSelector(n *html.Node, parts []selectorPart, focusAttr, hoverAttr string) bool {
+func matchSelector(n *html.Node, parts []selectorPart, m Markers) bool {
 	if len(parts) == 0 || n.Type != html.ElementNode {
 		return false
 	}
-	if !matchPart(n, parts[len(parts)-1], focusAttr, hoverAttr) {
+	if !matchPart(n, parts[len(parts)-1], m) {
 		return false
 	}
 	cur := n.Parent
@@ -986,7 +1007,7 @@ func matchSelector(n *html.Node, parts []selectorPart, focusAttr, hoverAttr stri
 	for i := len(parts) - 2; i >= 0; i-- {
 		switch parts[i+1].combo {
 		case child:
-			if cur == nil || cur.Type != html.ElementNode || !matchPart(cur, parts[i], focusAttr, hoverAttr) {
+			if cur == nil || cur.Type != html.ElementNode || !matchPart(cur, parts[i], m) {
 				return false
 			}
 			curNode = cur
@@ -1000,7 +1021,7 @@ func matchSelector(n *html.Node, parts []selectorPart, focusAttr, hoverAttr stri
 					break
 				}
 			}
-			if prev == nil || !matchPart(prev, parts[i], focusAttr, hoverAttr) {
+			if prev == nil || !matchPart(prev, parts[i], m) {
 				return false
 			}
 			curNode = prev
@@ -1009,7 +1030,7 @@ func matchSelector(n *html.Node, parts []selectorPart, focusAttr, hoverAttr stri
 			// Find any preceding element sibling of curNode that matches.
 			var match *html.Node
 			for s := curNode.PrevSibling; s != nil; s = s.PrevSibling {
-				if s.Type == html.ElementNode && matchPart(s, parts[i], focusAttr, hoverAttr) {
+				if s.Type == html.ElementNode && matchPart(s, parts[i], m) {
 					match = s
 					break
 				}
@@ -1022,7 +1043,7 @@ func matchSelector(n *html.Node, parts []selectorPart, focusAttr, hoverAttr stri
 		default:
 			found := false
 			for ; cur != nil; cur = cur.Parent {
-				if cur.Type == html.ElementNode && matchPart(cur, parts[i], focusAttr, hoverAttr) {
+				if cur.Type == html.ElementNode && matchPart(cur, parts[i], m) {
 					found = true
 					curNode = cur
 					cur = cur.Parent

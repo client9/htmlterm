@@ -1466,6 +1466,12 @@ func TestNewHTMLElements(t *testing.T) {
 		{name: "details hides a bare text sibling of summary when closed (regression: CSS collapse rule can't target text nodes)", html: `<details><summary>Title</summary>hidden text</details>`, want: "▶ Title\n"},
 		{name: "details[open] shows a bare text sibling of summary", html: `<details open><summary>Title</summary>shown text</details>`, want: "▼ Title\nshown text\n"},
 
+		// dialog — attribute-gated the same way details is, but the whole
+		// element goes away when closed rather than just its content.
+		{name: "dialog without open renders nothing at all", html: `<dialog><p>hi</p></dialog>`, width: 20, want: ""},
+		{name: "dialog[open] renders a bordered block box", html: `<dialog open>hi</dialog>`, width: 20, want: "┌──────────────────┐\n│ hi               │\n└──────────────────┘\n"},
+		{name: "dialog[open] stays in normal flow between siblings", html: `<p>before</p><dialog open>hi</dialog><p>after</p>`, width: 20, want: "before\n\n┌──────────────────┐\n│ hi               │\n└──────────────────┘\nafter\n\n"},
+
 		// caption — appears before the table; centered when table is wider than caption
 		{
 			name:  "table caption appears before table rows",

@@ -96,6 +96,22 @@ For the design rationale behind the DOM/Events/rendering internals, see
   be collapsed**, unlike a browser, which starts it closed behind a
   synthesized default "Details" label. See CSS.md's `details`/`summary`
   entries.
+- **A modal `<dialog>` has no light dismissal and no `closedby` attribute.**
+  A click on the backdrop is swallowed, not treated as a close request, and
+  `closedby` is read as a plain attribute with no effect. Escape, which fires
+  a cancelable `"cancel"` first, and an explicit `Close()` are the only ways
+  to close one. `Element.RequestClose()` has no equivalent either.
+- **A modal `<dialog>` with nothing focusable inside drops focus rather than
+  taking it.** Real DOM focuses the `<dialog>` element itself; a `<dialog>`
+  isn't focusable here without a `tabindex`, and leaving focus outside the
+  modal would defeat the focus trap. `DispatchKey` targets such a dialog
+  directly, so Escape still closes it. See `docs/DIALOG.md`.
+- **The top layer is a maximal `z-index`, not a separate layer.** A modal
+  `<dialog>` gets `position: fixed; z-index: 2147483647` from the UA
+  stylesheet rather than a compositing layer of its own, so author CSS
+  setting an equal or higher `z-index` on another positioned element can
+  paint over it. Real CSS's top layer is outside the z-index system entirely
+  and can't be overtaken this way.
 - **`autofocus` applies once, synchronously, at `ParseDocument`, not through
   HTML's live algorithm.** It focuses the first focusable `autofocus`
   element in document order and has no effect on one added later
@@ -127,9 +143,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   has no `animation` support at all, so `:indeterminate` instead shows
   `::progress-bar`'s track glyph repeated across the full width, with no
   fill. See `docs/PROGRESS_METER.md`.
-- **`<dialog>`/`<datalist>`.** No native-modal or autocomplete-popup
-  equivalent exists; unhandled the same way any other unrecognized element
-  is (generic inline fallback, usually rendering no visible content).
+- **`<datalist>`.** No autocomplete-popup equivalent exists; unhandled the
+  same way any other unrecognized element is (generic inline fallback,
+  usually rendering no visible content).
 - **Type-specific `<input>` UI beyond `checkbox`/`radio`/`submit`/
   `reset`/`button`/`hidden`.** Every other `type` value, including
   `range`, `number`, `date`, `time`, `month`, `week`, `color`, `file`,
@@ -405,6 +421,17 @@ For the design rationale behind the DOM/Events/rendering internals, see
   the label via their own UA stylesheet, not something an author can
   restyle); this is the same kind of repurposing `option:hover` already is.
   See `docs/SELECT.md`.
+- **`::backdrop` supports `background-color` only, and has no UA default.**
+  Real CSS gives a modal dialog a semi-transparent default backdrop and
+  accepts the full range of background and animation properties on it. The
+  fill here is opaque, replacing the content behind it rather than tinting
+  it, since nothing can re-tint an already-serialized line of ANSI (`opacity`
+  applies to a color at style-resolution time, long before compositing). An
+  opaque default would blank the page behind every modal, so there is no
+  default rule at all and a backdrop is opt-in. See `docs/DIALOG.md`.
+- **`:modal` matches a modal `<dialog>` and nothing else.** Real CSS also
+  matches fullscreen elements, which have no terminal equivalent. Like
+  `:focus`, it means nothing against one-shot `Renderer.Render`.
 - **`text-transform: superscript`/`subscript`** substitutes each character
   for its Unicode superscript/subscript code point where one exists
   (there's no real script or font rendering). Characters with no Unicode
@@ -492,15 +519,22 @@ For the design rationale behind the DOM/Events/rendering internals, see
   border, which do support the logical `*-block-*`/`*-inline-*` aliases).
 - **Positioned layout:** `position: sticky` (`relative`/`absolute`/`fixed`
   and `z-index` are all supported; see CSS.md). For
-  `absolute`/`fixed`: real CSS's shrink-to-fit auto-sizing (an
-  unconstrained element here stretches to its containing block's width
-  instead) and the "static position" algorithm (an axis with neither side
-  set defaults to the containing block's top-left corner, not roughly
-  where the element would have flowed) are not implemented; neither is
+  `absolute`/`fixed`: the "static position" algorithm (an axis with neither
+  side nor an auto-margin pair set defaults to the containing block's
+  top-left corner, not roughly where the element would have flowed) is not
+  implemented, and an element with both offsets on an axis set stretches to
+  its containing block rather than between those two edges. Neither is
   `absolute`/`fixed` set directly on a `<tr>`/`<td>`/`<th>`/`<li>` itself
-  (as opposed to content nested inside one). `<select>`'s dropdown remains
+  (as opposed to content nested inside one). An out-of-flow box with auto margins on
+  both sides of an axis and no offset set is centered on that axis. Real CSS
+  only centers on the block axis when both `top` and `bottom` are also set;
+  requiring that would leave a modal `<dialog>` unable to center vertically
+  without them. `<select>`'s dropdown remains
   the only overlay driven by dedicated Go code (`select_popup.go`) rather
-  than routed through the general `position` mechanism. The underlying
+  than routed through the general `position` mechanism. A modal `<dialog>` is
+  *not* an exception: it is an ordinary `position: fixed` box, given that
+  position by the UA stylesheet's own `dialog:modal` rule (see
+  `docs/DIALOG.md`). The underlying
   compositing primitives (`spliceColumns`, shifting a sub-rendered box's
   positions by an offset) are shared by both, but `<select>`'s popup
   predates and isn't (yet) reimplemented on top of `position`. See
@@ -567,6 +601,13 @@ For the design rationale behind the DOM/Events/rendering internals, see
   would run (see `docs/proposals/CARET_SELECTION.md`). There's no way to
   observe focus having moved before "click" fires, the way a listener on a
   real page could.
+
+  Enter and the space bar on a focused button dispatch that same `"click"`,
+  matching HTML, where keyboard activation fires a click and the click's own
+  default action is what submits or resets. A single-line text entry's
+  implicit submit on Enter is the exception, dispatching `"submit"` directly
+  with no `"click"` of its own, since it is a submission rather than an
+  activation of anything.
 - **`"cut"`/`"paste"` are selection-scoped, with one narrower-than-spec
   fallback.** `DispatchCut`/`DispatchPaste` act on the focused text entry's
   current `[SelectionStart, SelectionEnd)` range when it's non-collapsed
@@ -577,7 +618,8 @@ For the design rationale behind the DOM/Events/rendering internals, see
   `SetSelectionRange`. `Event.ClipboardData` is a plain string, not a real
   `DataTransfer`/`clipboardData` object with MIME types.
 - **`DispatchWheel` mutates scroll position directly** and returns whether
-  anything scrolled. Unlike every other `Dispatch*` method, it does not
+  anything scrolled. Like `DispatchClick`, it is inert outside an open modal
+  `<dialog>`, returning false without scrolling. Unlike every other `Dispatch*` method, it does not
   dispatch a `"wheel"` `Event` a listener could observe or prevent. It
   takes both a `deltaX` and `deltaY` (mirroring a real `WheelEvent`),
   scrolling each axis's own nearest scrollable ancestor independently (they
@@ -626,8 +668,9 @@ For the design rationale behind the DOM/Events/rendering internals, see
   shorthand was used, the same limitation the cascade itself has.
 - **`"focus"`/`"blur"` bubble here, unlike spec.** Every dispatched event
   runs the same capture/target/bubble chain (`runDispatch` in `event.go`);
-  `"toggle"` (`<details>`'s own event) is the only built-in type
-  special-cased non-bubbling, not every type real spec itself excludes.
+  `"toggle"` (`<details>`'s), `"close"`, and `"cancel"` (`<dialog>`'s) are the
+  only built-in types special-cased non-bubbling, not every type real spec
+  itself excludes.
   Real DOM's `focus` and `blur` never bubble (only their `focusin`/
   `focusout` counterparts do, which htmlterm doesn't have separately-named
   events for). An ancestor listener can observe a descendant's
@@ -744,6 +787,8 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **docs/DOM_API.md.** A field-by-field table comparing the real DOM's
   `Document`/`Element`/`Node` interfaces against `document.Document`/
   `document.Element`, method by method.
+- **docs/DIALOG.md.** `<dialog>` non-modal and modal behavior in full,
+  including `:modal`, `::backdrop`, and the focus trap.
 - **docs/SELECT.md.** `<select>` popup styling in full.
 - **docs/SCROLLBARS.md.** Scrollbar gutter styling in full.
 - **docs/TABLES.md.** Table border/margin/padding styling in full,

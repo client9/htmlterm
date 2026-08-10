@@ -7,7 +7,7 @@ It is internal deliberately: the boundary keeps CSS/selector machinery out of th
 ## What it does
 
 - **Parses stylesheets and inline styles** (`css.go`) — `ParseStylesheet` turns CSS source into an ordered list of `Rule`s (selector group + declarations + specificity + source order); `ParseDeclarations` parses a bare declaration block, the form used for `<style>` attributes.
-- **Parses and matches selectors** (`selector.go`) — `ParseSelectorGroup`/`SelectorGroup.Match` support the selector subset documented in [`CSS.md`](../../CSS.md): universal (`*`), element, class, multiple classes, ID, attribute operators, descendant, child (`>`), adjacent sibling (`+`), general sibling (`~`), `:root`, `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, and the state-driven pseudo-classes (`:focus`, `:checked`, `:disabled`, `:required`) the `document` package's live event/focus model needs.
+- **Parses and matches selectors** (`selector.go`) — `ParseSelectorGroup`/`SelectorGroup.Match` support the selector subset documented in [`CSS.md`](../../CSS.md): universal (`*`), element, class, multiple classes, ID, attribute operators, descendant, child (`>`), adjacent sibling (`+`), general sibling (`~`), `:root`, `:first-child`, `:last-child`, `:nth-child(odd|even)`, `:not(...)`, and the state-driven pseudo-classes (`:focus`, `:hover`, `:modal`, `:checked`, `:disabled`, `:required`) the `document` package's live event/focus model needs.
 - **Resolves the cascade** (`cascade.go`) — `ExtractStyleRules` pulls rules out of `<style>` elements in a parsed document; `Cascade.Resolve` computes an element's final property map by applying inheritance, specificity, and source order across all applicable rules; `Cascade.Direct` returns only the declarations that apply to a node directly (no inheritance), and `Cascade.PseudoElement` resolves `::before`/`::after` declarations.
 
 ## Key types
@@ -28,7 +28,7 @@ func (c Cascade) Direct(n *html.Node) map[string]string
 func (c Cascade) PseudoElement(n *html.Node, which string) map[string]string
 ```
 
-`SelectorGroup.Match`'s `focusAttr` parameter is the reserved marker attribute the `document` package uses to track the currently focused node (see `document`'s `focusAttr`), so `:focus` matching doesn't require this package to know anything about the DOM/event layer above it.
+`SelectorGroup.Match`'s `Markers` parameter carries the reserved marker attributes the layers above use to track state this package can't see for itself: the currently focused node (`:focus`), an open `<select>`'s arrow-key-highlighted option (`:hover`), and a `<dialog>` opened modally (`:modal`). Matching them needs no knowledge of the DOM/event layer above, only the attribute name to look for. They are bundled in a struct rather than passed as separate parameters because every matching function forwards all of them down the whole recursive walk, and a growing list of same-typed positional strings is the kind that gets silently transposed at a call site.
 
 ## Testing
 

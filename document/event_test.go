@@ -1215,6 +1215,69 @@ func TestDispatchKeyEnterOnTextEntrySubmitsForm(t *testing.T) {
 	}
 }
 
+// Enter and the space bar activate a focused button the way a click does,
+// which is what HTML specifies: the key fires a "click", and the click's own
+// default action is what submits or resets. Before that was shared with
+// DispatchClick, a <button type="button"> was inert from the keyboard
+// entirely, having no submit or reset default action of its own to match.
+func TestDispatchKeyActivatesFocusedButton(t *testing.T) {
+	for _, key := range []string{"Enter", " "} {
+		for _, markup := range []string{
+			`<button id="b" type="button">Go</button>`,
+			`<input id="b" type="button" value="Go">`,
+		} {
+			t.Run(key+" "+markup, func(t *testing.T) {
+				doc := mustParseDoc(t, markup)
+				btn := doc.GetElementByID("b")
+				btn.Focus()
+
+				clicks := 0
+				doc.AddEventListener(btn, "click", false, func(e *document.Event) { clicks++ })
+
+				doc.DispatchKey(key, document.Modifiers{})
+
+				if clicks != 1 {
+					t.Errorf("%q on a focused button fired %d click events, want 1", key, clicks)
+				}
+			})
+		}
+	}
+}
+
+func TestDispatchKeySpaceOnSubmitButtonSubmitsForm(t *testing.T) {
+	// Enter already submitted; the space bar reached no case at all before
+	// button activation was unified.
+	doc := mustParseDoc(t, `<form id="f"><button id="b" type="submit">Go</button></form>`)
+	doc.GetElementByID("b").Focus()
+
+	submitted := 0
+	doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *document.Event) { submitted++ })
+
+	doc.DispatchKey(" ", document.Modifiers{})
+
+	if submitted != 1 {
+		t.Errorf("space on a focused submit button fired %d submit events, want 1", submitted)
+	}
+}
+
+func TestDispatchKeyPreventingButtonClickSuppressesSubmit(t *testing.T) {
+	// Activation runs through the click event, so preventing that click
+	// suppresses the submit behind it, same as for a mouse click.
+	doc := mustParseDoc(t, `<form id="f"><button id="b" type="submit">Go</button></form>`)
+	btn := doc.GetElementByID("b")
+	btn.Focus()
+
+	submitted := 0
+	doc.AddEventListener(btn, "click", false, func(e *document.Event) { e.PreventDefault() })
+	doc.AddEventListener(doc.GetElementByID("f"), "submit", false, func(e *document.Event) { submitted++ })
+
+	doc.DispatchKey("Enter", document.Modifiers{})
+
+	if submitted != 0 {
+		t.Errorf("submit fired %d times despite the click being prevented, want 0", submitted)
+	}
+}
+
 func TestDispatchKeyEnterOutsideFormDoesNotSubmit(t *testing.T) {
 	doc := mustParseDoc(t, `<input type="text" id="name">`)
 	name := doc.GetElementByID("name")
