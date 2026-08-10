@@ -17,6 +17,11 @@ coverage.*
 *.coverprofile
 profile.cov
 
+# Local build output of the cmd/ binaries
+/cmd/htmlterm
+/cmd/htmlterm-tui/htmlterm-tui
+/cmd/gendocs/gendocs
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
