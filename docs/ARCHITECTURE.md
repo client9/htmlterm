@@ -175,6 +175,6 @@ These are the entry points worth knowing:
 | Parsing, selectors, cascade | `internal/cssengine/` |
 | Column measurement and ANSI slicing | `internal/textcell/` |
 | Design history and rationale | `docs/INTERACTIVE.md`, `docs/RENDERING.md`, `docs/REPAINT.md`, `docs/SCROLLING.md` |
-| Per-widget styling behavior | `docs/SELECT.md`, `docs/SCROLLBARS.md`, `docs/TABLES.md`, `docs/DIALOG.md` |
+| Per-widget styling behavior | `docs/SELECT.md`, `docs/SCROLLBARS.md`, `docs/TABLES.md`, `docs/DIALOG.md`, `docs/DATALIST.md` |
 | Not-yet-built designs | `docs/proposals/` |
 | A runnable interactive example | `cmd/htmlterm-tui/` |

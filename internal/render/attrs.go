@@ -54,6 +54,25 @@ const (
 // docs/DIALOG.md.
 const defaultDialogModalAttr = "data-htmlterm-dialog-modal"
 
+// defaultDatalistOpenAttr and defaultDatalistMatchAttr are the reserved
+// marker attributes (see defaultFocusAttr) driving an <input list>'s
+// suggestion popup. The first sits on the <input> while its popup is open;
+// the second sits on each <option> of the referenced <datalist> that matches
+// what has been typed so far. Both are set and cleared by document's
+// refreshDatalist, and read here by compositeOpenDatalists
+// (datalist_popup.go) to decide which inputs get a popup and which rows go
+// in it.
+//
+// Two attributes rather than one because the matching rule, a
+// case-insensitive prefix test, lives in the document layer alone. The
+// renderer draws the rows it is handed rather than re-deriving which ones
+// match, so there is no second copy of that rule to keep in step. See
+// docs/DATALIST.md.
+const (
+	defaultDatalistOpenAttr  = "data-htmlterm-datalist-open"
+	defaultDatalistMatchAttr = "data-htmlterm-datalist-match"
+)
+
 func nodeAttr(n *html.Node, key string) string {
 	for _, a := range n.Attr {
 		if a.Key == key {

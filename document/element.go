@@ -628,7 +628,8 @@ func cloneHTMLNode(n *html.Node, deep bool) *html.Node {
 	}
 	for _, a := range n.Attr {
 		if a.Key == focusAttr || a.Key == selectOpenAttr || a.Key == selectHighlightAttr ||
-			a.Key == dialogReturnAttr || a.Key == dialogModalAttr {
+			a.Key == dialogReturnAttr || a.Key == dialogModalAttr ||
+			a.Key == datalistOpenAttr || a.Key == datalistMatchAttr {
 			continue
 		}
 		clone.Attr = append(clone.Attr, a)

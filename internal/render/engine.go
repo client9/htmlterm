@@ -28,6 +28,8 @@ type Options struct {
 	SelectionStartAttr  string
 	SelectionEndAttr    string
 	DialogModalAttr     string
+	DatalistOpenAttr    string
+	DatalistMatchAttr   string
 }
 
 // Engine renders already-parsed HTML trees or HTML strings to terminal output.
@@ -54,6 +56,8 @@ type Engine struct {
 	selectionStartAttr  string
 	selectionEndAttr    string
 	dialogModalAttr     string
+	datalistOpenAttr    string
+	datalistMatchAttr   string
 	counterMap          map[*html.Node]counterSnapshot
 	directCache         map[*html.Node]map[string]string
 	// minContentCache memoizes measureMinContentWidth (flex.go) per node. A
@@ -278,6 +282,14 @@ func New(opts Options) (*Engine, error) {
 	if dialogModalAttr == "" {
 		dialogModalAttr = defaultDialogModalAttr
 	}
+	datalistOpenAttr := opts.DatalistOpenAttr
+	if datalistOpenAttr == "" {
+		datalistOpenAttr = defaultDatalistOpenAttr
+	}
+	datalistMatchAttr := opts.DatalistMatchAttr
+	if datalistMatchAttr == "" {
+		datalistMatchAttr = defaultDatalistMatchAttr
+	}
 	return &Engine{
 		baseRules:           rules,
 		uaRules:             uaRules,
@@ -294,6 +306,8 @@ func New(opts Options) (*Engine, error) {
 		selectionStartAttr:  selectionStartAttr,
 		selectionEndAttr:    selectionEndAttr,
 		dialogModalAttr:     dialogModalAttr,
+		datalistOpenAttr:    datalistOpenAttr,
+		datalistMatchAttr:   datalistMatchAttr,
 	}, nil
 }
 
@@ -355,6 +369,8 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 		selectionStartAttr:  e.selectionStartAttr,
 		selectionEndAttr:    e.selectionEndAttr,
 		dialogModalAttr:     e.dialogModalAttr,
+		datalistOpenAttr:    e.datalistOpenAttr,
+		datalistMatchAttr:   e.datalistMatchAttr,
 		scrollOffsets:       req.ScrollOffsets,
 		scrollOffsetsX:      req.ScrollOffsetsX,
 	}
@@ -411,6 +427,7 @@ func (e *Engine) RenderNode(doc *html.Node, req Request) Result {
 	lines, positions = rr.applyRelativeOffsets(doc, lines, positions, rr.width)
 	lines, positions = rr.applyOutOfFlow(lines, positions, rr.height <= 0)
 	lines, positions = rr.compositeOpenSelects(doc, lines, positions, rr.height <= 0)
+	lines, positions = rr.compositeOpenDatalists(doc, lines, positions, rr.height <= 0)
 	out := strings.Join(lines, "\n")
 	if trailingNewline {
 		out += "\n"

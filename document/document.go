@@ -2,6 +2,7 @@ package document
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -362,6 +363,8 @@ func renderOptions(opts Options) render.Options {
 		SelectionStartAttr:  selectionStartAttr,
 		SelectionEndAttr:    selectionEndAttr,
 		DialogModalAttr:     dialogModalAttr,
+		DatalistOpenAttr:    datalistOpenAttr,
+		DatalistMatchAttr:   datalistMatchAttr,
 	}
 }
 
@@ -880,6 +883,7 @@ func (d *Document) DispatchClick(row, col int, mods Modifiers) bool {
 		return false
 	}
 	d.closeSelectsExcept(target)
+	d.closeDatalistsExcept(target)
 	if scrollable := d.nearestScrollable(target); scrollable != nil && d.tryScrollCapClick(scrollable, row, col) {
 		return true
 	}
@@ -921,6 +925,7 @@ func (d *Document) activate(target *html.Node, mods Modifiers) {
 	}
 	d.applyCheckToggle(target)
 	d.applySelectClick(target)
+	d.applyDatalistClick(target)
 	d.applyDetailsToggle(target)
 	if isSubmitControl(target) {
 		if form := nearestForm(target); form != nil {
@@ -1052,7 +1057,7 @@ func (d *Document) caretIndexFromClick(target *html.Node, row, col int) int {
 	lineCol := clampInt(textcell.RuneIndexForColumn(lines[lineIdx], col-rect.Col-offsetX),
 		0, utf8.RuneCountInString(lines[lineIdx]))
 	idx := lineCol
-	for i := 0; i < lineIdx; i++ {
+	for i := range lineIdx {
 		idx += utf8.RuneCountInString(lines[i]) + 1 // +1 for that line's own "\n"
 	}
 	return idx
@@ -1560,6 +1565,12 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// no-op, but matching this case would swallow the key press and stop
 		// Escape from reaching the modal-dismissal case below.
 		d.closeSelectPopup(target)
+	case key == "Escape" && nodeHasAttr(target, datalistOpenAttr):
+		// Gated on the popup being open for the same reason the <select> case
+		// above is: an unconditional match would swallow Escape and stop it
+		// reaching the modal-dismissal case below. One press closes the
+		// suggestions, the next closes an enclosing modal.
+		d.closeDatalistPopup(target)
 	case key == "Escape" && d.dismissTopmostModal():
 		// Deliberately after the <select> case above, so Escape closes a
 		// popup open inside a modal before it closes the modal itself, one
@@ -1588,6 +1599,12 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		// makes that true here, and is why a <button type="button"> now
 		// responds to the keyboard at all. See activate and isButtonControl.
 		d.activate(target, mods)
+	case key == "Enter" && nodeHasAttr(target, datalistOpenAttr) && d.datalistHighlighted(target) != nil:
+		// Before the implicit-submit case below: with a suggestion browsed to,
+		// Enter picks it rather than submitting the form. An open popup with
+		// nothing highlighted deliberately doesn't match, so Enter still
+		// submits whatever the user actually typed.
+		d.confirmDatalistOption(target, d.datalistHighlighted(target))
 	case key == "Enter" && isTextEntry(target):
 		// A single-line text field's implicit submit. Unlike a button this
 		// isn't an activation, so it dispatches no "click": it commits any
@@ -1611,6 +1628,15 @@ func (d *Document) DispatchKey(key string, mods Modifiers) bool {
 		d.moveRadioGroupSelection(target, key == "ArrowDown" || key == "ArrowRight")
 	case (key == "ArrowUp" || key == "ArrowDown") && isSelectControl(target):
 		d.moveSelectSelection(target, key == "ArrowDown")
+	case (key == "ArrowUp" || key == "ArrowDown") && nodeHasAttr(target, datalistOpenAttr):
+		// Both of these sit before the generic scroll fallback below, which
+		// would otherwise claim these keys for a scrollable ancestor.
+		d.moveDatalistHighlight(target, key == "ArrowDown")
+	case key == "ArrowDown" && d.datalistFor(target) != nil:
+		// Only the downward key opens a closed popup, matching a real
+		// combobox. ArrowUp on a closed field is deliberately left to the
+		// scroll fallback rather than matched and ignored here.
+		d.openDatalistPopup(target)
 	case key == "ArrowUp" || key == "ArrowDown":
 		if scrollable := d.nearestScrollable(target); scrollable != nil {
 			step := 1
@@ -1673,7 +1699,7 @@ func (d *Document) deleteAt(target *html.Node, key string, mods Modifiers, forwa
 	sel := d.selection(target)
 	if sel.start != sel.end {
 		d.deleteSelectionRange(target, sel)
-		d.dispatch(target, "input", key, mods)
+		d.dispatchInput(target, key, mods)
 		return
 	}
 	v := []rune(nodeAttr(target, "value"))
@@ -1691,7 +1717,7 @@ func (d *Document) deleteAt(target *html.Node, key string, mods Modifiers, forwa
 	}
 	setAttr(target, "value", string(newValue))
 	d.setSelection(target, caret, caret, "none")
-	d.dispatch(target, "input", key, mods)
+	d.dispatchInput(target, key, mods)
 }
 
 // deleteSelectionRange removes sel's [start, end) span from target's value
@@ -1752,7 +1778,7 @@ func (d *Document) replaceSelection(target *html.Node, key, text string, mods Mo
 	setAttr(target, "value", newValue)
 	caret := sel.start + utf8.RuneCountInString(text)
 	d.setSelection(target, caret, caret, "none")
-	d.dispatch(target, "input", key, mods)
+	d.dispatchInput(target, key, mods)
 }
 
 // anchorFocus decomposes sel into its anchor, the fixed edge a Shift-extend
@@ -1963,7 +1989,7 @@ func (d *Document) DispatchCut() (text string, ok bool) {
 			setAttr(target, "value", "")
 			d.setSelection(target, 0, 0, "none")
 		}
-		d.dispatch(target, "input", "", Modifiers{})
+		d.dispatchInput(target, "", Modifiers{})
 	}
 	return ev.ClipboardData, true
 }
@@ -2282,6 +2308,7 @@ func (d *Document) focus(el *Element) bool {
 		if isSelectControl(prev) {
 			d.closeSelectPopup(prev)
 		}
+		d.closeDatalistPopup(prev)
 		d.commitChange(prev, true)
 		d.dispatch(prev, "blur", "", Modifiers{})
 	}
@@ -2445,6 +2472,7 @@ func (d *Document) blur() {
 	if isSelectControl(prev) {
 		d.closeSelectPopup(prev)
 	}
+	d.closeDatalistPopup(prev)
 	d.commitChange(prev, true)
 	d.dispatch(prev, "blur", "", Modifiers{})
 }
@@ -2517,10 +2545,8 @@ func (d *Document) focusedListIndex(list []*html.Node, notFound int) int {
 	if isRadioGroupMember(d.focused) {
 		group := radioGroupMembers(d.focused)
 		for i, n := range list {
-			for _, m := range group {
-				if n == m {
-					return i
-				}
+			if slices.Contains(group, n) {
+				return i
 			}
 		}
 	}

@@ -16,6 +16,13 @@
 // control, on top of whatever content follows it. See docs/RENDERING.md's
 // "Popups / z-order" section.
 //
+// The "Name" field is also an autocomplete: it carries a list attribute
+// naming a <datalist>, so typing a letter or two opens a popup of matching
+// suggestions beneath it (matching is a case-insensitive prefix test on each
+// option's value). ArrowDown opens it on an empty field and browses it once
+// open, Enter or a click picks the highlighted row, and Escape dismisses it.
+// Picking one fires "input" then "change". See docs/DATALIST.md.
+//
 // The "Delete…" button opens a modal <dialog>: it centers itself over the
 // page, paints above whatever it covers, and while it's open Tab cycles only
 // within it and clicks, wheel notches, and every key but Escape anywhere else
@@ -78,11 +85,17 @@ const formHTML = `
   #spinner::before { content: attr(data-frame); }
   #clock::before { content: attr(data-time); }
   #lorem { margin-top: 1; }
+  datalist { border-style: rounded; }
+  option:hover { background-color: #4477cc; color: #ffffff; }
   dialog:modal { border-style: double; }
   dialog::backdrop { background-color: #000033; }
 </style>
 <form id="myform">
-  <label>Name: <input type="text" id="name" placeholder="your name"></label><br>
+  <label>Name: <input type="text" id="name" list="names" placeholder="your name"></label><br>
+  <datalist id="names">
+    <option value="Ada"><option value="Alan"><option value="Alonzo">
+    <option value="Barbara"><option value="Grace"><option value="Ken">
+  </datalist>
   <label><input type="checkbox" id="subscribe"> Subscribe to updates</label><br>
   <label>Favorite color: <select id="color">
     <option value="red">Red</option>

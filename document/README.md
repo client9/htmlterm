@@ -64,6 +64,7 @@ fmt.Print(out)
 - `element_dom_test.go` — `Element`'s tree-navigation and mutation API: parent/sibling/child traversal, `AppendChild`/`InsertBefore`/`RemoveChild`/`ReplaceChild`, `CloneNode`, `OuterHTML`/`InnerHTML`.
 - `event_test.go` — capture/target/bubble dispatch order, `StopPropagation`/`StopImmediatePropagation`/`PreventDefault`, click hit-testing and default actions (checkbox/radio toggle, submit, reset), keydown default actions, focus/blur, `:focus`/`:checked`/`:disabled`/`:required` selector matching.
 - `dialog_test.go` — `<dialog>` behavior: `Show`/`ShowModal`/`Close`/`CloseWith`/`ReturnValue`, non-bubbling `"close"`/`"cancel"`, `<form method="dialog">` submission, and, for modals, centering, focus trapping, click swallowing outside, Escape unwinding (including ahead of a nested `<select>` popup), nesting order, and `::backdrop`.
+- `datalist_test.go` — `<input list>` suggestion popup: prefix filtering as you type, ArrowDown-to-open, arrow browsing, Enter/click to pick (firing `"input"` then `"change"`), Escape and click-outside and blur dismissal, disabled options, and Escape ordering against a modal `<dialog>`.
 - `select_test.go` — `<select>` dropdown popup behavior: open/close, arrow-key highlight vs. commit, `"change"` dispatch, disabled option/optgroup handling.
 - `style_test.go` — `Element.Style()`'s inline-style `GetPropertyValue`/`SetProperty`/`RemoveProperty`/`CSSText`/`SetCSSText`.
 - `table_separate_test.go`/`table_collapse_test.go` — `<table>` rendering through the `Document`/`Element` API for both `border-collapse` modes.

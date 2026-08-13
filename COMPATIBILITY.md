@@ -78,6 +78,15 @@ For the design rationale behind the DOM/Events/rendering internals, see
   it on. A caret inside a long line that word-wraps onto a second screen
   row will render one logical line "early". Single-line `<input>` and short
   or un-wrapped `<textarea>` content are unaffected.
+- **A `<datalist>` filters by prefix, not substring.** An `<input list>`'s
+  suggestions are matched case-insensitively against the start of each
+  option's `value`, so `ap` offers `apple` but not `pineapple`. Browsers
+  disagree with each other here (Chrome matches substrings, Firefox
+  prefixes); prefix is the less surprising of the two on a terminal, where
+  the popup has no scrollbar of its own. A row also shows one string rather
+  than a browser's value-plus-label pair, and `list` has no effect on the
+  `range`, `color`, and date and time inputs HTML also allows it on, none of
+  which have type-specific UI here anyway. See `docs/DATALIST.md`.
 - **`<noscript>` content always renders.** There's no scripting engine to
   disable it for, so (unlike a browser, which only shows `noscript` content
   when JavaScript is off) it's unconditionally treated as regular markup.
@@ -143,9 +152,6 @@ For the design rationale behind the DOM/Events/rendering internals, see
   has no `animation` support at all, so `:indeterminate` instead shows
   `::progress-bar`'s track glyph repeated across the full width, with no
   fill. See `docs/PROGRESS_METER.md`.
-- **`<datalist>`.** No autocomplete-popup equivalent exists; unhandled the
-  same way any other unrecognized element is (generic inline fallback,
-  usually rendering no visible content).
 - **Type-specific `<input>` UI beyond `checkbox`/`radio`/`submit`/
   `reset`/`button`/`hidden`.** Every other `type` value, including
   `range`, `number`, `date`, `time`, `month`, `week`, `color`, `file`,
@@ -790,6 +796,8 @@ For the design rationale behind the DOM/Events/rendering internals, see
 - **docs/DIALOG.md.** `<dialog>` non-modal and modal behavior in full,
   including `:modal`, `::backdrop`, and the focus trap.
 - **docs/SELECT.md.** `<select>` popup styling in full.
+- **docs/DATALIST.md.** `<input list>` autocomplete: the suggestion popup,
+  its matching rule, and its keybindings.
 - **docs/SCROLLBARS.md.** Scrollbar gutter styling in full.
 - **docs/TABLES.md.** Table border/margin/padding styling in full,
   including rendered examples of every `border-style` preset.

@@ -102,6 +102,12 @@ form                    { display: block; }
 fieldset                { display: block; border-style: solid; padding: 1; margin-bottom: 1; }
 legend                  { display: block; font-weight: bold; }
 input, button, select   { display: inline-block; }
+/* A <datalist> is a data source for an <input list>, never visible content.
+   Without this rule it falls through to the generic inline default and leaks
+   its <option>s' text into the surrounding line. Its other declarations are
+   free to style the suggestion popup, the same way a <select>'s own style
+   the dropdown; see docs/DATALIST.md. */
+datalist                { display: none; }
 progress, meter         { display: inline-block; width: 20; height: 1; }
 textarea                { display: block; border-style: solid; padding-left: 1; padding-right: 1; }
 button::before          { content: "[ "; }
