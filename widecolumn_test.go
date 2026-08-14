@@ -183,11 +183,11 @@ func TestColumnInvariantTextInput(t *testing.T) {
 const endMarker = "|end"
 
 func markerColumn(line string) int {
-	i := strings.Index(line, endMarker)
-	if i < 0 {
+	before, _, ok := strings.Cut(line, endMarker)
+	if !ok {
 		return -1
 	}
-	return visualWidth(line[:i])
+	return visualWidth(before)
 }
 
 // TestColumnInvariantVisibilityHidden pins that visibility:hidden preserves
@@ -279,6 +279,45 @@ func TestColumnInvariantSelectPopup(t *testing.T) {
 			// They're compared against each other rather than a fixed number:
 			// the popup's width is derived from its widest label, so what
 			// matters is that every row agrees on it.
+			want := visualWidth(lines[1])
+			for i, l := range lines[2:] {
+				if got := visualWidth(l); got != want {
+					t.Errorf("popup row %d = %d columns, row 0 = %d — ragged highlight bar:\n%q\n%q",
+						i+1, got, want, lines[1], l)
+				}
+			}
+		})
+	}
+}
+
+func TestColumnInvariantDatalistPopup(t *testing.T) {
+	for _, p := range widePayloads {
+		t.Run(p.name, func(t *testing.T) {
+			src := fmt.Sprintf(
+				`<input id="i" list="l"><datalist id="l"><option value="%s"><option value="%sbb"></datalist>`,
+				p.text, p.text)
+			doc, err := document.ParseDocument(src, htmlterm.Options{Width: 40})
+			if err != nil {
+				t.Fatalf("ParseDocument: %v", err)
+			}
+			if _, err := doc.Render(); err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			el := doc.GetElementByID("i")
+			el.Focus()
+			doc.DispatchKey("ArrowDown", document.Modifiers{}) // open the popup
+			out, err := doc.Render()
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			lines := splitRendered(out)
+			if len(lines) < 3 {
+				t.Fatalf("expected the field's line plus 2 popup rows, got %q", lines)
+			}
+			// lines[0] is the input field itself; the suggestion rows follow.
+			// Compared against each other rather than a fixed number, same as
+			// the <select> popup above: the width comes from the widest label,
+			// so what matters is that every row agrees on it.
 			want := visualWidth(lines[1])
 			for i, l := range lines[2:] {
 				if got := visualWidth(l); got != want {
