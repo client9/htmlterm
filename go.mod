@@ -8,7 +8,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0
 	github.com/gdamore/tcell/v3 v3.4.1
 	github.com/mazznoer/csscolorparser v0.1.8
-	github.com/tdewolff/parse/v2 v2.8.14
+	github.com/tdewolff/parse/v2 v2.8.16
 	golang.org/x/net v0.57.0
 	golang.org/x/term v0.45.0
 )
