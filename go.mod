@@ -9,7 +9,7 @@ require (
 	github.com/gdamore/tcell/v3 v3.4.1
 	github.com/mazznoer/csscolorparser v0.1.8
 	github.com/tdewolff/parse/v2 v2.8.14
-	golang.org/x/net v0.57.0
+	golang.org/x/net v0.58.0
 	golang.org/x/term v0.45.0
 )
 
@@ -22,5 +22,5 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )
