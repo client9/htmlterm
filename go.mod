@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/clipperhouse/displaywidth v0.11.0
-	github.com/gdamore/tcell/v3 v3.4.2
+	github.com/gdamore/tcell/v3 v3.5.0
 	github.com/mazznoer/csscolorparser v0.1.8
 	github.com/tdewolff/parse/v2 v2.8.16
 	golang.org/x/net v0.58.0
